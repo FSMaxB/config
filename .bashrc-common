@@ -34,7 +34,7 @@ else
 fi
 
 #Per SSH eingeloggt?
-if [[ ! -z ${FORTUNE+x} ]]; then
+if [[ ! -z ${SSH_CLIENT+x} ]]; then
     PROMPT_COLOR="$cbyellow"
 fi
 
