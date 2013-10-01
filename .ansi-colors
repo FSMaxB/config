@@ -1,0 +1,38 @@
+#!/bin/sh
+cblack='\[\e[0;30m\]'    #Black-Regular
+cred='\[\e[0;31m\]'      #Red
+cgreen='\[\e[0;32m\]'     #Green
+cyellow='\[\e[0;33m\]'   #Yellow
+cblue='\[\e[0;34m\]'     #Blue
+cpurple='\[\e[0;35m\]'   #Purple
+ccyan='\[\e[0;36m\]'     #Cyan
+cwhite='\[\e[0;37m\]'    #White
+
+cbblack='\[\e[1;30m\]'   #Black-Bold
+cbred='\[\e[1;31m\]'     #Red
+cbgreen='\[\e[1;32m\]'   #Green
+cbyellow='\[\e[1;33m\]'  #Yellow
+cbblue='\[\e[1;34m\]'    #Blue
+cbpurple='\[\e[1;35m\]'  #Purple
+cbcyan='\[\e[1;36m\]'    #Cyan
+cbwhite='\[\e[1;37m\]'   #White
+
+cublack='\[\e[4;30m\]'   #Black-Underline
+cured='\[\e[4;31m\]'     #Red
+cugreen='\[\e[4;32m\]'   #Green
+cuyellow='\[\e[4;33m\]'  #Yellow
+cublue='\[\e[4;34m\]'    #Blue
+cupurple='\[\e[4;35m\]' #Purple
+cucyan='\[\e[4;36m\]'    #Cyan
+cuwhite='\[\e[4;37m\]'   #White
+
+cbgblack='\[\e[40m\]'    #Black-Background
+cbgred='\[\e[41m\]'      #Red
+cbggreen='\[\e[42m\]'    #Green
+cbgyellow='\[\e[43m\]'   #Yellow
+cbgblue='\[\e[44m\]'     #Blue
+cbgpurple='\[\e[45m\]'   #Purple
+cbgcyan='\[\e[46m\]'     #Cyan
+cbgwhite='\[\e[47m\]'    #White
+
+creset='\[\e[0m\]'       #TextReset

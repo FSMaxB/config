@@ -1,0 +1,49 @@
+#Farbprofile laden
+source ~/.ansi-colors 
+
+#aliase
+alias ls='ls --color=auto'
+alias la='ls -a'
+alias ll='ls -l'
+alias lsd='ls -d'
+alias lal="ls -al"
+alias grep='grep --color=auto'
+alias more='less'
+alias compress='xz -zvv9ek --check=sha256'
+alias cp='cp -v --reflink=auto' #Verhindert Duplizierung bei BtrFS
+alias mv='mv -v'
+alias rm='rm -v'
+alias rmdir='rmdir -v'
+
+function git-branch {
+    git branch --no-color 2> /dev/null | sed -e '/^[^*]/d' -e 's/* \(.*\)/(\1)/'
+}
+
+#Spruch ausgeben wenn $FORTUNE gesetzt ist
+if [[ ! -z ${FORTUNE+x} ]]; then 
+	cowsay -f tux $(fortune); 
+fi
+
+#root erkennen
+if [ $EUID -eq 0 ]; then
+	PROMPT_LETTER='#'
+	PROMPT_COLOR="$cbred"
+else
+	PROMPT_LETTER='$'
+	PROMPT_COLOR="$cbgreen"
+fi
+
+PS1="$cyellow\$? $PROMPT_COLOR\\u@\\h $cbblue\\w $PROMPT_COLOR$cyellow\$(git-branch)\n$PROMPT_LETTER$creset"
+
+#Farbige Manpages
+man() {
+	        env \
+	                LESS_TERMCAP_mb=$(printf "\e[1;31m") \
+	                LESS_TERMCAP_md=$(printf "\e[1;31m") \
+	                LESS_TERMCAP_me=$(printf "\e[0m") \
+	                LESS_TERMCAP_se=$(printf "\e[0m") \
+	                LESS_TERMCAP_so=$(printf "\e[1;44;33m") \
+	                LESS_TERMCAP_ue=$(printf "\e[0m") \
+	                LESS_TERMCAP_us=$(printf "\e[1;32m") \
+	                        man "$@"
+	}
