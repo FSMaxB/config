@@ -33,6 +33,11 @@ else
 	PROMPT_COLOR="$cbgreen"
 fi
 
+#Per SSH eingeloggt?
+if [[ ! -z ${FORTUNE+x} ]]; then
+    PROMPT_COLOR="$cbyellow"
+fi
+
 PS1="$cyellow\$? $PROMPT_COLOR\\u@\\h $cbblue\\w $PROMPT_COLOR$cyellow\$(git-branch)\n$PROMPT_LETTER$creset"
 
 #Farbige Manpages
