@@ -25,8 +25,11 @@ if [[ ! -z ${FORTUNE+x} ]]; then
 fi
 
 #Freien Speicherplatz ausgeben
-df -h | grep --color=never sd
-df -h | grep --color=never vd
+df -hl | head -n 1      #Gebe erste Zeile mit Beschreibung aus
+df -hl | grep --color=never /dev/sd     #normale systeme
+df -hl | grep --color=never /dev/vd     #virtualisierung
+df -hl | grep --color=never /dev/root   #RaspberryPi
+df -hl | grep --color=never /dev/mmcblk #RaspberryPi
 
 #root erkennen
 if [ $EUID -eq 0 ]; then
