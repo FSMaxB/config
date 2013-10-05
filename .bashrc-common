@@ -24,6 +24,10 @@ if [[ ! -z ${FORTUNE+x} ]]; then
 	cowsay -f tux $(fortune); 
 fi
 
+#Freien Speicherplatz ausgeben
+df -h | grep --color=never sd
+df -h | grep --color=never vd
+
 #root erkennen
 if [ $EUID -eq 0 ]; then
 	PROMPT_LETTER='#'
