@@ -16,7 +16,9 @@ alias rm='rm -v'
 alias rmdir='rmdir -v'
 
 function git-branch {
-    git branch --no-color 2> /dev/null | sed -e '/^[^*]/d' -e 's/* \(.*\)/(\1)/'
+    if [[ ! -z ${GITBRANCH+x} ]]; then 
+        git branch --no-color 2> /dev/null | sed -e '/^[^*]/d' -e 's/* \(.*\)/(\1)/'
+    fi
 }
 
 #Spruch ausgeben wenn $FORTUNE gesetzt ist
