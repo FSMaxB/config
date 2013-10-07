@@ -49,6 +49,9 @@ if [[ ! -z ${SSH_CLIENT+x} ]]; then
     PROMPT_COLOR="$cbyellow"
 fi
 
+#Automatisches Ausloggen aus VTs nach 10 Minuten
+TMOUT="600"
+
 PS1="$cyellow\$? $PROMPT_COLOR\\u@\\h $cbblue\\w $PROMPT_COLOR$cyellow\$(git-branch)\n$PROMPT_LETTER$creset"
 
 #Farbige Manpages
