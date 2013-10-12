@@ -50,7 +50,9 @@ if [[ ! -z ${SSH_CLIENT+x} ]]; then
 fi
 
 #Automatisches Ausloggen aus VTs nach 10 Minuten
-TMOUT="600"
+if [[ ! -z ${SHELLTIMEOUT+x} ]]; then
+    TMOUT="600"
+fi
 
 PS1="$cyellow\$? $PROMPT_COLOR\\u@\\h $cbblue\\w $PROMPT_COLOR$cyellow\$(git-branch)\n$PROMPT_LETTER$creset"
 
