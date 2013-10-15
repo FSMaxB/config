@@ -51,7 +51,9 @@ fi
 
 #Automatisches Ausloggen aus VTs nach 10 Minuten
 if [[ ! -z ${SHELLTIMEOUT+x} ]]; then
-    TMOUT="600"
+   if [[ $TERM -eq linux ]]; then
+        TMOUT="600"
+   fi
 fi
 
 PS1="$cyellow\$? $PROMPT_COLOR\\u@\\h $cbblue\\w $PROMPT_COLOR$cyellow\$(git-branch)\n$PROMPT_LETTER$creset"
