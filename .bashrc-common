@@ -17,7 +17,7 @@ alias rmdir='rmdir -v'
 alias pacman='pacman --color=auto'
 alias open='xdg-open'
 
-function git-branch {
+function gitbranch {
     if [[ ! -z ${GITBRANCH+x} ]]; then 
         git branch --no-color 2> /dev/null | sed -e '/^[^*]/d' -e 's/* \(.*\)/(\1)/'
     fi
@@ -59,7 +59,7 @@ fi
 #   fi
 #fi
 
-PS1="$cyellow\$? $PROMPT_COLOR\\u@\\h $cbblue\\w $PROMPT_COLOR$cyellow\$(git-branch)\n$PROMPT_LETTER$creset"
+PS1="$cyellow\$? $PROMPT_COLOR\\u@\\h $cbblue\\w $PROMPT_COLOR$cyellow\$(gitbranch)\n$PROMPT_LETTER$creset"
 
 #Farbige Manpages
 man() {
