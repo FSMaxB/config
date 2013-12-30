@@ -40,3 +40,8 @@ set wildmenu
 
 " Mappings
 map Y y$
+
+" Mappen von Semikolon auf Doppelpunk
+nnoremap ; :
+" Dasselbe für Punkt und Doppelpunkt  ( für deutsche Tastatur)
+nnoremap . :
