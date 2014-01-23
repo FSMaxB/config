@@ -1,6 +1,9 @@
 " Syntax Highlighting   
 syntax on
 
+" Farbschema
+colorscheme torte
+
 " Keine Kompatibiliät mit vi
 set nocompatible
 
