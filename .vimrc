@@ -4,9 +4,6 @@ syntax on
 " Farbschema
 colorscheme torte
 
-" Automatische Zeilenumbrüche ausschalten:
-set wrap! 
-
 " Keine Kompatibiliät mit vi
 set nocompatible
 
