@@ -1,3 +1,5 @@
+# This file is a slightly modified version of the .conkyrc file used in PartedMagic http://www.partedmagic.com
+
 # the list of variables has been removed from this file in favour
 # of keeping the documentation more maintainable.
 # Check http://conky.sf.net for an up-to-date-list.
