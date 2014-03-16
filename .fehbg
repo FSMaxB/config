@@ -1,1 +1,1 @@
-feh --no-xinerama --bg-scale '/home/max/.wallpaper' 
+feh --no-xinerama --bg-scale "~/.wallpaper"
