@@ -9,7 +9,7 @@ The following files are included:
 ------------
 Defines variables for different color codes. This is to be put in your home directory. In my configuration this is loaded by `.bashrc-common`.
 
-.bashr-common:
+.bashrc-common:
 --------------
 This is more or less my bash configuration file (bashrc). It is to be put in the home directory. In order to enable it, load it in your `~/.bashrc` with `source ~/.bashrc-common`. In order for it to work properly, you need to have `.ansi-colors` installed in your home directory.
 
@@ -46,3 +46,7 @@ Htop configuration file. Put this in `~/.config/htop/`
 .vimrc
 ------
 Vim configuration file. Put this in your home directory.
+
+.tmux.config
+------------
+Tmux cofiguration file. Sets vi keybindings for the scrollback buffer, enables mouse support and increases the buffer size.
