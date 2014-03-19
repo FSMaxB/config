@@ -31,12 +31,8 @@ fi
 
 #Freien Speicherplatz ausgeben
 if [[ ! -z ${FREESPACE+x} ]]; then 
-    df -hl | head -n 1      #Gebe erste Zeile mit Beschreibung aus
-    df -hl | grep --color=never /dev/sd     #normale systeme
-    df -hl | grep --color=never /dev/mapper #cryptogeräte
-    df -hl | grep --color=never /dev/vd     #virtualisierung
-    df -hl | grep --color=never /dev/root   #RaspberryPi
-    df -hl | grep --color=never /dev/mmcblk #RaspberryPi
+    df -hlT | head -n 1      #Gebe erste Zeile mit Beschreibung aus
+    df -hlT | grep --color=never -E "/dev/sd|/dev/mapper|/dev/root|/dev/mmcblk"
 fi
 
 #root erkennen
