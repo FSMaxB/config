@@ -32,7 +32,7 @@ fi
 #Freien Speicherplatz ausgeben
 if [[ ! -z ${FREESPACE+x} ]]; then 
     df -hlT | head -n 1      #Gebe erste Zeile mit Beschreibung aus
-    df -hlT | grep --color=never -E "/dev/sd|/dev/mapper|/dev/root|/dev/mmcblk"
+    df -hlT | grep --color=never -E "/dev/sd|/dev/mapper|/dev/root|/dev/mmcblk|/dev/vd"
 fi
 
 #root erkennen
