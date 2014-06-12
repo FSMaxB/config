@@ -21,11 +21,11 @@ You can configure this script by setting different environment variables in your
 
 .capslock
 ---------
-Script that executes xmodmap with the `.xmodmap` configuration file. You can put this in the autostart of your distribution. This needs the `.xmodmap` file to work.
+Run `xmodmap ~/.capslock` after putting this file to your home directory in order to map the CapsLock key to the Escape key. This is really helpful for using vim.
 
-.xmodmap
+.german-chars
 --------
-Xmodmap configuration file that remaps CaspLock to Escape and enables using the Menu key to write ÄäÖöÜüß and €. You should put this file in your home directory.
+Run `xmodmap ~/.german-chars` after putting this file to your home directory in order to write ÄÖÜäöüß€ when pressing the Menu key and AOUaouse. I use this to write german characters on a US keyboard layout ( great for programming )
 
 .conkyrc
 --------
