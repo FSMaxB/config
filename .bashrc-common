@@ -72,3 +72,7 @@ man() {
                     LANG='' \
 	                        man "$@"
 }
+
+#Environment variables
+VISUAL=vim
+EDITOR=vim
