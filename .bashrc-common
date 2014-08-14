@@ -15,7 +15,6 @@ alias cp='cp -v --reflink=auto' #Verhindert Duplizierung bei BtrFS
 alias mv='mv -v'
 alias rm='rm -v'
 alias rmdir='rmdir -v'
-alias pacman='pacman --color=auto'
 alias open='xdg-open'
 
 function gitbranch {
