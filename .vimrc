@@ -14,7 +14,7 @@ set autoindent
 " Tablänge auf 4 setzen
 set tabstop=4
 set shiftwidth=4
-set expandtab
+"set expandtab
 
 " Maussteuerung anschalten
 set mouse=a
