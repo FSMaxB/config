@@ -67,3 +67,4 @@ man() {
 #Environment variables
 VISUAL=vim
 EDITOR=vim
+CDPATH=".:~"
