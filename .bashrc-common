@@ -48,7 +48,7 @@ if [[ ! -z ${SSH_CLIENT+x} ]]; then
     PROMPT_COLOR="$cbyellow"
 fi
 
-PS1="$cyellow\$? $PROMPT_COLOR\\u@\\h $cbblue\\w $PROMPT_COLOR$cyellow\$(gitbranch)\n$PROMPT_LETTER$creset"
+PS1="$cyellow\$? $PROMPT_COLOR\\u@\\h $cbblue\\w $PROMPT_COLOR$cyellow\$(gitbranch)\n$PROMPT_LETTER$creset "
 
 #Farbige Manpages
 man() {
