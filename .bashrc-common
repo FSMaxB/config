@@ -3,6 +3,7 @@ source ~/.ansi-colors
 
 #aliase
 alias cd..='cd ..'
+alias cd='cd 1> /dev/null'	#suppress output of current directory
 alias ls='ls --color=auto'
 alias la='ls -a'
 alias ll='ls -l'
