@@ -1,6 +1,9 @@
 " Syntax Highlighting   
 syntax on
 
+"Bar at the bottom
+set laststatus=2
+
 " Farbschema
 colorscheme torte
 
