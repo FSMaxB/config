@@ -4,7 +4,14 @@ source ~/.ansi-colors
 #aliase
 alias cd..='cd ..'
 alias cd='cd 1> /dev/null'	#suppress output of current directory
-alias ls='ls --color=auto'
+if [[ $(uname) == "Darwin" ]]; then
+	alias ls='ls -G'
+	alias cp='cp -v'
+else
+	alias ls='ls --color'
+	alias cp='cp -v --reflink=auto' #Verhindert Duplizierung bei BtrFS
+	alias open='xdg-open' #On Mac OS X "There's an app for that!" (another open command) - So we don't actually need this in OSX.
+fi
 alias la='ls -a'
 alias ll='ls -l'
 alias lsd='ls -d'
@@ -12,11 +19,9 @@ alias lal="ls -al"
 alias grep='grep --color=auto'
 alias more='less'
 alias compress='xz -zvv9ek --check=sha256'
-alias cp='cp -v --reflink=auto' #Verhindert Duplizierung bei BtrFS
 alias mv='mv -v'
 alias rm='rm -v'
 alias rmdir='rmdir -v'
-alias open='xdg-open'
 
 function gitbranch {
     if [[ ! -z ${GITBRANCH+x} ]]; then 
@@ -30,9 +35,14 @@ if [[ ! -z ${FORTUNE+x} ]]; then
 fi
 
 #Freien Speicherplatz ausgeben
-if [[ ! -z ${FREESPACE+x} ]]; then 
-    df -hlT | head -n 1      #Gebe erste Zeile mit Beschreibung aus
-    df -hlT | grep --color=never -E "/dev/sd|/dev/mapper|/dev/root|/dev/mmcblk|/dev/vd"
+if [[ ! -z ${FREESPACE+x} ]]; then
+    if [[ $(uname) == "Darwin" ]]; then
+    	df -hlt | head -n 1
+	df -hlt | grep --color=never -E "/dev/sd|/dev/mapper|/dev/root|/dev/mmcblk|/dev/vd|/dev/disk|/dev/rdisk"
+    else
+    	df -hlT | head -n 1      #Gebe erste Zeile mit Beschreibung aus
+	df -hlT | grep --color=never -E "/dev/sd|/dev/mapper|/dev/root|/dev/mmcblk|/dev/vd"
+    fi
 fi
 
 #root erkennen
