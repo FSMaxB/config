@@ -8,9 +8,9 @@ if [[ $(uname) == "Darwin" ]]; then
 	alias ls='ls -G'
 	alias cp='cp -v'
 else
-	alias ls='ls --color'
+	alias ls='ls --color=auto'
 	alias cp='cp -v --reflink=auto' #Verhindert Duplizierung bei BtrFS
-	alias open='xdg-open' #On Mac OS X "There's an app for that!" (another open command) - So we don't actually need this in OSX.
+	alias open='xdg-open'
 fi
 alias la='ls -a'
 alias ll='ls -l'
@@ -41,7 +41,7 @@ if [[ ! -z ${FREESPACE+x} ]]; then
 	df -hlt | grep --color=never -E "/dev/sd|/dev/mapper|/dev/root|/dev/mmcblk|/dev/vd|/dev/disk|/dev/rdisk"
     else
     	df -hlT | head -n 1      #Gebe erste Zeile mit Beschreibung aus
-	df -hlT | grep --color=never -E "/dev/sd|/dev/mapper|/dev/root|/dev/mmcblk|/dev/vd"
+	df -hlT | grep --color=never -E "/dev/sd|/dev/mapper|/dev/root|/dev/mmcblk|/dev/vd|/dev/disk|/dev/rdisk"
     fi
 fi
 
