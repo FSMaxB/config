@@ -10,12 +10,15 @@ if [[ $(uname) == "Darwin" ]]; then
 else
 	alias ls='ls --color'
 	alias cp='cp -v --reflink=auto' #Verhindert Duplizierung bei BtrFS
+	alias open='xdg-open' #On Mac OS X "There's an app for that!" (another open command) - So we don't actually need this in OSX.
 fi
 alias la='ls -a'
 alias ll='ls -l'
 alias lsd='ls -d'
 alias lal="ls -al"
+alias grep='grep --color=auto'
 alias more='less'
+alias compress='xz -zvv9ek --check=sha256'
 alias mv='mv -v'
 alias rm='rm -v'
 alias rmdir='rmdir -v'
