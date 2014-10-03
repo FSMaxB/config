@@ -1,7 +1,7 @@
-#Farbprofile laden
+#load color codes
 source ~/.ansi-colors 
 
-#aliase
+#aliases
 alias cd..='cd ..'
 alias cd='cd 1> /dev/null'	#suppress output of current directory
 if [[ $(uname) == "Darwin" ]]; then
@@ -9,7 +9,7 @@ if [[ $(uname) == "Darwin" ]]; then
 	alias cp='cp -v'
 else
 	alias ls='ls --color=auto'
-	alias cp='cp -v --reflink=auto' #Verhindert Duplizierung bei BtrFS
+	alias cp='cp -v --reflink=auto' #don't duplicate when copying on CoW filesystems like BtrFS
 	alias open='xdg-open'
 fi
 alias la='ls -a'
@@ -29,23 +29,23 @@ function gitbranch {
     fi
 }
 
-#Spruch ausgeben wenn $FORTUNE gesetzt ist
+#show fortune cookie if the variable $FORTUNE is set
 if [[ ! -z ${FORTUNE+x} ]]; then 
 	cowsay -f tux $(fortune); 
 fi
 
-#Freien Speicherplatz ausgeben
+#show available disk space
 if [[ ! -z ${FREESPACE+x} ]]; then
     if [[ $(uname) == "Darwin" ]]; then
     	df -hlt | head -n 1
 	df -hlt | grep --color=never -E "/dev/sd|/dev/mapper|/dev/root|/dev/mmcblk|/dev/vd|/dev/disk|/dev/rdisk"
     else
-    	df -hlT | head -n 1      #Gebe erste Zeile mit Beschreibung aus
+		df -hlT | head -n 1      #display first line of df ( table header )
 	df -hlT | grep --color=never -E "/dev/sd|/dev/mapper|/dev/root|/dev/mmcblk|/dev/vd|/dev/disk|/dev/rdisk"
     fi
 fi
 
-#root erkennen
+#detect root
 if [ $EUID -eq 0 ]; then
 	PROMPT_LETTER='#'
 	PROMPT_COLOR="$cbred"
@@ -54,15 +54,16 @@ else
 	PROMPT_COLOR="$cbgreen"
 fi
 
-#Per SSH eingeloggt?
+#logged in via ssh? If yes, change color to yellow
 if [[ ! -z ${SSH_CLIENT+x} ]]; then
     PROMPT_COLOR="$cbyellow"
 fi
 
 PS1="$cyellow\$? $PROMPT_COLOR\\u@\\h $cbblue\\w $PROMPT_COLOR$cyellow\$(gitbranch)\n$PROMPT_LETTER$creset "
 
-#Farbige Manpages
+#colors in manpages
 man() {
+			#TODO: use color codes from .ansi-colors
 	        env \
 	                LESS_TERMCAP_mb=$(printf "\e[1;31m") \
 	                LESS_TERMCAP_md=$(printf "\e[1;31m") \
@@ -75,7 +76,7 @@ man() {
 	                        man "$@"
 }
 
-#Environment variables
+#environment variables
 VISUAL=vim
 EDITOR=vim
 PAGER=less

@@ -1,56 +1,55 @@
-" Syntax Highlighting   
+" syntax highlighting   
 syntax on
 
-"Bar at the bottom
+"bar at the bottom
 set laststatus=2
 
-" Farbschema
+" colorscheme
 colorscheme torte
 
-" Keine Kompatibiliät mit vi
+" disable vi compatibility
 set nocompatible
 
-" Automatische Einrückung
+" automatic indentation
 filetype plugin indent on
 set autoindent
 
-" Tablänge auf 4 setzen
+" set tabwidth to 4 spaces
 set tabstop=4
 set shiftwidth=4
-"set expandtab
 
-" Maussteuerung anschalten
+" enable mouse support
 set mouse=a
 
-" Suchfunktion
+" improve search
 set hlsearch 
 set ignorecase
 set smartcase
 set incsearch
 
-" Vim omnicompletion
+" vim omnicompletion
 filetype plugin indent on
 set omnifunc=syntaxcomplete#Complete
 
-" Zeilen und Spaltenanzeige
+" show row an column
 set ruler
 
-" Zeilennummerierung
+" line numbers
 set number
 
-" Autovervollständigung anzeigen
+" show menu for autocompletion
 set wildmenu
 
-" Relative Zeilennummerierung
+" line numbers relative to cursor position
 " set relativenumber
 
-" Mappings
+" mappings
 map Y y$
 
-" Mappen von Semikolon auf Doppelpunk
+" map semicolon to colon
 nnoremap ; :
 
-"Folding options
+" folding options
 set foldmethod=syntax
 set foldlevelstart=1
 

@@ -1,4 +1,4 @@
-    !Umlaute etc
+!Umlaute etc
 remove Lock = Menu
 keycode 135 = Mode_switch
 keycode 26 = e E EuroSign cent
