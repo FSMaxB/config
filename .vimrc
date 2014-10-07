@@ -45,6 +45,8 @@ set wildmenu
 
 " mappings
 map Y y$
+"comma to window commands
+map , <C-w>
 
 " map semicolon to colon
 nnoremap ; :
