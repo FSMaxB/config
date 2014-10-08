@@ -38,10 +38,10 @@ fi
 if [[ ! -z ${FREESPACE+x} ]]; then
     if [[ $(uname) == "Darwin" ]]; then
     	df -hlt | head -n 1
-	df -hlt | grep --color=never -E "/dev/sd|/dev/mapper|/dev/root|/dev/mmcblk|/dev/vd|/dev/disk|/dev/rdisk"
+		df -hlt | grep --color=never -E "/dev/sd|/dev/mapper|/dev/root|/dev/mmcblk|/dev/vd|/dev/disk|/dev/rdisk"
     else
 		df -hlT | head -n 1      #display first line of df ( table header )
-	df -hlT | grep --color=never -E "/dev/sd|/dev/mapper|/dev/root|/dev/mmcblk|/dev/vd|/dev/disk|/dev/rdisk"
+		df -hlT | grep --color=never -E "/dev/sd|/dev/mapper|/dev/root|/dev/mmcblk|/dev/vd|/dev/disk|/dev/rdisk"
     fi
 fi
 
