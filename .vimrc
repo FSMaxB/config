@@ -50,6 +50,8 @@ map , <C-w>
 
 " map semicolon to colon
 nnoremap ; :
+" map Ö to colon to make switching between us and german layout easier
+nnoremap Ö :
 
 " folding options
 set foldmethod=syntax
