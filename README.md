@@ -50,3 +50,7 @@ Vim configuration file. Put this in your home directory.
 .tmux.config
 ------------
 Tmux cofiguration file. Sets vi keybindings for the scrollback buffer, enables mouse support and increases the buffer size.
+
+.git_template
+-------------
+Directory that contains git hooks. At the time it's a post-commit hook that runs the `sync` command after every commit ( to prevent data loss ). Symlink or copy this directory to your home directory and enable it with `git config --global init.templatedir '~/.git_template'`. Run `git init` in every git repository where you want to enable it. 
