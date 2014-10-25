@@ -4,6 +4,9 @@ syntax on
 "bar at the bottom
 set laststatus=2
 
+" more powerful backspace
+set backspace=indent,eol,start
+
 " colorscheme
 colorscheme torte
 
