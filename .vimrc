@@ -55,16 +55,3 @@ map , <C-w>
 nnoremap ; :
 " map Ö to colon to make switching between us and german layout easier
 nnoremap Ö :
-
-" folding options
-set foldmethod=syntax
-set foldlevelstart=1
-
-let javaScript_fold=1
-let perl_fold=1
-let php_folding=1
-let r_syntax_folding=1
-let ruby_fold=1
-let sh_fold_enabled=1
-let vimsyn_folding='af'
-let xml_syntax_folding=1
