@@ -24,7 +24,8 @@ alias rmdir='rmdir -v'
 alias paste="curl -F 'sprunge=<-' http://sprunge.us"
 
 function cd {
-	if [[ "$1" =~ \.\.* ]]; then
+	if [[ "$1" =~ \.\.*$ ]]; then
+		# cd ... to go 2 higher, cd .... to go 3 higher and so on
 		for (( i=0; i<${#1}-1; i++ )); do
 			builtin cd .. 1> /dev/null
 		done
