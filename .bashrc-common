@@ -3,7 +3,6 @@ source ~/.ansi-colors
 
 #aliases
 alias cd..='cd ..'
-alias cd='cd 1> /dev/null'	#suppress output of current directory
 if [[ $(uname) == "Darwin" ]]; then
 	alias ls='ls -G'
 	alias cp='cp -v'
@@ -23,6 +22,16 @@ alias mv='mv -v'
 alias rm='rm -v'
 alias rmdir='rmdir -v'
 alias paste="curl -F 'sprunge=<-' http://sprunge.us"
+
+function cd {
+	if [[ "$1" =~ \.\.* ]]; then
+		for (( i=0; i<${#1}-1; i++ )); do
+			builtin cd .. 1> /dev/null
+		done
+	else
+		builtin cd "${@}" 1> /dev/null
+	fi
+}
 
 function gitbranch {
     if [[ ! -z ${GITBRANCH+x} ]]; then 
