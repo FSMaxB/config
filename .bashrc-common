@@ -17,6 +17,7 @@ alias lsd='ls -d'
 alias lal="ls -al"
 alias grep='grep --color=auto'
 alias more='less'
+alias xz='xz --threads=0'
 alias compress='xz -zvv9ek --check=sha256'
 alias mv='mv -v'
 alias rm='rm -v'
