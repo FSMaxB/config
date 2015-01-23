@@ -21,6 +21,7 @@ alias xz='xz --threads=0'
 alias compress='xz -zvv9ek --check=sha256'
 alias mv='mv -v'
 alias rm='rm -v'
+alias rsync='rsync -v --progress'
 alias rmdir='rmdir -v'
 alias paste="curl -F 'sprunge=<-' http://sprunge.us"
 
