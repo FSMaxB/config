@@ -24,6 +24,7 @@ alias rm='rm -v'
 alias rsync='rsync -v --progress'
 alias rmdir='rmdir -v'
 alias paste="curl -F 'sprunge=<-' http://sprunge.us"
+alias cower='cower --color=auto'
 
 function cd {
 	if [[ "$1" =~ \.\.*$ ]]; then
