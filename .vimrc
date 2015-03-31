@@ -17,9 +17,10 @@ set nocompatible
 filetype plugin indent on
 set autoindent
 
-" set tabwidth to 4 spaces
+" set tabwidth to 4 spaces and expand them
 set tabstop=4
 set shiftwidth=4
+set expandtab
 
 " enable mouse support
 set mouse=a
