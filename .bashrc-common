@@ -25,6 +25,7 @@ alias rsync='rsync -v --progress'
 alias rmdir='rmdir -v'
 alias paste="curl -F 'sprunge=<-' http://sprunge.us"
 alias cower='cower --color=auto'
+alias tmux='env SHLVL=0 tmux'
 
 function cd {
 	if [[ "$1" =~ \.\.*$ ]]; then
@@ -46,6 +47,19 @@ function gitbranch {
 #run a program detached from the current terminal
 function detach() {
 	nohup "$@" > /dev/null &
+}
+
+#create a prompt that shows the number of nested shells
+#1 nested shell: >
+#2 nested shells: -> and so on
+function nested() {
+    NESTED_PROMPT=''
+    if [[ $SHLVL -ge 2 ]]; then
+        for (( i=0; i<$SHLVL-2; i++ )); do
+            NESTED_PROMPT="${NESTED_PROMPT}-"
+        done
+        echo "$NESTED_PROMPT> "
+    fi
 }
 
 #show fortune cookie if the variable $FORTUNE is set
@@ -78,7 +92,7 @@ if [[ ! -z ${SSH_CLIENT+x} ]]; then
     PROMPT_COLOR="$cbyellow"
 fi
 
-PS1="$cyellow\$? $PROMPT_COLOR\\u@\\h $cbblue\\w $PROMPT_COLOR$cyellow\$(gitbranch)\n$PROMPT_LETTER$creset "
+PS1="$cyellow$(nested)\$? $PROMPT_COLOR\\u@\\h $cbblue\\w $PROMPT_COLOR$cyellow\$(gitbranch)\n$(nested)$PROMPT_LETTER$creset "
 
 #colors in manpages
 man() {
