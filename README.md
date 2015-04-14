@@ -18,6 +18,7 @@ You can configure this script by setting different environment variables in your
 * **GITBRANCH**: If you're in a git repository, this shows the name of the currently checked out branch in your prompt.
 * **FORTUNE**: This needs `cowsay` and `fortune` installed in order to work. Displays tux saying some fortune cookie text.
 * **FREESPACE**: Shows the free space left on different partitions using `df`.
+* **NOTIFICATIONS**: Enable notifications after long running commands
 
 .capslock
 ---------

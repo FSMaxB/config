@@ -66,6 +66,7 @@ function nested() {
 # the first argument is the message
 # the second argument is the mode
 function alert() {
+    local NOTIFY_ICON=terminal
     case "$2" in
         success)
             NOTIFY_ICON=terminal
@@ -85,6 +86,36 @@ function alert() {
         echo -e '\a'
     fi
 }
+
+#notifications for long running commands
+if [[ ! -z ${NOTIFICATIONS+x} ]]; then 
+    function alert_for_long_command() {
+        local LAST_COMMAND_STATUS=$?
+        local LAST_COMMAND="$(history 1 | awk '{$1=""; print substr($0,2)}')"
+        local FIRST_WORD=${LAST_COMMAND/ */} #first word of the last command
+
+        case "$FIRST_WORD" in #no notifications for some commands
+            vim|nano|tmux|gitk|screen|ssh|gdisk|fdisk|chroot|journalctl|systemd-nspawn|less|man|more)
+                LAST_COMMAND_START=
+                return
+                ;;
+        esac
+
+        local NOTIFICATION_TYPE="success"
+        if [[ ! $LAST_COMMAND_STATUS -eq 0 ]]; then
+            NOTIFICATION_TYPE="error"
+        fi
+        LAST_COMMAND_TIME=$(($(date +%s) - ${LAST_COMMAND_START})) #calculate time difference
+        if [[ $LAST_COMMAND_TIME -gt 30 ]]; then
+            alert "${LAST_COMMAND_TIME}s: $LAST_COMMAND" "$NOTIFICATION_TYPE"
+        fi
+        LAST_COMMAND_START=
+    }
+
+    export PROMPT_COMMAND=alert_for_long_command
+    LAST_COMMAND_START=
+    trap '[ -z ${LAST_COMMAND_START} ] && LAST_COMMAND_START=$(date +%s)' DEBUG
+fi
 
 #check if $1 exists
 function command_exists() {
