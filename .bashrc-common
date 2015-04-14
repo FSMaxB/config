@@ -88,7 +88,7 @@ function alert() {
 
 #check if $1 exists
 function command_exists() {
-   hash "$1"
+   hash "$1" 2> /dev/null
 }
 
 #show fortune cookie if the variable $FORTUNE is set
