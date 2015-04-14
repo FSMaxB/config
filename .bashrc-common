@@ -77,7 +77,16 @@ function alert() {
             NOTIFY_ICON=terminal
         ;;
     esac
-    notify-send "$1" -u low -i "$NOTIFY_ICON"
+    if command_exists notify-send; then
+        notify-send "$1" -u low -i "$NOTIFY_ICON"
+    elif command_exists osascript; then #notification on Mac OS X
+        osascript -e "display notification \"$1\" with title \"$2\""
+    fi
+}
+
+#check if $1 exists
+function command_exists() {
+   hash "$1"
 }
 
 #show fortune cookie if the variable $FORTUNE is set
