@@ -62,6 +62,8 @@ function nested() {
     fi
 }
 
+#remove alert alias ( for ubuntu )
+unalias alert 2> /dev/null
 #send a desktop notification
 # the first argument is the message
 # the second argument is the mode
