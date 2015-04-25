@@ -97,7 +97,7 @@ if [[ ! -z ${NOTIFICATIONS+x} ]]; then
         local FIRST_WORD=${LAST_COMMAND/ */} #first word of the last command
 
         case "$FIRST_WORD" in #no notifications for some commands
-            vim|nano|tmux|gitk|screen|ssh|gdisk|fdisk|chroot|journalctl|systemd-nspawn|less|man|more)
+            vim|nano|tmux|gitk|screen|ssh|gdisk|fdisk|chroot|journalctl|systemd-nspawn|less|man|more|htop)
                 LAST_COMMAND_START=
                 return
                 ;;
