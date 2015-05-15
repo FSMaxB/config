@@ -108,7 +108,7 @@ if [[ ! -z ${NOTIFICATIONS+x} ]]; then
             NOTIFICATION_TYPE="error"
         fi
         LAST_COMMAND_TIME=$(($(date +%s) - ${LAST_COMMAND_START})) #calculate time difference
-        if [[ $LAST_COMMAND_TIME -gt 30 ]]; then
+        if [[ $LAST_COMMAND_TIME -gt 60 ]]; then
             alert "${LAST_COMMAND_TIME}s: $LAST_COMMAND" "$NOTIFICATION_TYPE"
         fi
         LAST_COMMAND_START=
