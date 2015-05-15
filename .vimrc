@@ -14,6 +14,7 @@ Plug 'docunext/closetag.vim'
 Plug 'ervandew/supertab'
 Plug 'scrooloose/nerdtree'
 Plug 'vim-scripts/gundo'
+Plug 'mattn/emmet-vim'
 
 call plug#end()
 
