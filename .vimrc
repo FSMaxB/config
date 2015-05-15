@@ -1,3 +1,19 @@
+" disable vi compatibility
+set nocompatible
+
+call plug#begin('~/.vim/plugged')
+
+Plug 'bling/vim-airline'
+Plug 'airblade/vim-gitgutter'
+Plug 'morhetz/gruvbox'
+Plug 'chriskempson/base16-vim'
+Plug 'cschlueter/vim-wombat'
+Plug 'Raimondi/delimitMate'
+
+call plug#end()
+
+filetype plugin indent on
+
 " syntax highlighting   
 syntax on
 
@@ -8,13 +24,9 @@ set laststatus=2
 set backspace=indent,eol,start
 
 " colorscheme
-colorscheme torte
-
-" disable vi compatibility
-set nocompatible
+colorscheme wombat256
 
 " automatic indentation
-filetype plugin indent on
 set autoindent
 
 " set tabwidth to 4 spaces and expand them
@@ -32,7 +44,6 @@ set smartcase
 set incsearch
 
 " vim omnicompletion
-filetype plugin indent on
 set omnifunc=syntaxcomplete#Complete
 
 " show row an column

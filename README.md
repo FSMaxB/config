@@ -46,7 +46,7 @@ Htop configuration file. Put this in `~/.config/htop/`
 
 .vimrc
 ------
-Vim configuration file. Put this in your home directory.
+Vim configuration file. Put this in your home directory. **IMPORTANT:** You also need to put the `.vim` directory in your home and install the plugins with `:PlugInstall` (from inside vim)
 
 .tmux.config
 ------------
