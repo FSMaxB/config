@@ -3,6 +3,7 @@ set nocompatible
 
 call plug#begin('~/.vim/plugged')
 
+Plug 'tpope/vim-sensible'
 Plug 'bling/vim-airline'
 Plug 'airblade/vim-gitgutter'
 Plug 'morhetz/gruvbox'
@@ -11,8 +12,13 @@ Plug 'cschlueter/vim-wombat'
 Plug 'Raimondi/delimitMate'
 Plug 'docunext/closetag.vim'
 Plug 'ervandew/supertab'
+Plug 'scrooloose/nerdtree'
+Plug 'vim-scripts/gundo'
 
 call plug#end()
+
+"keymapping for gundo
+nnoremap <f5> :GundoToggle<cr>
 
 filetype plugin indent on
 
