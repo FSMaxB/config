@@ -9,6 +9,7 @@ Plug 'morhetz/gruvbox'
 Plug 'chriskempson/base16-vim'
 Plug 'cschlueter/vim-wombat'
 Plug 'Raimondi/delimitMate'
+Plug 'docunext/closetag.vim'
 
 call plug#end()
 
