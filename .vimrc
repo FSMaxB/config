@@ -10,6 +10,7 @@ Plug 'chriskempson/base16-vim'
 Plug 'cschlueter/vim-wombat'
 Plug 'Raimondi/delimitMate'
 Plug 'docunext/closetag.vim'
+Plug 'ervandew/supertab'
 
 call plug#end()
 
