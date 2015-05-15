@@ -46,7 +46,7 @@ Htop configuration file. Put this in `~/.config/htop/`
 
 .vimrc
 ------
-Vim configuration file. Put this in your home directory. **IMPORTANT:** You also need to put the `.vim` directory in your home and install the plugins with `:PlugInstall` (from inside vim)
+Vim configuration file. Put this in your home directory. **IMPORTANT:** You also need to put the `.vim` directory in your home and install the plugins with `:PlugInstall` (from inside vim). To additionally enable highlighting changed lines compared to the current git commit, run `:GitGutterEnable`.
 
 .tmux.config
 ------------
