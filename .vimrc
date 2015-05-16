@@ -7,8 +7,6 @@ Plug 'tpope/vim-sensible'
 Plug 'bling/vim-airline'
 Plug 'airblade/vim-gitgutter'
 Plug 'morhetz/gruvbox'
-Plug 'chriskempson/base16-vim'
-Plug 'cschlueter/vim-wombat'
 Plug 'Raimondi/delimitMate'
 Plug 'docunext/closetag.vim'
 Plug 'ervandew/supertab'
@@ -33,7 +31,7 @@ set laststatus=2
 set backspace=indent,eol,start
 
 " colorscheme
-colorscheme wombat256
+colorscheme default
 
 " automatic indentation
 set autoindent
