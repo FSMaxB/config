@@ -13,11 +13,17 @@ Plug 'ervandew/supertab'
 Plug 'scrooloose/nerdtree'
 Plug 'vim-scripts/gundo'
 Plug 'mattn/emmet-vim'
+Plug 'mileszs/ack.vim'
 
 call plug#end()
 
 "keymapping for gundo
 nnoremap <f5> :GundoToggle<cr>
+
+"Use Ag with ack.vim if available
+if executable('ag')
+    let g:ackprg = 'ag --vimgrep'
+endif
 
 filetype plugin indent on
 
