@@ -129,7 +129,7 @@ function vim() {
     if command_exists nvim; then
         nvim "$@"
     elif command_exists vim; then
-        vim "$@"
+        command vim "$@"
     fi
 }
 
