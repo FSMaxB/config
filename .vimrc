@@ -41,7 +41,7 @@ set laststatus=2
 set backspace=indent,eol,start
 
 " colorscheme
-colorscheme default
+colorscheme torte
 
 " automatic indentation
 set autoindent
