@@ -10,6 +10,7 @@ else
     alias ls='ls --color=auto'
     alias cp='cp -v --reflink=auto' #don't duplicate when copying on CoW filesystems like BtrFS
     alias open='xdg-open'
+    alias rmdir='rmdir -v'
 fi
 alias la='ls -a'
 alias ll='ls -l'
@@ -22,7 +23,6 @@ alias compress='xz -zvv9ek --check=sha256'
 alias mv='mv -v'
 alias rm='rm -v'
 alias rsync='rsync -v --progress'
-alias rmdir='rmdir -v'
 alias paste="curl -F 'sprunge=<-' http://sprunge.us"
 alias cower='cower --color=auto'
 alias tmux='env SHLVL=0 tmux'
