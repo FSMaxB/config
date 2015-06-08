@@ -18,12 +18,16 @@ done
 
 hash git 2> /dev/null && git config --global init.templatedir '~/.git_template'
 hash git 2> /dev/null && git config --global ui.color true 
+hash git 2> /dev/null && git config --global core.editor vim 
 
 hash vim 2> /dev/null && vim -c ':PlugInstall'
-hash vim 2> /dev/null && vim -c ':GitGutterEnable'
 
+# compile YouCompleteMe extensions
 cd ~/config/.vim/plugged/YouCompleteMe
 ./install.sh --clang-completer --omnisharp-completer
+
+hash vim 2> /dev/null && vim -c ':GitGutterEnable'
+
 
 echo Enable the bash config by adding the following to your ~/.bashrc:
 echo GITBRANCH=''
