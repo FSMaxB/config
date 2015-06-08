@@ -13,11 +13,16 @@ Plug 'airblade/vim-gitgutter'
 Plug 'morhetz/gruvbox'
 Plug 'Raimondi/delimitMate'
 Plug 'docunext/closetag.vim'
-Plug 'ervandew/supertab'
+ Plug 'ervandew/supertab'
 Plug 'scrooloose/nerdtree'
 Plug 'vim-scripts/gundo'
 Plug 'mattn/emmet-vim'
 Plug 'mileszs/ack.vim'
+Plug 'Yggdroot/indentLine'
+Plug 'skammer/vim-css-color'
+Plug 'tpope/vim-abolish'
+Plug 'Valloric/YouCompleteMe'
+Plug 'pangloss/vim-javascript'
 
 call plug#end()
 
