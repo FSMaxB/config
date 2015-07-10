@@ -5,7 +5,7 @@ if [[ "$(readlink -f "$0")" != "$(readlink -f ~/config/install.sh)" ]]; then
 fi
 
 # Files that get symlinked to home
-HOME_FILES=( .ansi-colors .bashrc-common .tmux.conf .vimrc .vim .nvim .nvimrc .git_template )
+HOME_FILES=( .ansi-colors .bashrc-common .tmux.conf .vimrc .vim .nvim .nvimrc .git_template .gitignore_global )
 
 
 for file in ${HOME_FILES[@]}; do
@@ -19,6 +19,7 @@ done
 hash git 2> /dev/null && git config --global init.templatedir '~/.git_template'
 hash git 2> /dev/null && git config --global ui.color true 
 hash git 2> /dev/null && git config --global core.editor vim 
+hash git 2> /dev/null && git config --global core.excludesfile ~/.gitignore_global
 
 hash vim 2> /dev/null && vim -c ':PlugInstall'
 
