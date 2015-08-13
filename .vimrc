@@ -88,3 +88,9 @@ map , <C-w>
 nnoremap ; :
 " map Ö to colon to make switching between us and german layout easier
 nnoremap Ö :
+
+" show tabs
+set list
+if &listchars ==# 'eol:$'
+  set listchars=tab:·\ ,extends:>,precedes:<,nbsp:+
+endif
