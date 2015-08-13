@@ -21,13 +21,8 @@ hash git 2> /dev/null && git config --global ui.color true
 hash git 2> /dev/null && git config --global core.editor vim
 hash git 2> /dev/null && git config --global core.excludesfile ~/.gitignore_global
 
-hash vim 2> /dev/null && vim -c ':PlugInstall'
-
-# compile YouCompleteMe extensions
-cd ~/config/.vim/plugged/YouCompleteMe
-./install.sh --clang-completer --omnisharp-completer
-
-hash vim 2> /dev/null && vim -c ':GitGutterEnable'
+hash vim 2> /dev/null && vim +PlugInstall +qall
+hash vim 2> /dev/null && vim +GitGutterEnable +qall
 
 
 echo Enable the bash config by adding the following to your ~/.bashrc:

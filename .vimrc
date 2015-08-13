@@ -20,7 +20,6 @@ Plug 'mattn/emmet-vim'
 Plug 'mileszs/ack.vim'
 Plug 'skammer/vim-css-color'
 Plug 'tpope/vim-abolish'
-Plug 'Valloric/YouCompleteMe'
 Plug 'pangloss/vim-javascript'
 Plug 'LaTeX-Box-Team/LaTeX-Box'
 
