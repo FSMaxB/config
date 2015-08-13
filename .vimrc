@@ -36,7 +36,7 @@ endif
 
 filetype plugin indent on
 
-" syntax highlighting   
+" syntax highlighting
 syntax on
 
 "bar at the bottom
@@ -60,7 +60,7 @@ set expandtab
 set mouse=a
 
 " improve search
-set hlsearch 
+set hlsearch
 set ignorecase
 set smartcase
 set incsearch
