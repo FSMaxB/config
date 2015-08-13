@@ -22,6 +22,8 @@ Plug 'skammer/vim-css-color'
 Plug 'tpope/vim-abolish'
 Plug 'pangloss/vim-javascript'
 Plug 'LaTeX-Box-Team/LaTeX-Box'
+Plug 'bitc/vim-bad-whitespace'
+Plug 'vim-scripts/visualstar.vim'
 
 call plug#end()
 
