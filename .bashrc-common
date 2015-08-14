@@ -133,6 +133,11 @@ function vim() {
     fi
 }
 
+#alias hub github cli as git
+if command_exists hub; then
+   eval $(hub alias -s)
+fi
+
 #show fortune cookie if the variable $FORTUNE is set
 if [[ ! -z ${FORTUNE+x} ]]; then 
     cowsay -f tux $(fortune); 
