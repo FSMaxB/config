@@ -24,6 +24,7 @@ Plug 'pangloss/vim-javascript'
 Plug 'LaTeX-Box-Team/LaTeX-Box'
 Plug 'bitc/vim-bad-whitespace'
 Plug 'vim-scripts/visualstar.vim'
+Plug 'terryma/vim-multiple-cursors'
 
 call plug#end()
 
