@@ -25,6 +25,8 @@ Plug 'LaTeX-Box-Team/LaTeX-Box'
 Plug 'bitc/vim-bad-whitespace'
 Plug 'vim-scripts/visualstar.vim'
 Plug 'terryma/vim-multiple-cursors'
+" \cr to get reference
+Plug 'vim-scripts/CRefVim'
 
 call plug#end()
 
@@ -94,6 +96,4 @@ nnoremap Ö :
 
 " show tabs
 set list
-if &listchars ==# 'eol:$'
-  set listchars=tab:·\ ,extends:>,precedes:<,nbsp:+
-endif
+set listchars=tab:·\ ,extends:>,precedes:<,nbsp:+
