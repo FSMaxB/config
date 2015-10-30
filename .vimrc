@@ -27,8 +27,13 @@ Plug 'vim-scripts/visualstar.vim'
 Plug 'terryma/vim-multiple-cursors'
 " \cr to get reference
 Plug 'vim-scripts/CRefVim'
+Plug 'nathanaelkane/vim-indent-guides'
 
 call plug#end()
+
+"enable and configure IndentGuides
+let g:indent_guides_guide_size = 1
+autocmd VimEnter * IndentGuidesEnable
 
 "keymapping for gundo
 nnoremap <f5> :GundoToggle<cr>
