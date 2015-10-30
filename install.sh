@@ -5,7 +5,7 @@ if [[ "$(readlink -f "$0")" != "$(readlink -f ~/config/install.sh)" ]]; then
 fi
 
 # Files that get symlinked to home
-HOME_FILES=( .ansi-colors .bashrc-common .tmux.conf .vimrc .vim .nvim .nvimrc .git_template .gitignore_global )
+HOME_FILES=( .ansi-colors .bashrc-common .tmux.conf .vimrc .vim .git_template .gitignore_global )
 
 
 for file in ${HOME_FILES[@]}; do
@@ -15,6 +15,17 @@ for file in ${HOME_FILES[@]}; do
       echo ~/$file already exists, omitting
    fi
 done
+
+#install nvim files
+if [[ ! -e ~/.config ]]; then
+  mkdir ~/.config
+fi
+if [[ ! -e ~/.config/nvim ]]; then
+  ln -s ~/config/.vim ~/.config/nvim
+fi
+if [[ ! -e ~/.config/nvim/init.vim ]]; then
+  ln -s ~/config/.vimrc ~/.config/nvim/init.vim
+fi
 
 hash git 2> /dev/null && git config --global init.templatedir '~/.git_template'
 hash git 2> /dev/null && git config --global ui.color true
