@@ -102,3 +102,6 @@ nnoremap Ö :
 " show tabs
 set list
 set listchars=tab:·\ ,extends:>,precedes:<,nbsp:+
+
+"enable xorg clipboard for normal copy and paste!
+set clipboard+=unnamedplus
