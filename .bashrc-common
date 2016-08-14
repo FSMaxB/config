@@ -28,6 +28,7 @@ alias cower='cower --color=auto'
 alias tmux='env SHLVL=0 tmux'
 alias nvim='env TERM=xterm-256color nvim'
 alias codecat='pygmentize -g -O style=colorful'
+alias weather='curl wttr.in'
 
 function cd {
     if [[ "$1" =~ \.\.*$ ]]; then
