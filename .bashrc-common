@@ -1,5 +1,5 @@
 #load color codes
-source ~/.ansi-colors 
+source ~/.ansi-colors
 
 #aliases
 alias cd..='cd ..'
@@ -43,7 +43,7 @@ function cd {
 }
 
 function gitbranch {
-    if [[ ! -z ${GITBRANCH+x} ]]; then 
+    if [[ ! -z ${GITBRANCH+x} ]]; then
         git branch --no-color 2> /dev/null | sed -e '/^[^*]/d' -e 's/* \(.*\)/(\1)/'
     fi
 }
@@ -94,7 +94,7 @@ function alert() {
 }
 
 #notifications for long running commands
-if [[ ! -z ${NOTIFICATIONS+x} ]]; then 
+if [[ ! -z ${NOTIFICATIONS+x} ]]; then
     function alert_for_long_command() {
         local LAST_COMMAND_STATUS=$?
         local LAST_COMMAND="$(history 1 | awk '{$1=""; print substr($0,2)}')"
@@ -142,8 +142,8 @@ if command_exists hub; then
 fi
 
 #show fortune cookie if the variable $FORTUNE is set
-if [[ ! -z ${FORTUNE+x} ]]; then 
-    cowsay -f tux $(fortune); 
+if [[ ! -z ${FORTUNE+x} ]]; then
+    cowsay -f tux $(fortune);
 fi
 
 #show available disk space
