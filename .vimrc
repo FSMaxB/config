@@ -25,6 +25,7 @@ Plug 'LaTeX-Box-Team/LaTeX-Box'
 Plug 'bitc/vim-bad-whitespace'
 Plug 'vim-scripts/visualstar.vim'
 Plug 'terryma/vim-multiple-cursors'
+Plug 'fidian/hexmode'
 " \cr to get reference
 Plug 'vim-scripts/CRefVim'
 Plug 'nathanaelkane/vim-indent-guides'
