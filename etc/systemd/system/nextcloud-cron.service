@@ -1,0 +1,7 @@
+[Unit]
+Description=Run NextCloud background Jobs.
+
+[Service]
+User=http
+Type=simple
+ExecStart=/usr/bin/php /usr/share/webapps/nextcloud/cron.php
