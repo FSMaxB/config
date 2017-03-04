@@ -1,6 +1,11 @@
 #load color codes
 source ~/.ansi-colors
 
+#check if $1 exists
+function command_exists() {
+   hash "$1" 2> /dev/null
+}
+
 #aliases
 alias cd..='cd ..'
 if [[ $(uname) == "Darwin" ]]; then
@@ -23,13 +28,16 @@ alias xz='xz --threads=0'
 alias mv='mv -v'
 alias rm='rm -v'
 alias rsync='rsync -v --progress'
-alias paste="curl -F 'sprunge=<-' http://sprunge.us"
+alias paste="curl -F c=@- https://ptpb.pw"
 alias cower='cower --color=auto'
 alias tmux='env SHLVL=0 tmux'
-alias nvim='env TERM=xterm-256color nvim'
 alias codecat='pygmentize -g -O style=colorful'
 alias weather='curl wttr.in'
 alias :q='exit'
+if command_exists rg; then
+   alias ag=rg
+fi
+alias :w='echo This is not vim you idiot!'
 
 function cd {
     if [[ "$1" =~ \.\.*$ ]]; then
@@ -122,11 +130,6 @@ if [[ ! -z ${NOTIFICATIONS+x} ]]; then
     LAST_COMMAND_START=
     trap '[ -z ${LAST_COMMAND_START} ] && LAST_COMMAND_START=$(date +%s)' DEBUG
 fi
-
-#check if $1 exists
-function command_exists() {
-   hash "$1" 2> /dev/null
-}
 
 function vim() {
     if command_exists nvim; then
