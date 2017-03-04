@@ -3,48 +3,54 @@ set nocompatible
 
 call plug#begin('~/.vim/plugged')
 
-Plug 'tpope/vim-sensible'
-Plug 'tpope/vim-surround'
-Plug 'tpope/vim-fugitive'
-Plug 'tpope/vim-commentary'
-Plug 'tpope/vim-sleuth'
-Plug 'bling/vim-airline'
-Plug 'airblade/vim-gitgutter'
-Plug 'morhetz/gruvbox'
-Plug 'Raimondi/delimitMate'
-Plug 'docunext/closetag.vim'
-Plug 'ervandew/supertab'
-Plug 'scrooloose/nerdtree'
-Plug 'vim-scripts/Gundo'
-Plug 'mattn/emmet-vim'
-Plug 'mileszs/ack.vim'
-Plug 'skammer/vim-css-color'
-Plug 'tpope/vim-abolish'
-Plug 'pangloss/vim-javascript'
-Plug 'LaTeX-Box-Team/LaTeX-Box'
-Plug 'bitc/vim-bad-whitespace'
-Plug 'vim-scripts/visualstar.vim'
-Plug 'terryma/vim-multiple-cursors'
-Plug 'fidian/hexmode'
-" \cr to get reference
-Plug 'vim-scripts/CRefVim'
-Plug 'nathanaelkane/vim-indent-guides'
+Plug 'tpope/vim-sensible' "sensible defaults
+Plug 'tpope/vim-surround' "work with parentheses etc.
+Plug 'tpope/vim-fugitive' "allround git plugin
+Plug 'tpope/vim-commentary' "commenting out code
+Plug 'tpope/vim-sleuth' "autodetect indentation and tabs
+Plug 'bling/vim-airline' "pretty status line
+Plug 'airblade/vim-gitgutter' "indicate changed lines
+Plug 'morhetz/gruvbox' "fancy colorscheme
+Plug 'Raimondi/delimitMate' "automatically close delimiters
+Plug 'docunext/closetag.vim' "autoclose html tags
+Plug 'ervandew/supertab' "use tab for autocompletion
+Plug 'scrooloose/nerdtree' "Directory tree
+Plug 'vim-scripts/Gundo' "Undo tree
+Plug 'mattn/emmet-vim' "snippet engine
+Plug 'skammer/vim-css-color' "display css colors in the correct color
+Plug 'pangloss/vim-javascript' "improved javascript highlighting
+Plug 'LaTeX-Box-Team/LaTeX-Box' "improved LaTeX support
+Plug 'bitc/vim-bad-whitespace' "highlight disgusting whitespace
+Plug 'vim-scripts/visualstar.vim' "search for highlighted text with '*'
+Plug 'fidian/hexmode' "Hex-Editor
+Plug 'nathanaelkane/vim-indent-guides' "show indentation levels
 "Lua plugins
-Plug 'xolox/vim-misc'
-"Plug 'xolox/vim-lua-inspect'
-Plug 'godlygeek/tabular'
+Plug 'xolox/vim-misc' "dependency of vim-lua-inspect
+Plug 'xolox/vim-lua-inspect' "lua linting
+
+Plug 'godlygeek/tabular' "lining up text
 Plug 'plasticboy/vim-markdown'
 Plug 'sheerun/vim-polyglot'
+
+Plug 'ctrlpvim/ctrlp.vim' "fuzzy file finder/opener
+Plug 'tpope/vim-dispatch' "asynchronous command execution
+Plug 'scrooloose/syntastic' "syntax checking in many languages
 "Omnisharp
-Plug 'ctrlpvim/ctrlp.vim'
-Plug 'tpope/vim-dispatch'
-Plug 'scrooloose/syntastic'
 Plug 'OmniSharp/Omnisharp-vim'
 
 call plug#end()
 
+"colorscheme
+"let g:gruvbox_italic=1
+let g:gruvbox_contrast_dark="hard"
+let g:gruvbox_improved_warnings=1
+colorscheme gruvbox
+set background=dark
+
 "relative line numbers
 set relativenumber
+
+set termguicolors
 
 "enable and configure IndentGuides
 let g:indent_guides_guide_size = 1
@@ -63,14 +69,13 @@ filetype plugin indent on
 " syntax highlighting
 syntax on
 
+let g:javascript_plugin_jsdoc = 1
+
 "bar at the bottom
 set laststatus=2
 
 " more powerful backspace
 set backspace=indent,eol,start
-
-" colorscheme
-colorscheme torte
 
 " automatic indentation
 set autoindent
@@ -88,6 +93,10 @@ set hlsearch
 set ignorecase
 set smartcase
 set incsearch
+
+"vim-markdown
+let g:vim_markdown_folding_disabled=1
+let g:vim_markdown_conceal=0
 
 " vim omnicompletion
 set omnifunc=syntaxcomplete#Complete
@@ -129,6 +138,7 @@ let g:syntastic_always_populate_loc_list = 1
 let g:syntastic_auto_loc_list = 1
 let g:syntastic_check_on_open = 1
 let g:syntastic_check_on_wq = 0
+let g:syntastic_aggregate_errors = 1
 
 "--------------------------------------------------------
 "omnisharp
