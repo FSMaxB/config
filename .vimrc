@@ -38,10 +38,16 @@ Plug 'scrooloose/syntastic' "syntax checking in many languages
 "Omnisharp
 Plug 'OmniSharp/Omnisharp-vim'
 
+Plug 'critiqjo/lldb.nvim' "lldb debugger
+
 call plug#end()
 
+if has('nvim')
+    set termguicolors
+endif
+
 "colorscheme
-"let g:gruvbox_italic=1
+let g:gruvbox_italic=1
 let g:gruvbox_contrast_dark="hard"
 let g:gruvbox_improved_warnings=1
 colorscheme gruvbox
@@ -49,9 +55,6 @@ set background=dark
 
 "relative line numbers
 set relativenumber
-
-set termguicolors
-
 "enable and configure IndentGuides
 let g:indent_guides_guide_size = 1
 autocmd VimEnter * IndentGuidesEnable
