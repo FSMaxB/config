@@ -47,7 +47,9 @@ if has('nvim')
 endif
 
 "colorscheme
-let g:gruvbox_italic=1
+if ($TERM == "xterm-256color")
+    let g:gruvbox_italic=1
+endif
 let g:gruvbox_contrast_dark="hard"
 let g:gruvbox_improved_warnings=1
 colorscheme gruvbox
