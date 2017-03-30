@@ -31,6 +31,7 @@ hash git 2> /dev/null && git config --global init.templatedir '~/.git_template'
 hash git 2> /dev/null && git config --global ui.color true
 hash git 2> /dev/null && git config --global core.editor vim
 hash git 2> /dev/null && git config --global core.excludesfile ~/.gitignore_global
+hash git 2> /dev/null && git config --global transfer.fsckobjects true
 
 hash vim 2> /dev/null && vim +PlugInstall +qall
 hash vim 2> /dev/null && vim +GitGutterEnable +qall
