@@ -40,6 +40,17 @@ Plug 'OmniSharp/Omnisharp-vim'
 
 Plug 'critiqjo/lldb.nvim' "lldb debugger
 
+Plug 'roxma/nvim-completion-manager' "Completion framework
+if !has('nvim')
+    Plug 'roxma/vim-hug-neovim-rpc' "nvim-completion-manager support for vim8
+endif
+Plug 'roxma/nvim-cm-tern', {'do': 'npm install'} "Javascript completion for nvim-completion-manager
+Plug 'autozimu/LanguageClient-neovim', {'do': ':UpdateRemotePlugins'} "Neovim Language server client implementation
+Plug 'roxma/LanguageServer-php-neovim', {'do': 'composer install && composer run-script parse-stubs'} "PHP completion for nvim-completion-manager
+autocmd FileType php LanguageClientStart
+
+Plug 'rust-lang/rust.vim'
+
 call plug#end()
 
 if has('nvim')
@@ -63,6 +74,8 @@ autocmd VimEnter * IndentGuidesEnable
 
 "keymapping for gundo
 nnoremap <f5> :GundoToggle<cr>
+
+runtime macros/matchit.vim
 
 "Use Ag with ack.vim if available
 if executable('ag')
