@@ -33,11 +33,12 @@ alias cower='cower --color=auto'
 alias tmux='env SHLVL=0 tmux'
 alias codecat='pygmentize -g -O style=colorful'
 alias weather='curl wttr.in'
-alias :q='exit'
 if command_exists rg; then
    alias ag=rg
 fi
+alias :q='exit'
 alias :w='echo This is not vim you idiot!'
+alias :e=vim
 
 function cd {
     if [[ "$1" =~ \.\.*$ ]]; then
