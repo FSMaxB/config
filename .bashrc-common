@@ -17,10 +17,17 @@ else
     alias open='xdg-open'
     alias rmdir='rmdir -v'
 fi
-alias la='ls -a'
-alias ll='ls -l'
-alias lsd='ls -d'
-alias lal="ls -al"
+if command_exists exa; then
+   alias ls='exa'
+   alias ll='exa -l --git'
+   alias lsd='exa -d'
+   alias lal='exa -al'
+else
+   alias la='ls -a'
+   alias ll='ls -l'
+   alias lsd='ls -d'
+   alias lal="ls -al"
+fi
 alias grep='grep --color=auto'
 alias less='less -R'
 alias more='less'
