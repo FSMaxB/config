@@ -44,6 +44,9 @@ alias weather='curl wttr.in'
 if command_exists rg; then
    alias ag=rg
 fi
+if command_exists tokei; then
+   alias loc=tokei
+fi
 alias :q='exit'
 alias :w='echo This is not vim you idiot!'
 alias :e=vim
