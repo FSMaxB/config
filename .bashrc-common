@@ -30,7 +30,6 @@ else
    alias lal="ls -al"
 fi
 alias grep='grep --color=auto'
-alias less='less -R'
 alias more='less'
 alias xz='xz --threads=0'
 alias mv='mv -v'
