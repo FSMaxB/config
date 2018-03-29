@@ -203,6 +203,7 @@ man() {
 }
 
 #environment variables
+export HISTCONTROL=ignorespace
 export VISUAL=vim
 export EDITOR=vim
 export PAGER=less
