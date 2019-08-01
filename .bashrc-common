@@ -185,6 +185,11 @@ if [[ ! -z ${SSH_CLIENT+x} ]]; then
     PROMPT_COLOR="$cbyellow"
 fi
 
+# Enable sccache if it is installed
+if [[ -x "$HOME/.cargo/bin/sccache" ]]; then
+   export RUSTC_WRAPPER="$HOME/.cargo/bin/sccache"
+fi
+
 PS1="$cyellow$(nested)\$? $PROMPT_COLOR\\u@\\h $cbblue\\w $PROMPT_COLOR$cyellow\$(gitbranch)\n$(nested)$PROMPT_LETTER$creset "
 
 #colors in manpages
