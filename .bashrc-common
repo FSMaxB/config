@@ -42,6 +42,8 @@ alias codecat='pygmentize -g -O style=colorful'
 alias weather='curl wttr.in'
 if command_exists rg; then
    alias ag=rg
+elif ! command_exists ag; then
+   alias ag='grep -rHn'
 fi
 if command_exists tokei; then
    alias loc=tokei
