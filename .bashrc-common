@@ -19,9 +19,9 @@ else
 fi
 if command_exists exa; then
    alias ls='exa'
-   alias ll='exa -l --git'
+   alias ll='exa -lg --git'
    alias lsd='exa -d'
-   alias lal='exa -al'
+   alias lal='exa -alg'
    alias tree='exa --tree'
 else
    alias la='ls -a'
