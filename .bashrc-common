@@ -211,7 +211,13 @@ man() {
 
 #environment variables
 export HISTCONTROL=ignorespace
-export VISUAL=vim
-export EDITOR=vim
-export PAGER=less
-CDPATH=".:~"
+if command_exists nvim; then
+   export VISUAL=nvim
+   export EDITOR=nvim
+elif command_exits vim; then
+   export VISUAL=vim
+   export EDITOR=vim
+fi
+if command_exists less; then
+   export PAGER=less
+fi
