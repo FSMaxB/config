@@ -214,7 +214,7 @@ export HISTCONTROL=ignorespace
 if command_exists nvim; then
    export VISUAL=nvim
    export EDITOR=nvim
-elif command_exits vim; then
+elif command_exists vim; then
    export VISUAL=vim
    export EDITOR=vim
 fi
