@@ -36,14 +36,6 @@ de-latin1-nocaps.map.gz
 -----------------------
 de-latin1 keymap for the virtual console with a modification to make CapsLock trigger Escape. Put this in `/usr/share/kbd/keymaps/i386/qwertz/`. You can enable this by writing `KEYMAP=de-latin1-nocaps` to `/etc/vconsole.conf`. The last file may differ depending on the distribution.
 
-.fehbg
-------
-This loads `~/.wallpaper` as the desktop wallpaper. This only works with simple window managers like openbox or i3, don't use this when you use a full desktop environment like GNOME or KDE.
-
-htoprc
-------
-Htop configuration file. Put this in `~/.config/htop/`
-
 .vimrc
 ------
 Vim configuration file. Put this in your home directory. **IMPORTANT:** You also need to put the `.vim` directory in your home and install the plugins with `:PlugInstall` (from inside vim). To additionally enable highlighting changed lines compared to the current git commit, run `:GitGutterEnable`.
