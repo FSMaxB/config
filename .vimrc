@@ -25,11 +25,6 @@ Plug 'thinca/vim-visualstar' "search for highlighted text with '*'
 Plug 'fidian/hexmode' "Hex-Editor
 Plug 'nathanaelkane/vim-indent-guides' "show indentation levels
 
-if executable('luainspect')
-    Plug 'xolox/vim-misc' "dependency of vim-lua-inspect
-    Plug 'xolox/vim-lua-inspect' "lua linting
-endif
-
 Plug 'godlygeek/tabular' "lining up text
 Plug 'plasticboy/vim-markdown'
 Plug 'sheerun/vim-polyglot'
@@ -39,8 +34,6 @@ Plug 'tpope/vim-dispatch' "asynchronous command execution
 Plug 'scrooloose/syntastic' "syntax checking in many languages
 
 if has('nvim') && has('python3')
-    Plug 'arakashic/chromatica.nvim', {'do': ':UpdateRemotePlugins'} "libclang Syntax Highlighting
-    Plug 'autozimu/LanguageClient-neovim', {'do': ':UpdateRemotePlugins'} "Neovim Language server client implementation
     Plug 'ncm2/ncm2' "Neovim Completion Manager 2
     Plug 'roxma/nvim-yarp' "Dependency of ncm2
     Plug 'ncm2/ncm2-ultisnips'
@@ -51,9 +44,6 @@ if has('nvim') && has('python3')
     Plug 'ncm2/ncm2-neoinclude' | Plug 'Shougo/neoinclude.vim'
     if executable('npm')
         Plug 'ncm2/ncm2-tern', {'do': 'npm install'}
-    endif
-    if executable('racer')
-        Plug 'ncm2/ncm2-racer'
     endif
 endif
 
@@ -88,15 +78,7 @@ set relativenumber
 let g:indent_guides_guide_size = 1
 autocmd VimEnter * IndentGuidesEnable
 
-"keymapping for gundo
-nnoremap <f5> :GundoToggle<cr>
-
 runtime macros/matchit.vim
-
-"Use Ag with ack.vim if available
-if executable('ag')
-    let g:ackprg = 'ag --vimgrep'
-endif
 
 filetype plugin indent on
 
