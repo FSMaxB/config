@@ -34,20 +34,7 @@ alias more='less'
 alias xz='xz --threads=0'
 alias mv='mv -v'
 alias rm='rm -v'
-alias rsync='rsync -v --progress'
-alias paste="curl -F c=@- https://ptpb.pw"
-alias cower='cower --color=auto'
 alias tmux='env SHLVL=0 tmux'
-alias codecat='pygmentize -g -O style=colorful'
-alias weather='curl wttr.in'
-if command_exists rg; then
-   alias ag=rg
-elif ! command_exists ag; then
-   alias ag='grep -rHn'
-fi
-if command_exists tokei; then
-   alias loc=tokei
-fi
 alias :q='exit'
 alias :w='echo This is not vim you idiot!'
 alias :e=vim
@@ -151,16 +138,6 @@ function vim() {
         command vim "$@"
     fi
 }
-
-#alias hub github cli as git
-if command_exists hub; then
-   eval "$(hub alias -s)"
-fi
-
-#show fortune cookie if the variable $FORTUNE is set
-if [[ ! -z ${FORTUNE+x} ]]; then
-    cowsay -f tux "$(fortune)";
-fi
 
 #show available disk space
 if [[ ! -z ${FREESPACE+x} ]]; then
