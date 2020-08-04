@@ -101,36 +101,6 @@ function alert() {
     fi
 }
 
-#notifications for long running commands
-if [[ ! -z ${NOTIFICATIONS+x} ]]; then
-    function alert_for_long_command() {
-        local LAST_COMMAND_STATUS=$?
-        local LAST_COMMAND="$(history 1 | awk '{$1=""; print substr($0,2)}')"
-        local FIRST_WORD=${LAST_COMMAND/ */} #first word of the last command
-
-        case "$FIRST_WORD" in #no notifications for some commands
-            vim|nano|tmux|gitk|screen|ssh|gdisk|fdisk|chroot|journalctl|systemd-nspawn|less|man|more|htop)
-                LAST_COMMAND_START=
-                return
-                ;;
-        esac
-
-        local NOTIFICATION_TYPE="success"
-        if [[ ! $LAST_COMMAND_STATUS -eq 0 ]]; then
-            NOTIFICATION_TYPE="error"
-        fi
-        LAST_COMMAND_TIME=$(($(date +%s) - LAST_COMMAND_START)) #calculate time difference
-        if [[ $LAST_COMMAND_TIME -gt 60 ]]; then
-            alert "${LAST_COMMAND_TIME}s: $LAST_COMMAND" "$NOTIFICATION_TYPE"
-        fi
-        LAST_COMMAND_START=
-    }
-
-    export PROMPT_COMMAND=alert_for_long_command
-    LAST_COMMAND_START=
-    trap '[ -z ${LAST_COMMAND_START} ] && LAST_COMMAND_START=$(date +%s)' DEBUG
-fi
-
 function vim() {
     if command_exists nvim; then
         nvim "$@"
@@ -169,7 +139,41 @@ if [[ -x "$HOME/.cargo/bin/sccache" ]]; then
    export RUSTC_WRAPPER="$HOME/.cargo/bin/sccache"
 fi
 
-PS1="$cyellow$(nested)\$? $PROMPT_COLOR\\u@\\h $cbblue\\w $PROMPT_COLOR$cyellow\$(gitbranch)\n$(nested)$PROMPT_LETTER$creset "
+function alert_for_long_command() {
+  local LAST_COMMAND_STATUS=$?
+  local LAST_COMMAND="$(history 1 | awk '{$1=""; print substr($0,2)}')"
+  local FIRST_WORD=${LAST_COMMAND/ */} #first word of the last command
+
+  case "$FIRST_WORD" in #no notifications for some commands
+      vim|nano|tmux|gitk|screen|ssh|gdisk|fdisk|chroot|journalctl|systemd-nspawn|less|man|more|htop)
+          LAST_COMMAND_START=
+          return
+          ;;
+  esac
+
+  local NOTIFICATION_TYPE="success"
+  if [[ ! $LAST_COMMAND_STATUS -eq 0 ]]; then
+      NOTIFICATION_TYPE="error"
+  fi
+  LAST_COMMAND_TIME=$(($(date +%s) - LAST_COMMAND_START)) #calculate time difference
+  if [[ $LAST_COMMAND_TIME -gt 60 ]]; then
+      alert "${LAST_COMMAND_TIME}s: $LAST_COMMAND" "$NOTIFICATION_TYPE"
+  fi
+  LAST_COMMAND_START=
+}
+
+if command_exists starship; then
+   eval "$(starship init bash)"
+else
+   PS1="$cyellow$(nested)\$? $PROMPT_COLOR\\u@\\h $cbblue\\w $PROMPT_COLOR$cyellow\$(gitbranch)\n$(nested)$PROMPT_LETTER$creset "
+   #notifications for long running commands
+   if [[ ! -z ${NOTIFICATIONS+x} ]]; then
+
+       export PROMPT_COMMAND=alert_for_long_command
+       LAST_COMMAND_START=
+       trap '[ -z ${LAST_COMMAND_START} ] && LAST_COMMAND_START=$(date +%s)' DEBUG
+   fi
+fi
 
 #colors in manpages
 man() {

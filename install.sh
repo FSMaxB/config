@@ -16,7 +16,6 @@ for file in ${HOME_FILES[@]}; do
    fi
 done
 
-#install nvim files
 if [[ ! -e ~/.config ]]; then
   mkdir ~/.config
 fi
@@ -26,10 +25,17 @@ fi
 if [[ ! -e ~/.config/nvim/init.vim ]]; then
   ln -s ~/config/.vimrc ~/.config/nvim/init.vim
 fi
+if [[ ! -e ~/.config/starship.toml ]]; then
+  ln -s ~/config/starship.toml ~/.config/starship.toml
+fi
 
 hash git 2> /dev/null && git config --global init.templatedir '~/.git_template'
 hash git 2> /dev/null && git config --global ui.color true
-hash git 2> /dev/null && git config --global core.editor vim
+if hash nvim 2> /dev/null; then
+  hash git 2> /dev/null && git config --global core.editor nvim
+elif hash vim 2> /dev/null; then
+  hash git 2> /dev/null && git config --global core.editor vim
+fi
 hash git 2> /dev/null && git config --global core.excludesfile ~/.gitignore_global
 hash git 2> /dev/null && git config --global transfer.fsckobjects true
 

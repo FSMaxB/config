@@ -1,0 +1,19 @@
+add_newline = false
+
+[character]
+symbol = "$"
+use_symbol_for_status = true
+style_success = "fg:yellow"
+
+[directory]
+truncation_length = 100
+style = "bold fg:blue"
+prefix = ""
+
+[username]
+style_user = 'bold fg:green'
+show_always = true
+
+[hostname]
+ssh_only = false
+style = "bold fg:green"
