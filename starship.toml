@@ -3,8 +3,6 @@ add_newline = false
 [character]
 success_symbol = "[\\$](bold yellow)"
 error_symbol = "[\\$](bold yellow)"
-use_symbol_for_status = true
-style_success = "fg:yellow"
 
 [directory]
 truncation_length = 100
@@ -23,7 +21,13 @@ format = "[$hostname]($style) "
 
 [shlvl]
 disabled = false
+threshold = 1
 
 [status]
 disabled = false
 format = "[$status ]($style)"
+
+[cmd_duration]
+min_time = 0
+format = "([$duration]($style))"
+show_notifications = true
