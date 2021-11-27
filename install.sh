@@ -28,6 +28,10 @@ fi
 if [[ ! -e ~/.config/starship.toml ]]; then
   ln -s ~/config/starship.toml ~/.config/starship.toml
 fi
+if [[ ! -e ~/.config/alacritty/alacritty.yml ]]; then
+  mkdir -p ~/.config/alacritty
+  ln -s ~/config/alacritty.yml ~/.config/alacritty/alacritty.yml
+fi
 
 hash git 2> /dev/null && git config --global init.templatedir '~/.git_template'
 hash git 2> /dev/null && git config --global ui.color true
