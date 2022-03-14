@@ -31,3 +31,7 @@ format = "[$status ]($style)"
 min_time = 0
 format = "([$duration]($style))"
 show_notifications = true
+notification_timeout = 60000
+
+[docker_context]
+disabled = true
