@@ -53,55 +53,9 @@ function cd {
     fi
 }
 
-function gitbranch {
-    if [[ ! -z ${GITBRANCH+x} ]]; then
-        git branch --no-color 2> /dev/null | sed -e '/^[^*]/d' -e 's/* \(.*\)/(\1)/'
-    fi
-}
-
 #run a program detached from the current terminal
 function detach() {
     nohup "$@" > /dev/null &
-}
-
-#create a prompt that shows the number of nested shells
-#1 nested shell: >
-#2 nested shells: -> and so on
-function nested() {
-    NESTED_PROMPT=''
-    if [[ $SHLVL -ge 2 ]]; then
-        for (( i=0; i<SHLVL-2; i++ )); do
-            NESTED_PROMPT="${NESTED_PROMPT}-"
-        done
-        echo "$NESTED_PROMPT> "
-    fi
-}
-
-#remove alert alias ( for ubuntu )
-unalias alert 2> /dev/null
-#send a desktop notification
-# the first argument is the message
-# the second argument is the mode
-function alert() {
-    local NOTIFY_ICON=terminal
-    case "$2" in
-        success)
-            NOTIFY_ICON=terminal
-            ;;
-        error)
-            NOTIFY_ICON=error
-            ;;
-        *)
-            NOTIFY_ICON=terminal
-        ;;
-    esac
-    if command_exists notify-send; then
-        notify-send "$1" -u low -i "$NOTIFY_ICON"
-    elif command_exists osascript; then #notification on Mac OS X
-        osascript -e "display notification \"$1\" with title \"$2\""
-    else
-        echo -e '\a'
-    fi
 }
 
 function vim() {
@@ -112,70 +66,15 @@ function vim() {
     fi
 }
 
-#show available disk space
-if [[ ! -z ${FREESPACE+x} ]]; then
-    if [[ $(uname) == "Darwin" ]]; then
-        df -hlt | head -n 1
-        df -hlt | grep --color=never -E "/dev/sd|/dev/mapper|/dev/root|/dev/mmcblk|/dev/vd|/dev/disk|/dev/rdisk"
-    else
-        df -hlT | head -n 1      #display first line of df ( table header )
-        df -hlT | grep --color=never -E "/dev/sd|/dev/mapper|/dev/root|/dev/mmcblk|/dev/vd|/dev/disk|/dev/rdisk"
-    fi
-fi
-
-#detect root
-if [ $EUID -eq 0 ]; then
-    PROMPT_LETTER='#'
-    PROMPT_COLOR="$cbred"
-else
-    PROMPT_LETTER='$'
-    PROMPT_COLOR="$cbgreen"
-fi
-
-#logged in via ssh? If yes, change color to yellow
-if [[ ! -z ${SSH_CLIENT+x} ]]; then
-    PROMPT_COLOR="$cbyellow"
-fi
-
 # Enable sccache if it is installed
 if [[ -x "$HOME/.cargo/bin/sccache" ]]; then
    export RUSTC_WRAPPER="$HOME/.cargo/bin/sccache"
 fi
 
-function alert_for_long_command() {
-  local LAST_COMMAND_STATUS=$?
-  local LAST_COMMAND="$(history 1 | awk '{$1=""; print substr($0,2)}')"
-  local FIRST_WORD=${LAST_COMMAND/ */} #first word of the last command
-
-  case "$FIRST_WORD" in #no notifications for some commands
-      vim|nano|tmux|gitk|screen|ssh|gdisk|fdisk|chroot|journalctl|systemd-nspawn|less|man|more|htop)
-          LAST_COMMAND_START=
-          return
-          ;;
-  esac
-
-  local NOTIFICATION_TYPE="success"
-  if [[ ! $LAST_COMMAND_STATUS -eq 0 ]]; then
-      NOTIFICATION_TYPE="error"
-  fi
-  LAST_COMMAND_TIME=$(($(date +%s) - LAST_COMMAND_START)) #calculate time difference
-  if [[ $LAST_COMMAND_TIME -gt 60 ]]; then
-      alert "${LAST_COMMAND_TIME}s: $LAST_COMMAND" "$NOTIFICATION_TYPE"
-  fi
-  LAST_COMMAND_START=
-}
-
 if command_exists starship; then
    eval "$(starship init bash)"
 else
-   PS1="$cyellow$(nested)\$? $PROMPT_COLOR\\u@\\h $cbblue\\w $PROMPT_COLOR$cyellow\$(gitbranch)\n$(nested)$PROMPT_LETTER$creset "
-   #notifications for long running commands
-   if [[ ! -z ${NOTIFICATIONS+x} ]]; then
-
-       export PROMPT_COMMAND=alert_for_long_command
-       LAST_COMMAND_START=
-       trap '[ -z ${LAST_COMMAND_START} ] && LAST_COMMAND_START=$(date +%s)' DEBUG
-   fi
+   echo "WARNING: starship binary missing for this platform"
 fi
 
 #colors in manpages
