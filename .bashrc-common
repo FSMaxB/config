@@ -1,6 +1,9 @@
 #load color codes
 source ~/.ansi-colors
 
+# Custom binaries
+export PATH="${PATH}:~/config/binaries/$(uname -s)/$(uname -m)/"
+
 #check if $1 exists
 function command_exists() {
    hash "$1" 2> /dev/null
