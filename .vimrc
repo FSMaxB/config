@@ -3,7 +3,9 @@ set nocompatible
 
 call plug#begin('~/.vim/plugged')
 
-if !has('nvim')
+if has('nvim')
+    Plug 'nvim-treesitter/nvim-treesitter', {'do': ':TSUpdates'}
+else
     Plug 'tpope/vim-sensible' "sensible defaults
 endif
 
@@ -18,34 +20,15 @@ Plug 'Raimondi/delimitMate' "automatically close delimiters
 Plug 'alvan/vim-closetag' "autoclose html tags
 Plug 'ervandew/supertab' "use tab for autocompletion
 Plug 'scrooloose/nerdtree' "Directory tree
-Plug 'mattn/emmet-vim' "snippet engine
-Plug 'pangloss/vim-javascript' "improved javascript highlighting
 Plug 'bitc/vim-bad-whitespace' "highlight disgusting whitespace
 Plug 'thinca/vim-visualstar' "search for highlighted text with '*'
 Plug 'fidian/hexmode' "Hex-Editor
 Plug 'nathanaelkane/vim-indent-guides' "show indentation levels
 
 Plug 'godlygeek/tabular' "lining up text
-Plug 'plasticboy/vim-markdown'
-Plug 'sheerun/vim-polyglot'
 
 Plug 'ctrlpvim/ctrlp.vim' "fuzzy file finder/opener
 Plug 'tpope/vim-dispatch' "asynchronous command execution
-Plug 'scrooloose/syntastic' "syntax checking in many languages
-
-if has('nvim') && has('python3')
-    Plug 'ncm2/ncm2' "Neovim Completion Manager 2
-    Plug 'roxma/nvim-yarp' "Dependency of ncm2
-    Plug 'ncm2/ncm2-ultisnips'
-    Plug 'SirVer/ultisnips'
-    Plug 'ncm2/ncm2-tmux' "autocompletion from tmux
-    Plug 'ncm2/ncm2-path' "autocompletion from file paths
-    Plug 'ncm2/ncm2-bufword' "autocomplete words from buffers
-    Plug 'ncm2/ncm2-neoinclude' | Plug 'Shougo/neoinclude.vim'
-    if executable('npm')
-        Plug 'ncm2/ncm2-tern', {'do': 'npm install'}
-    endif
-endif
 
 Plug 'machakann/vim-highlightedyank'
 Plug 'editorconfig/editorconfig-vim'
@@ -55,12 +38,6 @@ call plug#end()
 if has('nvim')
     set termguicolors
     set inccommand=nosplit
-    let g:chromatica#enable_at_startup=1
-
-    if has('python3')
-        autocmd BufEnter * call ncm2#enable_for_buffer()
-        set completeopt=noinsert,menuone,noselect
-    endif
 endif
 
 "colorscheme
@@ -108,13 +85,6 @@ set ignorecase
 set smartcase
 set incsearch
 
-"vim-markdown
-let g:vim_markdown_folding_disabled=1
-let g:vim_markdown_conceal=0
-
-" vim omnicompletion
-set omnifunc=syntaxcomplete#Complete
-
 " show row an column
 set ruler
 
@@ -144,25 +114,9 @@ set listchars=tab:·\ ,extends:>,precedes:<,nbsp:+
 "enable xorg clipboard for normal copy and paste!
 set clipboard+=unnamedplus
 
-"syntastic
-set statusline+=%#warningmsg#
-set statusline+=%{SyntasticStatuslineFlag()}
-set statusline+=%*
-let g:syntastic_always_populate_loc_list = 1
-let g:syntastic_auto_loc_list = 1
-let g:syntastic_check_on_open = 1
-let g:syntastic_check_on_wq = 0
-let g:syntastic_aggregate_errors = 1
-let g:syntastic_cpp_compiler_options="--std=c++17"
-
 "Move the preview window (code documentation) to the bottom of the screen, so it doesn't move the code!
 "You might also want to look at the echodoc plugin
 set splitbelow
-
-" Get Code Issues and syntax errors
-let g:syntastic_cs_checkers = ['syntax', 'semantic', 'issues']
-" If you are using the omnisharp-roslyn backend, use the following
-" let g:syntastic_cs_checkers = ['code_checker']
 
 " this setting controls how long to wait (in ms) before fetching type / symbol information.
 set updatetime=500
