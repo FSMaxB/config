@@ -4,9 +4,12 @@ set nocompatible
 call plug#begin('~/.vim/plugged')
 
 if has('nvim')
-    Plug 'nvim-treesitter/nvim-treesitter', {'do': ':TSUpdates'}
+    Plug 'nvim-treesitter/nvim-treesitter', {'do': ':TSUpdate'}
+    Plug 'neovim/nvim-lspconfig'
+    Plug 'nvim-telescope/telescope.nvim'
 else
     Plug 'tpope/vim-sensible' "sensible defaults
+    Plug 'ctrlpvim/ctrlp.vim' "fuzzy file finder/opener
 endif
 
 Plug 'tpope/vim-surround' "work with parentheses etc.
@@ -27,7 +30,6 @@ Plug 'nathanaelkane/vim-indent-guides' "show indentation levels
 
 Plug 'godlygeek/tabular' "lining up text
 
-Plug 'ctrlpvim/ctrlp.vim' "fuzzy file finder/opener
 Plug 'tpope/vim-dispatch' "asynchronous command execution
 
 Plug 'machakann/vim-highlightedyank'
