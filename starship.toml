@@ -35,3 +35,6 @@ notification_timeout = 60000
 
 [docker_context]
 disabled = true
+
+[sudo]
+disabled = false
