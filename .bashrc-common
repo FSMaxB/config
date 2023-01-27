@@ -46,6 +46,10 @@ if command_exists zellij; then
     alias tmux='zellij'
 fi
 
+if command_exists bat; then
+    alias less='bat --paging=always'
+fi
+
 function cd {
     if [[ "$1" =~ \.\.*$ ]]; then
         # cd ... to go 2 higher, cd .... to go 3 higher and so on
