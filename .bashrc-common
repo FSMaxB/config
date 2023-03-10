@@ -50,6 +50,11 @@ if command_exists bat; then
     alias less='bat --paging=always'
 fi
 
+if [[ ! -z "${DISTROBOX_ENTER_PATH}" ]]; then
+    alias podman='distrobox-host-exec podman'
+fi
+
+
 function cd {
     if [[ "$1" =~ \.\.*$ ]]; then
         # cd ... to go 2 higher, cd .... to go 3 higher and so on
