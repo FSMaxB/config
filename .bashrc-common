@@ -20,7 +20,13 @@ else
     alias open='xdg-open'
     alias rmdir='rmdir -v'
 fi
-if command_exists exa; then
+if command_exists eza; then
+   alias ls='eza'
+   alias ll='eza -lg --git'
+   alias lsd='eza -d'
+   alias lal='eza -alg'
+   alias tree='eza --tree'
+elif command_exists exa; then
    alias ls='exa'
    alias ll='exa -lg --git'
    alias lsd='exa -d'
