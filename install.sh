@@ -32,6 +32,10 @@ if [[ ! -e ~/.config/alacritty/alacritty.yml ]]; then
   mkdir -p ~/.config/alacritty
   ln -s ~/config/alacritty.yml ~/.config/alacritty/alacritty.yml
 fi
+if [[ ! -e ~/.config/helix/config.toml ]]; then
+  mkdir -p ~/.config/helix
+  ln -s ~/config/helix-config.toml ~/.config/helix/config.toml
+fi
 
 hash git 2> /dev/null && git config --global init.templatedir '~/.git_template'
 hash git 2> /dev/null && git config --global ui.color true
