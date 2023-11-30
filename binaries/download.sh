@@ -2,7 +2,7 @@
 
 set -euxo pipefail
 
-STARSHIP_VERSION="1.9.1"
+STARSHIP_VERSION="1.16.0"
 
 function download() {
 	local PLATFORM="$1"
