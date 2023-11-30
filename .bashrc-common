@@ -2,7 +2,7 @@
 source ~/.ansi-colors
 
 # Custom binaries
-export PATH="${PATH}:~/config/binaries/$(uname -s)/$(uname -m)/"
+export PATH="${PATH}:$HOME/config/binaries/$(uname -s)/$(uname -m)/"
 
 #check if $1 exists
 function command_exists() {
