@@ -28,9 +28,9 @@ fi
 if [[ ! -e ~/.config/starship.toml ]]; then
   ln -s ~/config/starship.toml ~/.config/starship.toml
 fi
-if [[ ! -e ~/.config/alacritty/alacritty.yml ]]; then
+if [[ ! -e ~/.config/alacritty/alacritty.toml ]]; then
   mkdir -p ~/.config/alacritty
-  ln -s ~/config/alacritty.yml ~/.config/alacritty/alacritty.yml
+  ln -s ~/config/alacritty.toml ~/.config/alacritty/alacritty.toml
 fi
 if [[ ! -e ~/.config/helix/config.toml ]]; then
   mkdir -p ~/.config/helix
