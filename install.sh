@@ -46,6 +46,8 @@ elif hash vim 2> /dev/null; then
 fi
 hash git 2> /dev/null && git config --global core.excludesfile ~/.gitignore_global
 hash git 2> /dev/null && git config --global transfer.fsckobjects true
+hash git 2> /dev/null && git config --global rerere.enabled true
+hash git 2> /dev/null && git config --global push.autoSetupRemote true
 
 hash vim 2> /dev/null && vim +PlugInstall +qall
 hash vim 2> /dev/null && vim +GitGutterEnable +qall
