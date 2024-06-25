@@ -33,8 +33,18 @@ format = "([$duration]($style))"
 show_notifications = true
 notification_timeout = 60000
 
-[docker_context]
-disabled = true
-
 [sudo]
 disabled = false
+
+[localip]
+disabled = false
+
+[memory_usage]
+disabled = false
+
+[time]
+disabled = false
+style = "green"
+format = '[$time]($style) '
+time_format = "%R"
+
