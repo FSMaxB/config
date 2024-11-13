@@ -48,6 +48,7 @@ hash git 2> /dev/null && git config --global core.excludesfile ~/.gitignore_glob
 hash git 2> /dev/null && git config --global transfer.fsckobjects true
 hash git 2> /dev/null && git config --global rerere.enabled true
 hash git 2> /dev/null && git config --global push.autoSetupRemote true
+hash git 2> /dev/null && git config --global init.defaultBranch main
 
 hash vim 2> /dev/null && vim +PlugInstall +qall
 hash vim 2> /dev/null && vim +GitGutterEnable +qall
