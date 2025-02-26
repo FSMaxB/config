@@ -49,6 +49,11 @@ hash git 2> /dev/null && git config --global transfer.fsckobjects true
 hash git 2> /dev/null && git config --global rerere.enabled true
 hash git 2> /dev/null && git config --global push.autoSetupRemote true
 hash git 2> /dev/null && git config --global init.defaultBranch main
+# https://blog.gitbutler.com/how-git-core-devs-configure-git/
+hash git 2> /dev/null && git config --global diff.algorithm histogram
+hash git 2> /dev/null && git config --global diff.colorMoved plain
+hash git 2> /dev/null && git config --global diff.renames true
+hash git 2> /dev/null && git config --global merge.conflictstyle zdiff3
 
 hash vim 2> /dev/null && vim +PlugInstall +qall
 hash vim 2> /dev/null && vim +GitGutterEnable +qall
