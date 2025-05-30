@@ -36,6 +36,10 @@ if [[ ! -e ~/.config/helix/config.toml ]]; then
   mkdir -p ~/.config/helix
   ln -s ~/config/helix-config.toml ~/.config/helix/config.toml
 fi
+if [[ ! -e ~/.config/atuin/config.toml ]]; then
+  mkdir -p ~/.config/atuin
+  ln -s ~/config/atuin-config.toml ~/.config/atuin/config.toml
+fi
 
 hash git 2> /dev/null && git config --global init.templatedir '~/.git_template'
 hash git 2> /dev/null && git config --global ui.color true
