@@ -21,7 +21,6 @@ return {
 			vim.keymap.set("x", "S", [[:<C-u>lua MiniSurround.add('visual')<CR>]], { silent = true })
 		end,
 	},
-	{ "tpope/vim-commentary" },
 	{ "tpope/vim-sleuth" },
 	{ "Raimondi/delimitMate" },
 	{ "alvan/vim-closetag" },
