@@ -19,7 +19,16 @@ return {
 		},
 		opts = {},
 	},
-	{ "bitc/vim-bad-whitespace" },
+	{
+		"echasnovski/mini.trailspace",
+		event = { "BufReadPre", "BufNewFile" },
+		config = function()
+			require("mini.trailspace").setup()
+			vim.keymap.set("n", "<leader>cw", function()
+				require("mini.trailspace").trim()
+			end, { desc = "Trim trailing whitespace" })
+		end,
+	},
 	{
 		"nathanaelkane/vim-indent-guides",
 		init = function()
