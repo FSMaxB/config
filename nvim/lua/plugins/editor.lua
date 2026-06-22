@@ -23,7 +23,6 @@ return {
 	},
 	{ "tpope/vim-sleuth" },
 	{ "windwp/nvim-autopairs", event = "InsertEnter", opts = {} },
-	{ "alvan/vim-closetag" },
 	{ "thinca/vim-visualstar" },
 	{ "godlygeek/tabular" },
 	{ "machakann/vim-highlightedyank" },
