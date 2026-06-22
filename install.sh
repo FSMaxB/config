@@ -8,9 +8,11 @@ fi
 HOME_FILES=( .ansi-colors .bashrc-common .tmux.conf .vimrc .vim .git_template .gitignore_global )
 
 
-for file in ${HOME_FILES[@]}; do
-   if [[ ! -e ~/$file ]]; then
-      ln -sv ~/config/$file ~/$file
+for file in "${HOME_FILES[@]}"; do
+   if [[ -L ~/$file || ! -e ~/$file ]]; then
+      # Re-point symlinks we own (this self-heals after ~/config is moved),
+      # but never clobber a real file the user already has there.
+      ln -sfnv ~/config/$file ~/$file
    else
       echo ~/$file already exists, omitting
    fi
