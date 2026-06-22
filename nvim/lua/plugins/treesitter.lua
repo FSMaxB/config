@@ -1,36 +1,39 @@
 return {
 	{
 		"nvim-treesitter/nvim-treesitter",
-		-- pin to the classic master branch; the new default `main` branch is a
-		-- rewrite that drops the nvim-treesitter.configs setup API used below.
-		branch = "master",
+		branch = "main",
+		lazy = false,
 		build = ":TSUpdate",
 		dependencies = {
-			{ "nvim-treesitter/nvim-treesitter-textobjects", branch = "master" },
+			{ "nvim-treesitter/nvim-treesitter-textobjects", branch = "main" },
 		},
-		main = "nvim-treesitter.configs",
-		opts = {
-			ensure_installed = {
+		config = function()
+			require("nvim-treesitter").install({
 				"rust", "c", "cpp", "lua", "bash", "python", "json", "yaml", "toml", "starlark",
 				"javascript", "typescript", "tsx", "html", "css", "markdown", "markdown_inline",
 				"vim", "vimdoc", "diff", "gitcommit", "git_config", "query",
-			},
-			highlight = { enable = true },
-			indent = { enable = true },
-			incremental_selection = { enable = true },
-			textobjects = {
-				select = {
-					enable = true,
-					lookahead = true,
-					keymaps = {
-						["af"] = "@function.outer",
-						["if"] = "@function.inner",
-						["ac"] = "@class.outer",
-						["ic"] = "@class.inner",
-					},
-				},
-			},
-		},
+			})
+
+			-- start treesitter highlighting for any buffer whose parser is installed
+			vim.api.nvim_create_autocmd("FileType", {
+				callback = function(ev)
+					local lang = vim.treesitter.language.get_lang(vim.bo[ev.buf].filetype)
+					if lang then
+						pcall(vim.treesitter.start, ev.buf, lang)
+					end
+				end,
+			})
+
+			-- textobjects: af/if (function) and ac/ic (class)
+			require("nvim-treesitter-textobjects").setup({ select = { lookahead = true } })
+			local select = require("nvim-treesitter-textobjects.select").select_textobject
+			local objects = { af = "@function.outer", ["if"] = "@function.inner", ac = "@class.outer", ic = "@class.inner" }
+			for lhs, obj in pairs(objects) do
+				vim.keymap.set({ "x", "o" }, lhs, function()
+					select(obj, "textobjects")
+				end, { desc = "TS select " .. obj })
+			end
+		end,
 	},
 	{ "windwp/nvim-ts-autotag", event = "VeryLazy", opts = {} },
 }
