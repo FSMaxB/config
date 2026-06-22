@@ -24,6 +24,5 @@ return {
 	{ "tpope/vim-sleuth" },
 	{ "windwp/nvim-autopairs", event = "InsertEnter", opts = {} },
 	{ "echasnovski/mini.align", event = "VeryLazy", opts = {} },
-	{ "machakann/vim-highlightedyank" },
 	{ "editorconfig/editorconfig-vim" },
 }
