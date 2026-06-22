@@ -25,4 +25,15 @@ return {
 	{ "windwp/nvim-autopairs", event = "InsertEnter", opts = {} },
 	{ "echasnovski/mini.align", event = "VeryLazy", opts = {} },
 	{ "folke/which-key.nvim", event = "VeryLazy", opts = {} },
+	{
+		"folke/flash.nvim",
+		event = "VeryLazy",
+		opts = {},
+		-- s/S only in normal/visual: keeps operator-pending free for the tpope
+		-- surround sequences (ds/cs/ys) and visual S for surround.
+		keys = {
+			{ "s", mode = { "n", "x" }, function() require("flash").jump() end, desc = "Flash jump" },
+			{ "S", mode = "n", function() require("flash").treesitter() end, desc = "Flash Treesitter" },
+		},
+	},
 }
