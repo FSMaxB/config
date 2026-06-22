@@ -42,7 +42,7 @@ if [[ ! -e ~/.config/atuin/config.toml ]]; then
 fi
 
 hash git 2> /dev/null && git config --global init.templatedir '~/.git_template'
-hash git 2> /dev/null && git config --global ui.color true
+hash git 2> /dev/null && git config --global color.ui true
 if hash nvim 2> /dev/null; then
   hash git 2> /dev/null && git config --global core.editor nvim
 elif hash vim 2> /dev/null; then
