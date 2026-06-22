@@ -36,3 +36,10 @@ cbgcyan='\[\e[46m\]'     #Cyan
 cbgwhite='\[\e[47m\]'    #White
 
 creset='\[\e[0m\]'       #TextReset
+
+# Raw SGR escape sequences (no PS1 \[ \] wrappers). Use these outside of the
+# prompt, e.g. for LESS_TERMCAP-colored man pages.
+e_reset='\e[0m'          #TextReset
+e_bred='\e[1;31m'        #Bold Red
+e_bgreen='\e[1;32m'      #Bold Green
+e_standout='\e[1;44;33m' #Bold Yellow on Blue
