@@ -22,7 +22,7 @@ return {
 		end,
 	},
 	{ "tpope/vim-sleuth" },
-	{ "Raimondi/delimitMate" },
+	{ "windwp/nvim-autopairs", event = "InsertEnter", opts = {} },
 	{ "alvan/vim-closetag" },
 	{ "thinca/vim-visualstar" },
 	{ "godlygeek/tabular" },
