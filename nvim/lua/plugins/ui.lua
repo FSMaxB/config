@@ -1,5 +1,11 @@
 return {
-	{ "bling/vim-airline" },
+	{
+		"nvim-lualine/lualine.nvim",
+		dependencies = { "nvim-tree/nvim-web-devicons" },
+		opts = {
+			options = { theme = "gruvbox", globalstatus = true },
+		},
+	},
 	{ "scrooloose/nerdtree" },
 	{ "bitc/vim-bad-whitespace" },
 	{
