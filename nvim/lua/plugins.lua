@@ -5,7 +5,7 @@ return {
 		lazy = false,
 		priority = 1000,
 		init = function()
-			if vim.env.TERM == "xterm-256color" then vim.g.gruvbox_italic = 1 end
+			vim.g.gruvbox_italic = 1
 			vim.g.gruvbox_contrast_dark = "hard"
 			vim.g.gruvbox_improved_warnings = 1
 		end,
