@@ -55,7 +55,10 @@ set background=dark
 set relativenumber
 "enable and configure IndentGuides
 let g:indent_guides_guide_size = 1
-autocmd VimEnter * IndentGuidesEnable
+augroup vimrc_indent_guides
+    autocmd!
+    autocmd VimEnter * IndentGuidesEnable
+augroup END
 
 runtime macros/matchit.vim
 
