@@ -16,11 +16,17 @@ return {
 					"lua_ls", "bashls", "pyright", "jsonls", "yamlls",
 					"taplo", "vtsls", "html", "cssls", "starpls",
 				},
-				automatic_enable = true,
+				-- don't auto-enable every mason package: that also turns formatter tools
+				-- with an --lsp mode (stylua, ruff) into redundant LSP clients.
+				automatic_enable = false,
 			})
 
-			-- system binaries already on PATH (toolchain-matched), not installed by mason
-			vim.lsp.enable({ "rust_analyzer", "clangd" })
+			-- enable exactly the servers we want (rust_analyzer + clangd from the system PATH)
+			vim.lsp.enable({
+				"rust_analyzer", "clangd",
+				"lua_ls", "bashls", "pyright", "jsonls", "yamlls",
+				"taplo", "vtsls", "html", "cssls", "starpls",
+			})
 
 			vim.lsp.config("lua_ls", {
 				settings = {
