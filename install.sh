@@ -65,5 +65,5 @@ hash vim 2> /dev/null && vim +GitGutterEnable +qall
 
 echo Enable the bash config by adding the following to your ~/.bashrc:
 echo GITBRANCH=''
-echo source ~/.bashrc-config
+echo source ~/.bashrc-common
 
