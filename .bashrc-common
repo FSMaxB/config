@@ -62,7 +62,7 @@ fi
 
 
 function cd {
-    if [[ "$1" =~ \.\.*$ ]]; then
+    if [[ "$1" =~ ^\.\.+$ ]]; then
         # cd ... to go 2 higher, cd .... to go 3 higher and so on
         for (( i=0; i<${#1}-1; i++ )); do
             builtin cd .. 1> /dev/null
@@ -98,15 +98,15 @@ fi
 
 #colors in manpages
 man() {
-            #TODO: use color codes from .ansi-colors
+            # Colors sourced from ~/.ansi-colors (see the raw e_* sequences)
             env \
-                    LESS_TERMCAP_mb="$(printf "\e[1;31m")" \
-                    LESS_TERMCAP_md="$(printf "\e[1;31m")" \
-                    LESS_TERMCAP_me="$(printf "\e[0m")" \
-                    LESS_TERMCAP_se="$(printf "\e[0m")" \
-                    LESS_TERMCAP_so="$(printf "\e[1;44;33m")" \
-                    LESS_TERMCAP_ue="$(printf "\e[0m")" \
-                    LESS_TERMCAP_us="$(printf "\e[1;32m")" \
+                    LESS_TERMCAP_mb="$(printf '%b' "$e_bred")" \
+                    LESS_TERMCAP_md="$(printf '%b' "$e_bred")" \
+                    LESS_TERMCAP_me="$(printf '%b' "$e_reset")" \
+                    LESS_TERMCAP_se="$(printf '%b' "$e_reset")" \
+                    LESS_TERMCAP_so="$(printf '%b' "$e_standout")" \
+                    LESS_TERMCAP_ue="$(printf '%b' "$e_reset")" \
+                    LESS_TERMCAP_us="$(printf '%b' "$e_bgreen")" \
                     LANG='' \
                             man "$@"
 }
