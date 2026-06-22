@@ -43,23 +43,25 @@ if [[ ! -e ~/.config/atuin/config.toml ]]; then
   ln -s ~/config/atuin-config.toml ~/.config/atuin/config.toml
 fi
 
-hash git 2> /dev/null && git config --global init.templatedir '~/.git_template'
-hash git 2> /dev/null && git config --global color.ui true
-if hash nvim 2> /dev/null; then
-  hash git 2> /dev/null && git config --global core.editor nvim
-elif hash vim 2> /dev/null; then
-  hash git 2> /dev/null && git config --global core.editor vim
+if hash git 2> /dev/null; then
+  git config --global init.templatedir '~/.git_template'
+  git config --global color.ui true
+  if hash nvim 2> /dev/null; then
+    git config --global core.editor nvim
+  elif hash vim 2> /dev/null; then
+    git config --global core.editor vim
+  fi
+  git config --global core.excludesfile ~/.gitignore_global
+  git config --global transfer.fsckobjects true
+  git config --global rerere.enabled true
+  git config --global push.autoSetupRemote true
+  git config --global init.defaultBranch main
+  # https://blog.gitbutler.com/how-git-core-devs-configure-git/
+  git config --global diff.algorithm histogram
+  git config --global diff.colorMoved plain
+  git config --global diff.renames true
+  git config --global merge.conflictstyle zdiff3
 fi
-hash git 2> /dev/null && git config --global core.excludesfile ~/.gitignore_global
-hash git 2> /dev/null && git config --global transfer.fsckobjects true
-hash git 2> /dev/null && git config --global rerere.enabled true
-hash git 2> /dev/null && git config --global push.autoSetupRemote true
-hash git 2> /dev/null && git config --global init.defaultBranch main
-# https://blog.gitbutler.com/how-git-core-devs-configure-git/
-hash git 2> /dev/null && git config --global diff.algorithm histogram
-hash git 2> /dev/null && git config --global diff.colorMoved plain
-hash git 2> /dev/null && git config --global diff.renames true
-hash git 2> /dev/null && git config --global merge.conflictstyle zdiff3
 
 hash vim 2> /dev/null && vim +PlugInstall +qall
 hash vim 2> /dev/null && vim +GitGutterEnable +qall
