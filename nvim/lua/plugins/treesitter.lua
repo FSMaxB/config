@@ -1,8 +1,13 @@
 return {
 	{
 		"nvim-treesitter/nvim-treesitter",
+		-- pin to the classic master branch; the new default `main` branch is a
+		-- rewrite that drops the nvim-treesitter.configs setup API used below.
+		branch = "master",
 		build = ":TSUpdate",
-		dependencies = { "nvim-treesitter/nvim-treesitter-textobjects" },
+		dependencies = {
+			{ "nvim-treesitter/nvim-treesitter-textobjects", branch = "master" },
+		},
 		main = "nvim-treesitter.configs",
 		opts = {
 			ensure_installed = {
