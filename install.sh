@@ -18,14 +18,13 @@ for file in "${HOME_FILES[@]}"; do
    fi
 done
 
-if [[ ! -e ~/.config ]]; then
-  mkdir ~/.config
-fi
-if [[ ! -e ~/.config/nvim ]]; then
-  ln -s ~/config/.vim ~/.config/nvim
-fi
-if [[ ! -e ~/.config/nvim/init.vim ]]; then
-  ln -s ~/config/.vimrc ~/.config/nvim/init.vim
+mkdir -p ~/.config
+if [[ -L ~/.config/nvim || ! -e ~/.config/nvim ]]; then
+   # Re-point the symlink we own (self-heals the old ~/.config/nvim -> .vim link),
+   # but never clobber a real directory the user already has there.
+   ln -sfnv ~/config/nvim ~/.config/nvim
+else
+   echo ~/.config/nvim already exists, omitting
 fi
 if [[ ! -e ~/.config/starship.toml ]]; then
   ln -s ~/config/starship.toml ~/.config/starship.toml
@@ -65,6 +64,7 @@ fi
 
 hash vim 2> /dev/null && vim +PlugInstall +qall
 hash vim 2> /dev/null && vim +GitGutterEnable +qall
+hash nvim 2> /dev/null && nvim --headless "+Lazy! sync" +qa
 
 
 echo Enable the bash config by adding the following to your ~/.bashrc:
