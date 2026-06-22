@@ -4,8 +4,12 @@ return {
 		dependencies = {
 			{ "mason-org/mason.nvim", opts = {} },
 			"mason-org/mason-lspconfig.nvim",
+			"saghen/blink.cmp",
 		},
 		config = function()
+			-- advertise blink.cmp's completion capabilities to every server
+			vim.lsp.config("*", { capabilities = require("blink.cmp").get_lsp_capabilities() })
+
 			require("mason-lspconfig").setup({
 				-- mason installs these; rust_analyzer + clangd come from the system toolchain.
 				ensure_installed = {
