@@ -2,7 +2,7 @@
 
 set -euxo pipefail
 
-STARSHIP_VERSION="1.16.0"
+STARSHIP_VERSION="1.25.1"
 BASE_URL="https://github.com/starship/starship/releases/download/v${STARSHIP_VERSION}"
 
 function download() {
