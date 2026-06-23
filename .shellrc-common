@@ -61,16 +61,18 @@ if [[ ! -z "${DISTROBOX_ENTER_PATH}" ]]; then
 fi
 
 
-function cd {
-    if [[ "$1" =~ ^\.\.+$ ]]; then
-        # cd ... to go 2 higher, cd .... to go 3 higher and so on
-        for (( i=0; i<${#1}-1; i++ )); do
-            builtin cd .. 1> /dev/null
-        done
-    else
-        builtin cd "${@}" 1> /dev/null
-    fi
-}
+if [ -n "$BASH_VERSION" ]; then
+    function cd {
+        if [[ "$1" =~ ^\.\.+$ ]]; then
+            # cd ... to go 2 higher, cd .... to go 3 higher and so on
+            for (( i=0; i<${#1}-1; i++ )); do
+                builtin cd .. 1> /dev/null
+            done
+        else
+            builtin cd "${@}" 1> /dev/null
+        fi
+    }
+fi
 
 #run a program detached from the current terminal
 function detach() {
@@ -91,7 +93,11 @@ if [[ -x "$HOME/.cargo/bin/sccache" ]]; then
 fi
 
 if command_exists starship; then
-   eval "$(starship init bash)"
+   if [ -n "$ZSH_VERSION" ]; then
+      eval "$(starship init zsh)"
+   elif [ -n "$BASH_VERSION" ]; then
+      eval "$(starship init bash)"
+   fi
 else
    echo "WARNING: starship binary missing for this platform"
 fi
@@ -113,6 +119,7 @@ man() {
 
 #environment variables
 export HISTCONTROL=ignorespace
+[ -n "$ZSH_VERSION" ] && setopt hist_ignore_space
 if command_exists nvim; then
    export VISUAL=nvim
    export EDITOR=nvim
