@@ -1,6 +1,6 @@
--- leader (default backslash; set explicitly before lazy per its guidance)
-vim.g.mapleader = "\\"
-vim.g.maplocalleader = "\\"
+-- leader (set explicitly before lazy per its guidance)
+vim.g.mapleader = " "
+vim.g.maplocalleader = " "
 
 -- bootstrap lazy.nvim
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
@@ -12,4 +12,5 @@ vim.opt.rtp:prepend(lazypath)
 
 require("options")
 require("keymaps")
+require("autocmds")
 require("lazy").setup("plugins")

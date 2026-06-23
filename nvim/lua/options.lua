@@ -4,6 +4,7 @@ vim.opt.inccommand = "nosplit"        -- was nvim-only
 vim.opt.number = true
 vim.opt.relativenumber = true
 vim.opt.ruler = true
+vim.opt.signcolumn = "yes"             -- stable gutter for git/diagnostic signs
 vim.opt.laststatus = 2
 vim.opt.cmdheight = 2
 
