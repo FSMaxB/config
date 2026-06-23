@@ -7,11 +7,11 @@ The following files are included:
 
 .ansi-colors
 ------------
-Defines variables for different color codes. This is to be put in your home directory. In my configuration this is loaded by `.bashrc-common`.
+Defines variables for different color codes. This is to be put in your home directory. In my configuration this is loaded by `.shellrc-common`.
 
-.bashrc-common:
---------------
-This is more or less my bash configuration file (bashrc). It is to be put in the home directory. In order to enable it, load it in your `~/.bashrc` with `source ~/.bashrc-common`. In order for it to work properly, you need to have `.ansi-colors` installed in your home directory.
+.shellrc-common:
+---------------
+This is my shared shell configuration. It works under both bash and zsh. It is to be put in the home directory. In order to enable it, load it from your shell rc: `source ~/.shellrc-common` in `~/.bashrc` (bash) or `~/.zshrc` (zsh). In order for it to work properly, you need to have `.ansi-colors` installed in your home directory.
 
 .vimrc
 ------
