@@ -5,7 +5,7 @@ if [[ "$(readlink -f "$0")" != "$(readlink -f ~/config/install.sh)" ]]; then
 fi
 
 # Files that get symlinked to home
-HOME_FILES=( .ansi-colors .bashrc-common .tmux.conf .vimrc .vim .git_template .gitignore_global )
+HOME_FILES=( .ansi-colors .shellrc-common .tmux.conf .vimrc .vim .git_template .gitignore_global )
 
 
 for file in "${HOME_FILES[@]}"; do
@@ -67,6 +67,7 @@ hash vim 2> /dev/null && vim +GitGutterEnable +qall
 hash nvim 2> /dev/null && nvim --headless "+Lazy! sync" +qa
 
 
-echo Enable the bash config by adding the following to your ~/.bashrc:
-echo source ~/.bashrc-common
+echo "Enable the shell config by sourcing it from your shell rc:"
+echo "  bash: add 'source ~/.shellrc-common' to ~/.bashrc"
+echo "  zsh:  add 'source ~/.shellrc-common' to ~/.zshrc"
 
