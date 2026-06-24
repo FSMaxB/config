@@ -18,7 +18,7 @@ return {
 			{ "<leader>fd", function() Snacks.picker.diagnostics() end, desc = "Diagnostics" },
 			{ "<leader>fs", function() Snacks.picker.lsp_symbols() end, desc = "LSP symbols" },
 			{ "<leader>fr", function() Snacks.picker.lsp_references() end, desc = "LSP references" },
-			{ "gd", function() Snacks.picker.lsp_definitions() end, desc = "Goto definition" },
+			{ "gd", function() Snacks.picker.lsp_definitions({ confirm = "tab" }) end, desc = "Goto definition (new tab)" },
 		},
 	},
 }
