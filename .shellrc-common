@@ -127,6 +127,22 @@ elif command_exists vim; then
    export VISUAL=vim
    export EDITOR=vim
 fi
+# Use vi-style line editing in both shells, but keep emacs-style Ctrl+A/Ctrl+E
+# for beginning/end of line (vi mode doesn't bind these by default). zsh would
+# also auto-pick vi mode here because "nvim" contains "vi"; we set it explicitly.
+if [ -n "$ZSH_VERSION" ]; then
+   bindkey -v
+   bindkey '^A' beginning-of-line
+   bindkey '^E' end-of-line
+   bindkey -M vicmd '^A' beginning-of-line
+   bindkey -M vicmd '^E' end-of-line
+elif [ -n "$BASH_VERSION" ]; then
+   set -o vi
+   bind -m vi-insert '"\C-a": beginning-of-line'
+   bind -m vi-insert '"\C-e": end-of-line'
+   bind -m vi-command '"\C-a": beginning-of-line'
+   bind -m vi-command '"\C-e": end-of-line'
+fi
 if command_exists less; then
    export PAGER=less
 fi
