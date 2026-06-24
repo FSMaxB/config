@@ -48,3 +48,6 @@ style = "green"
 format = '[$time]($style) '
 time_format = "%R"
 
+[shell]
+disabled = false
+style = "dimmed green"
