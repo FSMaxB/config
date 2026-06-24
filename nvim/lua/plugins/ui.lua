@@ -46,4 +46,23 @@ return {
 			{ "<leader>xs", "<cmd>Trouble symbols toggle<cr>", desc = "Symbols (Trouble)" },
 		},
 	},
+	{
+		"nvim-mini/mini.map",
+		event = { "BufReadPre", "BufNewFile" },
+		config = function()
+			local map = require("mini.map")
+			map.setup({
+				integrations = {
+					map.gen_integration.gitsigns(), -- git change markers
+					map.gen_integration.diagnostic(), -- error/warn markers
+					map.gen_integration.builtin_search(),
+				},
+				symbols = { encode = map.gen_encode_symbols.dot("4x2") }, -- braille dots
+				window = { width = 12, winblend = 25, focusable = true },
+			})
+			vim.keymap.set("n", "<leader>mm", map.toggle, { desc = "Toggle minimap" })
+			vim.keymap.set("n", "<leader>mf", map.toggle_focus, { desc = "Focus minimap" })
+			map.open() -- enabled by default
+		end,
+	},
 }
