@@ -37,7 +37,36 @@ return {
 				},
 			})
 			vim.lsp.config("rust_analyzer", {
-				settings = { ["rust-analyzer"] = { check = { command = "clippy" } } },
+				settings = {
+					["rust-analyzer"] = {
+						check = { command = "clippy" },
+						-- Curated inlay hints. Flip any `false`/"never" back on to taste.
+						inlayHints = {
+							-- enabled
+							typeHints = { enable = true },
+							parameterHints = { enable = true },
+							chainingHints = { enable = true },
+							closureReturnTypeHints = { enable = "always" },
+							closingBraceHints = { enable = true },
+							-- disabled (structural)
+							genericParameterHints = {
+								lifetime = { enable = false },
+								type = { enable = false },
+								const = { enable = false },
+							},
+							reborrowHints = { enable = "never" },
+							rangeExclusiveHints = { enable = false },
+							-- disabled (pattern/enum)
+							bindingModeHints = { enable = false },
+							discriminantHints = { enable = "never" },
+							closureCaptureHints = { enable = false },
+							-- disabled (verbose)
+							expressionAdjustmentHints = { enable = "never" },
+							lifetimeElisionHints = { enable = "never" },
+							implicitDrops = { enable = false },
+						},
+					},
+				},
 			})
 
 			vim.diagnostic.config({ virtual_text = true, severity_sort = true })
