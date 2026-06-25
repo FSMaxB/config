@@ -36,4 +36,24 @@ return {
 		end,
 	},
 	{ "windwp/nvim-ts-autotag", event = "VeryLazy", opts = {} },
+	{
+		"HiPhish/rainbow-delimiters.nvim",
+		event = { "BufReadPre", "BufNewFile" },
+		config = function()
+			local rainbow = require("rainbow-delimiters")
+			vim.g.rainbow_delimiters = {
+				strategy = { [""] = rainbow.strategy["global"] },
+				query = { [""] = "rainbow-delimiters", lua = "rainbow-blocks" },
+				highlight = {
+					"RainbowDelimiterRed",
+					"RainbowDelimiterYellow",
+					"RainbowDelimiterBlue",
+					"RainbowDelimiterOrange",
+					"RainbowDelimiterGreen",
+					"RainbowDelimiterViolet",
+					"RainbowDelimiterCyan",
+				},
+			}
+		end,
+	},
 }
