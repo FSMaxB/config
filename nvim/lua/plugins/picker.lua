@@ -7,6 +7,7 @@ return {
 			picker = { enabled = true },
 			bigfile = { enabled = true },
 			quickfile = { enabled = true },
+			notifier = { enabled = true }, -- also renders LSP progress (see autocmds.lua)
 		},
 		keys = {
 			{
