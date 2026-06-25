@@ -36,4 +36,22 @@ return {
 			{ "S", mode = "n", function() require("flash").treesitter() end, desc = "Flash Treesitter" },
 		},
 	},
+	{
+		"okuuva/auto-save.nvim",
+		cmd = "ASToggle",
+		event = { "BufReadPre", "BufNewFile" },
+		opts = {
+			-- only auto-save files that live inside a VCS repo (git or jj).
+			-- a plain :write fires conform's format-on-save, so auto-saves format too.
+			condition = function(buf)
+				if vim.bo[buf].buftype ~= "" then return false end -- skip special buffers
+				if vim.api.nvim_buf_get_name(buf) == "" then return false end -- unnamed/scratch
+				return vim.fs.root(buf, { ".git", ".jj" }) ~= nil
+			end,
+			debounce_delay = 1000, -- save 1s after you stop changing (avoids format-on-keystroke)
+		},
+		keys = {
+			{ "<leader>ua", "<cmd>ASToggle<cr>", desc = "Toggle auto-save" },
+		},
+	},
 }
