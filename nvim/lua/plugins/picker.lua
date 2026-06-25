@@ -82,9 +82,9 @@ return {
 			{
 				"gd",
 				function()
-					Snacks.picker.lsp_definitions({ confirm = "tab" })
+					Snacks.picker.lsp_definitions()
 				end,
-				desc = "Goto definition (new tab)",
+				desc = "Goto definition",
 			},
 		},
 	},
