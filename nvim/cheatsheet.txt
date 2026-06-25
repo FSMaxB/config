@@ -1,0 +1,98 @@
+# Neovim cheat sheet
+# ★ = added/changed this session · others are built-ins or pre-existing maps.
+# Notation: <C-x> = Ctrl+x · <leader> = Space · <C-i> ≡ <Tab>.
+# Search by section name or @tags. <CR> fills the command line · <C-Y> copies · <C-E> edits this file.
+
+## rust-analyzer-health @rust @lsp @health @clippy
+# Progress: routed through the Snacks notifier ★ (toast w/ animated spinner, updates in place).
+# Discovery is lazy + host-platform; analysis grows as you open files / follow defs across crates.
+Clients attached + capabilities | :checkhealth vim.lsp
+Progress / indexing text | :lua =vim.lsp.status()
+Clients on the current buffer | :lua =vim.lsp.get_clients({ bufnr = 0 })
+Diagnostics for this buffer (from clippy.py) | :lua =vim.diagnostic.get(0)
+Restart LSP server (after settings changes) | :LspRestart rust_analyzer
+rust-analyzer logs (repo) | tools/logs/rust_analyzer*.stderr
+Open the LSP log file | :lua vim.cmd('edit '..vim.lsp.get_log_path())
+
+## code-navigation @goto @jump @lsp @tags
+Go to definition ★ (opens in a new tab, auto-confirms single result) | gd
+Go to definition (built-in, via tagstack) | <C-]>
+Jump back (jumplist) | <C-o>
+Jump forward (jumplist) | <C-i> / <Tab>
+Pop tagstack (back, if you used <C-]>) | <C-t>
+Switch to the alternate (last) buffer | <C-^>
+Hover docs / type | K
+Rename / code action / references / implementation (built-in) | grn / gra / grr / gri
+
+## git @gitsigns @fugitive @hunk @blame @diff
+# Gutter signs mark added/changed/deleted lines (signcolumn always on); current-line blame inline.
+Next / previous hunk | ]h / [h
+Stage hunk | <leader>hs
+Reset hunk | <leader>hr
+Preview hunk (floating diff) | <leader>hp
+Blame current line (full) | <leader>hb
+fugitive — full git operations | :Git / :Gdiffsplit / :Gblame
+
+## minimap @mini.map @scroll
+# On by default. Right-side map with git-change / diagnostic / search markers.
+Toggle minimap ★ | <leader>mm
+Focus minimap, then scroll to navigate ★ | <leader>mf
+
+## explorer @neo-tree @files @tree
+Toggle file explorer | <leader>e
+Reveal current file in explorer ★ | <leader>E
+Open file (in tree) | <CR>
+Open in a new tab (in tree) | t
+Open in horizontal / vertical split (in tree) | S / s
+
+## pickers @search @snacks @grep @files @fuzzy
+Repo-wide live grep (rooted at cwd — launch from repo root) | <leader>fg / <leader>/
+Find files | <leader><space> / <leader>ff
+Buffers | <leader>fb
+LSP symbols | <leader>fs
+LSP references | <leader>fr
+Diagnostics | <leader>fd
+Help pages | <leader>fh
+Open hit in tab / h-split / v-split (in picker) | <C-t> / <C-s> / <C-v>
+
+## terminal @snacks @shell
+# Open file:line from terminal output: <C-\><C-n>, put cursor on the path, then capital F jumps to
+# the :line (column ignored); paths resolve against :pwd.
+Toggle terminal ★ (Snacks, persistent) | <leader>ft
+Built-in terminal in current window | :terminal
+Leave terminal mode → normal mode | <C-\><C-n>
+Open file:line under cursor (current window) | gF
+Open file:line in a split (keeps the terminal) | <C-w>F
+Open file:line in a new tab | <C-w>gF
+
+## claude @claudecode @ai @mcp @diff
+# WebSocket/MCP integration like the IDE extensions: send buffers/selections/files as context,
+# review proposed edits in a native diff (accept/deny per-diff). Needs the claude CLI on PATH;
+# uses the Snacks terminal. Auto-save skips Claude diff buffers so changes are never written
+# before you review them. <leader>a is the which-key group.
+Toggle Claude terminal | <leader>ac
+Focus Claude terminal | <leader>af
+Start Claude with --resume / --continue | <leader>ar / <leader>aC
+Select Claude model | <leader>am
+Add current buffer to context | <leader>ab
+Send selection to Claude (visual) | <leader>as
+Add file under cursor to context (in tree/picker) | <leader>as
+Accept / deny the proposed diff | <leader>aa / <leader>ad
+Close any diffs left open after a disconnect | :ClaudeCodeCloseAllDiffs
+
+## sessions @persistence @restore @dashboard
+# Bare nvim opens the Snacks dashboard; restore this dir's session with s there or the keys below.
+Restore session for this dir | <leader>qs
+Restore last session | <leader>ql
+Select a session | <leader>qS
+Stop saving the current session | <leader>qd
+
+## autosave @auto-save @format
+# On by default. Saves modified buffers ~1s after you stop typing, only inside a git/jj repo (skips
+# scratch/special buffers, Claude diff buffers, files outside any repo). Each save runs conform.
+Toggle auto-save on/off ★ | <leader>ua
+
+## inlay-hints @lsp @types
+# Auto-enabled on LSP attach. Categories: type, parameter, chaining, closure-return, closing-brace.
+# Configured in lua/plugins/lsp.lua.
+Toggle inlay hints, current buffer ★ | <leader>uh
