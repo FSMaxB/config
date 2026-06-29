@@ -9,9 +9,29 @@ return {
 		},
 		config = function()
 			require("nvim-treesitter").install({
-				"rust", "c", "cpp", "lua", "bash", "python", "json", "yaml", "toml", "starlark",
-				"javascript", "typescript", "tsx", "html", "css", "markdown", "markdown_inline",
-				"vim", "vimdoc", "diff", "gitcommit", "git_config", "query",
+				"rust",
+				"c",
+				"cpp",
+				"lua",
+				"bash",
+				"python",
+				"json",
+				"yaml",
+				"toml",
+				"starlark",
+				"javascript",
+				"typescript",
+				"tsx",
+				"html",
+				"css",
+				"markdown",
+				"markdown_inline",
+				"vim",
+				"vimdoc",
+				"diff",
+				"gitcommit",
+				"git_config",
+				"query",
 			})
 
 			-- start treesitter highlighting for any buffer whose parser is installed
@@ -27,7 +47,8 @@ return {
 			-- textobjects: af/if (function) and ac/ic (class)
 			require("nvim-treesitter-textobjects").setup({ select = { lookahead = true } })
 			local select = require("nvim-treesitter-textobjects.select").select_textobject
-			local objects = { af = "@function.outer", ["if"] = "@function.inner", ac = "@class.outer", ic = "@class.inner" }
+			local objects =
+				{ af = "@function.outer", ["if"] = "@function.inner", ac = "@class.outer", ic = "@class.inner" }
 			for lhs, obj in pairs(objects) do
 				vim.keymap.set({ "x", "o" }, lhs, function()
 					select(obj, "textobjects")
