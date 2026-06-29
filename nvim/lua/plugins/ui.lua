@@ -53,9 +53,15 @@ return {
 			local map = require("mini.map")
 			map.setup({
 				integrations = {
-					map.gen_integration.gitsigns(), -- git change markers
-					map.gen_integration.diagnostic(), -- error/warn markers
+					-- Order = priority: first integration to claim a map line wins.
+					-- Diagnostics first so error/warn markers aren't masked by gitsigns
+					-- (a whole new file is one big "add" hunk that would otherwise win).
+					map.gen_integration.diagnostic({ -- error/warn markers (default shows errors only)
+						error = "DiagnosticFloatingError",
+						warn = "DiagnosticFloatingWarn",
+					}),
 					map.gen_integration.builtin_search(),
+					map.gen_integration.gitsigns(), -- git change markers
 				},
 				symbols = { encode = map.gen_encode_symbols.dot("4x2") }, -- braille dots
 				window = { width = 12, winblend = 25, focusable = true },
