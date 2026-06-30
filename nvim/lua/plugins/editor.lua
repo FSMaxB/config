@@ -60,10 +60,22 @@ return {
 			condition = function(buf)
 				if vim.bo[buf].buftype ~= "" then
 					return false
-				end -- skip special buffers
+				end -- skip special buffers (also the "acwrite" claudecode diff buffer)
 				if vim.api.nvim_buf_get_name(buf) == "" then
 					return false
 				end -- unnamed/scratch
+				-- never auto-save a Claude Code diff buffer: writing it silently
+				-- accepts the proposed change before you've reviewed it. The acwrite
+				-- proposed buffer is already caught above, but the inline-diff path
+				-- marks the real (buftype "") file buffer, so guard on the vars too.
+				if
+					vim.b[buf].claudecode_diff_tab_name
+					or vim.b[buf].claudecode_diff_new_win
+					or vim.b[buf].claudecode_diff_target_win
+					or vim.b[buf].claudecode_inline_diff
+				then
+					return false
+				end
 				return vim.fs.root(buf, { ".git", ".jj" }) ~= nil
 			end,
 			debounce_delay = 1000, -- save 1s after you stop changing (avoids format-on-keystroke)
