@@ -86,7 +86,13 @@ return {
 				},
 			})
 
-			vim.diagnostic.config({ virtual_text = true, severity_sort = true })
+			vim.diagnostic.config({
+				-- truncated one-liners everywhere except the cursor line, which gets
+				-- the full message as wrapped virtual lines below it
+				virtual_text = { current_line = false },
+				virtual_lines = { current_line = true },
+				severity_sort = true,
+			})
 		end,
 	},
 }
