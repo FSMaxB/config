@@ -47,28 +47,23 @@ return {
 		},
 	},
 	{
-		"nvim-mini/mini.map",
-		event = { "BufReadPre", "BufNewFile" },
-		config = function()
-			local map = require("mini.map")
-			map.setup({
-				integrations = {
-					-- Order = priority: first integration to claim a map line wins.
-					-- Diagnostics first so error/warn markers aren't masked by gitsigns
-					-- (a whole new file is one big "add" hunk that would otherwise win).
-					map.gen_integration.diagnostic({ -- error/warn markers (default shows errors only)
-						error = "DiagnosticFloatingError",
-						warn = "DiagnosticFloatingWarn",
-					}),
-					map.gen_integration.builtin_search(),
-					map.gen_integration.gitsigns(), -- git change markers
-				},
-				symbols = { encode = map.gen_encode_symbols.dot("4x2") }, -- braille dots
-				window = { width = 12, winblend = 25, focusable = true },
-			})
-			vim.keymap.set("n", "<leader>mm", map.toggle, { desc = "Toggle minimap" })
-			vim.keymap.set("n", "<leader>mf", map.toggle_focus, { desc = "Focus minimap" })
-			map.open() -- enabled by default
+		-- per-window minimap (mini.map could only attach to the editor edge)
+		"Isrothy/neominimap.nvim",
+		version = "v3.x.x",
+		lazy = false, -- plugin author recommends against lazy-loading
+		keys = {
+			{ "<leader>mm", "<cmd>Neominimap Toggle<cr>", desc = "Toggle minimap" },
+			{ "<leader>mf", "<cmd>Neominimap ToggleFocus<cr>", desc = "Focus minimap" },
+		},
+		init = function()
+			vim.g.neominimap = {
+				auto_enable = true,
+				layout = "float", -- floats at the right edge of each window
+				float = { minimap_width = 12, window_border = "none" },
+				diagnostic = { enabled = true, severity = vim.diagnostic.severity.WARN },
+				git = { enabled = true },
+				search = { enabled = true },
+			}
 		end,
 	},
 }

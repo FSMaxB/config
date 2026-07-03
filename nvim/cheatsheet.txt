@@ -33,8 +33,8 @@ Preview hunk (floating diff) | <leader>hp
 Blame current line (full) | <leader>hb
 fugitive — full git operations | :Git / :Gdiffsplit / :Gblame
 
-## minimap @mini.map @scroll
-# On by default. Right-side map with git-change / diagnostic / search markers.
+## minimap @neominimap @scroll
+# On by default. Per-window map with git-change / diagnostic / search markers.
 Toggle minimap ★ | <leader>mm
 Focus minimap, then scroll to navigate ★ | <leader>mf
 
