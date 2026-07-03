@@ -58,7 +58,7 @@ return {
 		init = function()
 			-- recommended for the float layout: keeps text from flowing under the map
 			vim.opt.wrap = false
-			vim.opt.sidescrolloff = 36
+			vim.opt.sidescrolloff = 13
 			vim.g.neominimap = {
 				auto_enable = true,
 				layout = "float", -- floats at the right edge of each window
