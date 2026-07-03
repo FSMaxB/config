@@ -77,9 +77,9 @@ return {
 			{
 				"<leader>ft",
 				function()
-					Snacks.terminal()
+					Snacks.terminal(nil, { count = vim.api.nvim_get_current_tabpage() })
 				end,
-				desc = "Toggle terminal",
+				desc = "Toggle terminal (per tab)",
 			},
 			{
 				"gd",
