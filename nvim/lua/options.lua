@@ -19,6 +19,7 @@ vim.opt.ignorecase = true
 vim.opt.smartcase = true
 vim.opt.incsearch = true
 
+vim.opt.autoread = true
 vim.opt.mouse = "a"
 vim.opt.wildmenu = true
 vim.opt.hidden = true

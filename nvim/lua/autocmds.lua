@@ -16,6 +16,17 @@ vim.api.nvim_create_autocmd("LspAttach", {
 	end,
 })
 
+-- autoread only takes effect when the file's timestamp is checked; trigger
+-- that check whenever the editor or buffer regains attention, or while idle
+-- (CursorHold fires after 'updatetime')
+vim.api.nvim_create_autocmd({ "FocusGained", "BufEnter", "TermLeave", "CursorHold" }, {
+	callback = function()
+		if vim.fn.getcmdwintype() == "" then
+			vim.cmd("checktime")
+		end
+	end,
+})
+
 -- route LSP progress ($/progress) through the Snacks notifier: a single toast
 -- that updates in place with an animated spinner, then a check mark on finish.
 vim.api.nvim_create_autocmd("LspProgress", {
