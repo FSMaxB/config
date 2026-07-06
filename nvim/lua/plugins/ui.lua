@@ -63,7 +63,8 @@ return {
 				auto_enable = true,
 				layout = "float", -- floats at the right edge of each window
 				float = { minimap_width = 12, window_border = "none" },
-				diagnostic = { enabled = true, severity = vim.diagnostic.severity.WARN },
+				-- a bare severity means "exactly that level" and would hide errors
+				diagnostic = { enabled = true, severity = { min = vim.diagnostic.severity.WARN } },
 				git = { enabled = true },
 				search = { enabled = true },
 			}
