@@ -87,6 +87,14 @@ Restore last session | <leader>ql
 Select a session | <leader>qS
 Stop saving the current session | <leader>qd
 
+## format @conform @format @autoformat
+# Format-on-save runs via conform (see autosave). FormatDisable! is buffer-local; plain is global.
+Format buffer manually | <leader>cf
+Disable autoformat for this buffer ★ | :FormatDisable!
+Disable autoformat globally ★ | :FormatDisable
+Re-enable autoformat (buffer + global) ★ | :FormatEnable
+Save once without formatting (skips all autocmds) | :noautocmd w
+
 ## autosave @auto-save @format
 # On by default. Saves modified buffers ~1s after you stop typing, only inside a git/jj repo (skips
 # scratch/special buffers, Claude diff buffers, files outside any repo). Each save runs conform.
