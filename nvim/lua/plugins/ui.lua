@@ -63,6 +63,9 @@ return {
 				auto_enable = true,
 				layout = "float", -- floats at the right edge of each window
 				float = { minimap_width = 12, window_border = "none" },
+				-- click jumps the source window there; without auto_switch_focus
+				-- the cursor stays in the source window instead of the minimap
+				click = { enabled = true, auto_switch_focus = false },
 				-- a bare severity means "exactly that level" and would hide errors
 				diagnostic = { enabled = true, severity = { min = vim.diagnostic.severity.WARN } },
 				git = { enabled = true },
