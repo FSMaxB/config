@@ -71,6 +71,13 @@ return {
 				git = { enabled = true },
 				search = { enabled = true },
 			}
+			-- the default links to CursorLine, which is nearly invisible in gruvbox
+			vim.api.nvim_set_hl(0, "NeominimapCursorLine", { link = "Visual" })
+			vim.api.nvim_create_autocmd("ColorScheme", {
+				callback = function()
+					vim.api.nvim_set_hl(0, "NeominimapCursorLine", { link = "Visual" })
+				end,
+			})
 		end,
 	},
 }
