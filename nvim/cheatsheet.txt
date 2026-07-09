@@ -30,7 +30,7 @@ Next / previous hunk | ]h / [h
 Stage hunk | <leader>hs
 Reset hunk | <leader>hr
 Preview hunk (floating diff) | <leader>hp
-Blame current line (full) | <leader>hb
+Blame current line (full); press again to enter the float | <leader>hb
 fugitive — full git operations | :Git / :Gdiffsplit / :Gblame
 
 ## minimap @neominimap @scroll
