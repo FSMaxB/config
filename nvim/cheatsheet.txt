@@ -39,11 +39,24 @@ Toggle minimap ★ | <leader>mm
 Focus minimap, then scroll to navigate ★ | <leader>mf
 
 ## explorer @neo-tree @files @tree
+# File operations below are Neo-tree defaults; ? inside the tree shows the full list.
 Toggle file explorer | <leader>e
 Reveal current file in explorer ★ | <leader>E
 Open file (in tree) | <CR>
 Open in a new tab (in tree) | t
 Open in horizontal / vertical split (in tree) | S / s
+Reload / refresh the tree | R
+Add file (trailing / creates a directory) | a
+Add directory | A
+Delete | d
+Rename | r
+Move (prompts for destination) | m
+Copy (prompts for destination) | c
+Copy / cut / paste via tree clipboard | y / x / p
+Toggle hidden files | H
+Fuzzy-find within the tree | /
+Set tree root one directory up | <bs>
+Show all mappings (help) | ?
 
 ## pickers @search @snacks @grep @files @fuzzy
 Repo-wide live grep (rooted at cwd — launch from repo root) | <leader>fg / <leader>/
