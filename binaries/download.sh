@@ -14,6 +14,9 @@ BAT_BASE_URL="https://github.com/sharkdp/bat/releases/download/v${BAT_VERSION}"
 JJ_VERSION="0.43.0"
 JJ_BASE_URL="https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}"
 
+JQ_VERSION="1.8.2"
+JQ_BASE_URL="https://github.com/jqlang/jq/releases/download/jq-${JQ_VERSION}"
+
 function download_starship() {
 	local PLATFORM="$1"
 	local TARBALL="starship-${PLATFORM}.tar.gz"
@@ -63,6 +66,17 @@ function download_jj() {
 	tar --directory "${OUTDIR}" -xf "${TARBALL}" ./jj
 }
 
+# jq publishes raw binaries instead of tarballs, plus a single sha256sum.txt
+# covering all of them (downloaded once as jq-sha256sum.txt below).
+function download_jq() {
+	local PLATFORM="$1"
+	local OUTDIR="$2"
+	local BINARY="jq-${PLATFORM}"
+	curl -fL --output "${BINARY}" "${JQ_BASE_URL}/${BINARY}"
+	verify "${BINARY}" "$(grep " ${BINARY}\$" jq-sha256sum.txt | cut -d' ' -f1)"
+	install -m 755 "${BINARY}" "${OUTDIR}/jq"
+}
+
 # Verify a downloaded file against its expected sha256 digest before we trust
 # it. Uses sha256sum on Linux and shasum on macOS.
 function verify() {
@@ -107,3 +121,9 @@ download_jj aarch64-unknown-linux-musl Linux/aarch64 289197b6bec60b4e57d47260624
 download_jj x86_64-unknown-linux-musl Linux/x86_64 59e5588583ac82b623239929368c65b90735931c0f26b5a16c1f04d5bb97643d
 download_jj aarch64-apple-darwin Darwin/arm64 84336bbe5673a36ccc6395c494021ba632794da078eb8c8c513a60f8e1cc3083
 download_jj x86_64-apple-darwin Darwin/x86_64 f1a7fec046b816132318c07a9c096680f7aae78b008709c7166a57efd9c579ec
+
+curl -fL --output jq-sha256sum.txt "${JQ_BASE_URL}/sha256sum.txt"
+download_jq linux-arm64 Linux/aarch64
+download_jq linux-amd64 Linux/x86_64
+download_jq macos-arm64 Darwin/arm64
+download_jq macos-amd64 Darwin/x86_64
