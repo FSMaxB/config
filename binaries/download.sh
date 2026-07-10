@@ -11,6 +11,9 @@ ZELLIJ_BASE_URL="https://github.com/zellij-org/zellij/releases/download/v${ZELLI
 BAT_VERSION="0.26.1"
 BAT_BASE_URL="https://github.com/sharkdp/bat/releases/download/v${BAT_VERSION}"
 
+JJ_VERSION="0.43.0"
+JJ_BASE_URL="https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}"
+
 function download_starship() {
 	local PLATFORM="$1"
 	local TARBALL="starship-${PLATFORM}.tar.gz"
@@ -45,6 +48,19 @@ function download_bat() {
 	curl -fL --output "${NAME}.tar.gz" "${BAT_BASE_URL}/${NAME}.tar.gz"
 	verify "${NAME}.tar.gz" "${SHA256}"
 	tar --directory "${OUTDIR}" --strip-components 1 -xf "${NAME}.tar.gz" "${NAME}/bat"
+}
+
+# jj publishes no checksum assets either, so its digests are pinned the same
+# way as bat's. The tarball root also carries LICENSE/README, so extract just
+# the binary.
+function download_jj() {
+	local PLATFORM="$1"
+	local OUTDIR="$2"
+	local SHA256="$3"
+	local TARBALL="jj-v${JJ_VERSION}-${PLATFORM}.tar.gz"
+	curl -fL --output "${TARBALL}" "${JJ_BASE_URL}/${TARBALL}"
+	verify "${TARBALL}" "${SHA256}"
+	tar --directory "${OUTDIR}" -xf "${TARBALL}" ./jj
 }
 
 # Verify a downloaded file against its expected sha256 digest before we trust
@@ -86,3 +102,8 @@ download_bat aarch64-unknown-linux-musl Linux/aarch64 6369242c584065f195fb20cb36
 download_bat x86_64-unknown-linux-musl Linux/x86_64 0dcd8ac79732c0d5b136f11f4ee00e581440e16a44eab5b3105b611bbf2cf191
 download_bat aarch64-apple-darwin Darwin/arm64 e30beff26779c9bf60bb541e1d79046250cb74378f2757f8eb250afddb19e114
 download_bat x86_64-apple-darwin Darwin/x86_64 830d63b0bba1fa040542ec569e3cf77f60d3356b9de75116a344b061e0894245
+
+download_jj aarch64-unknown-linux-musl Linux/aarch64 289197b6bec60b4e57d47260624b617716f737eb02cdfd9155791b2576aa5862
+download_jj x86_64-unknown-linux-musl Linux/x86_64 59e5588583ac82b623239929368c65b90735931c0f26b5a16c1f04d5bb97643d
+download_jj aarch64-apple-darwin Darwin/arm64 84336bbe5673a36ccc6395c494021ba632794da078eb8c8c513a60f8e1cc3083
+download_jj x86_64-apple-darwin Darwin/x86_64 f1a7fec046b816132318c07a9c096680f7aae78b008709c7166a57efd9c579ec
