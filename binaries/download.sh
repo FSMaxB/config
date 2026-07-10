@@ -8,6 +8,9 @@ STARSHIP_BASE_URL="https://github.com/starship/starship/releases/download/v${STA
 ZELLIJ_VERSION="0.44.3"
 ZELLIJ_BASE_URL="https://github.com/zellij-org/zellij/releases/download/v${ZELLIJ_VERSION}"
 
+BAT_VERSION="0.26.1"
+BAT_BASE_URL="https://github.com/sharkdp/bat/releases/download/v${BAT_VERSION}"
+
 function download_starship() {
 	local PLATFORM="$1"
 	local TARBALL="starship-${PLATFORM}.tar.gz"
@@ -29,6 +32,19 @@ function download_zellij() {
 	curl -fL --output "${DIGEST}" "${ZELLIJ_BASE_URL}/${DIGEST}"
 	tar --directory "${OUTDIR}" -xf "${TARBALL}"
 	verify "${OUTDIR}/zellij" "$(cut -d' ' -f1 "${DIGEST}")"
+}
+
+# bat publishes no checksum assets at all; the digests passed in below are
+# pinned from the sha256 digests in the GitHub release asset metadata. The
+# tarball nests everything in a directory, so extract just the binary.
+function download_bat() {
+	local PLATFORM="$1"
+	local OUTDIR="$2"
+	local SHA256="$3"
+	local NAME="bat-v${BAT_VERSION}-${PLATFORM}"
+	curl -fL --output "${NAME}.tar.gz" "${BAT_BASE_URL}/${NAME}.tar.gz"
+	verify "${NAME}.tar.gz" "${SHA256}"
+	tar --directory "${OUTDIR}" --strip-components 1 -xf "${NAME}.tar.gz" "${NAME}/bat"
 }
 
 # Verify a downloaded file against its expected sha256 digest before we trust
@@ -65,3 +81,8 @@ download_zellij aarch64-unknown-linux-musl Linux/aarch64
 download_zellij x86_64-unknown-linux-musl Linux/x86_64
 download_zellij aarch64-apple-darwin Darwin/arm64
 download_zellij x86_64-apple-darwin Darwin/x86_64
+
+download_bat aarch64-unknown-linux-musl Linux/aarch64 6369242c584065f195fb20cb36fbd7cb63ae690605bbe89868a7596b596c2c23
+download_bat x86_64-unknown-linux-musl Linux/x86_64 0dcd8ac79732c0d5b136f11f4ee00e581440e16a44eab5b3105b611bbf2cf191
+download_bat aarch64-apple-darwin Darwin/arm64 e30beff26779c9bf60bb541e1d79046250cb74378f2757f8eb250afddb19e114
+download_bat x86_64-apple-darwin Darwin/x86_64 830d63b0bba1fa040542ec569e3cf77f60d3356b9de75116a344b061e0894245
