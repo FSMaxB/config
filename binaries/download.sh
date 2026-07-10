@@ -13,7 +13,7 @@ function download_starship() {
 	local TARBALL="starship-${PLATFORM}.tar.gz"
 	curl -fL --output "${TARBALL}" "${STARSHIP_BASE_URL}/${TARBALL}"
 	curl -fL --output "${TARBALL}.sha256" "${STARSHIP_BASE_URL}/${TARBALL}.sha256"
-	verify "${TARBALL}" "${TARBALL}.sha256"
+	verify "${TARBALL}" "$(cut -d' ' -f1 "${TARBALL}.sha256")"
 }
 
 # Unlike starship, zellij publishes the digest of the *extracted* binary rather
@@ -28,16 +28,15 @@ function download_zellij() {
 	curl -fL --output "${TARBALL}" "${ZELLIJ_BASE_URL}/${TARBALL}"
 	curl -fL --output "${DIGEST}" "${ZELLIJ_BASE_URL}/${DIGEST}"
 	tar --directory "${OUTDIR}" -xf "${TARBALL}"
-	verify "${OUTDIR}/zellij" "${DIGEST}"
+	verify "${OUTDIR}/zellij" "$(cut -d' ' -f1 "${DIGEST}")"
 }
 
-# Verify a downloaded file against its published sha256 digest before we trust
+# Verify a downloaded file against its expected sha256 digest before we trust
 # it. Uses sha256sum on Linux and shasum on macOS.
 function verify() {
 	local FILE="$1"
-	local DIGEST="$2"
-	local expected actual
-	expected="$(cut -d' ' -f1 "${DIGEST}")"
+	local expected="$2"
+	local actual
 	if command -v sha256sum > /dev/null; then
 		actual="$(sha256sum "${FILE}" | cut -d' ' -f1)"
 	else
