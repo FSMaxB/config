@@ -41,6 +41,10 @@ if [[ ! -e ~/.config/atuin/config.toml ]]; then
   mkdir -p ~/.config/atuin
   ln -s ~/config/atuin-config.toml ~/.config/atuin/config.toml
 fi
+if [[ ! -e ~/.config/tuicr/config.toml ]]; then
+  mkdir -p ~/.config/tuicr
+  ln -s ~/config/tuicr-config.toml ~/.config/tuicr/config.toml
+fi
 
 if hash git 2> /dev/null; then
   git config --global init.templatedir '~/.git_template'
