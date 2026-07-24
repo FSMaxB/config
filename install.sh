@@ -50,6 +50,10 @@ if [[ ! -e ~/.claude/CLAUDE.md ]]; then
   mkdir -p ~/.claude
   ln -s ~/config/INSTALL-CLAUDE.md ~/.claude/CLAUDE.md
 fi
+if [[ ! -e ~/.pi/agent/CLAUDE.md ]]; then
+  mkdir -p ~/.pi/agent
+  ln -s ~/config/INSTALL-CLAUDE.md ~/.pi/agent/CLAUDE.md
+fi
 
 if hash git 2> /dev/null; then
   git config --global init.templatedir '~/.git_template'
