@@ -17,6 +17,9 @@ JJ_BASE_URL="https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}"
 JQ_VERSION="1.8.2"
 JQ_BASE_URL="https://github.com/jqlang/jq/releases/download/jq-${JQ_VERSION}"
 
+TUICR_VERSION="0.19.1"
+TUICR_BASE_URL="https://github.com/agavra/tuicr/releases/download/v${TUICR_VERSION}"
+
 function download_starship() {
 	local PLATFORM="$1"
 	local TARBALL="starship-${PLATFORM}.tar.gz"
@@ -77,6 +80,18 @@ function download_jq() {
 	install -m 755 "${BINARY}" "${OUTDIR}/jq"
 }
 
+# tuicr publishes no checksum assets, so its release asset metadata digests are
+# pinned here. Each tarball contains only the binary at its root.
+function download_tuicr() {
+	local PLATFORM="$1"
+	local OUTDIR="$2"
+	local SHA256="$3"
+	local TARBALL="tuicr-${TUICR_VERSION}-${PLATFORM}.tar.gz"
+	curl -fL --output "${TARBALL}" "${TUICR_BASE_URL}/${TARBALL}"
+	verify "${TARBALL}" "${SHA256}"
+	tar --directory "${OUTDIR}" -xf "${TARBALL}" tuicr
+}
+
 # Verify a downloaded file against its expected sha256 digest before we trust
 # it. Uses sha256sum on Linux and shasum on macOS.
 function verify() {
@@ -127,3 +142,9 @@ download_jq linux-arm64 Linux/aarch64
 download_jq linux-amd64 Linux/x86_64
 download_jq macos-arm64 Darwin/arm64
 download_jq macos-amd64 Darwin/x86_64
+
+# Upstream currently publishes glibc-linked Linux binaries rather than musl.
+download_tuicr aarch64-unknown-linux-gnu Linux/aarch64 070c5cee0862c51cfb9718591c7faa4c163a44153cb9b596d107cfb5c86c99ab
+download_tuicr x86_64-unknown-linux-gnu Linux/x86_64 67addacc28ee9c6d1ce84220954f1ff0c6a82b374822142dd8cb615b3d425ec5
+download_tuicr aarch64-apple-darwin Darwin/arm64 f89a6682defb9b81084ee89dde6bde64b7fe6e8b90788a7a3490d2d6cacbf2d4
+download_tuicr x86_64-apple-darwin Darwin/x86_64 46cb4732c98839220b5d5b8dd099450dd35b4de24dcf873ef47b0ad944519f08
