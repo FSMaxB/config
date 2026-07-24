@@ -49,6 +49,10 @@ if [[ ! -e ~/.claude/CLAUDE.md ]]; then
   mkdir -p ~/.claude
   ln -s ~/config/INSTALL-CLAUDE.md ~/.claude/CLAUDE.md
 fi
+if [[ ! -e ~/.claude/skills/tuicr ]]; then
+  mkdir -p ~/.claude/skills
+  ln -s ~/config/tuicr-skill ~/.claude/skills/tuicr
+fi
 if [[ ! -e ~/.pi/agent/CLAUDE.md ]]; then
   mkdir -p ~/.pi/agent
   ln -s ~/config/INSTALL-CLAUDE.md ~/.pi/agent/CLAUDE.md
