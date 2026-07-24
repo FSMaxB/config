@@ -46,6 +46,11 @@ if [[ ! -e ~/.config/tuicr/config.toml ]]; then
   ln -s ~/config/tuicr-config.toml ~/.config/tuicr/config.toml
 fi
 
+if [[ ! -e ~/.claude/CLAUDE.md ]]; then
+  mkdir -p ~/.claude
+  ln -s ~/config/INSTALL-CLAUDE.md ~/.claude/CLAUDE.md
+fi
+
 if hash git 2> /dev/null; then
   git config --global init.templatedir '~/.git_template'
   git config --global color.ui true
