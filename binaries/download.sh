@@ -19,6 +19,7 @@ JQ_BASE_URL="https://github.com/jqlang/jq/releases/download/jq-${JQ_VERSION}"
 
 TUICR_VERSION="0.19.1"
 TUICR_BASE_URL="https://github.com/agavra/tuicr/releases/download/v${TUICR_VERSION}"
+TUICR_RAW_URL="https://raw.githubusercontent.com/agavra/tuicr/v${TUICR_VERSION}/skills/tuicr"
 
 function download_starship() {
 	local PLATFORM="$1"
@@ -92,6 +93,19 @@ function download_tuicr() {
 	tar --directory "${OUTDIR}" -xf "${TARBALL}" tuicr
 }
 
+# The tuicr release tarballs contain only the binary, so the Claude skill files
+# are fetched as raw files from the pinned tag instead. Raw files have no digest
+# assets, so their sha256 digests are pinned by hand below.
+function download_tuicr_skill() {
+	local FILE="$1"
+	local MODE="$2"
+	local SHA256="$3"
+	local DOWNLOAD="tuicr-skill-${FILE}"
+	curl -fL --output "${DOWNLOAD}" "${TUICR_RAW_URL}/${FILE}"
+	verify "${DOWNLOAD}" "${SHA256}"
+	install -m "${MODE}" "${DOWNLOAD}" "../tuicr-skill/${FILE}"
+}
+
 # Verify a downloaded file against its expected sha256 digest before we trust
 # it. Uses sha256sum on Linux and shasum on macOS.
 function verify() {
@@ -148,3 +162,8 @@ download_tuicr aarch64-unknown-linux-gnu Linux/aarch64 070c5cee0862c51cfb9718591
 download_tuicr x86_64-unknown-linux-gnu Linux/x86_64 67addacc28ee9c6d1ce84220954f1ff0c6a82b374822142dd8cb615b3d425ec5
 download_tuicr aarch64-apple-darwin Darwin/arm64 f89a6682defb9b81084ee89dde6bde64b7fe6e8b90788a7a3490d2d6cacbf2d4
 download_tuicr x86_64-apple-darwin Darwin/x86_64 46cb4732c98839220b5d5b8dd099450dd35b4de24dcf873ef47b0ad944519f08
+
+mkdir -p ../tuicr-skill
+download_tuicr_skill SKILL.md 644 30b8169d6fa9bf1b44e4b3542856b44850705ccff5194d9bb4649034dbd640fd
+download_tuicr_skill tuicr-wrapper.sh 755 c9d2fdb1fa1688b696ccfe5cd4988abcdef636c7d62780f03a788f62aef23c45
+download_tuicr_skill tuicr-wrapper-zellij.sh 755 7a56005bf268c1a0c303448569c356cac34364075c9d3a1c27bb5a4a9c1eca49
