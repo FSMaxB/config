@@ -6,8 +6,8 @@
 ## VCS
 
 - Use jj, not git, in repos where jj is set up; otherwise ask before using git.
-- Where possible, make individual commits for individual changes
-- Never switch onto a different jj commit without asking. I will do any rebasing manually once you're done.
+- When you make a distinct change, put it in a separate clean commit (without accidentally folding existing changes into it)
+- Never switch onto a different branch without asking. I will do any rebasing manually once you're done.
 - When fixing up commits, don't fix them directly but create separate fixup commits that I can squash later. In the commit message, refer to the target via the VCS native revision ID (e.g. jj revision instead of commit hash for jj repos)
 
 ## Verification
