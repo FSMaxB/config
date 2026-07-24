@@ -1,17 +1,18 @@
 ## Planning
 
 - When in doubt (either during exploration or planning), prefer to ask me clarifying questions instead of extensive exploration
+- When asking me questions, use the agent harness's question tool rather than plain text, when available (e.g. Claude Code: `AskUserQuestion`, Codex: `request_user_input`, OpenCode: `question`, etc.)
 
 ## VCS
 
-- Use the jj VCS, not git
+- Use jj, not git, in repos where jj is set up; otherwise ask before using git.
 - Where possible, make individual commits for individual changes
 - Never switch onto a different jj commit without asking. I will do any rebasing manually once you're done.
-- When fixing up commits, don't fix them directly but create separate fixup commits that I can squash later. In the commit message, refer to the target via the jj revision, not git commit.
+- When fixing up commits, don't fix them directly but create separate fixup commits that I can squash later. In the commit message, refer to the target via the VCS native revision ID (e.g. jj revision instead of commit hash for jj repos)
 
 ## Verification
 
-- Ask me whether I want to do a review with tuicr. If yes, load the tuicr skill and use it for that.
+- After implementing a plan, ask me whether I want to do a review with tuicr. If yes, load the tuicr skill and use it for that.
 
 ## Code style / Architecture
 
@@ -20,13 +21,15 @@
 - Liberally use struct and enum destructuring, especially if it allows you to avoid an explicit type declaration of a let binding.
 - Do not under any circumstance add separating comments like `// ------------`
 - Follow the "functional core, imperative shell" pattern when adequate
-- Only add comments if they add context that is not part of the code itself. Explicitly do not duplicate what code is doing in the comments, only explain rationale and or high level architecture.
+- Only add comments if they add context that is not part of the code itself. Explicitly do not duplicate what code is doing in the comments, only explain rationale and/or high level architecture.
 - Use pub instead of pub(crate) or pub(super) where applicable.
-- Do not use `err`, `ctx`, `recv` or similar abbreviations. Use full words like `error`,`context` or `receive`.
+- Do not use `err`, `ctx`, `recv` or similar abbreviations. Use full words like `error`, `context` or `receive`.
 
-## Instruction loading (since OpenCode doesn't do this by default)
+## Instruction loading (for harnesses without native support, e.g. OpenCode)
 
-- Before editing or reviewing files in a repository subtree, walk from the repository root to that subtree and load the instruction file at each directory level.
-- At each level, read `AGENTS.md` when present; otherwise, read `CLAUDE.md` when present.
+Note: Claude Code already walks CLAUDE.md files natively and may skip the manual walk; checking for `AGENTS.md` at each level is still useful.
+
+- Before editing or reviewing files in a repository subtree, discover instruction files in one step: check every directory from the repository root down to that subtree for `AGENTS.md` and `CLAUDE.md` (a single shell loop is enough), then read the files found.
+- At each level, prefer `AGENTS.md` when both files exist.
 - Apply instructions from root to leaf. More specific instructions take precedence over broader instructions when they conflict.
-- If the task expands into another subtree, repeat this process before working there.
+- Load each instruction file at most once per session. If the task expands into another subtree, repeat the process for the levels not yet visited.
