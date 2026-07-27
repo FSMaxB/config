@@ -2,6 +2,7 @@
 
 - When in doubt (either during exploration or planning), prefer to ask me clarifying questions instead of extensive exploration
 - When asking me questions, use the agent harness's question tool rather than plain text, when available (e.g. Claude Code: `AskUserQuestion`, Codex: `request_user_input`, OpenCode: `question`, etc.)
+- Before starting implementation of any plan, load the crit skill and launch a crit review of the plan. Wait until I finish the review and address all unresolved comments before implementing.
 
 ## VCS
 
