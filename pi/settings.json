@@ -1,0 +1,25 @@
+{
+  "lastChangelogVersion": "0.82.1",
+  "theme": "dark",
+  "defaultProvider": "claude-bridge",
+  "defaultModel": "claude-opus-5",
+  "defaultThinkingLevel": "xhigh",
+  "packages": [
+    "npm:pi-web-access",
+    "npm:pi-subagents",
+    "npm:@czottmann/pi-automode",
+    "npm:pi-claude-bridge"
+  ],
+  "compaction": {
+    "enabled": false
+  },
+  "images": {
+    "blockImages": true
+  },
+  "terminal": {
+    "showTerminalProgress": true
+  },
+  "hideThinkingBlock": false,
+  "showCacheMissNotices": false,
+  "showHardwareCursor": false
+}
