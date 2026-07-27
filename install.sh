@@ -61,6 +61,14 @@ if [[ ! -e ~/.pi/agent/CLAUDE.md ]]; then
   mkdir -p ~/.pi/agent
   ln -s ~/config/INSTALL-CLAUDE.md ~/.pi/agent/CLAUDE.md
 fi
+if [[ -L ~/.pi/agent/extensions || ! -e ~/.pi/agent/extensions ]]; then
+  mkdir -p ~/.pi/agent
+  ln -sfnv ~/config/pi/extensions ~/.pi/agent/extensions
+fi
+if [[ -L ~/.pi/agent/settings.json || ! -e ~/.pi/agent/settings.json ]]; then
+  mkdir -p ~/.pi/agent
+  ln -sfnv ~/config/pi/settings.json ~/.pi/agent/settings.json
+fi
 
 if hash git 2>/dev/null; then
   git config --global init.templatedir '~/.git_template'
