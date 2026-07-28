@@ -115,6 +115,11 @@ function* allowedRoots(mode: AccessMode): Generator<string> {
 	if (mode === "read") {
 		yield join(homedir(), ".crit");
 		yield join(getAgentDir(), "plans");
+		// Skills are meant to be loaded on demand, so the global skill roots are readable.
+		// Project-level .agents/skills and .pi/skills need no entry, being inside the repo.
+		yield join(getAgentDir(), "skills");
+		yield join(homedir(), ".agents", "skills");
+		yield join(homedir(), ".claude", "skills");
 	}
 
 	yield* configuredRoots[mode];
