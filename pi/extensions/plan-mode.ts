@@ -6,7 +6,7 @@ import { Container, Markdown, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
 const SUBMIT_PLAN = "submit_plan";
-const UNGATED_TOOLS = new Set(["read", "grep", "find", "ls", "question", SUBMIT_PLAN]);
+const UNGATED_TOOLS = new Set(["repo_read", "repo_grep", "repo_find", "repo_ls", "question", SUBMIT_PLAN]);
 
 const DECISIONS_FILE = join(getAgentDir(), "plan-mode.json");
 const PLANS_DIR = join(getAgentDir(), "plans");
@@ -431,8 +431,8 @@ function planModeInstructions(): string {
 		"Plan mode is active.",
 		"",
 		`- These tools are available as usual: ${ungated}.`,
-		"- Every other tool, including bash, edit and write, needs the user's approval for each call.",
-		"- List files with ls and find, and search them with grep, instead of shelling out to bash.",
+		"- Every other tool, including bash and the unscoped read, write and edit, needs the user's approval for each call.",
+		"- The repo_* tools are confined to the repository and prompt before reaching outside it, so prefer them over bash.",
 		"- If a call is denied, do not retry it and do not route around it with a different tool.",
 		`- Call ${SUBMIT_PLAN} when the plan is ready. Only the user can leave plan mode.`,
 	].join("\n");
