@@ -4,12 +4,15 @@ import type { ExtensionAPI, ExtensionContext, Theme, ToolCallEvent } from "@eare
 import { getAgentDir, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { getCurrentPlanPath, planFileName, plansDirectory, setCurrentPlanPath } from "./lib/plan-file.ts";
+import { serialize } from "./lib/ui-queue.ts";
 
+const WRITE_PLAN = "write_plan";
 const SUBMIT_PLAN = "submit_plan";
+const PLAN_TOOLS = [WRITE_PLAN, SUBMIT_PLAN];
 const UNGATED_TOOLS = new Set(["repo_read", "repo_grep", "repo_find", "repo_ls", "question", SUBMIT_PLAN]);
 
 const DECISIONS_FILE = join(getAgentDir(), "plan-mode.json");
-const PLANS_DIR = join(getAgentDir(), "plans");
 
 const ALLOW_ONCE = "Allow once";
 const ALLOW_SESSION = "Allow in session";
@@ -31,7 +34,6 @@ export default function (pi: ExtensionAPI) {
 	const alwaysGrants = new Set<string>();
 	const sessionDenials = new Set<string>();
 	const alwaysDenials = new Set<string>();
-	let promptChain: Promise<void> = Promise.resolve();
 
 	function isAllowed(toolName: string): boolean {
 		return UNGATED_TOOLS.has(toolName) || sessionGrants.has(toolName) || alwaysGrants.has(toolName);
@@ -59,6 +61,7 @@ export default function (pi: ExtensionAPI) {
 			enabled: planMode,
 			sessionGrants: [...sessionGrants],
 			sessionDenials: [...sessionDenials],
+			planPath: getCurrentPlanPath(),
 		});
 	}
 
@@ -68,21 +71,24 @@ export default function (pi: ExtensionAPI) {
 		ctx.ui.setWidget("plan-mode", planBanner(ctx.ui.theme, planMode, pendingChange), { placement: "aboveEditor" });
 	}
 
-	// submit_plan is added and removed as a delta against the live tool list rather than
+	// The plan tools are added and removed as a delta against the live tool list rather than
 	// restored from a snapshot, so a changed extension set can never resurrect stale tools.
-	function syncSubmitPlanTool(): void {
+	function syncPlanTools(): void {
 		const active = pi.getActiveTools();
-		const present = active.includes(SUBMIT_PLAN);
-		if (planMode && !present) {
-			pi.setActiveTools([...active, SUBMIT_PLAN]);
-		} else if (!planMode && present) {
-			pi.setActiveTools(active.filter((name) => name !== SUBMIT_PLAN));
+		const missing = PLAN_TOOLS.filter((name) => !active.includes(name));
+		if (planMode && missing.length > 0) {
+			pi.setActiveTools([...active, ...missing]);
+		} else if (!planMode && missing.length < PLAN_TOOLS.length) {
+			pi.setActiveTools(active.filter((name) => !PLAN_TOOLS.includes(name)));
 		}
 	}
 
 	function setPlanMode(enabled: boolean, ctx: ExtensionContext): void {
 		planMode = enabled;
-		syncSubmitPlanTool();
+		// Leaving plan mode retires the plan file so the next plan starts a fresh one instead
+		// of overwriting an approved plan.
+		if (!enabled) setCurrentPlanPath(undefined);
+		syncPlanTools();
 		refreshIndicators(ctx);
 		persist();
 	}
@@ -109,17 +115,6 @@ export default function (pi: ExtensionAPI) {
 		}
 		setPlanMode(enabled, ctx);
 		ctx.ui.notify(planMode ? "Plan mode enabled." : "Plan mode disabled.");
-	}
-
-	// ui.select() owns the terminal, and pi dispatches tool batches through
-	// executeToolCallsParallel, so concurrent gate handlers would fight over it.
-	function serialize<T>(task: () => Promise<T>): Promise<T> {
-		const result = promptChain.then(task, task);
-		promptChain = result.then(
-			() => undefined,
-			() => undefined,
-		);
-		return result;
 	}
 
 	async function requestPermission(event: ToolCallEvent, ctx: ExtensionContext) {
@@ -199,74 +194,40 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: SUBMIT_PLAN,
-		label: "Submit plan",
+		name: WRITE_PLAN,
+		label: "Write plan",
 		description:
-			"Submit a finished plan for the user to approve. Only available in plan mode. " +
-			"Writes the plan to a file and asks the user whether to approve it, request changes, or stay in plan mode. " +
-			"Approval is the only way out of plan mode. The tool result contains the path the plan was written to.",
-		promptSnippet: "Submit a finished plan for the user to approve, ending plan mode",
+			"Write or update the plan for the current plan-mode session. Only available in plan mode. " +
+			"The first call creates the plan file, and every later call overwrites that same file, so pass the plan in full each time. " +
+			"No other plan file can be touched. Call submit_plan once the plan is ready for the user to approve.",
+		promptSnippet: "Write or update the plan file for the current plan-mode session",
 		promptGuidelines: [
-			"Call submit_plan once the plan is complete, rather than describing the plan and waiting for a reply.",
-			"Only the user can leave plan mode, so never assume approval before submit_plan returns it.",
+			"Write the plan with write_plan before calling submit_plan, and rewrite it in full after addressing review feedback.",
 		],
-		executionMode: "sequential",
 		parameters: Type.Object({
-			title: Type.String({ description: "Short title for the plan, used for the filename" }),
+			title: Type.String({ description: "Short title for the plan, used for the filename on the first call" }),
 			plan: Type.String({ description: "The full plan, as markdown" }),
 		}),
 
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+		async execute(_toolCallId, params) {
 			const { title, plan } = params;
 			if (!planMode) {
-				const error = "submit_plan is only available in plan mode.";
-				return { content: [{ type: "text", text: error }], isError: true, details: { path: null, outcome: "unavailable" } };
+				const error = "write_plan is only available in plan mode.";
+				return { content: [{ type: "text", text: error }], isError: true, details: { path: null, created: false } };
 			}
 
+			const created = getCurrentPlanPath() === undefined;
 			const path = await writePlanFile(title, plan);
+			persist();
 
-			if (!ctx.hasUI) {
-				return {
-					content: [{ type: "text", text: `Plan written to ${path}. No interactive UI, so plan mode stays on.` }],
-					details: { path, outcome: "saved" },
-				};
-			}
-
-			const choice = await ctx.ui.select(`Plan submitted — what next?\n\n  ${path}`, [
-				APPROVE,
-				REFINE,
-				"Stay in plan mode",
-			]);
-
-			if (choice === APPROVE) {
-				setPlanMode(false, ctx);
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Plan approved and written to ${path}. Plan mode is off and full tool access is restored.`,
-						},
-					],
-					details: { path, outcome: "approved" },
-				};
-			}
-
-			if (choice === REFINE) {
-				const feedback = (await ctx.ui.input("Feedback on the plan:", "What should change?"))?.trim();
-				const text = feedback
-					? `Plan written to ${path} but not approved. Still in plan mode. The user asks for: ${feedback}`
-					: `Plan written to ${path} but not approved. Still in plan mode.`;
-				return { content: [{ type: "text", text }], details: { path, outcome: "refine" } };
-			}
-
-			return {
-				content: [{ type: "text", text: `Plan written to ${path}. Still in plan mode.` }],
-				details: { path, outcome: "saved" },
-			};
+			const text = created
+				? `Plan written to ${path}. Call write_plan again to revise it, or submit_plan once it is ready.`
+				: `Plan at ${path} updated.`;
+			return { content: [{ type: "text", text }], details: { path, created } };
 		},
 
 		renderCall(args, theme, context) {
-			const title = new Text(theme.fg("toolTitle", theme.bold("submit_plan ")) + theme.fg("muted", args.title ?? ""), 0, 0);
+			const title = new Text(theme.fg("toolTitle", theme.bold("write_plan ")) + theme.fg("muted", args.title ?? ""), 0, 0);
 			const plan = typeof args.plan === "string" ? args.plan.trim() : "";
 			if (!context.argsComplete || !plan) return title;
 
@@ -283,15 +244,97 @@ export default function (pi: ExtensionAPI) {
 			return container;
 		},
 
+		renderResult(result, _renderOptions, theme) {
+			const details = result.details as { path: string | null; created: boolean } | undefined;
+			if (!details?.path) {
+				return new Text(theme.fg("error", "✗ only available in plan mode"), 0, 0);
+			}
+			const label = details.created ? "created" : "updated";
+			return new Text(theme.fg("success", "✓ ") + theme.fg("accent", label) + theme.fg("dim", ` — ${details.path}`), 0, 0);
+		},
+	});
+
+	pi.registerTool({
+		name: SUBMIT_PLAN,
+		label: "Submit plan",
+		description:
+			"Submit the plan that write_plan wrote for the user to approve. Only available in plan mode, and only after write_plan. " +
+			"Takes no arguments, since it submits whatever write_plan last wrote. " +
+			"Asks the user whether to approve it, request changes, or stay in plan mode. Approval is the only way out of plan mode.",
+		promptSnippet: "Submit the written plan for the user to approve, ending plan mode",
+		promptGuidelines: [
+			"Call submit_plan once write_plan holds the finished plan, rather than describing the plan and waiting for a reply.",
+			"Only the user can leave plan mode, so never assume approval before submit_plan returns it.",
+		],
+		executionMode: "sequential",
+		parameters: Type.Object({}),
+
+		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+			if (!planMode) {
+				const error = "submit_plan is only available in plan mode.";
+				return { content: [{ type: "text", text: error }], isError: true, details: { path: null, outcome: "unavailable" } };
+			}
+
+			const path = getCurrentPlanPath();
+			if (!path) {
+				const error = "No plan has been written yet. Call write_plan first, then submit_plan.";
+				return { content: [{ type: "text", text: error }], isError: true, details: { path: null, outcome: "missing" } };
+			}
+
+			if (!ctx.hasUI) {
+				return {
+					content: [{ type: "text", text: `Plan at ${path} could not be submitted: no interactive UI, so plan mode stays on.` }],
+					details: { path, outcome: "saved" },
+				};
+			}
+
+			const choice = await ctx.ui.select(`Plan submitted — what next?\n\n  ${path}`, [
+				APPROVE,
+				REFINE,
+				"Stay in plan mode",
+			]);
+
+			if (choice === APPROVE) {
+				setPlanMode(false, ctx);
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Plan at ${path} approved. Plan mode is off and full tool access is restored.`,
+						},
+					],
+					details: { path, outcome: "approved" },
+				};
+			}
+
+			if (choice === REFINE) {
+				const feedback = (await ctx.ui.input("Feedback on the plan:", "What should change?"))?.trim();
+				const text = feedback
+					? `Plan at ${path} not approved. Still in plan mode. The user asks for: ${feedback}`
+					: `Plan at ${path} not approved. Still in plan mode.`;
+				return { content: [{ type: "text", text }], details: { path, outcome: "refine" } };
+			}
+
+			return {
+				content: [{ type: "text", text: `Plan at ${path} not approved. Still in plan mode.` }],
+				details: { path, outcome: "saved" },
+			};
+		},
+
+		renderCall(_args, theme) {
+			return new Text(theme.fg("toolTitle", theme.bold("submit_plan")), 0, 0);
+		},
+
 		renderResult(result, renderOptions, theme) {
 			const details = result.details as { path: string | null; outcome: string } | undefined;
 			if (renderOptions.isPartial) {
 				return new Text(theme.fg("muted", "Waiting for your decision..."), 0, 0);
 			}
 			if (!details?.path) {
-				return new Text(theme.fg("error", "✗ only available in plan mode"), 0, 0);
+				const reason = details?.outcome === "missing" ? "no plan written yet" : "only available in plan mode";
+				return new Text(theme.fg("error", `✗ ${reason}`), 0, 0);
 			}
-			const label = details.outcome === "approved" ? "approved" : details.outcome === "refine" ? "needs changes" : "saved";
+			const label = details.outcome === "approved" ? "approved" : details.outcome === "refine" ? "needs changes" : "submitted";
 			return new Text(theme.fg("success", "✓ ") + theme.fg("accent", label) + theme.fg("dim", ` — ${details.path}`), 0, 0);
 		},
 	});
@@ -353,6 +396,7 @@ export default function (pi: ExtensionAPI) {
 		const restored = lastPlanModeState(ctx);
 		if (restored) {
 			planMode = restored.enabled;
+			setCurrentPlanPath(restored.planPath);
 			for (const toolName of restored.sessionGrants) {
 				sessionGrants.add(toolName);
 			}
@@ -364,7 +408,7 @@ export default function (pi: ExtensionAPI) {
 			planMode = true;
 		}
 
-		syncSubmitPlanTool();
+		syncPlanTools();
 		refreshIndicators(ctx);
 	});
 }
@@ -373,6 +417,7 @@ interface PlanModeState {
 	enabled: boolean;
 	sessionGrants: string[];
 	sessionDenials?: string[];
+	planPath?: string;
 }
 
 interface DecisionEntry {
@@ -438,32 +483,14 @@ function planModeInstructions(): string {
 	].join("\n");
 }
 
+// The session's plan file is created once and then overwritten in place, so a plan that goes
+// through several review rounds leaves one file behind instead of one per round.
 async function writePlanFile(title: string, plan: string): Promise<string> {
-	const directory = join(PLANS_DIR, cwdSlug());
-	await mkdir(directory, { recursive: true });
-
-	const path = join(directory, `${timestamp()}-${slugify(title)}.md`);
+	const path = getCurrentPlanPath() ?? join(plansDirectory(), planFileName(title));
+	await mkdir(dirname(path), { recursive: true });
 	await writeFile(path, plan.endsWith("\n") ? plan : `${plan}\n`);
+	setCurrentPlanPath(path);
 	return path;
-}
-
-function cwdSlug(): string {
-	return process.cwd().replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "");
-}
-
-function timestamp(): string {
-	const now = new Date();
-	const pad = (value: number) => String(value).padStart(2, "0");
-	return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
-}
-
-function slugify(title: string): string {
-	const slug = title
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "-")
-		.replace(/^-|-$/g, "")
-		.slice(0, 60);
-	return slug || "plan";
 }
 
 function lastPlanModeState(ctx: ExtensionContext): PlanModeState | undefined {
