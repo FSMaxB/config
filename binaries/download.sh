@@ -21,6 +21,9 @@ TUICR_VERSION="0.19.1"
 TUICR_BASE_URL="https://github.com/agavra/tuicr/releases/download/v${TUICR_VERSION}"
 TUICR_RAW_URL="https://raw.githubusercontent.com/agavra/tuicr/v${TUICR_VERSION}/skills/tuicr"
 
+CRIT_VERSION="0.18.1"
+CRIT_BASE_URL="https://github.com/tomasz-tomczyk/crit/releases/download/v${CRIT_VERSION}"
+
 function download_starship() {
 	local PLATFORM="$1"
 	local TARBALL="starship-${PLATFORM}.tar.gz"
@@ -79,6 +82,18 @@ function download_jq() {
 	curl -fL --output "${BINARY}" "${JQ_BASE_URL}/${BINARY}"
 	verify "${BINARY}" "$(grep " ${BINARY}\$" jq-sha256sum.txt | cut -d' ' -f1)"
 	install -m 755 "${BINARY}" "${OUTDIR}/jq"
+}
+
+# crit publishes raw binaries plus a checksums.txt file. The binary names
+# use darwin/linux and amd64/arm64 rather than the platform triplets used by
+# other tools.
+function download_crit() {
+	local PLATFORM="$1"
+	local OUTDIR="$2"
+	local BINARY="crit-${PLATFORM}"
+	curl -fL --output "${BINARY}" "${CRIT_BASE_URL}/${BINARY}"
+	verify "${BINARY}" "$(grep " ${BINARY}\$" checksums.txt | cut -d' ' -f1)"
+	install -m 755 "${BINARY}" "${OUTDIR}/crit"
 }
 
 # tuicr publishes no checksum assets, so its release asset metadata digests are
@@ -156,6 +171,13 @@ download_jq linux-arm64 Linux/aarch64
 download_jq linux-amd64 Linux/x86_64
 download_jq macos-arm64 Darwin/arm64
 download_jq macos-amd64 Darwin/x86_64
+
+# crit publishes raw binaries and a checksums.txt file.
+curl -fL --output checksums.txt "${CRIT_BASE_URL}/checksums.txt"
+download_crit darwin-arm64 Darwin/arm64
+download_crit darwin-amd64 Darwin/x86_64
+download_crit linux-arm64 Linux/aarch64
+download_crit linux-amd64 Linux/x86_64
 
 # Upstream currently publishes glibc-linked Linux binaries rather than musl.
 download_tuicr aarch64-unknown-linux-gnu Linux/aarch64 070c5cee0862c51cfb9718591c7faa4c163a44153cb9b596d107cfb5c86c99ab
