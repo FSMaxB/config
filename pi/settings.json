@@ -2,8 +2,8 @@
   "lastChangelogVersion": "0.82.1",
   "theme": "dark",
   "defaultProvider": "claude-bridge",
-  "defaultModel": "claude-opus-5",
-  "defaultThinkingLevel": "xhigh",
+  "defaultModel": "claude-fable-5",
+  "defaultThinkingLevel": "high",
   "packages": [
     "npm:pi-web-access",
     "npm:pi-claude-bridge"
