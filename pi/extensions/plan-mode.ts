@@ -17,6 +17,7 @@ const DECISIONS_FILE = join(getAgentDir(), "plan-mode.json");
 const ALLOW_ONCE = "Allow once";
 const ALLOW_SESSION = "Allow in session";
 const ALLOW_ALWAYS = "Allow always";
+const DENY_ONCE = "Deny once";
 const DENY_SESSION = "Deny in session";
 const DENY_ALWAYS = "Deny always";
 const APPROVE = "Approve — leave plan mode";
@@ -32,26 +33,45 @@ export default function (pi: ExtensionAPI) {
 	let pendingToggle: boolean | undefined;
 	const sessionGrants = new Set<string>();
 	const alwaysGrants = new Set<string>();
-	const sessionDenials = new Set<string>();
-	const alwaysDenials = new Set<string>();
+	// Denials carry the note the user left, so a repeat block can keep repeating the guidance
+	// instead of only saying no.
+	const sessionDenials = new Map<string, string | undefined>();
+	const alwaysDenials = new Map<string, string | undefined>();
 
 	function isAllowed(toolName: string): boolean {
 		return UNGATED_TOOLS.has(toolName) || sessionGrants.has(toolName) || alwaysGrants.has(toolName);
 	}
 
 	function blockedReason(toolName: string): string | undefined {
-		if (alwaysDenials.has(toolName)) return deniedReason(toolName, "you denied it for all sessions");
-		if (sessionDenials.has(toolName)) return deniedReason(toolName, "you denied it for this session");
+		if (alwaysDenials.has(toolName)) {
+			return deniedReason(toolName, "you denied it for all sessions", alwaysDenials.get(toolName));
+		}
+		if (sessionDenials.has(toolName)) {
+			return deniedReason(toolName, "you denied it for this session", sessionDenials.get(toolName));
+		}
 		return undefined;
 	}
 
-	// The most recent decision wins outright, so a tool never sits in two sets and
+	// The most recent decision wins outright, so a tool never sits in two stores and
 	// a narrow grant can always override an earlier "always" denial.
-	async function record(toolName: string, decision: Set<string>): Promise<void> {
-		for (const set of [sessionGrants, alwaysGrants, sessionDenials, alwaysDenials]) {
-			set.delete(toolName);
+	async function record(toolName: string, decision: Decision, note?: string): Promise<void> {
+		for (const store of [sessionGrants, alwaysGrants, sessionDenials, alwaysDenials]) {
+			store.delete(toolName);
 		}
-		decision.add(toolName);
+		switch (decision) {
+			case "allow-session":
+				sessionGrants.add(toolName);
+				break;
+			case "allow-always":
+				alwaysGrants.add(toolName);
+				break;
+			case "deny-session":
+				sessionDenials.set(toolName, note);
+				break;
+			case "deny-always":
+				alwaysDenials.set(toolName, note);
+				break;
+		}
 		persist();
 		await writePersistedDecisions(alwaysGrants, alwaysDenials);
 	}
@@ -60,7 +80,7 @@ export default function (pi: ExtensionAPI) {
 		pi.appendEntry("plan-mode", {
 			enabled: planMode,
 			sessionGrants: [...sessionGrants],
-			sessionDenials: [...sessionDenials],
+			sessionDenials: [...sessionDenials].map(([name, note]) => ({ name, note })),
 			planPath: getCurrentPlanPath(),
 		});
 	}
@@ -127,7 +147,7 @@ export default function (pi: ExtensionAPI) {
 			ALLOW_ONCE,
 			ALLOW_SESSION,
 			ALLOW_ALWAYS,
-			"Deny once",
+			DENY_ONCE,
 			DENY_SESSION,
 			DENY_ALWAYS,
 		]);
@@ -136,20 +156,32 @@ export default function (pi: ExtensionAPI) {
 			case ALLOW_ONCE:
 				return undefined;
 			case ALLOW_SESSION:
-				await record(event.toolName, sessionGrants);
+				await record(event.toolName, "allow-session");
 				return undefined;
 			case ALLOW_ALWAYS:
-				await record(event.toolName, alwaysGrants);
+				await record(event.toolName, "allow-always");
 				return undefined;
-			case DENY_SESSION:
-				await record(event.toolName, sessionDenials);
-				return { block: true, reason: deniedReason(event.toolName, "you denied it for this session") };
-			case DENY_ALWAYS:
-				await record(event.toolName, alwaysDenials);
-				return { block: true, reason: deniedReason(event.toolName, "you denied it for all sessions") };
-			default:
-				return { block: true, reason: deniedReason(event.toolName, "the user denied this call") };
+			case DENY_SESSION: {
+				const note = await askDenyNote(ctx);
+				await record(event.toolName, "deny-session", note);
+				return { block: true, reason: deniedReason(event.toolName, "you denied it for this session", note) };
+			}
+			case DENY_ALWAYS: {
+				const note = await askDenyNote(ctx);
+				await record(event.toolName, "deny-always", note);
+				return { block: true, reason: deniedReason(event.toolName, "you denied it for all sessions", note) };
+			}
+			default: {
+				// Also covers dismissing the prompt, which should not stop to ask for a note.
+				const note = choice === DENY_ONCE ? await askDenyNote(ctx) : undefined;
+				return { block: true, reason: deniedReason(event.toolName, "the user denied this call", note) };
+			}
 		}
+	}
+
+	async function askDenyNote(ctx: ExtensionContext): Promise<string | undefined> {
+		const note = await ctx.ui.input("What should the agent do instead?", "Optional — leave empty to just deny");
+		return note?.trim() || undefined;
 	}
 
 	async function manageDecisions(ctx: ExtensionContext): Promise<void> {
@@ -169,8 +201,8 @@ export default function (pi: ExtensionAPI) {
 			const choice = await ctx.ui.select("Plan mode decisions — pick one to remove", [...labels, CLEAR_ALL, DONE]);
 
 			if (choice === CLEAR_ALL) {
-				for (const set of [sessionGrants, alwaysGrants, sessionDenials, alwaysDenials]) {
-					set.clear();
+				for (const store of [sessionGrants, alwaysGrants, sessionDenials, alwaysDenials]) {
+					store.clear();
 				}
 				persist();
 				await writePersistedDecisions(alwaysGrants, alwaysDenials);
@@ -181,7 +213,7 @@ export default function (pi: ExtensionAPI) {
 			const entry = entries[labels.indexOf(choice ?? "")];
 			if (!entry) return;
 
-			entry.set.delete(entry.toolName);
+			entry.remove();
 			persist();
 			await writePersistedDecisions(alwaysGrants, alwaysDenials);
 		}
@@ -389,8 +421,8 @@ export default function (pi: ExtensionAPI) {
 		for (const toolName of alwaysAllowed) {
 			alwaysGrants.add(toolName);
 		}
-		for (const toolName of alwaysDenied) {
-			alwaysDenials.add(toolName);
+		for (const { name, note } of alwaysDenied) {
+			alwaysDenials.set(name, note);
 		}
 
 		const restored = lastPlanModeState(ctx);
@@ -400,8 +432,8 @@ export default function (pi: ExtensionAPI) {
 			for (const toolName of restored.sessionGrants) {
 				sessionGrants.add(toolName);
 			}
-			for (const toolName of restored.sessionDenials ?? []) {
-				sessionDenials.add(toolName);
+			for (const { name, note } of denialList(restored.sessionDenials)) {
+				sessionDenials.set(name, note);
 			}
 		}
 		if (pi.getFlag("plan") === true) {
@@ -413,17 +445,24 @@ export default function (pi: ExtensionAPI) {
 	});
 }
 
+type Decision = "allow-session" | "allow-always" | "deny-session" | "deny-always";
+
+interface Denial {
+	name: string;
+	note?: string;
+}
+
 interface PlanModeState {
 	enabled: boolean;
 	sessionGrants: string[];
-	sessionDenials?: string[];
+	sessionDenials?: unknown;
 	planPath?: string;
 }
 
 interface DecisionEntry {
 	label: string;
 	toolName: string;
-	set: Set<string>;
+	remove: () => void;
 }
 
 function planBanner(theme: Theme, planMode: boolean, pendingChange: boolean): string[] | undefined {
@@ -441,18 +480,37 @@ function planBanner(theme: Theme, planMode: boolean, pendingChange: boolean): st
 function listDecisions(
 	sessionGrants: Set<string>,
 	alwaysGrants: Set<string>,
-	sessionDenials: Set<string>,
-	alwaysDenials: Set<string>,
+	sessionDenials: Map<string, string | undefined>,
+	alwaysDenials: Map<string, string | undefined>,
 ): DecisionEntry[] {
-	const groups: [Set<string>, string][] = [
+	const grants: [Set<string>, string][] = [
 		[sessionGrants, "allow (session)"],
 		[alwaysGrants, "allow (always)"],
+	];
+	const denials: [Map<string, string | undefined>, string][] = [
 		[sessionDenials, "deny (session)"],
 		[alwaysDenials, "deny (always)"],
 	];
-	return groups.flatMap(([set, scope]) =>
-		[...set].sort().map((toolName) => ({ label: `${toolName} — ${scope}`, toolName, set })),
-	);
+
+	return [
+		...grants.flatMap(([store, scope]) =>
+			[...store].sort().map((toolName) => ({
+				label: `${toolName} — ${scope}`,
+				toolName,
+				remove: () => void store.delete(toolName),
+			})),
+		),
+		...denials.flatMap(([store, scope]) =>
+			[...store.keys()].sort().map((toolName) => {
+				const note = store.get(toolName);
+				return {
+					label: note ? `${toolName} — ${scope}: ${note}` : `${toolName} — ${scope}`,
+					toolName,
+					remove: () => void store.delete(toolName),
+				};
+			}),
+		),
+	];
 }
 
 function summarizeInput(event: ToolCallEvent): string {
@@ -462,12 +520,13 @@ function summarizeInput(event: ToolCallEvent): string {
 	return detail.length > 200 ? `${detail.slice(0, 197)}...` : detail;
 }
 
-function deniedReason(toolName: string, cause: string): string {
-	return (
+function deniedReason(toolName: string, cause: string, note?: string): string {
+	const reason =
 		`Plan mode is active and ${cause}, so ${toolName} did not run. ` +
-		"Do not retry it and do not route around it with a different tool. " +
-		"State what you need it for so the user can grant access, or call submit_plan if the plan is ready."
-	);
+		"Do not retry it and do not route around it with a different tool.";
+	return note
+		? `${reason} Do this instead: ${note}`
+		: `${reason} State what you need it for so the user can grant access, or call submit_plan if the plan is ready.`;
 }
 
 function planModeInstructions(): string {
@@ -501,10 +560,10 @@ function lastPlanModeState(ctx: ExtensionContext): PlanModeState | undefined {
 	return entry?.data;
 }
 
-async function readPersistedDecisions(): Promise<{ alwaysAllowed: string[]; alwaysDenied: string[] }> {
+async function readPersistedDecisions(): Promise<{ alwaysAllowed: string[]; alwaysDenied: Denial[] }> {
 	try {
 		const parsed = JSON.parse(await readFile(DECISIONS_FILE, "utf8")) as Record<string, unknown>;
-		return { alwaysAllowed: stringList(parsed.alwaysAllowed), alwaysDenied: stringList(parsed.alwaysDenied) };
+		return { alwaysAllowed: stringList(parsed.alwaysAllowed), alwaysDenied: denialList(parsed.alwaysDenied) };
 	} catch {
 		return { alwaysAllowed: [], alwaysDenied: [] };
 	}
@@ -514,8 +573,25 @@ function stringList(value: unknown): string[] {
 	return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
-async function writePersistedDecisions(allowed: Set<string>, denied: Set<string>): Promise<void> {
+// Denials used to be bare tool names, and sessions recorded before the note existed still are.
+function denialList(value: unknown): Denial[] {
+	if (!Array.isArray(value)) return [];
+	return value.flatMap((item) => {
+		if (typeof item === "string") return [{ name: item }];
+		if (!item || typeof item !== "object") return [];
+
+		const { name, note } = item as { name?: unknown; note?: unknown };
+		if (typeof name !== "string") return [];
+		return [typeof note === "string" ? { name, note } : { name }];
+	});
+}
+
+async function writePersistedDecisions(allowed: Set<string>, denied: Map<string, string | undefined>): Promise<void> {
 	await mkdir(dirname(DECISIONS_FILE), { recursive: true });
-	const content = { alwaysAllowed: [...allowed].sort(), alwaysDenied: [...denied].sort() };
+	const alwaysDenied = [...denied.keys()].sort().map((name) => {
+		const note = denied.get(name);
+		return note ? { name, note } : { name };
+	});
+	const content = { alwaysAllowed: [...allowed].sort(), alwaysDenied };
 	await writeFile(DECISIONS_FILE, `${JSON.stringify(content, null, 2)}\n`);
 }
