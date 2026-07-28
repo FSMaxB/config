@@ -726,7 +726,7 @@ function summarizeInput(event: ToolCallEvent): string {
 function deniedReason(toolName: string, cause: string, note?: string): string {
   const reason =
     `Plan mode is active and ${cause}, so ${toolName} did not run. ` +
-    "Do not retry it and do not route around it with a different tool.";
+    "Do not retry it.";
   return note
     ? `${reason} Do this instead: ${note}`
     : `${reason} State what you need it for so the user can grant access, or call submit_plan if the plan is ready.`;
@@ -742,7 +742,7 @@ function planModeInstructions(): string {
     `- These tools are available as usual: ${ungated}.`,
     "- Every other tool, including bash and the unscoped read, write and edit, needs the user's approval for each call.",
     "- The repo_* tools are confined to the repository and prompt before reaching outside it, so prefer them over bash.",
-    "- If a call is denied, do not retry it and do not route around it with a different tool.",
+    "- If a call is denied, do not retry it.",
     `- Write the plan with ${WRITE_PLAN}, then call ${SUBMIT_PLAN} when it is ready. Only the user can leave plan mode.`,
   ].join("\n");
 }
