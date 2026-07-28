@@ -69,6 +69,10 @@ if [[ -L ~/.pi/agent/settings.json || ! -e ~/.pi/agent/settings.json ]]; then
   mkdir -p ~/.pi/agent
   ln -sfnv ~/config/pi/settings.json ~/.pi/agent/settings.json
 fi
+if [[ -L ~/.pi/agent/APPEND_SYSTEM.md || ! -e ~/.pi/agent/APPEND_SYSTEM.md ]]; then
+  mkdir -p ~/.pi/agent
+  ln -sfnv ~/config/pi/APPEND_SYSTEM.md ~/.pi/agent/APPEND_SYSTEM.md
+fi
 
 if hash git 2>/dev/null; then
   git config --global init.templatedir '~/.git_template'
