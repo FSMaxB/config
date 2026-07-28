@@ -10,7 +10,7 @@ import { serialize } from "./lib/ui-queue.ts";
 const WRITE_PLAN = "write_plan";
 const SUBMIT_PLAN = "submit_plan";
 const PLAN_TOOLS = [WRITE_PLAN, SUBMIT_PLAN];
-const UNGATED_TOOLS = new Set(["repo_read", "repo_grep", "repo_find", "repo_ls", "question", SUBMIT_PLAN]);
+const UNGATED_TOOLS = new Set(["repo_read", "repo_grep", "repo_find", "repo_ls", "question", ...PLAN_TOOLS]);
 
 const DECISIONS_FILE = join(getAgentDir(), "plan-mode.json");
 
@@ -530,7 +530,7 @@ function deniedReason(toolName: string, cause: string, note?: string): string {
 }
 
 function planModeInstructions(): string {
-	const ungated = [...UNGATED_TOOLS].filter((name) => name !== SUBMIT_PLAN).join(", ");
+	const ungated = [...UNGATED_TOOLS].filter((name) => !PLAN_TOOLS.includes(name)).join(", ");
 	return [
 		"Plan mode is active.",
 		"",
@@ -538,7 +538,7 @@ function planModeInstructions(): string {
 		"- Every other tool, including bash and the unscoped read, write and edit, needs the user's approval for each call.",
 		"- The repo_* tools are confined to the repository and prompt before reaching outside it, so prefer them over bash.",
 		"- If a call is denied, do not retry it and do not route around it with a different tool.",
-		`- Call ${SUBMIT_PLAN} when the plan is ready. Only the user can leave plan mode.`,
+		`- Write the plan with ${WRITE_PLAN}, then call ${SUBMIT_PLAN} when it is ready. Only the user can leave plan mode.`,
 	].join("\n");
 }
 
