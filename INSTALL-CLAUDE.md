@@ -26,6 +26,7 @@
 - Only add comments if they add context that is not part of the code itself. Explicitly do not duplicate what code is doing in the comments, only explain rationale and/or high level architecture.
 - Use pub instead of pub(crate) or pub(super) where applicable.
 - Do not use `err`, `ctx`, `recv` or similar abbreviations. Use full words like `error`, `context` or `receive`.
+- If you want to make clear that something cannot happen, use `.unwrap_or(|| unreachable!(...))` instead of `.expect(...)`.
 
 ## Instruction loading (for harnesses without native support, e.g. OpenCode)
 
