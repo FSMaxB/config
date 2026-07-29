@@ -9,6 +9,7 @@ import type {
 import { getAgentDir, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { notifyUser } from "./lib/notify.ts";
 import {
   getCurrentPlanPath,
   planFileName,
@@ -199,6 +200,7 @@ export default function (pi: ExtensionAPI) {
     if (blocked) return { block: true, reason: blocked };
     if (isAllowed(event.toolName)) return undefined;
 
+    notifyUser(pi, `Waiting for permission: ${event.toolName}`);
     const choice = await ctx.ui.select(
       `Plan mode — allow ${event.toolName}?\n\n  ${summarizeInput(event)}`,
       [
