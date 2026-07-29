@@ -12,6 +12,8 @@ const DEFAULT_LOG_LIMIT = 20;
 const PATHS_NOTE =
   "Paths are relative to the repository root and must stay inside it.";
 
+const REVSET_NOTE = revsetNote(detectVcs().kind);
+
 export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "vcs_info",
@@ -97,17 +99,14 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "vcs_log",
     label: "VCS log",
-    description:
-      "Show commit history. " +
-      "Pass revisions as a jj revset in a jj repository (for example 'main..@' or '@-::') or as a git revision range otherwise. " +
-      PATHS_NOTE,
+    description: `Show commit history. ${REVSET_NOTE} ${PATHS_NOTE}`,
     promptSnippet:
       "Show commit history, optionally for a revision range or specific paths",
     parameters: Type.Object({
       revisions: Type.Optional(
         Type.String({
           description:
-            "jj revset or git revision range. Defaults to recent history",
+            "Full jj revset or git revision range. Defaults to recent history",
         }),
       ),
       limit: Type.Optional(
@@ -189,14 +188,13 @@ export default function (pi: ExtensionAPI) {
     label: "VCS diff",
     description:
       "Show a diff. With no revisions this is the working copy against the last commit. " +
-      "Otherwise pass a jj revset in a jj repository or a git commit-ish or range. " +
-      PATHS_NOTE,
+      `${REVSET_NOTE} ${PATHS_NOTE}`,
     promptSnippet: "Diff the working copy, a revision, or a range of revisions",
     parameters: Type.Object({
       revisions: Type.Optional(
         Type.String({
           description:
-            "jj revset or git commit-ish/range. Defaults to the working copy",
+            "Full jj revset or git commit-ish/range. Defaults to the working copy",
         }),
       ),
       paths: Type.Optional(
@@ -319,6 +317,26 @@ async function report(
       signal,
     ),
   );
+}
+
+// Descriptions are baked at tool registration, so this reflects the repository pi was
+// started in; each tool call still re-detects the VCS on its own.
+function revsetNote(kind: VcsInfo["kind"]): string {
+  switch (kind) {
+    case "jj":
+      return (
+        "Revisions accept the full jj revset language: functions like ancestors(x), " +
+        "descendants(x), heads(x), latest(x, n) and operators like 'main..@', 'x | y' or '~x'."
+      );
+    case "git":
+      return "Revisions accept standard git revision syntax: a commit-ish or a range like 'main..HEAD'.";
+    default:
+      return (
+        "In a jj repository revisions accept the full jj revset language (ancestors(x), heads(x), " +
+        "latest(x, n), 'main..@', 'x | y'); in a git repository, standard git revision syntax " +
+        "('main..HEAD'). The two syntaxes are not interchangeable."
+      );
+  }
 }
 
 function missingVcs(root: string): AgentToolResult<unknown> {
