@@ -136,15 +136,22 @@ function* allowedRoots(mode: AccessMode): Generator<string> {
   if (mode === "read") {
     yield join(homedir(), ".crit");
     yield join(getAgentDir(), "plans");
-    // Skills are meant to be loaded on demand, so the global skill roots are readable.
-    // Project-level .agents/skills and .pi/skills need no entry, being inside the repo.
-    yield join(getAgentDir(), "skills");
-    yield join(homedir(), ".agents", "skills");
-    yield join(homedir(), ".claude", "skills");
+    // Skills are meant to be loaded on demand, so the skill roots are readable.
+    yield* skillRoots();
   }
 
   yield* configuredRoots[mode];
   yield* sessionRoots[mode];
+}
+
+// Ordered by precedence: project-level skills shadow the global ones.
+export function* skillRoots(): Generator<string> {
+  const repoRoot = findRepoRoot();
+  yield join(repoRoot, ".agents", "skills");
+  yield join(repoRoot, ".pi", "skills");
+  yield join(getAgentDir(), "skills");
+  yield join(homedir(), ".agents", "skills");
+  yield join(homedir(), ".claude", "skills");
 }
 
 // Claude Code derives this directory from the cwd. If that scheme ever changes the guard
@@ -155,7 +162,7 @@ function memoryDirectory(): string | undefined {
   return existsSync(directory) ? directory : undefined;
 }
 
-function contains(root: string, path: string): boolean {
+export function contains(root: string, path: string): boolean {
   const rel = relative(root, path);
   return (
     rel === "" ||
@@ -254,7 +261,7 @@ async function persistRoot(root: string, mode: AccessMode): Promise<void> {
   );
 }
 
-function expandHome(path: string): string {
+export function expandHome(path: string): string {
   return path === "~" || path.startsWith(`~${sep}`)
     ? join(homedir(), path.slice(1))
     : path;
