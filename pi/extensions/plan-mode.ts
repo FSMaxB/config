@@ -25,6 +25,8 @@ const UNGATED_TOOLS = new Set([
   "repo_grep",
   "repo_find",
   "repo_ls",
+  "memory_read",
+  "memory_ls",
   "question",
   ...PLAN_TOOLS,
 ]);
