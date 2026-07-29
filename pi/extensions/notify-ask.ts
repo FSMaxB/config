@@ -2,20 +2,25 @@ import { execFile } from "node:child_process";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
+  const title = () => {
+    const sessionName = pi.getSessionName();
+    return sessionName ? `Pi — ${sessionName}` : "Pi";
+  };
+
   pi.on("tool_execution_start", async (event) => {
     switch (event.toolName) {
       case "question":
-        notify("Pi", "Waiting for your answer");
+        notify(title(), "Waiting for your answer");
         break;
       case "submit_plan":
-        notify("Pi", "Plan submitted for review");
+        notify(title(), "Plan submitted for review");
         break;
     }
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
     if (!ctx.isIdle()) return;
-    notify("Pi", "Ready for input");
+    notify(title(), "Ready for input");
   });
 }
 
