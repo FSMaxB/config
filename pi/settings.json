@@ -6,7 +6,7 @@
   "defaultThinkingLevel": "high",
   "packages": [
     "npm:pi-web-access",
-    "npm:pi-claude-bridge"
+    "npm:@vanillagreen/pi-claude-bridge"
   ],
   "compaction": {
     "enabled": false

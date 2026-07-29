@@ -73,6 +73,10 @@ if [[ -L ~/.pi/agent/APPEND_SYSTEM.md || ! -e ~/.pi/agent/APPEND_SYSTEM.md ]]; t
   mkdir -p ~/.pi/agent
   ln -sfnv ~/config/pi/APPEND_SYSTEM.md ~/.pi/agent/APPEND_SYSTEM.md
 fi
+if [[ -L ~/.pi/agent/claude-bridge.json || ! -e ~/.pi/agent/claude-bridge.json ]]; then
+  mkdir -p ~/.pi/agent
+  ln -sfnv ~/config/pi/claude-bridge.json ~/.pi/agent/claude-bridge.json
+fi
 
 if hash git 2>/dev/null; then
   git config --global init.templatedir '~/.git_template'
