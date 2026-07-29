@@ -99,7 +99,7 @@ function findVcsRoot(from: string): string | undefined {
 
 // realpath() fails on paths that do not exist yet, which is the normal case for a new file,
 // so resolve the deepest existing ancestor and re-attach the missing tail.
-async function resolveThroughSymlinks(target: string): Promise<string> {
+export async function resolveThroughSymlinks(target: string): Promise<string> {
   const absolute = resolve(expandHome(target));
   const missing: string[] = [];
   let existing = absolute;
@@ -127,8 +127,7 @@ async function isAllowed(resolved: string, mode: AccessMode): Promise<boolean> {
 }
 
 function* allowedRoots(mode: AccessMode): Generator<string> {
-  const memory = memoryDirectory();
-  if (memory) yield memory;
+  yield memoryDirectory();
 
   const plan = getCurrentPlanPath();
   if (plan) yield plan;
@@ -154,12 +153,12 @@ export function* skillRoots(): Generator<string> {
   yield join(homedir(), ".claude", "skills");
 }
 
-// Claude Code derives this directory from the cwd. If that scheme ever changes the guard
-// just falls through to the prompt, so it is not worth probing for.
-function memoryDirectory(): string | undefined {
+// Claude Code derives this directory from the cwd. If that scheme ever changes, the repo
+// scope guard just falls through to the prompt and the memory tools see an empty directory,
+// so it is not worth probing for.
+export function memoryDirectory(): string {
   const slug = process.cwd().replace(/\//g, "-");
-  const directory = join(homedir(), ".claude", "projects", slug, "memory");
-  return existsSync(directory) ? directory : undefined;
+  return join(homedir(), ".claude", "projects", slug, "memory");
 }
 
 export function contains(root: string, path: string): boolean {
