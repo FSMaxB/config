@@ -3,8 +3,14 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
   pi.on("tool_execution_start", async (event) => {
-    if (event.toolName !== "question") return;
-    notify("Pi", "Waiting for your answer");
+    switch (event.toolName) {
+      case "question":
+        notify("Pi", "Waiting for your answer");
+        break;
+      case "submit_plan":
+        notify("Pi", "Plan submitted for review");
+        break;
+    }
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
