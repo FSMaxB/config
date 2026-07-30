@@ -33,6 +33,8 @@
 - Liberally use struct and enum destructuring, especially if it allows you to avoid an explicit type declaration of a let binding.
 - Use pub instead of pub(crate) or pub(super) where applicable.
 - If you want to make clear that something cannot happen, use `.unwrap_or(|| unreachable!(...))` instead of `.expect(...)`.
+- If types can be inferred, let them be inferred.
+- Prefer specifying types to the right of the `=`. E.g. `.collect<Vec<_>>()` instead of `let foo: Vec<_> = ....collect();`
 
 ## Instruction loading (for harnesses without native support, e.g. OpenCode)
 
