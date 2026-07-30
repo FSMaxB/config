@@ -38,6 +38,7 @@ export default function (pi: ExtensionAPI) {
       label: "Memory ls",
       guideline:
         "Use memory_ls without a path to see which memory files exist.",
+      descriptionNote: "Pass limit to change the entry cap.",
     }),
   );
 
@@ -89,6 +90,9 @@ interface ScopeOptions {
   name: string;
   label: string;
   guideline: string;
+  // Appended to the built-in description. The bridge to other harnesses drops per-parameter
+  // descriptions, so anything the model must know about parameters has to be said here.
+  descriptionNote?: string;
 }
 
 // Wraps a built-in tool definition under a new name, with relative paths resolved against
@@ -99,12 +103,14 @@ function scoped(
   definition: ToolDefinition<any, any, any>,
   options: ScopeOptions,
 ): ToolDefinition<any, any, any> {
-  const { name, label, guideline } = options;
+  const { name, label, guideline, descriptionNote } = options;
   return {
     ...definition,
     name,
     label,
-    description: `${definition.description}\n\n${SCOPE_NOTE}`,
+    description: `${definition.description}${
+      descriptionNote === undefined ? "" : ` ${descriptionNote}`
+    }\n\n${SCOPE_NOTE}`,
     promptGuidelines: [guideline],
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       await ensureInMemory(params.path);
