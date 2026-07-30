@@ -34,6 +34,7 @@ export default function (pi: ExtensionAPI) {
       mode: "read",
       guideline:
         "Use repo_ls to list a directory instead of shelling out to ls.",
+      descriptionNote: "Pass limit to change the entry cap.",
     }),
   );
 
@@ -83,6 +84,9 @@ interface ScopeOptions {
   label: string;
   mode: AccessMode;
   guideline: string;
+  // Appended to the built-in description. The bridge to other harnesses drops per-parameter
+  // descriptions, so anything the model must know about parameters has to be said here.
+  descriptionNote?: string;
 }
 
 // Wraps a built-in tool definition under a new name. Spreading keeps the built-in renderers,
@@ -92,12 +96,14 @@ function scoped(
   definition: ToolDefinition<any, any, any>,
   options: ScopeOptions,
 ): ToolDefinition<any, any, any> {
-  const { name, label, mode, guideline } = options;
+  const { name, label, mode, guideline, descriptionNote } = options;
   return {
     ...definition,
     name,
     label,
-    description: `${definition.description}\n\n${SCOPE_NOTE}`,
+    description: `${definition.description}${
+      descriptionNote === undefined ? "" : ` ${descriptionNote}`
+    }\n\n${SCOPE_NOTE}`,
     promptGuidelines: [guideline],
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       await ensureAccessible(params.path ?? process.cwd(), mode, ctx);
