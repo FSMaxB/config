@@ -1,6 +1,9 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
+import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type {
+  AgentToolResult,
   ExtensionAPI,
   ExtensionContext,
   Theme,
@@ -41,6 +44,7 @@ const DENY_ONCE = "Deny once";
 const DENY_SESSION = "Deny in session";
 const DENY_ALWAYS = "Deny always";
 const APPROVE = "Approve — leave plan mode";
+const IMPLEMENT_DIFFERENT = "Implement with different model";
 const REFINE = "Refine — send feedback";
 const CLEAR_ALL = "Clear all";
 const DONE = "Done";
@@ -469,7 +473,7 @@ export default function (pi: ExtensionAPI) {
 
       const choice = await ctx.ui.select(
         `Plan submitted — what next?\n\n  ${path}`,
-        [APPROVE, REFINE, "Stay in plan mode"],
+        [APPROVE, IMPLEMENT_DIFFERENT, REFINE, "Stay in plan mode"],
       );
 
       if (choice === APPROVE) {
@@ -483,6 +487,10 @@ export default function (pi: ExtensionAPI) {
           ],
           details: { path, outcome: "approved" },
         };
+      }
+
+      if (choice === IMPLEMENT_DIFFERENT) {
+        return await handleImplementDifferent(path, ctx);
       }
 
       if (choice === REFINE) {
@@ -536,7 +544,9 @@ export default function (pi: ExtensionAPI) {
           ? "approved"
           : details.outcome === "refine"
             ? "needs changes"
-            : "submitted";
+            : details.outcome === "handed-off"
+              ? "handed off"
+              : "submitted";
       return new Text(
         theme.fg("success", "✓ ") +
           theme.fg("accent", label) +
@@ -546,6 +556,108 @@ export default function (pi: ExtensionAPI) {
       );
     },
   });
+
+  async function handleImplementDifferent(
+    planPath: string,
+    ctx: ExtensionContext,
+  ): Promise<AgentToolResult<{ path: string; outcome: string }>> {
+    const models = ctx.modelRegistry.getAvailable();
+    if (models.length === 0) {
+      return notApproved("No models with configured auth are available.");
+    }
+
+    const currentModelLabel = ctx.model
+      ? `${ctx.model.provider}/${ctx.model.id}`
+      : undefined;
+    const modelOptions = models.map((model) => {
+      const label = `${model.provider}/${model.id}`;
+      return label === currentModelLabel ? `${label} (current)` : label;
+    });
+    const modelChoice = await ctx.ui.select(
+      "Implement with which model?",
+      modelOptions,
+    );
+    if (modelChoice === undefined) return notApproved();
+    const selectedModel = models[modelOptions.indexOf(modelChoice)];
+
+    let level: ModelThinkingLevel = pi.getThinkingLevel();
+    const supportedLevels = getSupportedThinkingLevels(selectedModel);
+    if (supportedLevels.length > 1) {
+      const currentLevel = level;
+      const levelOptions = supportedLevels.map((candidate) =>
+        candidate === currentLevel ? `${candidate} (current)` : candidate,
+      );
+      const levelChoice = await ctx.ui.select("Thinking level", levelOptions);
+      if (levelChoice !== undefined) {
+        level = supportedLevels[levelOptions.indexOf(levelChoice)];
+      }
+    }
+
+    const compactFirst = await ctx.ui.confirm(
+      "Compact the conversation before implementing?",
+      "Compaction aborts the current turn, summarizes the conversation, and starts implementation in a fresh turn.",
+    );
+
+    if (!(await pi.setModel(selectedModel))) {
+      ctx.ui.notify(`No API key for ${selectedModel.provider}.`, "error");
+      return notApproved(
+        `No API key is configured for ${selectedModel.provider}.`,
+      );
+    }
+    // setModel re-clamps the current thinking level for the new model, so the
+    // user's choice has to be applied after the switch.
+    pi.setThinkingLevel(level);
+
+    setPlanMode(false, ctx);
+
+    const modelName = `${selectedModel.provider}/${selectedModel.id}`;
+    if (compactFirst) {
+      // Compaction aborts the run this tool call belongs to, so the kickoff has
+      // to come from the completion callback instead of this tool result.
+      const kickoff = () =>
+        pi.sendUserMessage(`Implement the plan at ${planPath}.`);
+      ctx.compact({
+        onComplete: kickoff,
+        onError: (error) => {
+          ctx.ui.notify(`Compaction failed: ${error.message}`, "error");
+          kickoff();
+        },
+      });
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Plan at ${planPath} approved. Compacting the conversation, then ${modelName} implements it in a fresh turn.`,
+          },
+        ],
+        details: { path: planPath, outcome: "handed-off" },
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text:
+            `Plan at ${planPath} approved. Plan mode is off and full tool access is restored. ` +
+            `The user picked ${modelName} (thinking level ${level}) to implement the plan. Implement it now.`,
+        },
+      ],
+      details: { path: planPath, outcome: "handed-off" },
+    };
+
+    function notApproved(
+      reason?: string,
+    ): AgentToolResult<{ path: string; outcome: string }> {
+      const text = reason
+        ? `Plan at ${planPath} not approved. Still in plan mode. ${reason}`
+        : `Plan at ${planPath} not approved. Still in plan mode.`;
+      return {
+        content: [{ type: "text", text }],
+        details: { path: planPath, outcome: "saved" },
+      };
+    }
+  }
 
   pi.registerCommand("plan", {
     description:
