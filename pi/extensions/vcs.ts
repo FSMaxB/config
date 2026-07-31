@@ -8,6 +8,7 @@ import { detectVcs, type VcsInfo } from "./lib/repo.ts";
 
 const TIMEOUT = 60_000;
 const DEFAULT_LOG_LIMIT = 20;
+const DEFAULT_STATUS_LIMIT = 50;
 
 const PATHS_NOTE =
   "Paths are relative to the repository root and must stay inside it.";
@@ -82,17 +83,30 @@ export default function (pi: ExtensionAPI) {
     name: "vcs_status",
     label: "VCS status",
     description:
-      "Show the working copy status: which files were added, modified or deleted since the last commit.",
+      "Show the working copy status: which files were added, modified or deleted since the last commit. " +
+      `At most ${DEFAULT_STATUS_LIMIT} changed files are listed; truncation is marked in the output and limit raises the cap.`,
     promptSnippet: "Show which files changed in the working copy",
-    parameters: Type.Object({}),
+    parameters: Type.Object({
+      limit: Type.Optional(
+        Type.Number({
+          description: `Maximum number of changed files to list. Default: ${DEFAULT_STATUS_LIMIT}`,
+        }),
+      ),
+    }),
 
-    async execute(_toolCallId, _params, signal) {
-      return await report(
+    async execute(_toolCallId, params, signal) {
+      const { limit = DEFAULT_STATUS_LIMIT } = params;
+      const vcs = detectVcs();
+      if (vcs.kind === "none") return missingVcs(vcs.root);
+
+      const output = await capture(
         pi,
+        vcs,
         ["status"],
         ["status", "--short", "--branch"],
         signal,
       );
+      return asResult(vcs, limitChangedFiles(output, limit));
     },
   });
 
@@ -317,6 +331,38 @@ async function report(
       signal,
     ),
   );
+}
+
+// Only the per-file lines are capped; headers, the jj working copy/parent footer and any
+// hints stay, so a truncated status still says which revision it describes.
+function limitChangedFiles(output: string, limit: number): string {
+  // jj prints "M path", git --short prints " M path" or "?? path".
+  const changeLine = /^[ ACDMRU?!][ ACDMRU?!]? /;
+
+  const kept: string[] = [];
+  let shown = 0;
+  let hidden = 0;
+  let markerAt = 0;
+  for (const line of output.split("\n")) {
+    if (!changeLine.test(line)) {
+      kept.push(line);
+    } else if (shown < limit) {
+      shown++;
+      kept.push(line);
+    } else {
+      if (hidden === 0) markerAt = kept.length;
+      hidden++;
+    }
+  }
+  if (hidden === 0) return output;
+
+  kept.splice(
+    markerAt,
+    0,
+    `[truncated] ... and ${hidden} more changed files not listed ` +
+      `(showing ${shown} of ${shown + hidden}; pass a larger limit to vcs_status to see more)`,
+  );
+  return kept.join("\n");
 }
 
 // Descriptions are baked at tool registration, so this reflects the repository pi was
