@@ -32,6 +32,9 @@ const UNGATED_TOOLS = new Set([
   "memory_read",
   "memory_ls",
   "question",
+  // Safe under plan mode by construction: the subagent extension caps child
+  // tools at what plan mode leaves ungated or granted here.
+  "subagent",
   ...PLAN_TOOLS,
 ]);
 
