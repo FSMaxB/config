@@ -1,7 +1,7 @@
 {
-  "lastChangelogVersion": "0.82.1",
   "defaultProvider": "lmstudio",
   "defaultModel": "qwen/qwen3.6-35b-a3b",
+  "lastChangelogVersion": "0.84.2",
   "theme": "gruvbox-dark",
   "defaultThinkingLevel": "high",
   "packages": [
