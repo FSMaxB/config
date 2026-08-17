@@ -3,6 +3,12 @@ import type {
   AgentToolResult,
   ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
+import {
+  DEFAULT_MAX_BYTES,
+  DEFAULT_MAX_LINES,
+  formatSize,
+  truncateHead,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { detectVcs, type VcsInfo } from "./lib/repo.ts";
 
@@ -12,6 +18,16 @@ const DEFAULT_STATUS_LIMIT = 50;
 
 const PATHS_NOTE =
   "Paths are relative to the repository root and must stay inside it.";
+
+// Appended to a truncation notice, so the model can see how to get the rest instead of
+// giving up on the tool.
+const NARROW_HINT =
+  "pass stat: true to see which files changed, then paths to narrow the output";
+const PAGE_HINT = "pass offset/limit to page through the rest";
+
+const CAP_NOTE =
+  `Output is truncated to ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB, ` +
+  "whichever is hit first.";
 
 const REVSET_NOTE = revsetNote(detectVcs().kind);
 
@@ -106,14 +122,18 @@ export default function (pi: ExtensionAPI) {
         ["status", "--short", "--branch"],
         signal,
       );
-      return asResult(vcs, limitChangedFiles(output, limit));
+      return asResult(
+        vcs,
+        limitChangedFiles(output, limit),
+        "pass a larger limit only if you need the full list",
+      );
     },
   });
 
   pi.registerTool({
     name: "vcs_log",
     label: "VCS log",
-    description: `Show commit history. ${REVSET_NOTE} ${PATHS_NOTE}`,
+    description: `Show commit history. ${REVSET_NOTE} ${PATHS_NOTE} ${CAP_NOTE}`,
     promptSnippet:
       "Show commit history, optionally for a revision range or specific paths",
     parameters: Type.Object({
@@ -158,14 +178,16 @@ export default function (pi: ExtensionAPI) {
         jj.push("--stat");
         git.push("--stat");
       }
-      return await report(pi, jj, git, signal, paths);
+      return await report(pi, jj, git, signal, paths, NARROW_HINT);
     },
   });
 
   pi.registerTool({
     name: "vcs_show",
     label: "VCS show",
-    description: `Show one revision: its metadata and the diff it introduced. ${PATHS_NOTE}`,
+    description:
+      "Show one revision: its metadata and the diff it introduced. " +
+      `${PATHS_NOTE} ${CAP_NOTE}`,
     promptSnippet: "Show the metadata and diff of a single revision",
     parameters: Type.Object({
       revision: Type.String({
@@ -193,7 +215,7 @@ export default function (pi: ExtensionAPI) {
         jj.push("--stat");
         git.push("--stat");
       }
-      return await report(pi, jj, git, signal, paths);
+      return await report(pi, jj, git, signal, paths, NARROW_HINT);
     },
   });
 
@@ -202,7 +224,7 @@ export default function (pi: ExtensionAPI) {
     label: "VCS diff",
     description:
       "Show a diff. With no revisions this is the working copy against the last commit. " +
-      `${REVSET_NOTE} ${PATHS_NOTE}`,
+      `${REVSET_NOTE} ${PATHS_NOTE} ${CAP_NOTE}`,
     promptSnippet: "Diff the working copy, a revision, or a range of revisions",
     parameters: Type.Object({
       revisions: Type.Optional(
@@ -241,38 +263,53 @@ export default function (pi: ExtensionAPI) {
         jj.push("--context", String(context));
         git.push(`-U${context}`);
       }
-      return await report(pi, jj, git, signal, paths);
+      return await report(pi, jj, git, signal, paths, NARROW_HINT);
     },
   });
 
   pi.registerTool({
     name: "vcs_file",
     label: "VCS file",
-    description: `Print the contents of a file as of a given revision. ${PATHS_NOTE}`,
+    description:
+      `Print the contents of a file as of a given revision. ${PATHS_NOTE} ${CAP_NOTE} ` +
+      "Pass offset and limit to page through a longer file.",
     promptSnippet: "Print a file's contents at a specific revision",
     parameters: Type.Object({
       revision: Type.String({ description: "Revision to read the file from" }),
       path: Type.String({
         description: "File path relative to the repository root",
       }),
+      offset: Type.Optional(
+        Type.Number({
+          description: "1-based first line to return. Default: 1",
+        }),
+      ),
+      limit: Type.Optional(
+        Type.Number({
+          description: "Maximum number of lines to return. Default: no slice",
+        }),
+      ),
     }),
 
     async execute(_toolCallId, params, signal) {
-      const { revision, path } = params;
+      const { revision, path, offset, limit } = params;
       const vcs = detectVcs();
       if (vcs.kind === "none") return missingVcs(vcs.root);
 
       const relativePath = repoRelative(vcs.root, path);
       const jj = ["file", "show", "-r", revision, relativePath];
       const git = ["show", `${revision}:${relativePath}`];
-      return asResult(vcs, await capture(pi, vcs, jj, git, signal));
+      const output = await capture(pi, vcs, jj, git, signal);
+      return asResult(vcs, paginate(output, offset, limit), PAGE_HINT);
     },
   });
 
   pi.registerTool({
     name: "vcs_blame",
     label: "VCS blame",
-    description: `Show which revision last changed each line of a file. ${PATHS_NOTE}`,
+    description:
+      `Show which revision last changed each line of a file. ${PATHS_NOTE} ${CAP_NOTE} ` +
+      "Pass offset and limit to page through a longer file.",
     promptSnippet: "Show the revision responsible for each line of a file",
     parameters: Type.Object({
       path: Type.String({
@@ -283,10 +320,20 @@ export default function (pi: ExtensionAPI) {
           description: "Revision to blame at. Defaults to the working copy",
         }),
       ),
+      offset: Type.Optional(
+        Type.Number({
+          description: "1-based first line to return. Default: 1",
+        }),
+      ),
+      limit: Type.Optional(
+        Type.Number({
+          description: "Maximum number of lines to return. Default: no slice",
+        }),
+      ),
     }),
 
     async execute(_toolCallId, params, signal) {
-      const { path, revision } = params;
+      const { path, revision, offset, limit } = params;
       const vcs = detectVcs();
       if (vcs.kind === "none") return missingVcs(vcs.root);
 
@@ -303,7 +350,8 @@ export default function (pi: ExtensionAPI) {
         "--",
         relativePath,
       ];
-      return asResult(vcs, await capture(pi, vcs, jj, git, signal));
+      const output = await capture(pi, vcs, jj, git, signal);
+      return asResult(vcs, paginate(output, offset, limit), PAGE_HINT);
     },
   });
 }
@@ -313,7 +361,8 @@ async function report(
   jj: string[],
   git: string[],
   signal: AbortSignal | undefined,
-  paths?: string[],
+  paths: string[] | undefined,
+  hint: string,
 ): Promise<AgentToolResult<unknown>> {
   const vcs = detectVcs();
   if (vcs.kind === "none") return missingVcs(vcs.root);
@@ -330,6 +379,7 @@ async function report(
       [...git, ...separated],
       signal,
     ),
+    hint,
   );
 }
 
@@ -407,12 +457,73 @@ function repoRelative(root: string, path: string): string {
   return rel || ".";
 }
 
-function asResult(vcs: VcsInfo, output: string): AgentToolResult<unknown> {
-  const text = output.trim();
+// Every tool result goes through the same cap as the built-in read and bash tools, so a
+// megabyte-sized diff or a huge file cannot swallow the context window. The hint says how to
+// get the rest, so a truncated result stays actionable instead of looking like a dead end.
+function asResult(
+  vcs: VcsInfo,
+  output: string,
+  hint: string,
+): AgentToolResult<unknown> {
+  const trimmed = output.trim();
+  if (!trimmed) {
+    return {
+      content: [{ type: "text", text: "(no output)" }],
+      details: { kind: vcs.kind, truncated: false },
+    };
+  }
+
+  const {
+    content,
+    truncated,
+    totalLines,
+    outputLines,
+    maxBytes,
+    firstLineExceedsLimit,
+  } = truncateHead(trimmed);
+  if (!truncated) {
+    return {
+      content: [{ type: "text", text: content }],
+      details: { kind: vcs.kind, truncated: false },
+    };
+  }
+
+  // A single overlong line (a minified file, a one-line diff hunk) truncates to nothing, so
+  // say that rather than reporting no output.
+  const text = firstLineExceedsLimit
+    ? `[truncated] The first line alone exceeds the ${formatSize(maxBytes)} limit, so none of it is shown; ${hint}.`
+    : `${content.trimEnd()}\n[truncated] Showing the first ${outputLines} of ${totalLines} lines ` +
+      `(${DEFAULT_MAX_LINES} line / ${formatSize(maxBytes)} limit); ${hint}.`;
   return {
-    content: [{ type: "text", text: text || "(no output)" }],
-    details: { kind: vcs.kind },
+    content: [{ type: "text", text }],
+    details: { kind: vcs.kind, truncated: true },
   };
+}
+
+// Line paging for whole-file output, which makes the cap above recoverable: a file longer
+// than one result would otherwise be unreadable past the cap, since repo_read can only
+// substitute when the revision happens to be the working copy.
+function paginate(
+  output: string,
+  offset: number | undefined,
+  limit: number | undefined,
+): string {
+  if (offset === undefined && limit === undefined) return output;
+
+  const lines = output.split("\n");
+  // A trailing newline leaves a final empty element that is not a real line.
+  if (lines.at(-1) === "") lines.pop();
+
+  const start = Math.max((offset ?? 1) - 1, 0);
+  if (start >= lines.length) {
+    return `(no lines: offset ${start + 1} starts past the end of this ${lines.length}-line file)`;
+  }
+
+  const slice = lines.slice(
+    start,
+    limit === undefined ? undefined : start + Math.max(limit, 0),
+  );
+  return `[lines ${start + 1}-${start + slice.length} of ${lines.length}]\n${slice.join("\n")}`;
 }
 
 async function capture(
