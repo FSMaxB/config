@@ -1,8 +1,8 @@
 {
-  "defaultProvider": "lmstudio",
-  "defaultModel": "qwen/qwen3.6-35b-a3b",
   "lastChangelogVersion": "0.84.2",
   "theme": "gruvbox-dark",
+  "defaultProvider": "claude-bridge",
+  "defaultModel": "claude-fable-5",
   "defaultThinkingLevel": "high",
   "packages": [
     "npm:pi-web-access",
