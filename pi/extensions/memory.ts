@@ -10,6 +10,7 @@ import {
   createWriteToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { renameRenderedTitle } from "./lib/tool-title.ts";
 import {
   contains,
   memoryDirectory,
@@ -97,8 +98,8 @@ interface ScopeOptions {
 
 // Wraps a built-in tool definition under a new name, with relative paths resolved against
 // the memory directory instead of the cwd. Spreading keeps the built-in renderers, so the
-// UI (syntax highlighting, truncation notices) is unchanged. Only execute() is intercepted,
-// to reject paths that land outside the memory directory.
+// UI (syntax highlighting, truncation notices) is unchanged, while the call title matches the
+// wrapper. Execution and call-title rendering are intercepted to enforce the memory scope.
 function scoped(
   definition: ToolDefinition<any, any, any>,
   options: ScopeOptions,
@@ -112,6 +113,7 @@ function scoped(
       descriptionNote === undefined ? "" : ` ${descriptionNote}`
     }\n\n${SCOPE_NOTE}`,
     promptGuidelines: [guideline],
+    renderCall: renameRenderedTitle(definition, name),
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       await ensureInMemory(params.path);
       return await definition.execute(

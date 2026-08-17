@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createReadToolDefinition } from "@earendil-works/pi-coding-agent";
+import { renameRenderedTitle } from "./lib/tool-title.ts";
 import { contains, expandHome, skillRoots } from "./lib/repo.ts";
 
 export default function (pi: ExtensionAPI) {
@@ -18,6 +19,7 @@ export default function (pi: ExtensionAPI) {
     promptGuidelines: [
       "Use load_skill to read SKILL.md files and the files they reference, instead of repo_read or bash.",
     ],
+    renderCall: renameRenderedTitle(definition, "load_skill"),
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       const path = resolveSkillPath(params.path);
       return await definition.execute(
