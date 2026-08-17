@@ -5,6 +5,7 @@
 - Before starting implementation of any plan, load the crit skill and launch a crit review of the plan. Wait until I finish the review and address all unresolved comments before implementing.
   - In the Pi coding agent, run crit and fix all comments before `submit_plan`
 - Explicitly include verification steps in the plan you write
+- Write the plan with enough detail that a less capable model is still able to implement it.
 
 ## VCS
 
@@ -16,7 +17,7 @@
 
 ## Verification
 
-- After implementing a plan, ask me whether I want to do a review with tuicr. If yes, load the tuicr skill and use it for that.
+- After implementing a plan, ask me with a tool whether I want to do a review with tuicr. If yes, load the tuicr skill and use it for that.
 
 ## Code style / Architecture
 
