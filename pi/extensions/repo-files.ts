@@ -10,6 +10,7 @@ import {
   createReadToolDefinition,
   createWriteToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { renameRenderedTitle } from "./lib/tool-title.ts";
 import { type AccessMode, ensureAccessible } from "./lib/repo.ts";
 
 const SCOPE_NOTE =
@@ -90,8 +91,8 @@ interface ScopeOptions {
 }
 
 // Wraps a built-in tool definition under a new name. Spreading keeps the built-in renderers,
-// so the UI (syntax highlighting, edit diffs, truncation notices) is unchanged, and keeps the
-// result shape the session logic expects. Only execute() is intercepted.
+// so the UI (syntax highlighting, edit diffs, truncation notices) is unchanged, while the call
+// title is renamed to match the wrapper. Only execution and call-title rendering are intercepted.
 function scoped(
   definition: ToolDefinition<any, any, any>,
   options: ScopeOptions,
@@ -105,6 +106,7 @@ function scoped(
       descriptionNote === undefined ? "" : ` ${descriptionNote}`
     }\n\n${SCOPE_NOTE}`,
     promptGuidelines: [guideline],
+    renderCall: renameRenderedTitle(definition, name),
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       await ensureAccessible(params.path ?? process.cwd(), mode, ctx);
       return await definition.execute(
