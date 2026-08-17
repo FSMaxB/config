@@ -595,7 +595,9 @@ export default function (pi: ExtensionAPI) {
 
     const compactFirst = await ctx.ui.confirm(
       "Compact the conversation before implementing?",
-      "Compaction aborts the current turn, summarizes the conversation, and starts implementation in a fresh turn.",
+      "Compaction aborts the current turn, summarizes the conversation, and starts implementation in a fresh turn " +
+        "where the new model sees only the summary and the plan file path (it reads the plan from disk). " +
+        "Without compaction, the new model inherits the full conversation, plan text included.",
     );
 
     if (!(await pi.setModel(selectedModel))) {
