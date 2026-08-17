@@ -1,0 +1,13 @@
+{
+  "localProviders": ["lmstudio", "qmlx"],
+  "providerGroups": [["claude-bridge", "anthropic"]],
+  "models": [
+    { "match": "claude-haiku-*", "guidance": "cheap + fast; default for exploration/recon subagents" },
+    { "match": "claude-sonnet-*", "guidance": "mid-tier; exploration needing more judgment" },
+    { "match": "claude-opus-*", "guidance": "expensive; only when the task genuinely needs it" },
+    { "match": "greenpt/glm-5.2", "guidance": "capable greenpt default" },
+    { "match": "greenpt/kimi-k2.7-code", "guidance": "code-focused greenpt model, good for exploration" },
+    { "match": "greenpt/gpt-oss-120b", "guidance": "cheaper greenpt option for simple lookups" },
+    { "match": "*qwen3-coder-next*", "guidance": "strongest local option for code exploration" }
+  ]
+}
