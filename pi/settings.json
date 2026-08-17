@@ -1,12 +1,13 @@
 {
   "lastChangelogVersion": "0.82.1",
-  "theme": "dark",
   "defaultProvider": "lmstudio",
   "defaultModel": "qwen/qwen3.6-35b-a3b",
+  "theme": "gruvbox-dark",
   "defaultThinkingLevel": "high",
   "packages": [
     "npm:pi-web-access",
-    "npm:@vanillagreen/pi-claude-bridge"
+    "npm:@vanillagreen/pi-claude-bridge",
+    "npm:@firstpick/pi-themes-bundle"
   ],
   "compaction": {
     "enabled": false
