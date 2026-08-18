@@ -338,9 +338,25 @@ async function askMultiple(
 
   const trimmed = reply.trim();
   if (!trimmed) return { kind: "cancelled" };
+  if (looksLikeSelectionSyntax(trimmed))
+    return { kind: "unparseable", input: trimmed };
   return allowFreeform
     ? { kind: "freeform", text: trimmed }
     : { kind: "unparseable", input: trimmed };
+}
+
+function looksLikeSelectionSyntax(input: string): boolean {
+  const tokens = input.split(",").map((token) => token.trim()).filter(Boolean);
+  return (
+    tokens.length > 0 &&
+    tokens.every(
+      (token) =>
+        token === "*" ||
+        token.toLowerCase() === "all" ||
+        RANGE_PATTERN.test(token) ||
+        /^[0-9]+$/.test(token),
+    )
+  );
 }
 
 async function askFreeform(
@@ -371,11 +387,13 @@ function resolveSelectionTokens(
   return { selections: [...new Set(selections)], unresolved };
 }
 
+const RANGE_PATTERN = /^(\d+)\s*[-–—]\s*(\d+)$/;
+
 function resolveToken(token: string, options: QuestionOption[]): string[] {
   const titles = options.map(({ title }) => title);
   if (token === "*" || token.toLowerCase() === "all") return titles;
 
-  const range = /^(\d+)\s*[-–—]\s*(\d+)$/.exec(token);
+  const range = RANGE_PATTERN.exec(token);
   if (range) {
     const [start, end] = [Number(range[1]), Number(range[2])];
     const [first, last] = start <= end ? [start, end] : [end, start];
