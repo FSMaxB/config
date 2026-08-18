@@ -20,13 +20,14 @@ import { fileURLToPath } from "node:url";
 import type { AgentToolResult, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Message, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { getSupportedThinkingLevels, StringEnum } from "@earendil-works/pi-ai";
-import { type ExtensionAPI, getAgentDir, getMarkdownTheme, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, getMarkdownTheme, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { createLineSplitter } from "../lib/lines.ts";
+import { latestPlanModeEntry, readPersistedDecisions } from "../lib/plan-decisions.ts";
 import { type AgentConfig, discoverAgents } from "./agents.ts";
 import { guidanceTable, loadPolicyConfig, resolveSubagentModel, type SubagentModelConfig } from "./model-policy.ts";
-import { planModeAllowedTools, type PersistedPlanDecisions, type PlanModeSnapshot } from "./plan-restrictions.ts";
+import { planModeAllowedTools, type PersistedPlanDecisions } from "./plan-restrictions.ts";
 
 const EXTENSION_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 
@@ -576,15 +577,23 @@ export default function (pi: ExtensionAPI) {
 		parameters: SubagentParams,
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
-			const planState = currentPlanModeState(ctx.sessionManager);
+			const planEntry = latestPlanModeEntry(ctx.sessionManager);
+			const planAllowedTools = planEntry?.enabled
+				? planModeAllowedTools(
+						{
+							enabled: true,
+							sessionGrants: planEntry.sessionGrants,
+							sessionDenials: planEntry.sessionDenials.map((denial) => denial.name),
+						},
+						await persistedPlanDecisions(),
+					)
+				: undefined;
 			const dispatch: DispatchContext = {
 				mainModel: ctx.model,
 				thinkingLevel: ctx.thinkingLevel,
 				availableModels: ctx.modelRegistry.getAvailable(),
 				policyConfig: loadPolicyConfig(EXTENSION_DIRECTORY),
-				planAllowedTools: planState?.enabled
-					? planModeAllowedTools(planState, readPersistedPlanDecisions())
-					: undefined,
+				planAllowedTools,
 			};
 			const agents = discoverAgents();
 
@@ -1117,49 +1126,7 @@ function registerChildRestrictions(pi: ExtensionAPI): void {
 	});
 }
 
-// Mirrors lastPlanModeState in plan-mode.ts: the newest "plan-mode" session entry
-// holds the live plan-mode state, read here without importing that extension.
-function currentPlanModeState(sessionManager: { getEntries(): readonly unknown[] }): PlanModeSnapshot | undefined {
-	const entries = sessionManager.getEntries() as readonly { type: string; customType?: string; data?: unknown }[];
-	const entry = entries.filter((candidate) => candidate.type === "custom" && candidate.customType === "plan-mode").pop();
-	if (!entry || typeof entry.data !== "object" || entry.data === null) return undefined;
-
-	const { enabled, sessionGrants, sessionDenials } = entry.data as {
-		enabled?: unknown;
-		sessionGrants?: unknown;
-		sessionDenials?: unknown;
-	};
-	return {
-		enabled: enabled === true,
-		sessionGrants: stringList(sessionGrants),
-		sessionDenials: denialNames(sessionDenials),
-	};
-}
-
-function readPersistedPlanDecisions(): PersistedPlanDecisions {
-	try {
-		const parsed = JSON.parse(fs.readFileSync(path.join(getAgentDir(), "plan-mode.json"), "utf-8")) as Record<
-			string,
-			unknown
-		>;
-		return { alwaysAllowed: stringList(parsed.alwaysAllowed), alwaysDenied: denialNames(parsed.alwaysDenied) };
-	} catch {
-		return { alwaysAllowed: [], alwaysDenied: [] };
-	}
-}
-
-function stringList(value: unknown): string[] {
-	return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-}
-
-// Denial entries are { name, note } objects, or bare names in sessions recorded by older plan-mode versions.
-function denialNames(value: unknown): string[] {
-	if (!Array.isArray(value)) return [];
-	return value.flatMap((item) => {
-		if (typeof item === "string") return [item];
-		if (item && typeof item === "object" && typeof (item as { name?: unknown }).name === "string") {
-			return [(item as { name: string }).name];
-		}
-		return [];
-	});
+async function persistedPlanDecisions(): Promise<PersistedPlanDecisions> {
+	const { alwaysAllowed, alwaysDenied } = await readPersistedDecisions();
+	return { alwaysAllowed, alwaysDenied: alwaysDenied.map((denial) => denial.name) };
 }
