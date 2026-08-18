@@ -20,7 +20,7 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentToolResult, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Message, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
-import { getSupportedThinkingLevels, StringEnum } from "@earendil-works/pi-ai";
+import { clampThinkingLevel, getSupportedThinkingLevels, StringEnum } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, getMarkdownTheme, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
@@ -178,13 +178,25 @@ export default function (pi: ExtensionAPI) {
 
         const allResults: SingleResult[] = new Array(params.tasks.length);
         for (let i = 0; i < params.tasks.length; i++) {
+          const taskItem = params.tasks[i];
+          const agent = agents.find((candidate) => candidate.name === taskItem.agent);
+          const configuration = agent
+            ? resolveTaskConfiguration(agent, { model: taskItem.model, thinkingLevel: taskItem.thinkingLevel }, dispatch)
+            : {
+                model:
+                  taskItem.model ??
+                  (dispatch.mainModel ? `${dispatch.mainModel.provider}/${dispatch.mainModel.id}` : undefined),
+                thinkingLevel: taskItem.thinkingLevel ?? dispatch.thinkingLevel,
+              };
           allResults[i] = {
-            agent: params.tasks[i].agent,
-            task: params.tasks[i].task,
+            agent: taskItem.agent,
+            task: taskItem.task,
             exitCode: -1, // -1 = still running
             messages: [],
             stderr: "",
             usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+            model: configuration.model,
+            thinkingLevel: configuration.thinkingLevel,
           };
         }
 
@@ -293,6 +305,7 @@ export default function (pi: ExtensionAPI) {
             theme.fg("muted", `${i + 1}.`) +
             " " +
             theme.fg("accent", step.agent) +
+            formatAgentConfiguration(step.model, step.thinkingLevel, "inherit", theme) +
             theme.fg("dim", ` ${preview}`);
         }
         if (args.chain.length > 3) text += `\n  ${theme.fg("muted", `... +${args.chain.length - 3} more`)}`;
@@ -304,14 +317,20 @@ export default function (pi: ExtensionAPI) {
           theme.fg("accent", `parallel (${args.tasks.length} tasks)`);
         for (const taskItem of args.tasks.slice(0, 3)) {
           const preview = taskItem.task.length > 40 ? `${taskItem.task.slice(0, 40)}...` : taskItem.task;
-          text += `\n  ${theme.fg("accent", taskItem.agent)}${theme.fg("dim", ` ${preview}`)}`;
+          text +=
+            `\n  ${theme.fg("accent", taskItem.agent)}` +
+            formatAgentConfiguration(taskItem.model, taskItem.thinkingLevel, "inherit", theme) +
+            theme.fg("dim", ` ${preview}`);
         }
         if (args.tasks.length > 3) text += `\n  ${theme.fg("muted", `... +${args.tasks.length - 3} more`)}`;
         return new Text(text, 0, 0);
       }
       const agentName = args.agent || "...";
       const preview = args.task ? (args.task.length > 60 ? `${args.task.slice(0, 60)}...` : args.task) : "...";
-      let text = theme.fg("toolTitle", theme.bold("subagent ")) + theme.fg("accent", agentName);
+      let text =
+        theme.fg("toolTitle", theme.bold("subagent ")) +
+        theme.fg("accent", agentName) +
+        formatAgentConfiguration(args.model, args.thinkingLevel, "inherit", theme);
       text += `\n  ${theme.fg("dim", preview)}`;
       return new Text(text, 0, 0);
     },
@@ -334,7 +353,9 @@ export default function (pi: ExtensionAPI) {
 
         if (expanded) {
           const container = new Container();
-          let header = `${icon} ${theme.fg("toolTitle", theme.bold(single.agent))}`;
+          let header =
+            `${icon} ${theme.fg("toolTitle", theme.bold(single.agent))}` +
+            formatAgentConfiguration(single.model, single.thinkingLevel, "unresolved", theme);
           if (isError && single.stopReason) header += ` ${theme.fg("error", `[${single.stopReason}]`)}`;
           container.addChild(new Text(header, 0, 0));
           if (isError && single.errorMessage)
@@ -362,7 +383,7 @@ export default function (pi: ExtensionAPI) {
               container.addChild(new Markdown(finalOutput.trim(), 0, 0, markdownTheme));
             }
           }
-          const usageText = formatUsageStats(single.usage, single.model);
+          const usageText = formatUsageStats(single.usage);
           if (usageText) {
             container.addChild(new Spacer(1));
             container.addChild(new Text(theme.fg("dim", usageText), 0, 0));
@@ -370,7 +391,9 @@ export default function (pi: ExtensionAPI) {
           return container;
         }
 
-        let text = `${icon} ${theme.fg("toolTitle", theme.bold(single.agent))}`;
+        let text =
+          `${icon} ${theme.fg("toolTitle", theme.bold(single.agent))}` +
+          formatAgentConfiguration(single.model, single.thinkingLevel, "unresolved", theme);
         if (isError && single.stopReason) text += ` ${theme.fg("error", `[${single.stopReason}]`)}`;
         if (isError && single.errorMessage) text += `\n${theme.fg("error", `Error: ${single.errorMessage}`)}`;
         else if (displayItems.length === 0) text += `\n${theme.fg("muted", "(no output)")}`;
@@ -378,7 +401,7 @@ export default function (pi: ExtensionAPI) {
           text += `\n${renderCollapsedItems(displayItems, COLLAPSED_ITEM_COUNT, expanded, theme)}`;
           if (displayItems.length > COLLAPSED_ITEM_COUNT) text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
         }
-        const usageText = formatUsageStats(single.usage, single.model);
+        const usageText = formatUsageStats(single.usage);
         if (usageText) text += `\n${theme.fg("dim", usageText)}`;
         return new Text(text, 0, 0);
       }
@@ -402,7 +425,11 @@ export default function (pi: ExtensionAPI) {
 
           for (const item of details.results) {
             const itemIcon = !isFailedResult(item) ? theme.fg("success", "✓") : theme.fg("error", "✗");
-            const header = `${theme.fg("muted", `─── Step ${item.step}: `) + theme.fg("accent", item.agent)} ${itemIcon}`;
+            const header =
+              theme.fg("muted", `─── Step ${item.step}: `) +
+              theme.fg("accent", item.agent) +
+              formatAgentConfiguration(item.model, item.thinkingLevel, "unresolved", theme) +
+              ` ${itemIcon}`;
             renderTaskSection(container, header, item, theme, markdownTheme);
           }
 
@@ -422,7 +449,10 @@ export default function (pi: ExtensionAPI) {
         for (const item of details.results) {
           const itemIcon = !isFailedResult(item) ? theme.fg("success", "✓") : theme.fg("error", "✗");
           const displayItems = getDisplayItems(item.messages);
-          text += `\n\n${theme.fg("muted", `─── Step ${item.step}: `)}${theme.fg("accent", item.agent)} ${itemIcon}`;
+          text +=
+            `\n\n${theme.fg("muted", `─── Step ${item.step}: `)}${theme.fg("accent", item.agent)}` +
+            formatAgentConfiguration(item.model, item.thinkingLevel, "unresolved", theme) +
+            ` ${itemIcon}`;
           if (displayItems.length === 0) text += `\n${theme.fg("muted", "(no output)")}`;
           else text += `\n${renderCollapsedItems(displayItems, 5, expanded, theme)}`;
         }
@@ -458,7 +488,11 @@ export default function (pi: ExtensionAPI) {
 
           for (const item of details.results) {
             const itemIcon = isFailedResult(item) ? theme.fg("error", "✗") : theme.fg("success", "✓");
-            const header = `${theme.fg("muted", "─── ") + theme.fg("accent", item.agent)} ${itemIcon}`;
+            const header =
+              theme.fg("muted", "─── ") +
+              theme.fg("accent", item.agent) +
+              formatAgentConfiguration(item.model, item.thinkingLevel, "unresolved", theme) +
+              ` ${itemIcon}`;
             renderTaskSection(container, header, item, theme, markdownTheme);
           }
 
@@ -479,7 +513,10 @@ export default function (pi: ExtensionAPI) {
                 ? theme.fg("error", "✗")
                 : theme.fg("success", "✓");
           const displayItems = getDisplayItems(item.messages);
-          text += `\n\n${theme.fg("muted", "─── ")}${theme.fg("accent", item.agent)} ${itemIcon}`;
+          text +=
+            `\n\n${theme.fg("muted", "─── ")}${theme.fg("accent", item.agent)}` +
+            formatAgentConfiguration(item.model, item.thinkingLevel, "unresolved", theme) +
+            ` ${itemIcon}`;
           if (displayItems.length === 0)
             text += `\n${theme.fg("muted", item.exitCode === -1 ? "(running...)" : "(no output)")}`;
           else text += `\n${renderCollapsedItems(displayItems, 5, expanded, theme)}`;
@@ -556,6 +593,7 @@ interface SingleResult {
   stderr: string;
   usage: UsageStats;
   model?: string;
+  thinkingLevel?: ModelThinkingLevel;
   stopReason?: string;
   errorMessage?: string;
   step?: number;
@@ -608,37 +646,20 @@ async function runSingleAgent(
       messages: [],
       stderr: `Unknown agent: "${agentName}". Available agents: ${available}.`,
       usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+      model:
+        overrides.model ??
+        (dispatch.mainModel ? `${dispatch.mainModel.provider}/${dispatch.mainModel.id}` : undefined),
+      thinkingLevel: overrides.thinkingLevel ?? dispatch.thinkingLevel,
       step,
     };
   }
 
   const args: string[] = ["--mode", "json", "-p", "--no-session"];
-  const resolution = resolveSubagentModel({
-    requested: overrides.model ?? agent.model,
-    mainModel: dispatch.mainModel,
-    availableModels: dispatch.availableModels,
-    config: dispatch.policyConfig,
-  });
-  if (!resolution.ok) return policyFailure(agent, task, step, resolution.error);
-  const childModel = resolution.model;
-  const model = childModel ? `${childModel.provider}/${childModel.id}` : undefined;
+  const configuration = resolveTaskConfiguration(agent, overrides, dispatch);
+  if (!configuration.ok) return policyFailure(agent, task, step, configuration.error, configuration);
+  const { model, thinkingLevel } = configuration;
   if (model) args.push("--model", model);
-
-  const requestedThinkingLevel = overrides.thinkingLevel ?? agent.thinkingLevel;
-  const thinkingLevel = requestedThinkingLevel ?? dispatch.thinkingLevel;
-  if (thinkingLevel) {
-    const supportedLevels = childModel ? getSupportedThinkingLevels(childModel) : undefined;
-    if (!supportedLevels || supportedLevels.includes(thinkingLevel)) {
-      args.push("--thinking", thinkingLevel);
-    } else if (requestedThinkingLevel) {
-      return policyFailure(
-        agent,
-        task,
-        step,
-        `Thinking level "${requestedThinkingLevel}" is not supported by ${model}. Supported levels: ${supportedLevels.join(", ")}.`,
-      );
-    }
-  }
+  if (thinkingLevel) args.push("--thinking", thinkingLevel);
 
   const planAllowedTools = dispatch.planAllowedTools;
   if (planAllowedTools && agent.tools && !agent.tools.some((tool) => planAllowedTools.has(tool))) {
@@ -648,6 +669,7 @@ async function runSingleAgent(
       step,
       `Plan mode restricts every tool of agent "${agent.name}", so dispatching it would be pointless. ` +
         `Tools currently allowed for subagents: ${[...planAllowedTools].sort().join(", ")}.`,
+      configuration,
     );
   }
   if (agent.tools && agent.tools.length > 0) args.push("--tools", agent.tools.join(","));
@@ -663,6 +685,7 @@ async function runSingleAgent(
     stderr: "",
     usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
     model,
+    thinkingLevel,
     step,
   };
 
@@ -780,8 +803,67 @@ async function runSingleAgent(
   }
 }
 
-// The unknown-agent result shape, reused for every dispatch-side policy rejection.
-function policyFailure(agent: AgentConfig, task: string, step: number | undefined, message: string): SingleResult {
+function resolveTaskConfiguration(
+  agent: AgentConfig,
+  overrides: TaskOverrides,
+  dispatch: DispatchContext,
+): TaskConfiguration {
+  const requestedModel = overrides.model ?? agent.model;
+  const fallbackModel =
+    requestedModel ?? (dispatch.mainModel ? `${dispatch.mainModel.provider}/${dispatch.mainModel.id}` : undefined);
+  const requestedThinkingLevel = overrides.thinkingLevel ?? agent.thinkingLevel;
+  const inheritedThinkingLevel = requestedThinkingLevel ?? dispatch.thinkingLevel;
+  const resolution = resolveSubagentModel({
+    requested: requestedModel,
+    mainModel: dispatch.mainModel,
+    availableModels: dispatch.availableModels,
+    config: dispatch.policyConfig,
+  });
+  if (!resolution.ok) {
+    return {
+      ok: false,
+      error: resolution.error,
+      model: fallbackModel,
+      thinkingLevel: inheritedThinkingLevel,
+    };
+  }
+
+  const childModel = resolution.model;
+  const model = childModel ? `${childModel.provider}/${childModel.id}` : fallbackModel;
+  if (!childModel || !inheritedThinkingLevel) {
+    return { ok: true, model, thinkingLevel: inheritedThinkingLevel };
+  }
+
+  const supportedLevels = getSupportedThinkingLevels(childModel);
+  if (supportedLevels.includes(inheritedThinkingLevel)) {
+    return { ok: true, model, thinkingLevel: inheritedThinkingLevel };
+  }
+  if (requestedThinkingLevel) {
+    return {
+      ok: false,
+      error:
+        `Thinking level "${requestedThinkingLevel}" is not supported by ${model}. ` +
+        `Supported levels: ${supportedLevels.join(", ")}.`,
+      model,
+      thinkingLevel: requestedThinkingLevel,
+    };
+  }
+  return {
+    ok: true,
+    model,
+    thinkingLevel: clampThinkingLevel(childModel, inheritedThinkingLevel),
+  };
+}
+
+// Reused for every dispatch-side policy rejection so failures render with the
+// same resolved configuration metadata as successful tasks.
+function policyFailure(
+  agent: AgentConfig,
+  task: string,
+  step: number | undefined,
+  message: string,
+  configuration?: Pick<TaskConfiguration, "model" | "thinkingLevel">,
+): SingleResult {
   return {
     agent: agent.name,
     task,
@@ -789,9 +871,16 @@ function policyFailure(agent: AgentConfig, task: string, step: number | undefine
     messages: [],
     stderr: message,
     usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+    model: configuration?.model,
+    thinkingLevel: configuration?.thinkingLevel,
     step,
   };
 }
+
+type TaskConfiguration = {
+  model?: string;
+  thinkingLevel?: ModelThinkingLevel;
+} & ({ ok: true } | { ok: false; error: string });
 
 function childEnvironment(dispatch: DispatchContext): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = { ...process.env, PI_SUBAGENT_CHILD: "1" };
@@ -1030,7 +1119,7 @@ function renderTaskSection(
     container.addChild(new Markdown(finalOutput.trim(), 0, 0, markdownTheme));
   }
 
-  const usageText = formatUsageStats(item.usage, item.model);
+  const usageText = formatUsageStats(item.usage);
   if (usageText) container.addChild(new Text(theme.fg("dim", usageText), 0, 0));
 }
 
@@ -1047,18 +1136,24 @@ function aggregateUsage(results: SingleResult[]) {
   return total;
 }
 
-function formatUsageStats(
-  usage: {
-    input: number;
-    output: number;
-    cacheRead: number;
-    cacheWrite: number;
-    cost: number;
-    contextTokens?: number;
-    turns?: number;
-  },
-  model?: string,
+function formatAgentConfiguration(
+  model: string | undefined,
+  thinkingLevel: ModelThinkingLevel | undefined,
+  fallback: "inherit" | "unresolved",
+  theme: { fg: (color: any, text: string) => string },
 ): string {
+  return theme.fg("dim", ` [model: ${model ?? fallback} · thinking: ${thinkingLevel ?? fallback}]`);
+}
+
+function formatUsageStats(usage: {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cost: number;
+  contextTokens?: number;
+  turns?: number;
+}): string {
   const parts: string[] = [];
   if (usage.turns) parts.push(`${usage.turns} turn${usage.turns > 1 ? "s" : ""}`);
   if (usage.input) parts.push(`↑${formatTokens(usage.input)}`);
@@ -1069,7 +1164,6 @@ function formatUsageStats(
   if (usage.contextTokens && usage.contextTokens > 0) {
     parts.push(`ctx:${formatTokens(usage.contextTokens)}`);
   }
-  if (model) parts.push(model);
   return parts.join(" ");
 }
 
