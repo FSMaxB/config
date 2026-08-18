@@ -23,6 +23,7 @@ import { getSupportedThinkingLevels, StringEnum } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, getAgentDir, getMarkdownTheme, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { createLineSplitter } from "../lib/lines.ts";
 import { type AgentConfig, discoverAgents } from "./agents.ts";
 import { guidanceTable, loadPolicyConfig, resolveSubagentModel, type SubagentModelConfig } from "./model-policy.ts";
 import { planModeAllowedTools, type PersistedPlanDecisions, type PlanModeSnapshot } from "./plan-restrictions.ts";
@@ -399,8 +400,6 @@ async function runSingleAgent(
 				stdio: ["ignore", "pipe", "pipe"],
 				env: childEnvironment(dispatch),
 			});
-			let buffer = "";
-
 			const processLine = (line: string) => {
 				if (!line.trim()) return;
 				let event: any;
@@ -438,19 +437,15 @@ async function runSingleAgent(
 				}
 			};
 
-			proc.stdout.on("data", (data) => {
-				buffer += data.toString();
-				const lines = buffer.split("\n");
-				buffer = lines.pop() || "";
-				for (const line of lines) processLine(line);
-			});
+			const splitter = createLineSplitter(processLine);
+			proc.stdout.on("data", (data) => splitter.push(data.toString()));
 
 			proc.stderr.on("data", (data) => {
 				currentResult.stderr += data.toString();
 			});
 
 			proc.on("close", (code) => {
-				if (buffer.trim()) processLine(buffer);
+				splitter.flush();
 				resolve(code ?? 0);
 			});
 
