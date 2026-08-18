@@ -77,13 +77,17 @@ function formatToolCall(
 		return p.startsWith(home) ? `~${p.slice(home.length)}` : p;
 	};
 
+	// Children load the global extensions, so almost every call to these arrives under the
+	// repo_*/memory_* names rather than the bare built-in ones.
 	switch (toolName) {
 		case "bash": {
 			const command = (args.command as string) || "...";
 			const preview = command.length > 60 ? `${command.slice(0, 60)}...` : command;
 			return themeFg("muted", "$ ") + themeFg("toolOutput", preview);
 		}
-		case "read": {
+		case "read":
+		case "repo_read":
+		case "memory_read": {
 			const rawPath = (args.file_path || args.path || "...") as string;
 			const filePath = shortenPath(rawPath);
 			const offset = args.offset as number | undefined;
@@ -94,35 +98,44 @@ function formatToolCall(
 				const endLine = limit !== undefined ? startLine + limit - 1 : "";
 				text += themeFg("warning", `:${startLine}${endLine ? `-${endLine}` : ""}`);
 			}
-			return themeFg("muted", "read ") + text;
+			return themeFg("muted", `${toolName} `) + text;
 		}
-		case "write": {
+		case "write":
+		case "repo_write":
+		case "memory_write": {
 			const rawPath = (args.file_path || args.path || "...") as string;
 			const filePath = shortenPath(rawPath);
 			const content = (args.content || "") as string;
 			const lines = content.split("\n").length;
-			let text = themeFg("muted", "write ") + themeFg("accent", filePath);
+			let text = themeFg("muted", `${toolName} `) + themeFg("accent", filePath);
 			if (lines > 1) text += themeFg("dim", ` (${lines} lines)`);
 			return text;
 		}
-		case "edit": {
+		case "edit":
+		case "repo_edit": {
 			const rawPath = (args.file_path || args.path || "...") as string;
-			return themeFg("muted", "edit ") + themeFg("accent", shortenPath(rawPath));
+			return themeFg("muted", `${toolName} `) + themeFg("accent", shortenPath(rawPath));
 		}
-		case "ls": {
+		case "ls":
+		case "repo_ls":
+		case "memory_ls": {
 			const rawPath = (args.path || ".") as string;
-			return themeFg("muted", "ls ") + themeFg("accent", shortenPath(rawPath));
+			return themeFg("muted", `${toolName} `) + themeFg("accent", shortenPath(rawPath));
 		}
-		case "find": {
+		case "find":
+		case "repo_find": {
 			const pattern = (args.pattern || "*") as string;
 			const rawPath = (args.path || ".") as string;
-			return themeFg("muted", "find ") + themeFg("accent", pattern) + themeFg("dim", ` in ${shortenPath(rawPath)}`);
+			return (
+				themeFg("muted", `${toolName} `) + themeFg("accent", pattern) + themeFg("dim", ` in ${shortenPath(rawPath)}`)
+			);
 		}
-		case "grep": {
+		case "grep":
+		case "repo_grep": {
 			const pattern = (args.pattern || "") as string;
 			const rawPath = (args.path || ".") as string;
 			return (
-				themeFg("muted", "grep ") +
+				themeFg("muted", `${toolName} `) +
 				themeFg("accent", `/${pattern}/`) +
 				themeFg("dim", ` in ${shortenPath(rawPath)}`)
 			);
