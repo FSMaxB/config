@@ -38,7 +38,7 @@ const configuredRoots: Record<AccessMode, Set<string>> = {
   read: new Set(),
   write: new Set(),
 };
-let configLoaded = false;
+let configLoadPromise: Promise<void> | undefined;
 
 export function findRepoRoot(from: string = process.cwd()): string {
   return findVcsRoot(from) ?? resolve(from);
@@ -209,17 +209,19 @@ async function requestAccess(
   }
 }
 
-async function loadConfig(): Promise<void> {
-  if (configLoaded) return;
-  configLoaded = true;
-
-  const { readRoots, writeRoots } = await readConfig();
-  for (const root of readRoots) {
-    configuredRoots.read.add(root);
-  }
-  for (const root of writeRoots) {
-    configuredRoots.write.add(root);
-  }
+// Callers await the same in-flight read rather than a boolean flag, so a second caller in
+// the same batch cannot see "loaded" before configuredRoots is actually populated.
+function loadConfig(): Promise<void> {
+  configLoadPromise ??= (async () => {
+    const { readRoots, writeRoots } = await readConfig();
+    for (const root of readRoots) {
+      configuredRoots.read.add(root);
+    }
+    for (const root of writeRoots) {
+      configuredRoots.write.add(root);
+    }
+  })();
+  return configLoadPromise;
 }
 
 async function readConfig(): Promise<{
