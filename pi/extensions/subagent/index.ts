@@ -23,6 +23,7 @@ import { getSupportedThinkingLevels, StringEnum } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, getMarkdownTheme, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { shortenPath } from "../lib/format.ts";
 import { createLineSplitter } from "../lib/lines.ts";
 import { latestPlanModeEntry, readPersistedDecisions } from "../lib/plan-decisions.ts";
 import { type AgentConfig, discoverAgents } from "./agents.ts";
@@ -74,11 +75,6 @@ function formatToolCall(
 	args: Record<string, unknown>,
 	themeFg: (color: any, text: string) => string,
 ): string {
-	const shortenPath = (p: string) => {
-		const home = os.homedir();
-		return p.startsWith(home) ? `~${p.slice(home.length)}` : p;
-	};
-
 	// Children load the global extensions, so almost every call to these arrives under the
 	// repo_*/memory_* names rather than the bare built-in ones.
 	switch (toolName) {
