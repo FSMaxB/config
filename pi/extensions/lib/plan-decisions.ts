@@ -1,6 +1,7 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { readJsonObject } from "./json.ts";
 
 export const PLAN_MODE_ENTRY_TYPE = "plan-mode";
 
@@ -57,17 +58,11 @@ export async function readPersistedDecisions(): Promise<{
   alwaysAllowed: string[];
   alwaysDenied: Denial[];
 }> {
-  try {
-    const parsed = JSON.parse(
-      await readFile(DECISIONS_FILE, "utf8"),
-    ) as Record<string, unknown>;
-    return {
-      alwaysAllowed: stringList(parsed.alwaysAllowed),
-      alwaysDenied: denialList(parsed.alwaysDenied),
-    };
-  } catch {
-    return { alwaysAllowed: [], alwaysDenied: [] };
-  }
+  const parsed = await readJsonObject(DECISIONS_FILE);
+  return {
+    alwaysAllowed: stringList(parsed.alwaysAllowed),
+    alwaysDenied: denialList(parsed.alwaysDenied),
+  };
 }
 
 export async function writePersistedDecisions(

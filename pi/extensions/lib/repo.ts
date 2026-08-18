@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import {
   basename,
@@ -12,6 +12,7 @@ import {
 } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { readJsonObject } from "./json.ts";
 import { getCurrentPlanPath } from "./plan-file.ts";
 import { serialize } from "./ui-queue.ts";
 
@@ -228,18 +229,11 @@ async function readConfig(): Promise<{
   readRoots: string[];
   writeRoots: string[];
 }> {
-  try {
-    const parsed = JSON.parse(await readFile(CONFIG_FILE, "utf8")) as Record<
-      string,
-      unknown
-    >;
-    return {
-      readRoots: rootList(parsed.readRoots),
-      writeRoots: rootList(parsed.writeRoots),
-    };
-  } catch {
-    return { readRoots: [], writeRoots: [] };
-  }
+  const parsed = await readJsonObject(CONFIG_FILE);
+  return {
+    readRoots: rootList(parsed.readRoots),
+    writeRoots: rootList(parsed.writeRoots),
+  };
 }
 
 function rootList(value: unknown): string[] {
