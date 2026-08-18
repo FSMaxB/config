@@ -1,16 +1,25 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { SettingsManager } from "@earendil-works/pi-coding-agent";
 
-// Pi persists every model switch (selector, /model, cycling) to settings.json
-// as the new default. Neutering the setter keeps switches session-local;
-// /default-model persists explicitly. Extensions share the host's module
-// instance, so this prototype patch reaches the live settings manager. The
-// original is stashed on the prototype so /reload doesn't stack patches.
-const ORIGINAL_SETTER = Symbol.for("config.default-model.original-setter");
+// Pi persists every model switch (selector, /model, cycling) and every
+// thinking level switch (selector, /thinking, cycling) to settings.json as
+// the new default. Neutering both setters keeps switches session-local;
+// /default-model persists both explicitly. Extensions share the host's
+// module instance, so this prototype patch reaches the live settings
+// manager. The originals are stashed on the prototype so /reload doesn't
+// stack patches.
+const ORIGINAL_MODEL_SETTER = Symbol.for("config.default-model.original-model-setter");
+const ORIGINAL_THINKING_SETTER = Symbol.for(
+  "config.default-model.original-thinking-setter",
+);
 const prototype = SettingsManager.prototype as Record<PropertyKey, any>;
-if (!prototype[ORIGINAL_SETTER]) {
-  prototype[ORIGINAL_SETTER] = prototype.setDefaultModelAndProvider;
+if (!prototype[ORIGINAL_MODEL_SETTER]) {
+  prototype[ORIGINAL_MODEL_SETTER] = prototype.setDefaultModelAndProvider;
   prototype.setDefaultModelAndProvider = () => {};
+}
+if (!prototype[ORIGINAL_THINKING_SETTER]) {
+  prototype[ORIGINAL_THINKING_SETTER] = prototype.setDefaultThinkingLevel;
+  prototype.setDefaultThinkingLevel = () => {};
 }
 
 export default function (pi: ExtensionAPI) {
@@ -23,10 +32,13 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
+      const thinkingLevel = pi.getThinkingLevel();
+
       // The session's settings manager is not reachable from extensions, so
       // persist through a fresh one: same lock, same merge-only write path.
       const settings = SettingsManager.create(context.cwd);
-      prototype[ORIGINAL_SETTER].call(settings, model.provider, model.id);
+      prototype[ORIGINAL_MODEL_SETTER].call(settings, model.provider, model.id);
+      prototype[ORIGINAL_THINKING_SETTER].call(settings, thinkingLevel);
       await settings.flush();
 
       const errors = settings.drainErrors();
@@ -37,7 +49,10 @@ export default function (pi: ExtensionAPI) {
         );
         return;
       }
-      context.ui.notify(`Default model: ${model.provider}/${model.id}`, "info");
+      context.ui.notify(
+        `Default model: ${model.provider}/${model.id} (thinking: ${thinkingLevel})`,
+        "info",
+      );
     },
   });
 }
