@@ -152,6 +152,9 @@ function rankWithFzf(
   signal: AbortSignal,
 ): Promise<string[]> {
   if (!query) return Promise.resolve(paths.slice(0, MAX_SUGGESTIONS));
+  // An already-aborted signal never fires "abort" for a listener attached after the fact,
+  // so this has to be checked upfront rather than relying on the listener below.
+  if (signal.aborted) return Promise.resolve([]);
 
   return new Promise((resolve) => {
     const child = spawn("fzf", ["--filter", query], {
