@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
@@ -9,11 +9,7 @@ import type {
   Theme,
   ToolCallEvent,
 } from "@earendil-works/pi-coding-agent";
-import {
-  createEditToolDefinition,
-  getAgentDir,
-  getMarkdownTheme,
-} from "@earendil-works/pi-coding-agent";
+import { createEditToolDefinition, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import type {
   EditToolDetails,
   EditToolInput,
@@ -22,6 +18,12 @@ import { Container, Markdown, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { confirm } from "./lib/confirm.ts";
 import { notifyUser } from "./lib/notify.ts";
+import {
+  latestPlanModeEntry,
+  PLAN_MODE_ENTRY_TYPE,
+  readPersistedDecisions,
+  writePersistedDecisions,
+} from "./lib/plan-decisions.ts";
 import {
   getCurrentPlanPath,
   planFileName,
@@ -48,8 +50,6 @@ const UNGATED_TOOLS = new Set([
   "subagent",
   ...PLAN_TOOLS,
 ]);
-
-const DECISIONS_FILE = join(getAgentDir(), "plan-mode.json");
 
 const ALLOW_ONCE = "Allow once";
 const ALLOW_SESSION = "Allow in session";
@@ -138,7 +138,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   function persist(): void {
-    pi.appendEntry("plan-mode", {
+    pi.appendEntry(PLAN_MODE_ENTRY_TYPE, {
       enabled: planMode,
       sessionGrants: [...sessionGrants],
       sessionDenials: [...sessionDenials].map(([name, note]) => ({
@@ -829,14 +829,14 @@ export default function (pi: ExtensionAPI) {
       alwaysDenials.set(name, note);
     }
 
-    const restored = lastPlanModeState(ctx);
+    const restored = latestPlanModeEntry(ctx.sessionManager);
     if (restored) {
       planMode = restored.enabled;
       setCurrentPlanPath(restored.planPath);
       for (const toolName of restored.sessionGrants) {
         sessionGrants.add(toolName);
       }
-      for (const { name, note } of denialList(restored.sessionDenials)) {
+      for (const { name, note } of restored.sessionDenials) {
         sessionDenials.set(name, note);
       }
     }
@@ -854,18 +854,6 @@ type Decision =
   | "allow-always"
   | "deny-session"
   | "deny-always";
-
-interface Denial {
-  name: string;
-  note?: string;
-}
-
-interface PlanModeState {
-  enabled: boolean;
-  sessionGrants: string[];
-  sessionDenials?: unknown;
-  planPath?: string;
-}
 
 interface DecisionEntry {
   label: string;
@@ -981,63 +969,4 @@ async function writePlanFile(title: string, plan: string): Promise<string> {
   return path;
 }
 
-function lastPlanModeState(ctx: ExtensionContext): PlanModeState | undefined {
-  const entry = ctx.sessionManager
-    .getEntries()
-    .filter(
-      (e: { type: string; customType?: string }) =>
-        e.type === "custom" && e.customType === "plan-mode",
-    )
-    .pop() as { data?: PlanModeState } | undefined;
-  return entry?.data;
-}
 
-async function readPersistedDecisions(): Promise<{
-  alwaysAllowed: string[];
-  alwaysDenied: Denial[];
-}> {
-  try {
-    const parsed = JSON.parse(await readFile(DECISIONS_FILE, "utf8")) as Record<
-      string,
-      unknown
-    >;
-    return {
-      alwaysAllowed: stringList(parsed.alwaysAllowed),
-      alwaysDenied: denialList(parsed.alwaysDenied),
-    };
-  } catch {
-    return { alwaysAllowed: [], alwaysDenied: [] };
-  }
-}
-
-function stringList(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
-    : [];
-}
-
-// Denials used to be bare tool names, and sessions recorded before the note existed still are.
-function denialList(value: unknown): Denial[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item) => {
-    if (typeof item === "string") return [{ name: item }];
-    if (!item || typeof item !== "object") return [];
-
-    const { name, note } = item as { name?: unknown; note?: unknown };
-    if (typeof name !== "string") return [];
-    return [typeof note === "string" ? { name, note } : { name }];
-  });
-}
-
-async function writePersistedDecisions(
-  allowed: Set<string>,
-  denied: Map<string, string | undefined>,
-): Promise<void> {
-  await mkdir(dirname(DECISIONS_FILE), { recursive: true });
-  const alwaysDenied = [...denied.keys()].sort().map((name) => {
-    const note = denied.get(name);
-    return note ? { name, note } : { name };
-  });
-  const content = { alwaysAllowed: [...allowed].sort(), alwaysDenied };
-  await writeFile(DECISIONS_FILE, `${JSON.stringify(content, null, 2)}\n`);
-}
