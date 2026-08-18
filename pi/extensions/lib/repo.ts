@@ -157,7 +157,7 @@ export function* skillRoots(): Generator<string> {
 // scope guard just falls through to the prompt and the memory tools see an empty directory,
 // so it is not worth probing for.
 export function memoryDirectory(): string {
-  const slug = process.cwd().replace(/\//g, "-");
+  const slug = process.cwd().replace(/[^a-zA-Z0-9]/g, "-");
   return join(homedir(), ".claude", "projects", slug, "memory");
 }
 
