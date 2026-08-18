@@ -95,10 +95,13 @@ export default function (pi: ExtensionAPI) {
       });
 
       if (slug) planSlug = slug;
-      if (code !== 0)
+      if (code !== 0) {
+        if (signal?.aborted)
+          throw new Error("The crit review was aborted before it started.");
         throw new Error(
           `crit ${args.join(" ")} exited with ${code}:\n${output.trim()}`,
         );
+      }
       return {
         content: [
           { type: "text", text: output.trim() || "crit produced no output." },
@@ -430,6 +433,11 @@ function streamCrit(
   onLine: (line: string) => void,
 ): Promise<{ output: string; code: number }> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("The crit review was aborted before it started."));
+      return;
+    }
+
     const child = spawn("crit", args, { stdio: ["ignore", "pipe", "pipe"] });
     const chunks: string[] = [];
     let pending = "";
@@ -458,7 +466,9 @@ function streamCrit(
     child.on("close", (code) => {
       signal?.removeEventListener("abort", abort);
       if (pending) onLine(pending);
-      resolve({ output: chunks.join(""), code: code ?? 0 });
+      // A signal-killed child (our SIGTERM on abort) closes with a null code, which must not
+      // be read as success.
+      resolve({ output: chunks.join(""), code: code ?? 1 });
     });
   });
 }
