@@ -20,6 +20,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { confirm } from "./lib/confirm.ts";
 import { notifyUser } from "./lib/notify.ts";
 import {
   getCurrentPlanPath,
@@ -690,7 +691,8 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
-    const compactFirst = await ctx.ui.confirm(
+    const compactFirst = await confirm(
+      ctx,
       "Compact the conversation before implementing?",
       "Compaction aborts the current turn, summarizes the conversation, and starts implementation in a fresh turn " +
         "where the new model sees only the summary and the plan file path (it reads the plan from disk). " +

@@ -3,23 +3,16 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
-import type {
-  AgentToolResult,
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { confirm } from "./lib/confirm.ts";
 import { execChecked } from "./lib/exec.ts";
 import { createLineSplitter } from "./lib/lines.ts";
 import { getCurrentPlanPath } from "./lib/plan-file.ts";
-import { serialize } from "./lib/ui-queue.ts";
 
 const TIMEOUT = 60_000;
 const TAIL_LINES = 12;
 const DEFAULT_AUTHOR = "pi";
-
-const PROCEED = "Send it";
-const CANCEL = "Cancel";
 
 // Set when crit_review starts a plan review, and cleared on any successful non-plan review.
 // crit stores plan comments under the slug, and crit comment silently looks in the project
@@ -315,7 +308,8 @@ export default function (pi: ExtensionAPI) {
               : "a review";
         const allowed = await confirm(
           ctx,
-          `Post ${kind} to ${target} on GitHub?\n\n  crit ${args.join(" ")}`,
+          `Post ${kind} to ${target} on GitHub?`,
+          `  crit ${args.join(" ")}`,
         );
         if (!allowed) return declined("Nothing was posted to GitHub.");
       }
@@ -342,7 +336,8 @@ export default function (pi: ExtensionAPI) {
 
       const allowed = await confirm(
         ctx,
-        `Upload these files to crit-web?\n\n  ${paths.join("\n  ")}`,
+        "Upload these files to crit-web?",
+        `  ${paths.join("\n  ")}`,
       );
       if (!allowed) return declined("Nothing was uploaded.");
       return await runCrit(pi, ["share", ...paths], signal);
@@ -367,10 +362,7 @@ export default function (pi: ExtensionAPI) {
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const { paths = [] } = params;
       const what = paths.length > 0 ? paths.join("\n  ") : "the current review";
-      const allowed = await confirm(
-        ctx,
-        `Remove this from crit-web?\n\n  ${what}`,
-      );
+      const allowed = await confirm(ctx, "Remove this from crit-web?", `  ${what}`);
       if (!allowed) return declined("Nothing was unpublished.");
       return await runCrit(pi, ["unpublish", ...paths], signal);
     },
@@ -493,17 +485,6 @@ function toCritEntry(comment: CommentParams): Record<string, unknown> {
     ...(scope ? { scope } : {}),
     ...(resolve ? { resolve: true } : {}),
   };
-}
-
-async function confirm(
-  ctx: ExtensionContext,
-  prompt: string,
-): Promise<boolean> {
-  if (!ctx.hasUI) return false;
-  return (
-    (await serialize(() => ctx.ui.select(prompt, [PROCEED, CANCEL]))) ===
-    PROCEED
-  );
 }
 
 function declined(detail: string): AgentToolResult<unknown> {
