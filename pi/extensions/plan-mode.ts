@@ -9,7 +9,15 @@ import type {
   Theme,
   ToolCallEvent,
 } from "@earendil-works/pi-coding-agent";
-import { getAgentDir, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
+import {
+  createEditToolDefinition,
+  getAgentDir,
+  getMarkdownTheme,
+} from "@earendil-works/pi-coding-agent";
+import type {
+  EditToolDetails,
+  EditToolInput,
+} from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { notifyUser } from "./lib/notify.ts";
@@ -19,11 +27,13 @@ import {
   plansDirectory,
   setCurrentPlanPath,
 } from "./lib/plan-file.ts";
+import { renameRenderedTitle } from "./lib/tool-title.ts";
 import { serialize } from "./lib/ui-queue.ts";
 
 const WRITE_PLAN = "write_plan";
+const EDIT_PLAN = "edit_plan";
 const SUBMIT_PLAN = "submit_plan";
-const PLAN_TOOLS = [WRITE_PLAN, SUBMIT_PLAN];
+const PLAN_TOOLS = [WRITE_PLAN, EDIT_PLAN, SUBMIT_PLAN];
 const UNGATED_TOOLS = new Set([
   "repo_read",
   "repo_grep",
@@ -64,6 +74,8 @@ export default function (pi: ExtensionAPI) {
   // instead of only saying no.
   const sessionDenials = new Map<string, string | undefined>();
   const alwaysDenials = new Map<string, string | undefined>();
+  const planFileEditTool = createEditToolDefinition(process.cwd());
+  const renderPlanEditCall = renameRenderedTitle(planFileEditTool, EDIT_PLAN);
 
   function isAllowed(toolName: string): boolean {
     return (
@@ -341,7 +353,8 @@ export default function (pi: ExtensionAPI) {
     description:
       "Write or update the plan for the current plan-mode session. Only available in plan mode. " +
       "The first call creates the plan file, and every later call overwrites that same file, so pass the plan in full each time. " +
-      "No other plan file can be touched. Call submit_plan once the plan is ready for the user to approve.",
+      "No other plan file can be touched. Call submit_plan once the plan is ready for the user to approve. " +
+      "For small revisions to an existing plan, prefer edit_plan instead of rewriting the whole plan here.",
     promptSnippet:
       "Write or update the plan file for the current plan-mode session",
     promptGuidelines: [
@@ -421,6 +434,87 @@ export default function (pi: ExtensionAPI) {
           theme.fg("dim", ` — ${details.path}`),
         0,
         0,
+      );
+    },
+  });
+
+  pi.registerTool({
+    ...planFileEditTool,
+    name: EDIT_PLAN,
+    label: "Edit plan",
+    description:
+      "Apply targeted text replacements to the current plan file, like the edit tool. Only available in plan mode, " +
+      "and only after write_plan has created a plan. Each edits[].oldText must be unique in the current plan " +
+      "content; edits must not overlap. Prefer this over write_plan for small revisions — it costs far fewer " +
+      "output tokens than rewriting the whole plan.",
+    promptSnippet: "Apply targeted text replacements to the current plan file",
+    promptGuidelines: [
+      "Use edit_plan for small, targeted revisions to an existing plan instead of rewriting it in full with write_plan.",
+      "Use write_plan only to create the plan initially, or when most of the plan content is changing.",
+      "Each edits[].oldText must match exactly, including whitespace and newlines, and must be unique in the plan.",
+    ],
+    parameters: Type.Object({
+      edits: Type.Array(
+        Type.Object({
+          oldText: Type.String({
+            description:
+              "Exact text for one targeted replacement. Must be unique in the current plan content and must not overlap with any other edits[].oldText in the same call.",
+          }),
+          newText: Type.String({
+            description: "Replacement text for this targeted edit.",
+          }),
+        }),
+        {
+          description:
+            "One or more targeted replacements, matched against the current plan content.",
+        },
+      ),
+    }),
+
+    async execute(toolCallId, params, signal, onUpdate, ctx) {
+      const { edits } = params;
+      if (!planMode) {
+        const error = "edit_plan is only available in plan mode.";
+        return {
+          content: [{ type: "text", text: error }],
+          isError: true,
+          details: { path: null },
+        };
+      }
+
+      const path = getCurrentPlanPath();
+      if (!path) {
+        const error =
+          "No plan has been written yet. Call write_plan first, then edit_plan.";
+        return {
+          content: [{ type: "text", text: error }],
+          isError: true,
+          details: { path: null },
+        };
+      }
+
+      return await planFileEditTool.execute(
+        toolCallId,
+        { path, edits },
+        signal,
+        onUpdate,
+        ctx,
+      );
+    },
+
+    renderCall(args, theme, context) {
+      return renderPlanEditCall!(withCurrentPlanPath(args), theme, context);
+    },
+
+    renderResult(result, options, theme, context) {
+      return planFileEditTool.renderResult!(
+        result as AgentToolResult<EditToolDetails | undefined>,
+        options,
+        theme,
+        {
+          ...context,
+          args: withCurrentPlanPath(context.args) as EditToolInput,
+        },
       );
     },
   });
@@ -864,8 +958,14 @@ function planModeInstructions(): string {
     "- Every other tool, including bash and the unscoped read, write and edit, needs the user's approval for each call.",
     "- The repo_* tools are confined to the repository and prompt before reaching outside it, so prefer them over bash.",
     "- If a call is denied, do not retry it.",
-    `- Write the plan with ${WRITE_PLAN}, then call ${SUBMIT_PLAN} when it is ready. Only the user can leave plan mode.`,
+    `- Write the plan with ${WRITE_PLAN}. For small revisions, use ${EDIT_PLAN} instead of rewriting the whole plan. Call ${SUBMIT_PLAN} when it is ready. Only the user can leave plan mode.`,
   ].join("\n");
+}
+
+function withCurrentPlanPath(
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  return { ...args, path: getCurrentPlanPath() };
 }
 
 // The session's plan file is created once and then overwritten in place, so a plan that goes
