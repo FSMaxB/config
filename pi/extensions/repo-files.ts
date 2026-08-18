@@ -1,7 +1,4 @@
-import type {
-  ExtensionAPI,
-  ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   createEditToolDefinition,
   createFindToolDefinition,
@@ -10,8 +7,8 @@ import {
   createReadToolDefinition,
   createWriteToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { renameRenderedTitle } from "./lib/tool-title.ts";
-import { type AccessMode, ensureAccessible } from "./lib/repo.ts";
+import { ensureAccessible } from "./lib/repo.ts";
+import { scopedTool } from "./lib/scoped-tool.ts";
 
 const SCOPE_NOTE =
   "Confined to the current repository: paths outside it need the user's approval, and .git/.jj are read-only.";
@@ -20,102 +17,68 @@ export default function (pi: ExtensionAPI) {
   const cwd = process.cwd();
 
   pi.registerTool(
-    scoped(createReadToolDefinition(cwd), {
+    scopedTool(createReadToolDefinition(cwd), {
       name: "repo_read",
       label: "Repo read",
-      mode: "read",
       guideline: "Use repo_read to examine files instead of cat or sed.",
+      scopeNote: SCOPE_NOTE,
+      ensurePath: (params, ctx) => ensureAccessible(params.path ?? cwd, "read", ctx),
     }),
   );
 
   pi.registerTool(
-    scoped(createLsToolDefinition(cwd), {
+    scopedTool(createLsToolDefinition(cwd), {
       name: "repo_ls",
       label: "Repo ls",
-      mode: "read",
       guideline:
         "Use repo_ls to list a directory instead of shelling out to ls.",
       descriptionNote: "Pass limit to change the entry cap.",
+      scopeNote: SCOPE_NOTE,
+      ensurePath: (params, ctx) => ensureAccessible(params.path ?? cwd, "read", ctx),
     }),
   );
 
   pi.registerTool(
-    scoped(createFindToolDefinition(cwd), {
+    scopedTool(createFindToolDefinition(cwd), {
       name: "repo_find",
       label: "Repo find",
-      mode: "read",
       guideline:
         "Use repo_find to locate files by glob instead of shelling out to find or fd.",
+      scopeNote: SCOPE_NOTE,
+      ensurePath: (params, ctx) => ensureAccessible(params.path ?? cwd, "read", ctx),
     }),
   );
 
   pi.registerTool(
-    scoped(createGrepToolDefinition(cwd), {
+    scopedTool(createGrepToolDefinition(cwd), {
       name: "repo_grep",
       label: "Repo grep",
-      mode: "read",
       guideline:
         "Use repo_grep to search file contents instead of shelling out to grep or rg.",
+      scopeNote: SCOPE_NOTE,
+      ensurePath: (params, ctx) => ensureAccessible(params.path ?? cwd, "read", ctx),
     }),
   );
 
   pi.registerTool(
-    scoped(createWriteToolDefinition(cwd), {
+    scopedTool(createWriteToolDefinition(cwd), {
       name: "repo_write",
       label: "Repo write",
-      mode: "write",
       guideline:
         "Use repo_write to create a file instead of shelling out to a heredoc.",
+      scopeNote: SCOPE_NOTE,
+      ensurePath: (params, ctx) => ensureAccessible(params.path ?? cwd, "write", ctx),
     }),
   );
 
   pi.registerTool(
-    scoped(createEditToolDefinition(cwd), {
+    scopedTool(createEditToolDefinition(cwd), {
       name: "repo_edit",
       label: "Repo edit",
-      mode: "write",
       guideline:
         "Use repo_edit to change an existing file instead of rewriting it wholesale.",
+      scopeNote: SCOPE_NOTE,
+      ensurePath: (params, ctx) => ensureAccessible(params.path ?? cwd, "write", ctx),
     }),
   );
-}
-
-interface ScopeOptions {
-  name: string;
-  label: string;
-  mode: AccessMode;
-  guideline: string;
-  // Appended to the built-in description. The bridge to other harnesses drops per-parameter
-  // descriptions, so anything the model must know about parameters has to be said here.
-  descriptionNote?: string;
-}
-
-// Wraps a built-in tool definition under a new name. Spreading keeps the built-in renderers,
-// so the UI (syntax highlighting, edit diffs, truncation notices) is unchanged, while the call
-// title is renamed to match the wrapper. Only execution and call-title rendering are intercepted.
-function scoped(
-  definition: ToolDefinition<any, any, any>,
-  options: ScopeOptions,
-): ToolDefinition<any, any, any> {
-  const { name, label, mode, guideline, descriptionNote } = options;
-  return {
-    ...definition,
-    name,
-    label,
-    description: `${definition.description}${
-      descriptionNote === undefined ? "" : ` ${descriptionNote}`
-    }\n\n${SCOPE_NOTE}`,
-    promptGuidelines: [guideline],
-    renderCall: renameRenderedTitle(definition, name),
-    async execute(toolCallId, params, signal, onUpdate, ctx) {
-      await ensureAccessible(params.path ?? process.cwd(), mode, ctx);
-      return await definition.execute(
-        toolCallId,
-        params,
-        signal,
-        onUpdate,
-        ctx,
-      );
-    },
-  };
 }
