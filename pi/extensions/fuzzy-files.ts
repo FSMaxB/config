@@ -8,6 +8,7 @@ import {
   type AutocompleteProvider,
   fuzzyFilter,
 } from "@earendil-works/pi-tui";
+import { createLineSplitter } from "./lib/lines.ts";
 
 const MENTION = /(?:^|\s)@([^\s"]*)$/;
 const FD_ARGS = [
@@ -161,7 +162,6 @@ function rankWithFzf(
       stdio: ["pipe", "pipe", "ignore"],
     });
     const matches: string[] = [];
-    let pending = "";
     let settled = false;
 
     const finish = () => {
@@ -175,16 +175,14 @@ function rankWithFzf(
     signal.addEventListener("abort", finish, { once: true });
     child.stdout.setEncoding("utf-8");
     // fzf sorts the whole input before printing, so the first lines out are the best
-    // matches and killing it once we have enough is what keeps broad queries cheap.
-    child.stdout.on("data", (chunk: string) => {
-      pending += chunk;
-      const lines = pending.split("\n");
-      pending = lines.pop() ?? "";
-      for (const line of lines) {
-        if (line) matches.push(line);
-        if (matches.length >= MAX_SUGGESTIONS) return finish();
-      }
+    // matches and killing it once we have enough is what keeps broad queries cheap. A few
+    // extra buffered lines may still reach onLine after finish() settles; finish() is a
+    // no-op past the first call, so that is harmless.
+    const splitter = createLineSplitter((line) => {
+      if (line) matches.push(line);
+      if (matches.length >= MAX_SUGGESTIONS) finish();
     });
+    child.stdout.on("data", (chunk: string) => splitter.push(chunk));
     child.on("error", finish);
     child.on("close", finish);
     child.stdin.on("error", () => {});

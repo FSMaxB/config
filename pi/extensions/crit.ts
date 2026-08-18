@@ -9,6 +9,7 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { createLineSplitter } from "./lib/lines.ts";
 import { getCurrentPlanPath } from "./lib/plan-file.ts";
 import { serialize } from "./lib/ui-queue.ts";
 
@@ -443,7 +444,7 @@ function streamCrit(
 
     const child = spawn("crit", args, { stdio: ["ignore", "pipe", "pipe"] });
     const chunks: string[] = [];
-    let pending = "";
+    const splitter = createLineSplitter(onLine);
 
     const abort = () => child.kill("SIGTERM");
     signal?.addEventListener("abort", abort, { once: true });
@@ -451,13 +452,7 @@ function streamCrit(
     const consume = (data: Buffer) => {
       const text = data.toString();
       chunks.push(text);
-      pending += text;
-
-      const lines = pending.split("\n");
-      pending = lines.pop() ?? "";
-      for (const line of lines) {
-        onLine(line);
-      }
+      splitter.push(text);
     };
 
     child.stdout.on("data", consume);
@@ -468,7 +463,7 @@ function streamCrit(
     });
     child.on("close", (code) => {
       signal?.removeEventListener("abort", abort);
-      if (pending) onLine(pending);
+      splitter.flush();
       // A signal-killed child (our SIGTERM on abort) closes with a null code, which must not
       // be read as success.
       resolve({ output: chunks.join(""), code: code ?? 1 });
