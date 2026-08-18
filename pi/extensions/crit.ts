@@ -19,8 +19,9 @@ const DEFAULT_AUTHOR = "pi";
 const PROCEED = "Send it";
 const CANCEL = "Cancel";
 
-// Set when crit_review starts a plan review. crit stores plan comments under the slug, and
-// crit comment silently looks in the project root without it.
+// Set when crit_review starts a plan review, and cleared on any successful non-plan review.
+// crit stores plan comments under the slug, and crit comment silently looks in the project
+// root without it.
 let planSlug: string | undefined;
 
 export default function (pi: ExtensionAPI) {
@@ -94,7 +95,6 @@ export default function (pi: ExtensionAPI) {
         });
       });
 
-      if (slug) planSlug = slug;
       if (code !== 0) {
         if (signal?.aborted)
           throw new Error("The crit review was aborted before it started.");
@@ -102,6 +102,9 @@ export default function (pi: ExtensionAPI) {
           `crit ${args.join(" ")} exited with ${code}:\n${output.trim()}`,
         );
       }
+      // Clears the slug for non-plan reviews, so a stale plan slug from an earlier review
+      // doesn't leak into crit_comments/crit_comment defaults.
+      planSlug = slug;
       return {
         content: [
           { type: "text", text: output.trim() || "crit produced no output." },
