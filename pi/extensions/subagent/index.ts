@@ -439,7 +439,8 @@ async function runSingleAgent(
 				resolve(code ?? 0);
 			});
 
-			proc.on("error", () => {
+			proc.on("error", (error) => {
+				currentResult.stderr += `Failed to spawn ${invocation.command}: ${error.message}`;
 				resolve(1);
 			});
 
