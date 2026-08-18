@@ -10,6 +10,7 @@ import {
   truncateHead,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { execChecked } from "./lib/exec.ts";
 import { detectVcs, type VcsInfo } from "./lib/repo.ts";
 
 const TIMEOUT = 60_000;
@@ -546,18 +547,9 @@ async function capture(
           args: ["-C", vcs.root, "--no-pager", "-c", "color.ui=false", ...git],
         };
 
-  const { stdout, stderr, code, killed } = await pi.exec(command, args, {
+  return await execChecked(pi, command, args, {
     signal,
     timeout: TIMEOUT,
     cwd: vcs.root,
   });
-  const invocation = `${command} ${args.join(" ")}`;
-
-  if (killed)
-    throw new Error(`${invocation} timed out after ${TIMEOUT / 1000}s.`);
-  if (code !== 0)
-    throw new Error(
-      `${invocation} failed with exit ${code}: ${stderr.trim() || stdout.trim()}`,
-    );
-  return stdout || stderr;
 }

@@ -9,6 +9,7 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { execChecked } from "./lib/exec.ts";
 import { createLineSplitter } from "./lib/lines.ts";
 import { getCurrentPlanPath } from "./lib/plan-file.ts";
 import { serialize } from "./lib/ui-queue.ts";
@@ -522,20 +523,9 @@ async function runCrit(
   args: string[],
   signal: AbortSignal | undefined,
 ): Promise<AgentToolResult<unknown>> {
-  const { stdout, stderr, code, killed } = await pi.exec("crit", args, {
-    signal,
-    timeout: TIMEOUT,
-  });
-  const invocation = `crit ${args.join(" ")}`;
-
-  if (killed)
-    throw new Error(`${invocation} timed out after ${TIMEOUT / 1000}s.`);
-  if (code !== 0)
-    throw new Error(
-      `${invocation} failed with exit ${code}: ${stderr.trim() || stdout.trim()}`,
-    );
-
-  const text = (stdout || stderr).trim();
+  const text = (
+    await execChecked(pi, "crit", args, { signal, timeout: TIMEOUT })
+  ).trim();
   return {
     content: [{ type: "text", text: text || "(no output)" }],
     details: { args },
