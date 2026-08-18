@@ -9,11 +9,34 @@
 
 ## VCS
 
-- Use jj, not git, in repos where jj is set up; otherwise ask before using git.
-- For jj, end with a new empty commit after you're finished committing your change, don't leave your work as the currently checked out revision!
-- When you make a distinct change, put it in a separate clean commit (without accidentally folding existing changes into it)
-- Never switch onto a different branch without asking. I will do any rebasing manually once you're done.
-- When fixing up commits, don't fix them directly but create separate fixup commits that I can squash later. In the commit message, refer to the target via the VCS native revision ID (e.g. jj revision instead of commit hash for jj repos)
+- Use jj when the repository uses jj, including colocated jj/git repositories. Otherwise, ask
+  before using git.
+- Before making changes, inspect the working-copy status. If it already contains changes, make sure they don't end up in your commits.
+- Put each distinct logical change in a separate clean commit. Never include unrelated or pre-existing changes.
+
+### jj
+
+- Finalize each change with `jj commit -m "..."`. This commits the current working-copy revision and creates
+  a fresh empty working-copy revision directly on top of it.
+- Finish with `jj status` showing an empty working copy whose parent is your completed change.
+- Never change the working-copy parent, move bookmarks, or rebase without asking.
+
+### git
+
+- Stage only files and changes belonging to the current task, then create a normal commit.
+- Finish with no uncommitted changes from your task. Do not modify, stage, stash, discard, or commit
+  pre-existing changes.
+- Never switch branches, move branches, merge, or rebase without asking.
+
+### Fixups
+
+- Do not amend or rewrite existing commits.
+- Create a separate fixup commit that I can squash later.
+- Identify the target in the commit message using its native identifier:
+  - jj: the target’s change ID.
+  - git: the target’s commit hash.
+
+I will handle all rebasing and history rewriting manually.
 
 ## Verification
 
