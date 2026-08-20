@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
-import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
+import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type {
   AgentToolResult,
   ExtensionAPI,
@@ -58,6 +58,7 @@ const DENY_ONCE = "Deny once";
 const DENY_SESSION = "Deny in session";
 const DENY_ALWAYS = "Deny always";
 const APPROVE = "Approve — leave plan mode";
+const APPROVE_CURRENT = "Approve — implement with current model";
 const IMPLEMENT_DIFFERENT = "Implement with different model";
 const REFINE = "Refine — send feedback";
 const CLEAR_ALL = "Clear all";
@@ -525,18 +526,34 @@ export default function (pi: ExtensionAPI) {
     label: "Submit plan",
     description:
       "Submit the plan that write_plan wrote for the user to approve. Only available in plan mode, and only after write_plan. " +
-      "Takes no arguments, since it submits whatever write_plan last wrote. " +
+      "It submits whatever write_plan last wrote. Optionally suggest a different model to implement the plan; " +
+      "the user decides whether to use it. " +
       "Asks the user whether to approve it, request changes, or stay in plan mode. Approval is the only way out of plan mode.",
     promptSnippet:
       "Submit the written plan for the user to approve, ending plan mode",
     promptGuidelines: [
       "Call submit_plan once write_plan holds the finished plan, rather than describing the plan and waiting for a reply.",
       "Only the user can leave plan mode, so never assume approval before submit_plan returns it.",
+      "Suggest an implementation model via suggestedModel only when a different model is clearly better suited than the current one (for example a cheaper model for a mechanical plan); otherwise omit it.",
     ],
     executionMode: "sequential",
-    parameters: Type.Object({}),
+    parameters: Type.Object({
+      suggestedModel: Type.Optional(
+        Type.String({
+          description:
+            'Model suggested for implementing the plan, as "provider/id" (a bare id works when unambiguous). ' +
+            "Omit when the current model should implement it.",
+        }),
+      ),
+      suggestedModelReason: Type.Optional(
+        Type.String({
+          description:
+            "One short sentence on why the suggested model fits this implementation; shown to the user.",
+        }),
+      ),
+    }),
 
-    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       if (!planMode) {
         const error = "submit_plan is only available in plan mode.";
         return {
@@ -569,12 +586,53 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
+      const { suggestedModel, suggestedModelReason } = params;
+      let suggested = suggestedModel
+        ? findSuggestedModel(suggestedModel, ctx.modelRegistry.getAvailable())
+        : undefined;
+      if (suggestedModel && !suggested) {
+        ctx.ui.notify(
+          `Suggested model "${suggestedModel}" is not available.`,
+          "warning",
+        );
+      }
+      if (
+        suggested &&
+        ctx.model &&
+        suggested.provider === ctx.model.provider &&
+        suggested.id === ctx.model.id
+      ) {
+        // Suggesting the session model leaves nothing to offer.
+        suggested = undefined;
+      }
+
+      const suggestedLabel = suggested
+        ? `${suggested.provider}/${suggested.id}`
+        : undefined;
+      const approveSuggested = suggestedLabel
+        ? `Approve — implement with ${suggestedLabel} (suggested)`
+        : undefined;
+      const reason = suggestedModelReason?.trim();
+      const suggestionNote = suggestedLabel
+        ? `\n\n  Suggests ${suggestedLabel}${reason ? ` — ${reason}` : ""}`
+        : "";
+
       const choice = await ctx.ui.select(
-        `Plan submitted — what next?\n\n  ${path}`,
-        [APPROVE, IMPLEMENT_DIFFERENT, REFINE, "Stay in plan mode"],
+        `Plan submitted — what next?\n\n  ${path}${suggestionNote}`,
+        [
+          ...(approveSuggested ? [approveSuggested] : []),
+          suggested ? APPROVE_CURRENT : APPROVE,
+          IMPLEMENT_DIFFERENT,
+          REFINE,
+          "Stay in plan mode",
+        ],
       );
 
-      if (choice === APPROVE) {
+      if (suggested && choice === approveSuggested) {
+        return await handOffToModel(path, suggested, undefined, ctx);
+      }
+
+      if (choice === APPROVE || choice === APPROVE_CURRENT) {
         setPlanMode(false, ctx);
         return {
           content: [
@@ -615,8 +673,16 @@ export default function (pi: ExtensionAPI) {
       };
     },
 
-    renderCall(_args, theme) {
-      return new Text(theme.fg("toolTitle", theme.bold("submit_plan")), 0, 0);
+    renderCall(args, theme) {
+      const suggested =
+        typeof args.suggestedModel === "string" && args.suggestedModel
+          ? theme.fg("muted", ` suggests ${args.suggestedModel}`)
+          : "";
+      return new Text(
+        theme.fg("toolTitle", theme.bold("submit_plan")) + suggested,
+        0,
+        0,
+      );
     },
 
     renderResult(result, renderOptions, theme) {
@@ -661,7 +727,10 @@ export default function (pi: ExtensionAPI) {
   ): Promise<AgentToolResult<{ path: string; outcome: string }>> {
     const models = ctx.modelRegistry.getAvailable();
     if (models.length === 0) {
-      return notApproved("No models with configured auth are available.");
+      return notApproved(
+        planPath,
+        "No models with configured auth are available.",
+      );
     }
 
     const currentModelLabel = ctx.model
@@ -675,7 +744,7 @@ export default function (pi: ExtensionAPI) {
       "Implement with which model?",
       modelOptions,
     );
-    if (modelChoice === undefined) return notApproved();
+    if (modelChoice === undefined) return notApproved(planPath);
     const selectedModel = models[modelOptions.indexOf(modelChoice)];
 
     let level: ModelThinkingLevel = pi.getThinkingLevel();
@@ -691,6 +760,15 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
+    return await handOffToModel(planPath, selectedModel, level, ctx);
+  }
+
+  async function handOffToModel(
+    planPath: string,
+    selectedModel: Model<Api>,
+    level: ModelThinkingLevel | undefined,
+    ctx: ExtensionContext,
+  ): Promise<AgentToolResult<{ path: string; outcome: string }>> {
     const compactFirst = await confirm(
       ctx,
       "Compact the conversation before implementing?",
@@ -702,12 +780,14 @@ export default function (pi: ExtensionAPI) {
     if (!(await pi.setModel(selectedModel))) {
       ctx.ui.notify(`No API key for ${selectedModel.provider}.`, "error");
       return notApproved(
+        planPath,
         `No API key is configured for ${selectedModel.provider}.`,
       );
     }
-    // setModel re-clamps the current thinking level for the new model, so the
-    // user's choice has to be applied after the switch.
-    pi.setThinkingLevel(level);
+    // setModel re-clamps the current thinking level for the new model, so an
+    // explicit choice has to be applied after the switch; without one the
+    // clamped level stands.
+    if (level !== undefined) pi.setThinkingLevel(level);
 
     setPlanMode(false, ctx);
 
@@ -741,23 +821,11 @@ export default function (pi: ExtensionAPI) {
           type: "text",
           text:
             `Plan at ${planPath} approved. Plan mode is off and full tool access is restored. ` +
-            `The user picked ${modelName} (thinking level ${level}) to implement the plan. Implement it now.`,
+            `The user picked ${modelName} (thinking level ${pi.getThinkingLevel()}) to implement the plan. Implement it now.`,
         },
       ],
       details: { path: planPath, outcome: "handed-off" },
     };
-
-    function notApproved(
-      reason?: string,
-    ): AgentToolResult<{ path: string; outcome: string }> {
-      const text = reason
-        ? `Plan at ${planPath} not approved. Still in plan mode. ${reason}`
-        : `Plan at ${planPath} not approved. Still in plan mode.`;
-      return {
-        content: [{ type: "text", text }],
-        details: { path: planPath, outcome: "saved" },
-      };
-    }
   }
 
   pi.registerCommand("plan", {
@@ -956,6 +1024,33 @@ function withCurrentPlanPath(
   args: Record<string, unknown>,
 ): Record<string, unknown> {
   return { ...args, path: getCurrentPlanPath() };
+}
+
+function findSuggestedModel(
+  requested: string,
+  availableModels: Model<Api>[],
+): Model<Api> | undefined {
+  const exact = availableModels.filter(
+    (model) => `${model.provider}/${model.id}` === requested,
+  );
+  const matches =
+    exact.length > 0
+      ? exact
+      : availableModels.filter((model) => model.id === requested);
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function notApproved(
+  planPath: string,
+  reason?: string,
+): AgentToolResult<{ path: string; outcome: string }> {
+  const text = reason
+    ? `Plan at ${planPath} not approved. Still in plan mode. ${reason}`
+    : `Plan at ${planPath} not approved. Still in plan mode.`;
+  return {
+    content: [{ type: "text", text }],
+    details: { path: planPath, outcome: "saved" },
+  };
 }
 
 // The session's plan file is created once and then overwritten in place, so a plan that goes
