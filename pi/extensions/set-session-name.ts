@@ -36,7 +36,6 @@ export default function (pi: ExtensionAPI) {
           "Session name is empty after sanitization (allowed characters: letters, digits, whitespace and ,.!?). Call set_session_name again with usable text.";
         return {
           content: [{ type: "text", text: error }],
-          isError: true,
           details,
         };
       }
