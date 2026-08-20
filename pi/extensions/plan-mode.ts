@@ -370,13 +370,15 @@ export default function (pi: ExtensionAPI) {
       plan: Type.String({ description: "The full plan, as markdown" }),
     }),
 
-    async execute(_toolCallId, params) {
+    async execute(
+      _toolCallId,
+      params,
+    ): Promise<AgentToolResult<{ path: string | null; created: boolean }>> {
       const { title, plan } = params;
       if (!planMode) {
         const error = "write_plan is only available in plan mode.";
         return {
           content: [{ type: "text", text: error }],
-          isError: true,
           details: { path: null, created: false },
         };
       }
@@ -479,7 +481,6 @@ export default function (pi: ExtensionAPI) {
         const error = "edit_plan is only available in plan mode.";
         return {
           content: [{ type: "text", text: error }],
-          isError: true,
           details: { path: null },
         };
       }
@@ -490,7 +491,6 @@ export default function (pi: ExtensionAPI) {
           "No plan has been written yet. Call write_plan first, then edit_plan.";
         return {
           content: [{ type: "text", text: error }],
-          isError: true,
           details: { path: null },
         };
       }
@@ -558,7 +558,6 @@ export default function (pi: ExtensionAPI) {
         const error = "submit_plan is only available in plan mode.";
         return {
           content: [{ type: "text", text: error }],
-          isError: true,
           details: { path: null, outcome: "unavailable" },
         };
       }
@@ -569,7 +568,6 @@ export default function (pi: ExtensionAPI) {
           "No plan has been written yet. Call write_plan first, then submit_plan.";
         return {
           content: [{ type: "text", text: error }],
-          isError: true,
           details: { path: null, outcome: "missing" },
         };
       }
