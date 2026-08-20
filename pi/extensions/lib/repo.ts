@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import {
   basename,
@@ -12,6 +12,7 @@ import {
 } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { readJsonObject } from "./json.ts";
 import { getCurrentPlanPath } from "./plan-file.ts";
 import { serialize } from "./ui-queue.ts";
 
@@ -38,7 +39,7 @@ const configuredRoots: Record<AccessMode, Set<string>> = {
   read: new Set(),
   write: new Set(),
 };
-let configLoaded = false;
+let configLoadPromise: Promise<void> | undefined;
 
 export function findRepoRoot(from: string = process.cwd()): string {
   return findVcsRoot(from) ?? resolve(from);
@@ -157,7 +158,7 @@ export function* skillRoots(): Generator<string> {
 // scope guard just falls through to the prompt and the memory tools see an empty directory,
 // so it is not worth probing for.
 export function memoryDirectory(): string {
-  const slug = process.cwd().replace(/\//g, "-");
+  const slug = process.cwd().replace(/[^a-zA-Z0-9]/g, "-");
   return join(homedir(), ".claude", "projects", slug, "memory");
 }
 
@@ -209,35 +210,30 @@ async function requestAccess(
   }
 }
 
-async function loadConfig(): Promise<void> {
-  if (configLoaded) return;
-  configLoaded = true;
-
-  const { readRoots, writeRoots } = await readConfig();
-  for (const root of readRoots) {
-    configuredRoots.read.add(root);
-  }
-  for (const root of writeRoots) {
-    configuredRoots.write.add(root);
-  }
+// Callers await the same in-flight read rather than a boolean flag, so a second caller in
+// the same batch cannot see "loaded" before configuredRoots is actually populated.
+function loadConfig(): Promise<void> {
+  configLoadPromise ??= (async () => {
+    const { readRoots, writeRoots } = await readConfig();
+    for (const root of readRoots) {
+      configuredRoots.read.add(root);
+    }
+    for (const root of writeRoots) {
+      configuredRoots.write.add(root);
+    }
+  })();
+  return configLoadPromise;
 }
 
 async function readConfig(): Promise<{
   readRoots: string[];
   writeRoots: string[];
 }> {
-  try {
-    const parsed = JSON.parse(await readFile(CONFIG_FILE, "utf8")) as Record<
-      string,
-      unknown
-    >;
-    return {
-      readRoots: rootList(parsed.readRoots),
-      writeRoots: rootList(parsed.writeRoots),
-    };
-  } catch {
-    return { readRoots: [], writeRoots: [] };
-  }
+  const parsed = await readJsonObject(CONFIG_FILE);
+  return {
+    readRoots: rootList(parsed.readRoots),
+    writeRoots: rootList(parsed.writeRoots),
+  };
 }
 
 function rootList(value: unknown): string[] {

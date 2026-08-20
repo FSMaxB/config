@@ -76,50 +76,41 @@ export default function (pi: ExtensionAPI) {
         .map(coerceOption)
         .filter((option): option is QuestionOption => option !== null);
 
-      if (signal?.aborted) {
-        return {
-          content: [{ type: "text", text: "Cancelled" }],
-          details: {
-            question,
-            context: normalizedContext,
-            options,
-            response: null,
-            cancelled: true,
-          },
-        };
-      }
+      const cancelled = (text: string) => ({
+        content: [{ type: "text" as const, text }],
+        details: {
+          question,
+          context: normalizedContext,
+          options,
+          response: null,
+          cancelled: true,
+        },
+      });
+      const failure = (error: string) => ({
+        content: [{ type: "text" as const, text: error }],
+        isError: true,
+        details: {
+          question,
+          context: normalizedContext,
+          options,
+          response: null,
+          cancelled: true,
+          error,
+        },
+      });
+
+      if (signal?.aborted) return cancelled("Cancelled");
 
       if (rawOptions.length > 0 && options.length === 0) {
-        const error = `All ${rawOptions.length} option(s) were malformed, so nothing could be shown to the user. Each option needs a "title" that is not empty or whitespace-only, plus an optional "description". Call question again with corrected options.`;
-        return {
-          content: [{ type: "text", text: error }],
-          isError: true,
-          details: {
-            question,
-            context: normalizedContext,
-            options,
-            response: null,
-            cancelled: true,
-            error,
-          },
-        };
+        return failure(
+          `All ${rawOptions.length} option(s) were malformed, so nothing could be shown to the user. Each option needs a "title" that is not empty or whitespace-only, plus an optional "description". Call question again with corrected options.`,
+        );
       }
 
       if (options.length === 0 && !allowFreeform) {
-        const error =
-          "allowFreeform is false but no options were given, leaving the user nothing to pick. Call question again with at least one option, or allow freeform answers.";
-        return {
-          content: [{ type: "text", text: error }],
-          isError: true,
-          details: {
-            question,
-            context: normalizedContext,
-            options,
-            response: null,
-            cancelled: true,
-            error,
-          },
-        };
+        return failure(
+          "allowFreeform is false but no options were given, leaving the user nothing to pick. Call question again with at least one option, or allow freeform answers.",
+        );
       }
 
       const prompt = buildPrompt(question, normalizedContext);
@@ -157,33 +148,13 @@ export default function (pi: ExtensionAPI) {
             ? await askMultiple(ctx.ui, prompt, options, allowFreeform)
             : await askSingle(ctx.ui, prompt, options, allowFreeform);
 
-      if (outcome.kind === "cancelled") {
-        return {
-          content: [{ type: "text", text: "User cancelled the question" }],
-          details: {
-            question,
-            context: normalizedContext,
-            options,
-            response: null,
-            cancelled: true,
-          },
-        };
-      }
+      if (outcome.kind === "cancelled")
+        return cancelled("User cancelled the question");
 
       if (outcome.kind === "unparseable") {
-        const error = `Could not match "${outcome.input}" to any option. Expected comma-separated option numbers, ranges, or "all" (for example 1,3-5) within 1 to ${options.length}, or exact option titles. Call question again.`;
-        return {
-          content: [{ type: "text", text: error }],
-          isError: true,
-          details: {
-            question,
-            context: normalizedContext,
-            options,
-            response: null,
-            cancelled: true,
-            error,
-          },
-        };
+        return failure(
+          `Could not match "${outcome.input}" to any option. Expected comma-separated option numbers, ranges, or "all" (for example 1,3-5) within 1 to ${options.length}, or exact option titles. Call question again.`,
+        );
       }
 
       const summary =
@@ -338,9 +309,25 @@ async function askMultiple(
 
   const trimmed = reply.trim();
   if (!trimmed) return { kind: "cancelled" };
+  if (looksLikeSelectionSyntax(trimmed))
+    return { kind: "unparseable", input: trimmed };
   return allowFreeform
     ? { kind: "freeform", text: trimmed }
     : { kind: "unparseable", input: trimmed };
+}
+
+function looksLikeSelectionSyntax(input: string): boolean {
+  const tokens = input.split(",").map((token) => token.trim()).filter(Boolean);
+  return (
+    tokens.length > 0 &&
+    tokens.every(
+      (token) =>
+        token === "*" ||
+        token.toLowerCase() === "all" ||
+        RANGE_PATTERN.test(token) ||
+        /^[0-9]+$/.test(token),
+    )
+  );
 }
 
 async function askFreeform(
@@ -371,11 +358,13 @@ function resolveSelectionTokens(
   return { selections: [...new Set(selections)], unresolved };
 }
 
+const RANGE_PATTERN = /^(\d+)\s*[-–—]\s*(\d+)$/;
+
 function resolveToken(token: string, options: QuestionOption[]): string[] {
   const titles = options.map(({ title }) => title);
   if (token === "*" || token.toLowerCase() === "all") return titles;
 
-  const range = /^(\d+)\s*[-–—]\s*(\d+)$/.exec(token);
+  const range = RANGE_PATTERN.exec(token);
   if (range) {
     const [start, end] = [Number(range[1]), Number(range[2])];
     const [first, last] = start <= end ? [start, end] : [end, start];
