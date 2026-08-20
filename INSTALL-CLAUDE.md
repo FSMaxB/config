@@ -5,7 +5,8 @@
 - Before starting implementation of any plan, load the crit skill and launch a crit review of the plan. Wait until I finish the review and address all unresolved comments before implementing.
   - In the Pi coding agent, run crit and fix all comments before `submit_plan`
 - Explicitly include verification steps in the plan you write
-- Write the plan with enough detail that a less capable model is still able to implement it.
+- Write a self-contained plan that a junior developer with no prior knowledge of this codebase could execute without asking questions or exploring on their own.
+  - Do not defer decisions to the implementer, if multiple approaches exist, discuss them via the question tool first and then include the chosen approach.
 
 ## VCS
 
