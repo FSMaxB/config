@@ -3,24 +3,20 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
-import type {
-  AgentToolResult,
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { confirm } from "./lib/confirm.ts";
+import { execChecked } from "./lib/exec.ts";
+import { createLineSplitter } from "./lib/lines.ts";
 import { getCurrentPlanPath } from "./lib/plan-file.ts";
-import { serialize } from "./lib/ui-queue.ts";
 
 const TIMEOUT = 60_000;
 const TAIL_LINES = 12;
 const DEFAULT_AUTHOR = "pi";
 
-const PROCEED = "Send it";
-const CANCEL = "Cancel";
-
-// Set when crit_review starts a plan review. crit stores plan comments under the slug, and
-// crit comment silently looks in the project root without it.
+// Set when crit_review starts a plan review, and cleared on any successful non-plan review.
+// crit stores plan comments under the slug, and crit comment silently looks in the project
+// root without it.
 let planSlug: string | undefined;
 
 export default function (pi: ExtensionAPI) {
@@ -94,11 +90,16 @@ export default function (pi: ExtensionAPI) {
         });
       });
 
-      if (slug) planSlug = slug;
-      if (code !== 0)
+      if (code !== 0) {
+        if (signal?.aborted)
+          throw new Error("The crit review was aborted before it started.");
         throw new Error(
           `crit ${args.join(" ")} exited with ${code}:\n${output.trim()}`,
         );
+      }
+      // Clears the slug for non-plan reviews, so a stale plan slug from an earlier review
+      // doesn't leak into crit_comments/crit_comment defaults.
+      planSlug = slug;
       return {
         content: [
           { type: "text", text: output.trim() || "crit produced no output." },
@@ -307,7 +308,8 @@ export default function (pi: ExtensionAPI) {
               : "a review";
         const allowed = await confirm(
           ctx,
-          `Post ${kind} to ${target} on GitHub?\n\n  crit ${args.join(" ")}`,
+          `Post ${kind} to ${target} on GitHub?`,
+          `  crit ${args.join(" ")}`,
         );
         if (!allowed) return declined("Nothing was posted to GitHub.");
       }
@@ -334,7 +336,8 @@ export default function (pi: ExtensionAPI) {
 
       const allowed = await confirm(
         ctx,
-        `Upload these files to crit-web?\n\n  ${paths.join("\n  ")}`,
+        "Upload these files to crit-web?",
+        `  ${paths.join("\n  ")}`,
       );
       if (!allowed) return declined("Nothing was uploaded.");
       return await runCrit(pi, ["share", ...paths], signal);
@@ -359,10 +362,7 @@ export default function (pi: ExtensionAPI) {
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const { paths = [] } = params;
       const what = paths.length > 0 ? paths.join("\n  ") : "the current review";
-      const allowed = await confirm(
-        ctx,
-        `Remove this from crit-web?\n\n  ${what}`,
-      );
+      const allowed = await confirm(ctx, "Remove this from crit-web?", `  ${what}`);
       if (!allowed) return declined("Nothing was unpublished.");
       return await runCrit(pi, ["unpublish", ...paths], signal);
     },
@@ -430,9 +430,14 @@ function streamCrit(
   onLine: (line: string) => void,
 ): Promise<{ output: string; code: number }> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("The crit review was aborted before it started."));
+      return;
+    }
+
     const child = spawn("crit", args, { stdio: ["ignore", "pipe", "pipe"] });
     const chunks: string[] = [];
-    let pending = "";
+    const splitter = createLineSplitter(onLine);
 
     const abort = () => child.kill("SIGTERM");
     signal?.addEventListener("abort", abort, { once: true });
@@ -440,13 +445,7 @@ function streamCrit(
     const consume = (data: Buffer) => {
       const text = data.toString();
       chunks.push(text);
-      pending += text;
-
-      const lines = pending.split("\n");
-      pending = lines.pop() ?? "";
-      for (const line of lines) {
-        onLine(line);
-      }
+      splitter.push(text);
     };
 
     child.stdout.on("data", consume);
@@ -457,8 +456,10 @@ function streamCrit(
     });
     child.on("close", (code) => {
       signal?.removeEventListener("abort", abort);
-      if (pending) onLine(pending);
-      resolve({ output: chunks.join(""), code: code ?? 0 });
+      splitter.flush();
+      // A signal-killed child (our SIGTERM on abort) closes with a null code, which must not
+      // be read as success.
+      resolve({ output: chunks.join(""), code: code ?? 1 });
     });
   });
 }
@@ -486,17 +487,6 @@ function toCritEntry(comment: CommentParams): Record<string, unknown> {
   };
 }
 
-async function confirm(
-  ctx: ExtensionContext,
-  prompt: string,
-): Promise<boolean> {
-  if (!ctx.hasUI) return false;
-  return (
-    (await serialize(() => ctx.ui.select(prompt, [PROCEED, CANCEL]))) ===
-    PROCEED
-  );
-}
-
 function declined(detail: string): AgentToolResult<unknown> {
   return {
     content: [
@@ -514,20 +504,9 @@ async function runCrit(
   args: string[],
   signal: AbortSignal | undefined,
 ): Promise<AgentToolResult<unknown>> {
-  const { stdout, stderr, code, killed } = await pi.exec("crit", args, {
-    signal,
-    timeout: TIMEOUT,
-  });
-  const invocation = `crit ${args.join(" ")}`;
-
-  if (killed)
-    throw new Error(`${invocation} timed out after ${TIMEOUT / 1000}s.`);
-  if (code !== 0)
-    throw new Error(
-      `${invocation} failed with exit ${code}: ${stderr.trim() || stdout.trim()}`,
-    );
-
-  const text = (stdout || stderr).trim();
+  const text = (
+    await execChecked(pi, "crit", args, { signal, timeout: TIMEOUT })
+  ).trim();
   return {
     content: [{ type: "text", text: text || "(no output)" }],
     details: { args },

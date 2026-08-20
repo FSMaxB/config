@@ -79,10 +79,13 @@ export default function (pi: ExtensionAPI) {
 }
 
 function sanitize(raw: string): string {
-  return raw
-    .replace(/[^\p{L}\p{N}\s.,!?]/gu, "")
-    .replace(/\s+/g, " ")
-    .trim()
+  return [
+    ...raw
+      .replace(/[^\p{L}\p{N}\s.,!?]/gu, "")
+      .replace(/\s+/g, " ")
+      .trim(),
+  ]
     .slice(0, MAX_LENGTH)
+    .join("")
     .trim();
 }
