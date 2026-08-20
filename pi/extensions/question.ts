@@ -88,7 +88,6 @@ export default function (pi: ExtensionAPI) {
       });
       const failure = (error: string) => ({
         content: [{ type: "text" as const, text: error }],
-        isError: true,
         details: {
           question,
           context: normalizedContext,
@@ -130,7 +129,6 @@ export default function (pi: ExtensionAPI) {
               text: `Interactive UI is unavailable. Please answer directly:\n\n${prompt}${optionText}${freeformHint}`,
             },
           ],
-          isError: true,
           details: {
             question,
             context: normalizedContext,

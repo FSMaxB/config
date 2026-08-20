@@ -153,7 +153,6 @@ export default function (pi: ExtensionAPI) {
             return {
               content: [{ type: "text", text: `Chain stopped at step ${i + 1} (${step.agent}): ${errorMessage}` }],
               details: makeDetails("chain")(results),
-              isError: true,
             };
           }
           previousOutput = getFinalOutput(result.messages);
@@ -275,7 +274,6 @@ export default function (pi: ExtensionAPI) {
           return {
             content: [{ type: "text", text: `Agent ${result.stopReason || "failed"}: ${errorMessage}` }],
             details: makeDetails("single")([result]),
-            isError: true,
           };
         }
         return {
