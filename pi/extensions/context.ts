@@ -6,7 +6,7 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
-import { homedir } from "node:os";
+import { shortenPath } from "./lib/format.ts";
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("context", {
@@ -325,11 +325,6 @@ interface Row {
   label: string;
   tokens: number;
   note?: string;
-}
-
-function shortenPath(path: string): string {
-  const home = homedir();
-  return path.startsWith(home) ? `~${path.slice(home.length)}` : path;
 }
 
 function estimateText(text: string): number {

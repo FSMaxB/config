@@ -1,21 +1,18 @@
 import { unlink } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
-import type {
-  ExtensionAPI,
-  ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   createLsToolDefinition,
   createReadToolDefinition,
   createWriteToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { renameRenderedTitle } from "./lib/tool-title.ts";
 import {
   contains,
   memoryDirectory,
   resolveThroughSymlinks,
 } from "./lib/repo.ts";
+import { scopedTool } from "./lib/scoped-tool.ts";
 
 const SCOPE_NOTE =
   "Confined to the agent memory directory: relative paths (like MEMORY.md or some-fact.md) " +
@@ -25,30 +22,36 @@ export default function (pi: ExtensionAPI) {
   const memoryRoot = memoryDirectory();
 
   pi.registerTool(
-    scoped(createReadToolDefinition(memoryRoot), {
+    scopedTool(createReadToolDefinition(memoryRoot), {
       name: "memory_read",
       label: "Memory read",
       guideline:
         "Use memory_read to read memory files instead of the generic read tools.",
+      scopeNote: SCOPE_NOTE,
+      ensurePath: (params) => ensureInMemory(params.path),
     }),
   );
 
   pi.registerTool(
-    scoped(createLsToolDefinition(memoryRoot), {
+    scopedTool(createLsToolDefinition(memoryRoot), {
       name: "memory_ls",
       label: "Memory ls",
       guideline:
         "Use memory_ls without a path to see which memory files exist.",
       descriptionNote: "Pass limit to change the entry cap.",
+      scopeNote: SCOPE_NOTE,
+      ensurePath: (params) => ensureInMemory(params.path),
     }),
   );
 
   pi.registerTool(
-    scoped(createWriteToolDefinition(memoryRoot), {
+    scopedTool(createWriteToolDefinition(memoryRoot), {
       name: "memory_write",
       label: "Memory write",
       guideline:
         "Use memory_write to save or update a memory instead of the generic write tools.",
+      scopeNote: SCOPE_NOTE,
+      ensurePath: (params) => ensureInMemory(params.path),
     }),
   );
 
@@ -85,46 +88,6 @@ export default function (pi: ExtensionAPI) {
       };
     },
   });
-}
-
-interface ScopeOptions {
-  name: string;
-  label: string;
-  guideline: string;
-  // Appended to the built-in description. The bridge to other harnesses drops per-parameter
-  // descriptions, so anything the model must know about parameters has to be said here.
-  descriptionNote?: string;
-}
-
-// Wraps a built-in tool definition under a new name, with relative paths resolved against
-// the memory directory instead of the cwd. Spreading keeps the built-in renderers, so the
-// UI (syntax highlighting, truncation notices) is unchanged, while the call title matches the
-// wrapper. Execution and call-title rendering are intercepted to enforce the memory scope.
-function scoped(
-  definition: ToolDefinition<any, any, any>,
-  options: ScopeOptions,
-): ToolDefinition<any, any, any> {
-  const { name, label, guideline, descriptionNote } = options;
-  return {
-    ...definition,
-    name,
-    label,
-    description: `${definition.description}${
-      descriptionNote === undefined ? "" : ` ${descriptionNote}`
-    }\n\n${SCOPE_NOTE}`,
-    promptGuidelines: [guideline],
-    renderCall: renameRenderedTitle(definition, name),
-    async execute(toolCallId, params, signal, onUpdate, ctx) {
-      await ensureInMemory(params.path);
-      return await definition.execute(
-        toolCallId,
-        params,
-        signal,
-        onUpdate,
-        ctx,
-      );
-    },
-  };
 }
 
 // Returns the resolved absolute path, or throws when it leaves the memory directory.

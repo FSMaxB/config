@@ -16,20 +16,20 @@
 const PLAN_MODE_READ_TOOLS = ["repo_read", "repo_grep", "repo_find", "repo_ls", "memory_read", "memory_ls"];
 
 export interface PlanModeSnapshot {
-	enabled: boolean;
-	sessionGrants: string[];
-	sessionDenials: string[];
+  enabled: boolean;
+  sessionGrants: string[];
+  sessionDenials: string[];
 }
 
 export interface PersistedPlanDecisions {
-	alwaysAllowed: string[];
-	alwaysDenied: string[];
+  alwaysAllowed: string[];
+  alwaysDenied: string[];
 }
 
 export function planModeAllowedTools(snapshot: PlanModeSnapshot, persisted: PersistedPlanDecisions): Set<string> {
-	const allowed = new Set([...PLAN_MODE_READ_TOOLS, ...snapshot.sessionGrants, ...persisted.alwaysAllowed]);
-	for (const name of [...snapshot.sessionDenials, ...persisted.alwaysDenied]) {
-		allowed.delete(name);
-	}
-	return allowed;
+  const allowed = new Set([...PLAN_MODE_READ_TOOLS, ...snapshot.sessionGrants, ...persisted.alwaysAllowed]);
+  for (const name of [...snapshot.sessionDenials, ...persisted.alwaysDenied]) {
+    allowed.delete(name);
+  }
+  return allowed;
 }
