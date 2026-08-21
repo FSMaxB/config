@@ -60,6 +60,7 @@ I will handle all rebasing and history rewriting manually.
 - If you want to make clear that something cannot happen, use `.unwrap_or(|| unreachable!(...))` instead of `.expect(...)`.
 - If types can be inferred, let them be inferred.
 - Prefer specifying types to the right of the `=`. E.g. `.collect<Vec<_>>()` instead of `let foo: Vec<_> = ....collect();`
+- Put constants in the smallest scope possible (e.g. function scope if only used in that function)
 
 ## Instruction loading (for harnesses without native support, e.g. OpenCode)
 
