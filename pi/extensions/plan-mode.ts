@@ -5,6 +5,7 @@ import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type {
   AgentToolResult,
   ExtensionAPI,
+  ExtensionCommandContext,
   ExtensionContext,
   Theme,
   ToolCallEvent,
@@ -16,7 +17,6 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { confirm } from "./lib/confirm.ts";
 import { notifyUser } from "./lib/notify.ts";
 import {
   latestPlanModeEntry,
@@ -30,6 +30,10 @@ import {
   plansDirectory,
   setCurrentPlanPath,
 } from "./lib/plan-file.ts";
+import {
+  latestPlanHandoffEntry,
+  PLAN_HANDOFF_ENTRY_TYPE,
+} from "./lib/plan-handoff.ts";
 import { renameRenderedTitle } from "./lib/tool-title.ts";
 import { serialize } from "./lib/ui-queue.ts";
 
@@ -63,6 +67,10 @@ const IMPLEMENT_DIFFERENT = "Implement with different model";
 const REFINE = "Refine — send feedback";
 const CLEAR_ALL = "Clear all";
 const DONE = "Done";
+const CONTEXT_FULL = "Full context — inherit the whole conversation";
+const CONTEXT_COMPACT = "Compact — summarize, then implement in a fresh turn";
+const CONTEXT_FRESH = "Fresh session — only the plan file, nothing else";
+const FRESH_HANDOFF_ARGUMENT = "fresh-handoff";
 
 const COLLAPSED_PLAN_LINES = 15;
 
@@ -70,6 +78,7 @@ export default function (pi: ExtensionAPI) {
   let planMode = false;
   let agentRunning = false;
   let pendingToggle: boolean | undefined;
+  let pendingFreshHandoff: FreshHandoff | undefined;
   const sessionGrants = new Set<string>();
   const alwaysGrants = new Set<string>();
   // Denials carry the note the user left, so a repeat block can keep repeating the guidance
@@ -767,13 +776,42 @@ export default function (pi: ExtensionAPI) {
     level: ModelThinkingLevel | undefined,
     ctx: ExtensionContext,
   ): Promise<AgentToolResult<{ path: string; outcome: string }>> {
-    const compactFirst = await confirm(
-      ctx,
-      "Compact the conversation before implementing?",
-      "Compaction aborts the current turn, summarizes the conversation, and starts implementation in a fresh turn " +
-        "where the new model sees only the summary and the plan file path (it reads the plan from disk). " +
-        "Without compaction, the new model inherits the full conversation, plan text included.",
+    const modelName = `${selectedModel.provider}/${selectedModel.id}`;
+    const choice = await ctx.ui.select(
+      `How should ${modelName} start?\n\n` +
+        "  Full context keeps the whole conversation, plan text included.\n" +
+        "  Compact aborts this turn, summarizes, and implements from the summary plus the plan file.\n" +
+        "  Fresh session abandons this conversation entirely; the new session only gets the plan file path.",
+      [CONTEXT_FULL, CONTEXT_COMPACT, CONTEXT_FRESH],
     );
+
+    if (choice === CONTEXT_FRESH) {
+      pendingFreshHandoff = {
+        planPath,
+        provider: selectedModel.provider,
+        modelId: selectedModel.id,
+        thinkingLevel: level ?? pi.getThinkingLevel(),
+      };
+      setPlanMode(false, ctx);
+      // newSession only exists on the command context, so the switch is dispatched
+      // as a command; prompt() executes extension commands immediately even while
+      // the agent is streaming, and the resulting teardown aborts this turn after
+      // persisting it.
+      pi.sendUserMessage(`/plan ${FRESH_HANDOFF_ARGUMENT}`, {
+        expandPromptTemplates: true,
+      });
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Plan at ${planPath} approved. A fresh session with ${modelName} takes over; this conversation ends here.`,
+          },
+        ],
+        details: { path: planPath, outcome: "handed-off" },
+      };
+    }
+
+    const compactFirst = choice === CONTEXT_COMPACT;
 
     if (!(await pi.setModel(selectedModel))) {
       ctx.ui.notify(`No API key for ${selectedModel.provider}.`, "error");
@@ -789,7 +827,6 @@ export default function (pi: ExtensionAPI) {
 
     setPlanMode(false, ctx);
 
-    const modelName = `${selectedModel.provider}/${selectedModel.id}`;
     if (compactFirst) {
       // Compaction aborts the run this tool call belongs to, so the kickoff has
       // to come from the completion callback instead of this tool result.
@@ -843,12 +880,42 @@ export default function (pi: ExtensionAPI) {
         await manageDecisions(ctx);
         return;
       }
+      if (argument === FRESH_HANDOFF_ARGUMENT) {
+        await startFreshHandoffSession(ctx);
+        return;
+      }
       ctx.ui.notify(
         `Unknown argument "${argument}". Use /plan to toggle or /plan grants to review.`,
         "error",
       );
     },
   });
+
+  async function startFreshHandoffSession(
+    ctx: ExtensionCommandContext,
+  ): Promise<void> {
+    const handoff = pendingFreshHandoff;
+    pendingFreshHandoff = undefined;
+    if (!handoff) {
+      ctx.ui.notify("No fresh-session handoff is pending.", "error");
+      return;
+    }
+
+    const { cancelled } = await ctx.newSession({
+      parentSession: ctx.sessionManager.getSessionFile(),
+      // setup runs before session_start fires in the new runtime, so the new
+      // plan-mode instance finds this entry when it initializes.
+      setup: async (sessionManager) => {
+        sessionManager.appendCustomEntry(PLAN_HANDOFF_ENTRY_TYPE, handoff);
+      },
+    });
+    if (cancelled) {
+      ctx.ui.notify(
+        "Fresh session was cancelled — still in the current session. Ask the agent to implement the plan here instead.",
+        "warning",
+      );
+    }
+  }
 
   pi.on("tool_call", async (event, ctx) => {
     flushPendingToggle(ctx);
@@ -886,7 +953,7 @@ export default function (pi: ExtensionAPI) {
     flushPendingToggle(ctx);
   });
 
-  pi.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", async (event, ctx) => {
     const { alwaysAllowed, alwaysDenied } = await readPersistedDecisions();
     for (const toolName of alwaysAllowed) {
       alwaysGrants.add(toolName);
@@ -906,13 +973,52 @@ export default function (pi: ExtensionAPI) {
         sessionDenials.set(name, note);
       }
     }
-    if (pi.getFlag("plan") === true) {
+    const handoff =
+      event.reason === "new"
+        ? latestPlanHandoffEntry(ctx.sessionManager)
+        : undefined;
+    if (pi.getFlag("plan") === true && !handoff) {
       planMode = true;
     }
 
     syncPlanTools();
     refreshIndicators(ctx);
+
+    if (!handoff) return;
+    const model = ctx.modelRegistry
+      .getAvailable()
+      .find(
+        (candidate) =>
+          candidate.provider === handoff.provider &&
+          candidate.id === handoff.modelId,
+      );
+    if (!model || !(await pi.setModel(model))) {
+      ctx.ui.notify(
+        `Plan handoff: ${handoff.provider}/${handoff.modelId} is not available. ` +
+          `Pick a model, then ask it to implement the plan at ${handoff.planPath}.`,
+        "error",
+      );
+      return;
+    }
+    const supportedLevels: string[] = getSupportedThinkingLevels(model);
+    if (supportedLevels.includes(handoff.thinkingLevel)) {
+      pi.setThinkingLevel(handoff.thinkingLevel as ModelThinkingLevel);
+    }
+    // session_start is emitted while the host is still rebinding the new session,
+    // so the kickoff turn is deferred to the next tick instead of starting inside
+    // the emit.
+    setTimeout(
+      () => pi.sendUserMessage(`Implement the plan at ${handoff.planPath}.`),
+      0,
+    );
   });
+}
+
+interface FreshHandoff {
+  planPath: string;
+  provider: string;
+  modelId: string;
+  thinkingLevel: string;
 }
 
 type Decision =
