@@ -50,6 +50,10 @@ Abandon the revision under cursor | a
 Undo / redo the last operation | <S-u> / <S-r>
 Diff the revision under cursor | <S-d>
 Diff current file against a revision (vertical / horizontal) | :Jdiff [rev] / :Jhdiff [rev]
+Status picker ★ (fuzzy list of changed files, live diff preview) | <leader>js
+File history picker ★ (revisions of the current buffer, edits selection) | <leader>jh
+Conflict picker ★ (conflicted revisions, resolves selection) | <leader>jc
+Conflict sections picker ★ (jumps to a conflict marker in a file) | <leader>jx
 
 ## minimap @neominimap @scroll
 # On by default. Per-window map with git-change / diagnostic / search markers.
