@@ -18,6 +18,7 @@ return {
 				rust = { "rustfmt" },
 				lua = { "stylua" },
 				python = { "ruff_format" },
+				go = { "gofmt" },
 				sh = { "shfmt" },
 				toml = { "taplo" },
 				bzl = { "buildifier" },
