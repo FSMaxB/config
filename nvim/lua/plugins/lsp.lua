@@ -15,6 +15,7 @@ return {
 				ensure_installed = {
 					"lua_ls",
 					"bashls",
+					"gopls",
 					"pyright",
 					"jsonls",
 					"yamlls",
@@ -35,6 +36,7 @@ return {
 				"clangd",
 				"lua_ls",
 				"bashls",
+				"gopls",
 				"pyright",
 				"jsonls",
 				"yamlls",
