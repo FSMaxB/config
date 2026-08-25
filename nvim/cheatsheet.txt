@@ -31,7 +31,12 @@ Stage hunk | <leader>hs
 Reset hunk | <leader>hr
 Preview hunk (floating diff) | <leader>hp
 Blame current line (full); press again to enter the float | <leader>hb
-fugitive — full git operations | :Git / :Gdiffsplit / :Gblame
+Status window (stage/unstage with -, commit with cc) | :Git
+Diff current file against index/HEAD | :Gdiffsplit
+Open file as of a commit (e.g. HEAD~2:%, <sha>:path) | :Gedit {rev}:{path}
+Blame column for the buffer | :Git blame
+Log for the current file | :Git log %
+Run any git command | :Git {args}
 
 ## minimap @neominimap @scroll
 # On by default. Per-window map with git-change / diagnostic / search markers.
