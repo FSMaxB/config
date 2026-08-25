@@ -1,6 +1,13 @@
 return {
 	{ "tpope/vim-fugitive" },
 	{
+		"nicolasgb/jj.nvim",
+		version = "*",
+		config = function()
+			require("jj").setup({})
+		end,
+	},
+	{
 		"lewis6991/gitsigns.nvim",
 		event = { "BufReadPre", "BufNewFile" },
 		opts = {

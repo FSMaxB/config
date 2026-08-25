@@ -38,6 +38,19 @@ Blame column for the buffer | :Git blame
 Log for the current file | :Git log %
 Run any git command | :Git {args}
 
+## jj @jj.nvim @jujutsu @log @rebase @squash
+# Log buffer keys apply with the cursor on a revision line (visual-select to act on a range).
+Run any jj command / open status / open log | :J {args} / :J status / :J log
+Describe the revision under cursor | d
+Edit a mutable / immutable revision under cursor | <CR> / <S-CR>
+New change branching off / after the revision under cursor | n / <C-n>
+Enter rebase mode targeting the revision under cursor | r
+Enter squash mode for the revision under cursor | s
+Abandon the revision under cursor | a
+Undo / redo the last operation | <S-u> / <S-r>
+Diff the revision under cursor | <S-d>
+Diff current file against a revision (vertical / horizontal) | :Jdiff [rev] / :Jhdiff [rev]
+
 ## minimap @neominimap @scroll
 # On by default. Per-window map with git-change / diagnostic / search markers.
 Toggle minimap ★ | <leader>mm
