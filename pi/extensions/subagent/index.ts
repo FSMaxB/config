@@ -46,7 +46,21 @@ export default function (pi: ExtensionAPI) {
     return;
   }
 
-  const guidance = guidanceTable(loadPolicyConfig(EXTENSION_DIRECTORY));
+  pi.on("before_agent_start", (event, ctx) => {
+    if (!event.systemPromptOptions.selectedTools?.includes("subagent")) return;
+
+    const guidance = guidanceTable({
+      mainModel: ctx.model,
+      availableModels: ctx.modelRegistry.getAvailable(),
+      config: loadPolicyConfig(EXTENSION_DIRECTORY),
+    });
+    if (!guidance) return;
+
+    return {
+      systemPrompt: `${event.systemPrompt}\n\n## Subagent Model Guidance\n\n${guidance}`,
+    };
+  });
+
   pi.registerTool({
     name: "subagent",
     label: "Subagent",
@@ -58,7 +72,7 @@ export default function (pi: ExtensionAPI) {
         "A different cloud model must belong to the session model's provider family; local models are always allowed.",
         "When the session itself runs on a local model, only local models are valid and switching is discouraged — prefer lowering thinkingLevel on the inherited model instead.",
         "Lowering thinkingLevel is generally the cheapest lever for easy tasks.",
-      ].join(" ") + (guidance ? `\nModel guidance:\n${guidance}` : ""),
+      ].join(" "),
     promptSnippet: "Delegate exploration and other self-contained tasks to isolated subagents",
     promptGuidelines: [
       "Prefer dispatching the explore subagent for multi-file codebase exploration instead of reading many files into the main context; it returns a compressed report.",

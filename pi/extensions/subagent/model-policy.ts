@@ -30,9 +30,18 @@ export function loadPolicyConfig(directory: string): SubagentModelConfig {
   }
 }
 
-export function guidanceTable(config: SubagentModelConfig): string {
-  const entries = config.models ?? [];
-  return entries.map(({ match, guidance }) => `- ${match}: ${guidance}`).join("\n");
+export function guidanceTable(options: {
+  mainModel: Model<Api> | undefined;
+  availableModels: Model<Api>[];
+  config: SubagentModelConfig;
+}): string {
+  return candidateModels(options.mainModel, options.availableModels, options.config)
+    .map((model) => {
+      const guidance = guidanceFor(model, options.config);
+      return guidance ? `- ${model.provider}/${model.id}: ${guidance}` : undefined;
+    })
+    .filter((entry): entry is string => entry !== undefined)
+    .join("\n");
 }
 
 export type ModelResolution = { ok: true; model: Model<Api> | undefined } | { ok: false; error: string };
