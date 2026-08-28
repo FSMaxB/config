@@ -7,6 +7,7 @@
 - Explicitly include verification steps in the plan you write
 - Write a self-contained plan that a junior developer with no prior knowledge of this codebase could execute without asking questions or exploring on their own.
   - Do not defer decisions to the implementer, if multiple approaches exist, discuss them via the question tool first and then include the chosen approach.
+  - When describing concrete code changes, prefer small code examples or pseudo-code over bullet points.
 
 ## VCS
 
