@@ -11,7 +11,6 @@ return {
 			vim.keymap.set("n", "<leader>js", picker.status, { desc = "jj status (picker)" })
 			vim.keymap.set("n", "<leader>jh", picker.file_history, { desc = "jj file history (picker)" })
 			vim.keymap.set("n", "<leader>jc", picker.conflict, { desc = "jj conflicts (picker)" })
-			vim.keymap.set("n", "<leader>jx", picker.conflict_sections, { desc = "jj conflict sections (picker)" })
 		end,
 	},
 	{
