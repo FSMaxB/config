@@ -2,6 +2,9 @@ import { execFile } from "node:child_process";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export function notifyUser(pi: ExtensionAPI, body: string): void {
+  // Subagent children load the global extensions too; their lifecycle events
+  // must not raise desktop notifications meant for the interactive session.
+  if (process.env.PI_SUBAGENT_CHILD) return;
   const sessionName = pi.getSessionName();
   notify(sessionName ? `Pi — ${sessionName}` : "Pi", body);
 }
