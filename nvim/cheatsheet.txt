@@ -53,7 +53,6 @@ Diff current file against a revision (vertical / horizontal) | :Jdiff [rev] / :J
 Status picker ★ (fuzzy list of changed files, live diff preview) | <leader>js
 File history picker ★ (revisions of the current buffer, edits selection) | <leader>jh
 Conflict picker ★ (conflicted revisions, resolves selection) | <leader>jc
-Conflict sections picker ★ (jumps to a conflict marker in a file) | <leader>jx
 
 ## minimap @neominimap @scroll
 # On by default. Per-window map with git-change / diagnostic / search markers.
