@@ -11,6 +11,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execChecked } from "./lib/exec.ts";
+import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 import { detectVcs, type VcsInfo } from "./lib/repo.ts";
 
 const TIMEOUT = 60_000;
@@ -46,7 +47,7 @@ export default function (pi: ExtensionAPI) {
     };
   });
 
-  pi.registerTool({
+  registerToolWithGuidelines(pi, {
     name: "vcs_info",
     label: "VCS info",
     description:

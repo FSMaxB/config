@@ -11,6 +11,7 @@ import {
   createWriteToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 import { ensureAccessible } from "./lib/repo.ts";
 import { scopedTool } from "./lib/scoped-tool.ts";
 import { createFindExecute, createGrepExecute } from "./lib/search-tools.ts";
@@ -21,7 +22,8 @@ const SCOPE_NOTE =
 export default function (pi: ExtensionAPI) {
   const cwd = process.cwd();
 
-  pi.registerTool(
+  registerToolWithGuidelines(
+    pi,
     scopedTool(createReadToolDefinition(cwd), {
       name: "repo_read",
       label: "Repo read",
@@ -31,7 +33,8 @@ export default function (pi: ExtensionAPI) {
     }),
   );
 
-  pi.registerTool(
+  registerToolWithGuidelines(
+    pi,
     scopedTool(createLsToolDefinition(cwd), {
       name: "repo_ls",
       label: "Repo ls",
@@ -43,7 +46,8 @@ export default function (pi: ExtensionAPI) {
     }),
   );
 
-  pi.registerTool(
+  registerToolWithGuidelines(
+    pi,
     scopedTool(
       {
         ...(createFindToolDefinition(cwd) as ToolDefinition<any, any, any>),
@@ -63,7 +67,8 @@ export default function (pi: ExtensionAPI) {
     ),
   );
 
-  pi.registerTool(
+  registerToolWithGuidelines(
+    pi,
     scopedTool(
       {
         ...(createGrepToolDefinition(cwd) as ToolDefinition<any, any, any>),
@@ -83,7 +88,8 @@ export default function (pi: ExtensionAPI) {
     ),
   );
 
-  pi.registerTool(
+  registerToolWithGuidelines(
+    pi,
     scopedTool(createWriteToolDefinition(cwd), {
       name: "repo_write",
       label: "Repo write",
@@ -94,7 +100,8 @@ export default function (pi: ExtensionAPI) {
     }),
   );
 
-  pi.registerTool(
+  registerToolWithGuidelines(
+    pi,
     scopedTool(createEditToolDefinition(cwd), {
       name: "repo_edit",
       label: "Repo edit",

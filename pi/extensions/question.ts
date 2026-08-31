@@ -5,18 +5,18 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 
 const FREEFORM_SENTINEL = "✏️  Type custom response...";
 
 export default function (pi: ExtensionAPI) {
-  pi.registerTool({
+  registerToolWithGuidelines(pi, {
     name: "question",
     label: "Question",
     // The MCP bridge drops descriptions from optional and nested parameters (it does
     // forward the nested structure itself), so the flag defaults only survive in here.
     description:
       "Ask the user a question with optional multiple-choice answers. Use this to gather information interactively. " +
-      "Ask exactly one focused question per call. Before calling, gather context with tools and pass a short summary via the context field. " +
       "Set allowMultiple to true to let the user pick several options (default false), or allowFreeform to false to require one of the listed options (default true).",
     promptSnippet:
       "Ask the user one focused question with optional multiple-choice answers to gather information interactively",
