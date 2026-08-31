@@ -34,6 +34,7 @@ import {
   latestPlanHandoffEntry,
   PLAN_HANDOFF_ENTRY_TYPE,
 } from "./lib/plan-handoff.ts";
+import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 import { renameRenderedTitle } from "./lib/tool-title.ts";
 import { serialize } from "./lib/ui-queue.ts";
 
@@ -358,7 +359,7 @@ export default function (pi: ExtensionAPI) {
     default: false,
   });
 
-  pi.registerTool({
+  registerToolWithGuidelines(pi, {
     name: WRITE_PLAN,
     label: "Write plan",
     description:
@@ -451,7 +452,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  registerToolWithGuidelines(pi, {
     ...planFileEditTool,
     name: EDIT_PLAN,
     label: "Edit plan",
@@ -530,7 +531,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  registerToolWithGuidelines(pi, {
     name: SUBMIT_PLAN,
     label: "Submit plan",
     description:

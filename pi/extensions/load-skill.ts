@@ -4,18 +4,19 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createReadToolDefinition } from "@earendil-works/pi-coding-agent";
 import { renameRenderedTitle } from "./lib/tool-title.ts";
 import { contains, expandHome, skillRoots } from "./lib/repo.ts";
+import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 
 export default function (pi: ExtensionAPI) {
   const definition = createReadToolDefinition(process.cwd());
 
-  pi.registerTool({
+  registerToolWithGuidelines(pi, {
     ...definition,
     name: "load_skill",
     label: "Load skill",
     description:
       "Read a file from the skill directories: project-level .agents/skills and .pi/skills, then the global agent, ~/.agents and ~/.claude skill roots. " +
       "Pass the absolute path from a skill listing, or a path relative to a skill root like 'tuicr/SKILL.md'. " +
-      "Also use it for the other files a skill references. Supports the same offset/limit paging as repo_read.",
+      "Supports the same offset/limit paging as repo_read.",
     promptGuidelines: [
       "Use load_skill to read SKILL.md files and the files they reference, instead of repo_read or bash.",
     ],

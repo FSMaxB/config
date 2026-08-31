@@ -9,6 +9,7 @@ import { confirm } from "./lib/confirm.ts";
 import { execChecked } from "./lib/exec.ts";
 import { createLineSplitter } from "./lib/lines.ts";
 import { getCurrentPlanPath } from "./lib/plan-file.ts";
+import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 
 const TIMEOUT = 60_000;
 const TAIL_LINES = 12;
@@ -20,7 +21,7 @@ const DEFAULT_AUTHOR = "pi";
 let planSlug: string | undefined;
 
 export default function (pi: ExtensionAPI) {
-  pi.registerTool({
+  registerToolWithGuidelines(pi, {
     name: "crit_review",
     label: "Crit review",
     description:
@@ -141,7 +142,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  registerToolWithGuidelines(pi, {
     name: "crit_comment",
     label: "Crit comment",
     description:

@@ -27,6 +27,7 @@ import { Type } from "typebox";
 import { shortenPath } from "../lib/format.ts";
 import { createLineSplitter } from "../lib/lines.ts";
 import { latestPlanModeEntry, readPersistedDecisions } from "../lib/plan-decisions.ts";
+import { registerToolWithGuidelines } from "../lib/register-tool.ts";
 import { type AgentConfig, discoverAgents } from "./agents.ts";
 import { guidanceTable, loadPolicyConfig, resolveSubagentModel, type SubagentModelConfig } from "./model-policy.ts";
 import { planModeAllowedTools, type PersistedPlanDecisions } from "./plan-restrictions.ts";
@@ -61,7 +62,7 @@ export default function (pi: ExtensionAPI) {
     };
   });
 
-  pi.registerTool({
+  registerToolWithGuidelines(pi, {
     name: "subagent",
     label: "Subagent",
     description:

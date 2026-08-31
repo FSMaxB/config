@@ -1,17 +1,17 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 
 const MAX_LENGTH = 80;
 
 export default function (pi: ExtensionAPI) {
-  pi.registerTool({
+  registerToolWithGuidelines(pi, {
     name: "set_session_name",
     label: "Set session name",
     description:
       "Set the session name: a short description of what this session is about. " +
       "It is shown in the session selector, the terminal title, and notifications. " +
-      "Set it as soon as the topic of the session is clear, and update it when the focus shifts. " +
       `Only letters, digits, whitespace and ,.!? survive sanitization; at most ${MAX_LENGTH} characters.`,
     promptSnippet:
       "Set the session name to a short description of what the session is about",
