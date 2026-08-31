@@ -12,6 +12,7 @@ import {
   memoryDirectory,
   resolveThroughSymlinks,
 } from "./lib/repo.ts";
+import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 import { scopedTool } from "./lib/scoped-tool.ts";
 
 const SCOPE_NOTE =
@@ -21,7 +22,8 @@ const SCOPE_NOTE =
 export default function (pi: ExtensionAPI) {
   const memoryRoot = memoryDirectory();
 
-  pi.registerTool(
+  registerToolWithGuidelines(
+    pi,
     scopedTool(createReadToolDefinition(memoryRoot), {
       name: "memory_read",
       label: "Memory read",
@@ -32,7 +34,8 @@ export default function (pi: ExtensionAPI) {
     }),
   );
 
-  pi.registerTool(
+  registerToolWithGuidelines(
+    pi,
     scopedTool(createLsToolDefinition(memoryRoot), {
       name: "memory_ls",
       label: "Memory ls",
@@ -44,7 +47,8 @@ export default function (pi: ExtensionAPI) {
     }),
   );
 
-  pi.registerTool(
+  registerToolWithGuidelines(
+    pi,
     scopedTool(createWriteToolDefinition(memoryRoot), {
       name: "memory_write",
       label: "Memory write",
@@ -55,7 +59,7 @@ export default function (pi: ExtensionAPI) {
     }),
   );
 
-  pi.registerTool({
+  registerToolWithGuidelines(pi, {
     name: "memory_delete",
     label: "Memory delete",
     description:
