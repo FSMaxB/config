@@ -62,12 +62,17 @@ export default function (pi: ExtensionAPI) {
     };
   });
 
+  const agentListing = discoverAgents()
+    .map(({ name, description }) => `${name} (${description})`)
+    .join(", ");
+
   registerToolWithGuidelines(pi, {
     name: "subagent",
     label: "Subagent",
     description:
       [
         "Delegate tasks to specialized subagents with isolated context.",
+        ...(agentListing ? [`Available agents: ${agentListing}.`] : []),
         "Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder).",
         'Model policy: omitting "model" inherits the session model and is always valid.',
         "A different cloud model must belong to the session model's provider family; local models are always allowed.",
@@ -77,6 +82,7 @@ export default function (pi: ExtensionAPI) {
     promptSnippet: "Delegate exploration and other self-contained tasks to isolated subagents",
     promptGuidelines: [
       "Prefer dispatching the explore subagent for multi-file codebase exploration instead of reading many files into the main context; it returns a compressed report.",
+      "Dispatch independent explorations in parallel, and trust the returned report instead of re-reading the same files yourself.",
       "Pick a cheaper model or a lower thinkingLevel for subagent tasks that don't need the session model's full capability.",
     ],
     parameters: SubagentParams,
