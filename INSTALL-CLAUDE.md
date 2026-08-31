@@ -49,7 +49,7 @@ I will handle all rebasing and history rewriting manually.
 
 ## Verification
 
-- After implementing a plan, ask me with a tool whether I want to do a review with tuicr. If yes, load the tuicr skill and use it for that.
+- After implementing a plan and after committing, ask me with a tool whether I want to do a review with tuicr. If yes, load the tuicr skill and use it for that.
 
 ## Code style / Architecture
 
