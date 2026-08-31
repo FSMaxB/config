@@ -1,12 +1,24 @@
 import { execFile } from "node:child_process";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { sanitizeDisplayText } from "./format.ts";
 
-export function notifyUser(pi: ExtensionAPI, body: string): void {
+export function notifyUser(
+  pi: ExtensionAPI,
+  status: string,
+  detail?: string,
+): void {
   // Subagent children load the global extensions too; their lifecycle events
   // must not raise desktop notifications meant for the interactive session.
   if (process.env.PI_SUBAGENT_CHILD) return;
+  const DETAIL_MAX_LENGTH = 120;
   const sessionName = pi.getSessionName();
-  notify(sessionName ? `Pi — ${sessionName}` : "Pi", body);
+  const title = ["Pi", sessionName, status].filter(Boolean).join(" — ");
+  // Details quote outside text (ui prompt titles, error messages), which may
+  // hold arbitrary characters; the display filter keeps them notification-safe.
+  notify(
+    title,
+    detail === undefined ? "" : sanitizeDisplayText(detail, DETAIL_MAX_LENGTH),
+  );
 }
 
 function notify(title: string, body: string): void {

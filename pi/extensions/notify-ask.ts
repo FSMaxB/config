@@ -7,8 +7,8 @@ export default function (pi: ExtensionAPI) {
   // plan-mode permission prompts, and editor-based commands alike. Replaces the
   // earlier tool_execution_start sniff, which only saw question and submit_plan
   // and missed permission/editor prompts entirely.
-  pi.on("ui_prompt_start", async () => {
-    notifyUser(pi, "Waiting for your input");
+  pi.on("ui_prompt_start", async (event) => {
+    notifyUser(pi, "Waiting for your input", event.title);
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
@@ -22,9 +22,6 @@ export default function (pi: ExtensionAPI) {
   // retries, manual /compact cancellations) and are not worth a notification.
   pi.on("session_compact_failed", async (event) => {
     if (event.aborted) return;
-    notifyUser(
-      pi,
-      event.errorMessage ? `Compaction failed: ${event.errorMessage}` : "Compaction failed",
-    );
+    notifyUser(pi, "Compaction failed", event.errorMessage);
   });
 }
