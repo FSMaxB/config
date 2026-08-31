@@ -9,6 +9,13 @@
   - Do not defer decisions to the implementer, if multiple approaches exist, discuss them via the question tool first and then include the chosen approach.
   - When describing concrete code changes, prefer small code examples or pseudo-code over bullet points.
 
+## Exploration
+
+- Delegate codebase exploration to an explore subagent (when the harness provides one) instead of searching the codebase yourself. Unless you already know the exact file and location that answers a question, dispatch the subagent up front — exploration that starts as "one or two greps" tends to sprawl and fills the main context with raw internals, while a subagent returns a compressed report.
+- If you do start searching directly and are not done after ~2 search calls, stop and delegate the rest.
+- Write the subagent brief so it contains everything already known, so the subagent verifies instead of re-deriving it.
+- For mechanical fact-finding, run the subagent on a cheaper model and/or a lower thinking level than the main session instead of inheriting the session model. Pick the cheaper model from whatever provider the session uses.
+
 ## VCS
 
 - Use jj when the repository uses jj, including colocated jj/git repositories. Otherwise, ask
