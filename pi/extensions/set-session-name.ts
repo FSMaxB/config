@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { sanitizeDisplayText } from "./lib/format.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 
 const MAX_LENGTH = 80;
@@ -25,7 +26,7 @@ export default function (pi: ExtensionAPI) {
     }),
 
     async execute(_toolCallId, params) {
-      const name = sanitize(params.name);
+      const name = sanitizeDisplayText(params.name, MAX_LENGTH);
       const details: { requested: string; name: string | null } = {
         requested: params.name,
         name: name || null,
@@ -75,16 +76,4 @@ export default function (pi: ExtensionAPI) {
       );
     },
   });
-}
-
-function sanitize(raw: string): string {
-  return [
-    ...raw
-      .replace(/[^\p{L}\p{N}\s.,!?]/gu, "")
-      .replace(/\s+/g, " ")
-      .trim(),
-  ]
-    .slice(0, MAX_LENGTH)
-    .join("")
-    .trim();
 }
