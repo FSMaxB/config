@@ -7,7 +7,8 @@
   "packages": [
     "npm:pi-web-access",
     "npm:@vanillagreen/pi-claude-bridge",
-    "npm:@firstpick/pi-themes-bundle"
+    "npm:@firstpick/pi-themes-bundle",
+    "npm:@burneikis/pi-vim"
   ],
   "compaction": {
     "enabled": false
