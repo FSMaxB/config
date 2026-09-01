@@ -77,6 +77,10 @@ if [[ -L ~/.pi/agent/claude-bridge.json || ! -e ~/.pi/agent/claude-bridge.json ]
   mkdir -p ~/.pi/agent
   ln -sfnv ~/config/pi/claude-bridge.json ~/.pi/agent/claude-bridge.json
 fi
+if [[ -L ~/.pi/agent/keybindings.json || ! -e ~/.pi/agent/keybindings.json ]]; then
+  mkdir -p ~/.pi/agent
+  ln -sfnv ~/config/pi/keybindings.json ~/.pi/agent/keybindings.json
+fi
 
 if hash git 2>/dev/null; then
   git config --global init.templatedir '~/.git_template'
