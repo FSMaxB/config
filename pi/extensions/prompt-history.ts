@@ -6,18 +6,16 @@
 import { readdir, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { CustomEditor } from "@earendil-works/pi-coding-agent";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 
 const MAX_PROMPTS = 50;
 const MAX_SESSION_FILES = 10;
 
 export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (event, context) => {
-    // Only on process startup: session_start fires before pi populates the
-    // editor history from a resumed session, so swapping the editor here
-    // loses nothing and resumed prompts land on top of the backfill. Later
-    // reasons (new/resume/fork) keep the already-installed editor, whose
-    // history persists across in-app session switches.
+    // Only on process startup. Later reasons (new/resume/fork) keep the
+    // already-installed editor, whose history persists across in-app session
+    // switches.
     if (event.reason !== "startup" || context.mode !== "tui") {
       return;
     }
@@ -28,13 +26,39 @@ export default function (pi: ExtensionAPI) {
     if (prompts.length === 0) {
       return;
     }
-    context.ui.setEditorComponent((tui, theme, keybindings) => {
-      const editor = new CustomEditor(tui, theme, keybindings);
-      for (const prompt of prompts) {
-        editor.addToHistory(prompt);
-      }
-      return editor;
-    });
+    installHistoryEditor(context.ui, prompts);
+  });
+}
+
+/**
+ * Editor-replacing extensions like pi-vim register their editor in their own
+ * session_start handler, which runs after ours because settings packages load
+ * after global extensions — registering here directly would get clobbered.
+ * Poll until another factory shows up (or give up after a second) and wrap
+ * it, so the backfill lands in whatever editor actually won. The swap
+ * discards any history pi already populated from a resumed session, which is
+ * why loadPreviousPrompts mines the current session's file as well.
+ */
+function installHistoryEditor(
+  ui: ExtensionUIContext,
+  prompts: string[],
+  attempt = 0,
+): void {
+  const pollIntervalMs = 50;
+  const maxAttempts = 20;
+  const wrappedFactory = ui.getEditorComponent();
+  if (!wrappedFactory && attempt < maxAttempts) {
+    setTimeout(() => installHistoryEditor(ui, prompts, attempt + 1), pollIntervalMs);
+    return;
+  }
+  ui.setEditorComponent((tui, theme, keybindings) => {
+    const editor = wrappedFactory
+      ? wrappedFactory(tui, theme, keybindings)
+      : new CustomEditor(tui, theme, keybindings);
+    for (const prompt of prompts) {
+      editor.addToHistory?.(prompt);
+    }
+    return editor;
   });
 }
 
@@ -51,11 +75,16 @@ async function loadPreviousPrompts(
   }
   const currentFileName = currentSessionFile && basename(currentSessionFile);
   // Filenames start with an ISO timestamp, so a lexicographic sort is chronological.
-  const sessionFiles = fileNames
+  const previousFiles = fileNames
     .filter((name) => name.endsWith(".jsonl") && name !== currentFileName)
     .sort()
     .reverse()
     .slice(0, MAX_SESSION_FILES);
+  // Mine the current session's file too: the editor swap happens after pi
+  // backfilled a resumed session's prompts into the previous editor instance,
+  // and those must stay the freshest arrow-up hits even when newer session
+  // files exist.
+  const sessionFiles = currentFileName ? [currentFileName, ...previousFiles] : previousFiles;
 
   const newestFirst: string[] = [];
   for (const fileName of sessionFiles) {
