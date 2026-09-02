@@ -61,6 +61,10 @@ if [[ -L ~/.pi/agent/extensions || ! -e ~/.pi/agent/extensions ]]; then
   mkdir -p ~/.pi/agent
   ln -sfnv ~/config/pi/extensions ~/.pi/agent/extensions
 fi
+if [[ -L ~/.pi/agent/skills || ! -e ~/.pi/agent/skills ]]; then
+  mkdir -p ~/.pi/agent
+  ln -sfnv ~/config/pi/skills ~/.pi/agent/skills
+fi
 if [[ -L ~/.pi/agent/settings.json || ! -e ~/.pi/agent/settings.json ]]; then
   mkdir -p ~/.pi/agent
   ln -sfnv ~/config/pi/settings.json ~/.pi/agent/settings.json
