@@ -10,7 +10,8 @@ Clients attached + capabilities | :checkhealth vim.lsp
 Progress / indexing text | :lua =vim.lsp.status()
 Clients on the current buffer | :lua =vim.lsp.get_clients({ bufnr = 0 })
 Diagnostics for this buffer (from clippy.py) | :lua =vim.diagnostic.get(0)
-Restart LSP server (after settings changes) | :LspRestart rust_analyzer
+Restart LSP server (after settings changes) | :lsp restart rust_analyzer
+Stop / re-enable a server for this buffer | :lsp stop rust_analyzer / :lsp enable rust_analyzer
 rust-analyzer logs (repo) | tools/logs/rust_analyzer*.stderr
 Open the LSP log file | :lua vim.cmd('edit '..vim.lsp.get_log_path())
 
