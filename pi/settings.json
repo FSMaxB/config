@@ -2,7 +2,7 @@
   "lastChangelogVersion": "0.84.4",
   "theme": "gruvbox-dark",
   "defaultProvider": "pi-claude",
-  "defaultModel": "claude-fable-5",
+  "defaultModel": "claude-fable-5-1",
   "defaultThinkingLevel": "high",
   "packages": [
     "npm:pi-web-access",
