@@ -62,6 +62,7 @@ I will handle all rebasing and history rewriting manually.
 - Only add comments if they add context that is not part of the code itself. Explicitly do not duplicate what code is doing in the comments, only explain rationale and/or high level architecture.
 - Do not use `err`, `ctx`, `recv` or similar abbreviations. Use full words like `error`, `context` or `receive`.
 - Prefer explicit types (e.g. enum) instead of boolean flags.
+- Use early returns or equivalent where possible to prevent nesting the happy path.
 
 ### Rust
 
@@ -71,6 +72,7 @@ I will handle all rebasing and history rewriting manually.
 - If types can be inferred, let them be inferred.
 - Prefer specifying types to the right of the `=`. E.g. `.collect<Vec<_>>()` instead of `let foo: Vec<_> = ....collect();`
 - Put constants in the smallest scope possible (e.g. function scope if only used in that function)
+- Prefer `let Some(...) = foo else { /* early exit / continue */ }` to nesting code in `if let Some` (same for other enums than Option).
 
 ## Instruction loading (for harnesses without native support, e.g. OpenCode)
 
