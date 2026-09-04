@@ -5,23 +5,23 @@ set -euxo pipefail
 STARSHIP_VERSION="1.26.0"
 STARSHIP_BASE_URL="https://github.com/starship/starship/releases/download/v${STARSHIP_VERSION}"
 
-ZELLIJ_VERSION="0.44.3"
+ZELLIJ_VERSION="0.45.1"
 ZELLIJ_BASE_URL="https://github.com/zellij-org/zellij/releases/download/v${ZELLIJ_VERSION}"
 
 BAT_VERSION="0.26.1"
 BAT_BASE_URL="https://github.com/sharkdp/bat/releases/download/v${BAT_VERSION}"
 
-JJ_VERSION="0.44.0"
+JJ_VERSION="0.45.1"
 JJ_BASE_URL="https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}"
 
 JQ_VERSION="1.8.2"
 JQ_BASE_URL="https://github.com/jqlang/jq/releases/download/jq-${JQ_VERSION}"
 
-TUICR_VERSION="0.22.0"
+TUICR_VERSION="0.25.0"
 TUICR_BASE_URL="https://github.com/agavra/tuicr/releases/download/v${TUICR_VERSION}"
 TUICR_RAW_URL="https://raw.githubusercontent.com/agavra/tuicr/v${TUICR_VERSION}/skills/tuicr"
 
-CRIT_VERSION="0.18.4"
+CRIT_VERSION="0.19.1"
 CRIT_BASE_URL="https://github.com/tomasz-tomczyk/crit/releases/download/v${CRIT_VERSION}"
 
 function download_starship() {
@@ -161,10 +161,10 @@ download_bat x86_64-unknown-linux-musl Linux/x86_64 0dcd8ac79732c0d5b136f11f4ee0
 download_bat aarch64-apple-darwin Darwin/arm64 e30beff26779c9bf60bb541e1d79046250cb74378f2757f8eb250afddb19e114
 download_bat x86_64-apple-darwin Darwin/x86_64 830d63b0bba1fa040542ec569e3cf77f60d3356b9de75116a344b061e0894245
 
-download_jj aarch64-unknown-linux-musl Linux/aarch64 60d42fa2a9abaa445eff10cd2087458562aaad5a54b90309e5a3787ecc985ff2
-download_jj x86_64-unknown-linux-musl Linux/x86_64 0a07bab4641a55fd2bc2fd1563ba3a3f9a577584086ad74086a1c5b69b3ffce9
-download_jj aarch64-apple-darwin Darwin/arm64 22b92ed109378a9638f0ae55ca7a7bdc9ef26aa60124215a1f04f6808623ba94
-download_jj x86_64-apple-darwin Darwin/x86_64 aaec25cbe08e52ba98db0773369c76f248d3a77578e2d4b7b4079aa335ef02a3
+download_jj aarch64-unknown-linux-musl Linux/aarch64 7349a43dd5a20dbc998b10114daa0ee63d2ab863fb822c7eb6b0ebca5903cc69
+download_jj x86_64-unknown-linux-musl Linux/x86_64 f35438350b5d61963aac5dd74ede510b31d6b9690769d1a6268cf058cc825f72
+download_jj aarch64-apple-darwin Darwin/arm64 51ba42e3d0682616f6eb015045bfe45289b396f03511f9897f645ce8e9272743
+download_jj x86_64-apple-darwin Darwin/x86_64 6171582d0b5a98a1005cd9643faebff7936812ec264d7968a39d9cef3654a99b
 
 curl -fL --output jq-sha256sum.txt "${JQ_BASE_URL}/sha256sum.txt"
 download_jq linux-arm64 Linux/aarch64
@@ -179,12 +179,12 @@ download_crit darwin-amd64 Darwin/x86_64
 download_crit linux-arm64 Linux/aarch64
 download_crit linux-amd64 Linux/x86_64
 
-download_tuicr aarch64-unknown-linux-musl Linux/aarch64 9e3f258feb7f33464ef6337d4513418ed0063691455670480395eb32ce03f1f6
-download_tuicr x86_64-unknown-linux-musl Linux/x86_64 faa221be75be4cbf175f38d1e547e3bd44a1108efee8b9d104652ab074d5b81f
-download_tuicr aarch64-apple-darwin Darwin/arm64 cd0db5cd02134a9008122268dcf015d190d1af51a23355d3917039e37e9389a2
-download_tuicr x86_64-apple-darwin Darwin/x86_64 b0ed062a41def114b461d0625087b10f3c7cec2f41bb7413ebf5144efcb98aa9
+download_tuicr aarch64-unknown-linux-musl Linux/aarch64 c299c0c2c4fbcfb66c7d957def41e6f5d8434cc5dad413538f29057bfc3a1b44
+download_tuicr x86_64-unknown-linux-musl Linux/x86_64 e7080ad46507559951d4a57db3d7cd2e33ec4c55dc0d48cd44d45e98b48ba624
+download_tuicr aarch64-apple-darwin Darwin/arm64 3a74ce242e1e8f70bfbf90db8aaf69daaf02480e4925f8013af11c54a06d9b07
+download_tuicr x86_64-apple-darwin Darwin/x86_64 509b4c82dbc868e7bca7e578137881997abf156a3cc05db343597cb707da37a5
 
 mkdir -p ../tuicr-skill
-download_tuicr_skill SKILL.md 644 6e40e189fa096eeb0ab0299277b2e328f6ab4df88cad38dd9a6f1d4d800bd3b6
-download_tuicr_skill tuicr-wrapper.sh 755 25f77882881885bd44408c8dab5f09b530cbf86f029eb941b5121b3719306409
-download_tuicr_skill tuicr-wrapper-zellij.sh 755 54f93a88c0aaf247f4fa5c278323bdc691b6c793abd140d5701621a611da9a2c
+download_tuicr_skill SKILL.md 644 3a29ecc43792496af8ca46cf6ac4062b0717b042461edb430b7154f03ed971e4
+download_tuicr_skill tuicr-wrapper.sh 755 a8ff39f3967a4109de9221849cff82ba80e38a74d636086d8f1d87e45aff5efc
+download_tuicr_skill tuicr-wrapper-zellij.sh 755 95d4f8eb41dc8ff48c2bd46736fe6a2c52150e7e79615013d68f6d442391b36d
