@@ -1,0 +1,5 @@
+font-family = "CaskaydiaCove Nerd Font Mono"
+font-size = 16
+
+quit-after-last-window-closed = true
+confirm-close-surface = false
