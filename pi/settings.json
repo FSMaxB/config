@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "0.84.4",
+  "lastChangelogVersion": "0.85.1",
   "theme": "gruvbox-dark",
   "defaultProvider": "pi-claude",
   "defaultModel": "claude-fable-5-1",
