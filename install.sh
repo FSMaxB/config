@@ -32,6 +32,10 @@ if [[ ! -e ~/.config/alacritty/alacritty.toml ]]; then
   mkdir -p ~/.config/alacritty
   ln -s ~/config/alacritty.toml ~/.config/alacritty/alacritty.toml
 fi
+if [[ ! -e ~/.config/ghostty/config ]]; then
+  mkdir -p ~/.config/ghostty
+  ln -s ~/config/ghostty-config ~/.config/ghostty/config
+fi
 if [[ ! -e ~/.config/helix/config.toml ]]; then
   mkdir -p ~/.config/helix
   ln -s ~/config/helix-config.toml ~/.config/helix/config.toml
