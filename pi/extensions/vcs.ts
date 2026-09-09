@@ -229,6 +229,9 @@ export default function (pi: ExtensionAPI) {
       if (stat) {
         jj.push("--stat");
         git.push("--stat");
+      } else {
+        // jj prints both when --git and --stat are combined, so only ask for one.
+        jj.push("--git");
       }
       return await report(pi, jj, git, signal, paths, NARROW_HINT);
     },
@@ -273,6 +276,8 @@ export default function (pi: ExtensionAPI) {
       if (stat) {
         jj.push("--stat");
         git.push("--stat");
+      } else {
+        jj.push("--git");
       }
       if (context !== undefined) {
         jj.push("--context", String(context));
