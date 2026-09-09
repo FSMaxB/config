@@ -4,7 +4,16 @@ return {
 		priority = 1000,
 		lazy = false,
 		opts = {
-			picker = { enabled = true },
+			picker = {
+				enabled = true,
+				-- show dotfiles/dot-dirs, but keep respecting .gitignore (`ignored` stays false).
+				-- `.git` itself is excluded by snacks' hardcoded finder args.
+				sources = {
+					files = { hidden = true },
+					grep = { hidden = true },
+					explorer = { hidden = true },
+				},
+			},
 			bigfile = { enabled = true },
 			quickfile = { enabled = true },
 			dashboard = { enabled = true },
