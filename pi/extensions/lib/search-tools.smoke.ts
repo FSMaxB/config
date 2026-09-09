@@ -26,8 +26,11 @@ try {
 
     // assert
     const lines = text.split("\n");
-    assert.equal(lines.length, 3, `expected 3 match lines, got: ${text}`);
-    for (const line of lines) assert.match(line, /^\S+:\d+: /);
+    const headers = lines.filter((line) => !line.startsWith("  "));
+    const rows = lines.filter((line) => line.startsWith("  "));
+    assert.deepEqual(headers.sort(), ["alpha.ts", "beta.txt"], `unexpected headers: ${text}`);
+    assert.equal(rows.length, 3, `expected 3 match rows, got: ${text}`);
+    for (const row of rows) assert.match(row, /^  \d+: /);
     assert.ok(!text.includes("ignored.txt"), `gitignored file matched: ${text}`);
   }
 
@@ -58,7 +61,21 @@ try {
     const text = await run(grep, { pattern: "TRANSACTOR", ignoreCase: true });
 
     // assert
-    assert.equal(text.split("\n").length, 3, `expected 3 match lines, got: ${text}`);
+    const rows = text.split("\n").filter((line) => line.startsWith("  "));
+    assert.equal(rows.length, 3, `expected 3 match rows, got: ${text}`);
+  }
+
+  {
+    // arrange / act
+    const text = await run(grep, { pattern: "export", path: "alpha.ts", context: 1 });
+
+    // assert
+    // The fixture file ends with a newline, so the 1-line context window after line 2 includes
+    // the trailing empty "line 3" that content.split("\n") produces; that is pre-existing behavior.
+    assert.equal(
+      text,
+      "alpha.ts\n  1- const transactor = 1;\n  2: export { transactor };\n  3- ",
+    );
   }
 
   {

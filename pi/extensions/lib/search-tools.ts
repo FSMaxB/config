@@ -215,8 +215,18 @@ export function createGrepExecute(
             if (filesOnly) {
               outputLines.push(...matchedPaths);
             } else {
+              const rowsByFile = new Map<string, string[]>();
+              const rowsFor = (relativePath: string) => {
+                let rows = rowsByFile.get(relativePath);
+                if (!rows) {
+                  rows = [];
+                  rowsByFile.set(relativePath, rows);
+                }
+                return rows;
+              };
+
               for (const { filePath, lineNumber, lineText } of matches) {
-                const relativePath = formatPath(filePath);
+                const rows = rowsFor(formatPath(filePath));
                 if (contextValue === 0 && lineText !== undefined) {
                   const sanitized = lineText
                     .replace(/\r\n/g, "\n")
@@ -224,15 +234,13 @@ export function createGrepExecute(
                     .replace(/\n$/, "");
                   const { text, wasTruncated } = truncateLine(sanitized);
                   if (wasTruncated) linesTruncated = true;
-                  outputLines.push(`${relativePath}:${lineNumber}: ${text}`);
+                  rows.push(`  ${lineNumber}: ${text}`);
                   continue;
                 }
 
                 const lines = await getFileLines(filePath);
                 if (!lines.length) {
-                  outputLines.push(
-                    `${relativePath}:${lineNumber}: (unable to read file)`,
-                  );
+                  rows.push(`  ${lineNumber}: (unable to read file)`);
                   continue;
                 }
                 const start =
@@ -250,13 +258,18 @@ export function createGrepExecute(
                   );
                   const { text, wasTruncated } = truncateLine(sanitized);
                   if (wasTruncated) linesTruncated = true;
-                  if (current === lineNumber) {
-                    outputLines.push(`${relativePath}:${current}: ${text}`);
-                  } else {
-                    outputLines.push(`${relativePath}-${current}- ${text}`);
-                  }
+                  rows.push(
+                    current === lineNumber
+                      ? `  ${current}: ${text}`
+                      : `  ${current}- ${text}`,
+                  );
                 }
               }
+
+              // Grouping by file prints each path once; rg already emits a file's matches contiguously,
+              // but the map keeps that true even if it ever interleaves.
+              for (const [relativePath, rows] of rowsByFile)
+                outputLines.push(relativePath, ...rows);
             }
 
             // The match limit already caps the row count, so only the byte limit applies here.
