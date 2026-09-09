@@ -11,6 +11,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execChecked } from "./lib/exec.ts";
+import { formatJjAnnotate, JJ_ANNOTATE_TEMPLATE } from "./lib/jj-annotate.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 import { detectVcs, type VcsInfo } from "./lib/repo.ts";
 
@@ -335,7 +336,8 @@ export default function (pi: ExtensionAPI) {
     label: "VCS blame",
     description:
       `Show which revision last changed each line of a file. ${PATHS_NOTE} ${CAP_NOTE} ` +
-      "Pass offset and limit to page through a longer file.",
+      "Pass offset and limit to page through a longer file. " +
+      "In a jj repository each line starts with its change id, and a legend above the lines maps each change id to author, date and description.",
     promptSnippet: "Show the revision responsible for each line of a file",
     parameters: Type.Object({
       path: Type.String({
@@ -367,6 +369,8 @@ export default function (pi: ExtensionAPI) {
       const jj = [
         "file",
         "annotate",
+        "-T",
+        JJ_ANNOTATE_TEMPLATE,
         ...(revision ? ["-r", revision] : []),
         relativePath,
       ];
@@ -377,7 +381,11 @@ export default function (pi: ExtensionAPI) {
         relativePath,
       ];
       const output = await capture(pi, vcs, jj, git, signal);
-      return asResult(vcs, paginate(output, offset, limit), PAGE_HINT);
+      const text =
+        vcs.kind === "jj"
+          ? formatJjAnnotate(output, offset, limit)
+          : paginate(output, offset, limit);
+      return asResult(vcs, text, PAGE_HINT);
     },
   });
 }
