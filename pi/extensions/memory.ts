@@ -1,12 +1,13 @@
 import { unlink } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-  createLsToolDefinition,
-  createReadToolDefinition,
-  createWriteToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import { createLsToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import {
+  createHashlineEditToolDefinition,
+  createHashlineReadToolDefinition,
+  createHashlineWriteToolDefinition,
+} from "./lib/hashline-tools.ts";
 import {
   contains,
   memoryDirectory,
@@ -24,7 +25,7 @@ export default function (pi: ExtensionAPI) {
 
   registerToolWithGuidelines(
     pi,
-    scopedTool(createReadToolDefinition(memoryRoot), {
+    scopedTool(createHashlineReadToolDefinition(memoryRoot), {
       name: "memory_read",
       label: "Memory read",
       guideline:
@@ -49,11 +50,23 @@ export default function (pi: ExtensionAPI) {
 
   registerToolWithGuidelines(
     pi,
-    scopedTool(createWriteToolDefinition(memoryRoot), {
+    scopedTool(createHashlineWriteToolDefinition(memoryRoot), {
       name: "memory_write",
       label: "Memory write",
       guideline:
         "Use memory_write to save or update a memory instead of the generic write tools.",
+      scopeNote: SCOPE_NOTE,
+      ensurePath: (params) => ensureInMemory(params.path),
+    }),
+  );
+
+  registerToolWithGuidelines(
+    pi,
+    scopedTool(createHashlineEditToolDefinition(memoryRoot), {
+      name: "memory_edit",
+      label: "Memory edit",
+      guideline:
+        "Use memory_edit to revise part of a memory file instead of rewriting it with memory_write.",
       scopeNote: SCOPE_NOTE,
       ensurePath: (params) => ensureInMemory(params.path),
     }),

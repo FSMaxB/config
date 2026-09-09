@@ -20,6 +20,8 @@ Symlinks configs into `$HOME`, sets global git config, and syncs vim (vim-plug) 
 
 Discovery only picks up `*.ts` and `*/index.ts`, so `pi/extensions/lib/` holds shared modules without being loaded as extensions — never add `lib/index.ts`.
 
+The file tools (`read`/`write`/`edit`, `repo_*`, `memory_*`) speak the hashline protocol: `read` returns a `[path#TAG]` header plus numbered lines, and `edit` takes a line-anchored patch validated against that tag instead of `oldText`/`newText` matching. See `pi/extensions/lib/hashline.ts`. Set `PI_HASHLINE=0` to fall back to the stock built-ins.
+
 ## pi skills
 
 `pi/skills/` is symlinked to `~/.pi/agent/skills`, pi's global skill root. Each skill is `pi/skills/<name>/SKILL.md`. Skills meant for Claude Code as well go in `<name>-skill/` at the top level and are linked into `~/.claude/skills/` instead (see `tuicr-skill`).
