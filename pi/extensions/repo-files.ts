@@ -3,14 +3,16 @@ import type {
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import {
-  createEditToolDefinition,
   createFindToolDefinition,
   createGrepToolDefinition,
   createLsToolDefinition,
-  createReadToolDefinition,
-  createWriteToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import {
+  createHashlineEditToolDefinition,
+  createHashlineReadToolDefinition,
+  createHashlineWriteToolDefinition,
+} from "./lib/hashline-tools.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 import { ensureAccessible } from "./lib/repo.ts";
 import { scopedTool } from "./lib/scoped-tool.ts";
@@ -24,7 +26,7 @@ export default function (pi: ExtensionAPI) {
 
   registerToolWithGuidelines(
     pi,
-    scopedTool(createReadToolDefinition(cwd), {
+    scopedTool(createHashlineReadToolDefinition(cwd), {
       name: "repo_read",
       label: "Repo read",
       guideline: "Use repo_read to examine files instead of cat or sed.",
@@ -98,7 +100,7 @@ export default function (pi: ExtensionAPI) {
 
   registerToolWithGuidelines(
     pi,
-    scopedTool(createWriteToolDefinition(cwd), {
+    scopedTool(createHashlineWriteToolDefinition(cwd), {
       name: "repo_write",
       label: "Repo write",
       guideline:
@@ -110,7 +112,7 @@ export default function (pi: ExtensionAPI) {
 
   registerToolWithGuidelines(
     pi,
-    scopedTool(createEditToolDefinition(cwd), {
+    scopedTool(createHashlineEditToolDefinition(cwd), {
       name: "repo_edit",
       label: "Repo edit",
       guideline:
