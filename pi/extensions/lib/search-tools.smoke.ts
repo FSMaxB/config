@@ -88,7 +88,7 @@ try {
 
   {
     // arrange / act
-    const entries = (await run(find, { pattern: "**" })).split("\n");
+    const entries = flattenFind(await run(find, { pattern: "**" }));
 
     // assert
     assert.ok(entries.includes("alpha.ts"), `missing alpha.ts: ${entries}`);
@@ -101,7 +101,7 @@ try {
 
   {
     // arrange / act
-    const entries = (await run(find, { pattern: "**", type: "file" })).split("\n");
+    const entries = flattenFind(await run(find, { pattern: "**", type: "file" }));
 
     // assert
     assert.ok(entries.includes("alpha.ts"), `missing alpha.ts: ${entries}`);
@@ -114,7 +114,7 @@ try {
 
   {
     // arrange / act
-    const entries = (await run(find, { pattern: "**", type: "directory" })).split("\n");
+    const entries = flattenFind(await run(find, { pattern: "**", type: "directory" }));
 
     // assert
     assert.ok(
@@ -126,10 +126,18 @@ try {
 
   {
     // arrange / act
-    const entries = (await run(find, { pattern: "*.ts" })).split("\n");
+    const entries = flattenFind(await run(find, { pattern: "*.ts" }));
 
     // assert
     assert.deepEqual(entries.sort(), ["alpha.ts", "nested/gamma.ts"]);
+  }
+
+  {
+    // arrange / act
+    const text = await run(find, { pattern: "*.ts" });
+
+    // assert
+    assert.equal(text, "./\n  alpha.ts\nnested/\n  gamma.ts");
   }
 
   {
@@ -159,4 +167,18 @@ function createFixture() {
   // rg and fd only honor .gitignore inside a git repo, and this exercises fd's git-boundary branch.
   spawnSync("git", ["init", "-q"], { cwd: directory });
   return directory;
+}
+
+// Rebuilds the flat path list from repo_find's grouped output so assertions can stay path-based.
+function flattenFind(text: string): string[] {
+  const paths: string[] = [];
+  let directory = "";
+  for (const line of text.split("\n")) {
+    if (line.startsWith("  ")) {
+      paths.push(directory + line.slice(2));
+    } else {
+      directory = line === "./" ? "" : line;
+    }
+  }
+  return paths;
 }

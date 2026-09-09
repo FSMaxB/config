@@ -449,7 +449,7 @@ export function createFindExecute(
             }
 
             const resultLimitReached = relativized.length >= effectiveLimit;
-            const truncation = truncateHead(relativized.join("\n"), {
+            const truncation = truncateHead(groupByDirectory(relativized), {
               maxLines: Number.MAX_SAFE_INTEGER,
             });
             let resultOutput = truncation.content;
@@ -485,6 +485,32 @@ export function createFindExecute(
         }
       })();
     });
+}
+
+// Each directory prefix is printed once; on a repo-wide listing that is a third of the bytes.
+export function groupByDirectory(relativePaths: string[]): string {
+  const namesByDirectory = new Map<string, string[]>();
+  for (const relativePath of relativePaths) {
+    if (!relativePath) continue;
+    const isDirectory = relativePath.endsWith("/");
+    const withoutSlash = isDirectory ? relativePath.slice(0, -1) : relativePath;
+    const separator = withoutSlash.lastIndexOf("/");
+    const directory = separator === -1 ? "./" : `${withoutSlash.slice(0, separator)}/`;
+    const name = withoutSlash.slice(separator + 1) + (isDirectory ? "/" : "");
+    const names = namesByDirectory.get(directory);
+    if (names) {
+      names.push(name);
+    } else {
+      namesByDirectory.set(directory, [name]);
+    }
+  }
+
+  const lines: string[] = [];
+  for (const directory of [...namesByDirectory.keys()].sort()) {
+    lines.push(directory);
+    for (const name of namesByDirectory.get(directory)!.sort()) lines.push(`  ${name}`);
+  }
+  return lines.join("\n");
 }
 
 function relativizeResultPath(resultPath: string, searchPath: string) {
