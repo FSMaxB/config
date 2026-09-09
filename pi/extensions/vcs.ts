@@ -71,7 +71,13 @@ export default function (pi: ExtensionAPI) {
       ];
       if (vcs.kind === "jj") {
         lines.push(
-          await capture(pi, vcs, ["log", "-r", "@", "--no-graph"], [], signal),
+          await capture(
+            pi,
+            vcs,
+            ["log", "-r", "@", "--no-graph", "-T", "builtin_log_oneline"],
+            [],
+            signal,
+          ),
         );
       } else {
         const branch = await capture(
@@ -177,7 +183,7 @@ export default function (pi: ExtensionAPI) {
 
     async execute(_toolCallId, params, signal) {
       const { revisions, limit = DEFAULT_LOG_LIMIT, paths, stat } = params;
-      const jj = ["log", "-n", String(limit)];
+      const jj = ["log", "-n", String(limit), "-T", "builtin_log_oneline"];
       const git = [
         "log",
         "-n",
