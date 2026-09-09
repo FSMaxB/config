@@ -81,9 +81,11 @@ export default async function (pi: ExtensionAPI) {
 
       // Delegate to RTK.
       const rewritten = await rewriteCommand(pi, cmd, ctx.signal)
-      if (rewritten && rewritten !== cmd) {
-        event.input.command = rewritten
-      }
+      if (!rewritten || rewritten === cmd) return
+      // `rtk read` is byte-identical to cat, and its --max-lines mode (what `head -N` becomes)
+      // collapses function bodies to `{ }` skeletons, so the model would see code that is not there.
+      if (rewritten.includes("rtk read ")) return
+      event.input.command = rewritten
     } catch (err) {
       // Fail open: never block execution on an unexpected error.
       console.warn("[rtk] unexpected error in tool_call handler; passing through command", err)
