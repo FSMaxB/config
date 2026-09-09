@@ -51,6 +51,10 @@ export default function (pi: ExtensionAPI) {
     scopedTool(
       {
         ...(createFindToolDefinition(cwd) as ToolDefinition<any, any, any>),
+        description:
+          "Search for files by glob pattern. Results are grouped by directory relative to the search " +
+          "directory: an unindented 'dir/' line ('./' for the top level), then indented basenames. " +
+          "Respects .gitignore. Output is truncated to 1000 results or 50KB (whichever is hit first).",
         parameters: findParameters,
         execute: createFindExecute(cwd),
       },
@@ -72,6 +76,10 @@ export default function (pi: ExtensionAPI) {
     scopedTool(
       {
         ...(createGrepToolDefinition(cwd) as ToolDefinition<any, any, any>),
+        description:
+          "Search file contents for a pattern. Matches are grouped by file: an unindented path line, " +
+          "then indented 'line: text' rows for that file (context rows use 'line- text'). Respects .gitignore. " +
+          "Output is truncated to 100 matches or 50KB (whichever is hit first). Long lines are truncated to 500 chars.",
         parameters: grepParameters,
         execute: createGrepExecute(cwd),
       },
