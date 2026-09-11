@@ -1,20 +1,14 @@
 import { existsSync } from "node:fs";
-import { mkdir, realpath, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import {
-  basename,
-  dirname,
-  isAbsolute,
-  join,
-  relative,
-  resolve,
-  sep,
-} from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { readJsonObject } from "./json.ts";
+import { expandHome, resolveThroughSymlinks } from "./path-resolution.ts";
 import { getCurrentPlanPath } from "./plan-file.ts";
 import { serialize } from "./ui-queue.ts";
+export { expandHome, resolveThroughSymlinks } from "./path-resolution.ts";
 
 export type AccessMode = "read" | "write";
 
@@ -95,25 +89,6 @@ function findVcsRoot(from: string): string | undefined {
     const parent = dirname(current);
     if (parent === current) return undefined;
     current = parent;
-  }
-}
-
-// realpath() fails on paths that do not exist yet, which is the normal case for a new file,
-// so resolve the deepest existing ancestor and re-attach the missing tail.
-export async function resolveThroughSymlinks(target: string): Promise<string> {
-  const absolute = resolve(expandHome(target));
-  const missing: string[] = [];
-  let existing = absolute;
-
-  while (true) {
-    try {
-      return join(await realpath(existing), ...missing);
-    } catch {
-      const parent = dirname(existing);
-      if (parent === existing) return absolute;
-      missing.unshift(basename(existing));
-      existing = parent;
-    }
   }
 }
 
@@ -254,10 +229,4 @@ async function persistRoot(root: string, mode: AccessMode): Promise<void> {
     CONFIG_FILE,
     `${JSON.stringify({ ...config, [key]: roots }, null, 2)}\n`,
   );
-}
-
-export function expandHome(path: string): string {
-  return path === "~" || path.startsWith(`~${sep}`)
-    ? join(homedir(), path.slice(1))
-    : path;
 }
