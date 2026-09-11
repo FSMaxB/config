@@ -22,7 +22,7 @@ By default the script only downloads the host platform; `--all` gets all four. D
 
 Discovery only picks up `*.ts` and `*/index.ts`, so `pi/extensions/lib/` holds shared modules without being loaded as extensions — never add `lib/index.ts`.
 
-The file tools (`read`/`write`/`edit`, `repo_*`, `memory_*`) speak the hashline protocol: `read` returns a `[path#TAG]` header plus numbered lines, and `edit` takes a line-anchored patch validated against that tag instead of `oldText`/`newText` matching. See `pi/extensions/lib/hashline.ts`. Set `PI_HASHLINE=0` to fall back to the stock built-ins.
+The file tools (`read`, `write`, `edit`, `ls`, `find`, `grep`, `delete`) go through the path-permission engine in `pi/extensions/lib/path-permissions.ts`: the repository and the memory, skill, plan and crit directories are allowed by default, other paths prompt, and plan mode makes the repository read-only. Rules are globs, persisted in `~/.pi/agent/path-permissions.json` (always) and the session (session); manage them with `/plan grants`, `/plan allow <glob>` and `/plan deny <glob>`. `read`/`write`/`edit` speak the hashline protocol: `read` returns a `[path#TAG]` header plus numbered lines, and `edit` takes a line-anchored patch validated against that tag. See `pi/extensions/lib/hashline.ts`. Set `PI_HASHLINE=0` to fall back to the stock built-ins (path checks stay on).
 
 ## pi skills
 

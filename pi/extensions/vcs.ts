@@ -535,8 +535,8 @@ function asResult(
 }
 
 // Line paging for whole-file output, which makes the cap above recoverable: a file longer
-// than one result would otherwise be unreadable past the cap, since repo_read can only
-// substitute when the revision happens to be the working copy.
+// than one result would otherwise be unreadable past the cap, since read can only substitute
+// when the revision happens to be the working copy.
 function paginate(
   output: string,
   offset: number | undefined,
