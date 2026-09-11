@@ -17,6 +17,22 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { FILE_TOOLS } from "./lib/file-tools.ts";
+import {
+  addPathRule,
+  clearPathRules,
+  initPathPermissions,
+  listPathRules,
+  removePathRule,
+  restoreSessionPathRules,
+  setPlanModeEnabled,
+} from "./lib/path-permissions.ts";
+import type {
+  AccessMode,
+  PathRule,
+  RuleKind,
+  RuleTier,
+} from "./lib/path-permissions.ts";
 import {
   latestPlanModeEntry,
   PLAN_MODE_ENTRY_TYPE,
@@ -42,12 +58,8 @@ const EDIT_PLAN = "edit_plan";
 const SUBMIT_PLAN = "submit_plan";
 const PLAN_TOOLS = [WRITE_PLAN, EDIT_PLAN, SUBMIT_PLAN];
 const UNGATED_TOOLS = new Set([
-  "repo_read",
-  "repo_grep",
-  "repo_find",
-  "repo_ls",
-  "memory_read",
-  "memory_ls",
+  // File tools are gated per path by lib/path-permissions.ts rather than per call.
+  ...FILE_TOOLS,
   "question",
   // Safe under plan mode by construction: the subagent extension caps child
   // tools at what plan mode leaves ungated or granted here.
@@ -75,6 +87,7 @@ const FRESH_HANDOFF_ARGUMENT = "fresh-handoff";
 const COLLAPSED_PLAN_LINES = 15;
 
 export default function (pi: ExtensionAPI) {
+  initPathPermissions(pi);
   let planMode = false;
   let agentRunning = false;
   let pendingToggle: boolean | undefined;
@@ -187,6 +200,7 @@ export default function (pi: ExtensionAPI) {
 
   function setPlanMode(enabled: boolean, ctx: ExtensionContext): void {
     planMode = enabled;
+    setPlanModeEnabled(enabled);
     // Leaving plan mode retires the plan file so the next plan starts a fresh one instead
     // of overwriting an approved plan.
     if (!enabled) setCurrentPlanPath(undefined);
@@ -315,9 +329,10 @@ export default function (pi: ExtensionAPI) {
         alwaysGrants,
         sessionDenials,
         alwaysDenials,
+        await listPathRules(),
       );
       if (entries.length === 0) {
-        ctx.ui.notify("No plan mode grants or denials recorded.");
+        ctx.ui.notify("No plan mode grants, denials or path rules recorded.");
         return;
       }
 
@@ -338,14 +353,15 @@ export default function (pi: ExtensionAPI) {
         }
         persist();
         await writePersistedDecisions(alwaysGrants, alwaysDenials);
-        ctx.ui.notify("Cleared all plan mode grants and denials.");
+        await clearPathRules();
+        ctx.ui.notify("Cleared all plan mode grants, denials and path rules.");
         return;
       }
 
       const entry = entries[labels.indexOf(choice ?? "")];
       if (!entry) return;
 
-      entry.remove();
+      await entry.remove();
       persist();
       await writePersistedDecisions(alwaysGrants, alwaysDenials);
     }
@@ -864,11 +880,13 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerCommand("plan", {
     description:
-      "Toggle plan mode, or review recorded tool decisions with `grants`",
-    getArgumentCompletions: (prefix) =>
-      "grants".startsWith(prefix)
-        ? [{ value: "grants", label: "grants" }]
-        : null,
+      "Toggle plan mode, review decisions with `grants`, or add a path rule with `allow <glob>` / `deny <glob>`",
+    getArgumentCompletions: (prefix) => {
+      const completions = ["grants", "allow", "deny"]
+        .filter((value) => value.startsWith(prefix))
+        .map((value) => ({ value, label: value }));
+      return completions.length > 0 ? completions : null;
+    },
     handler: async (args, ctx) => {
       const argument = args.trim();
       if (!argument) {
@@ -879,12 +897,17 @@ export default function (pi: ExtensionAPI) {
         await manageDecisions(ctx);
         return;
       }
+      const [subcommand, ...rest] = argument.split(/\s+/);
+      if (subcommand === "allow" || subcommand === "deny") {
+        await addPathRuleInteractively(subcommand, rest.join(" "), ctx);
+        return;
+      }
       if (argument === FRESH_HANDOFF_ARGUMENT) {
         await startFreshHandoffSession(ctx);
         return;
       }
       ctx.ui.notify(
-        `Unknown argument "${argument}". Use /plan to toggle or /plan grants to review.`,
+        `Unknown argument "${argument}". Use /plan to toggle, /plan grants to review, or /plan allow|deny <glob> to add a path rule.`,
         "error",
       );
     },
@@ -979,6 +1002,8 @@ export default function (pi: ExtensionAPI) {
     if (pi.getFlag("plan") === true && !handoff) {
       planMode = true;
     }
+    setPlanModeEnabled(planMode);
+    restoreSessionPathRules(ctx.sessionManager);
 
     syncPlanTools();
     refreshIndicators(ctx);
@@ -1029,7 +1054,7 @@ type Decision =
 interface DecisionEntry {
   label: string;
   toolName: string;
-  remove: () => void;
+  remove: () => void | Promise<void>;
 }
 
 function planBanner(
@@ -1055,6 +1080,7 @@ function listDecisions(
   alwaysGrants: Set<string>,
   sessionDenials: Map<string, string | undefined>,
   alwaysDenials: Map<string, string | undefined>,
+  pathRules: PathRule[],
 ): DecisionEntry[] {
   const grants: [Set<string>, string][] = [
     [sessionGrants, "allow (session)"],
@@ -1085,7 +1111,50 @@ function listDecisions(
         };
       }),
     ),
+    ...pathRules.map((rule) => ({
+      label: `${rule.mode} ${rule.kind} ${rule.pattern} — path (${rule.tier})`,
+      toolName: rule.pattern,
+      remove: () => removePathRule(rule),
+    })),
   ];
+}
+
+async function addPathRuleInteractively(
+  kind: RuleKind,
+  pattern: string,
+  ctx: ExtensionCommandContext,
+): Promise<void> {
+  if (!pattern) {
+    ctx.ui.notify(`Usage: /plan ${kind} <glob>`, "error");
+    return;
+  }
+  if (!ctx.hasUI) {
+    ctx.ui.notify("Adding path rules needs an interactive UI.", "error");
+    return;
+  }
+
+  const modeChoice = await ctx.ui.select(
+    `${kind} ${pattern} for which access?`,
+    ["read", "write", "read and write"],
+  );
+  if (modeChoice === undefined) return;
+  const tierChoice = await ctx.ui.select("For how long?", [
+    "This session",
+    "Always",
+  ]);
+  if (tierChoice === undefined) return;
+
+  const tier: RuleTier = tierChoice === "Always" ? "always" : "session";
+  const modes: AccessMode[] =
+    modeChoice === "read and write"
+      ? ["read", "write"]
+      : [modeChoice as AccessMode];
+  for (const mode of modes) {
+    await addPathRule({ mode, kind, tier, pattern });
+  }
+  ctx.ui.notify(
+    `Path rule added: ${kind} ${modes.join("+")} ${pattern} (${tier}).`,
+  );
 }
 
 function summarizeInput(event: ToolCallEvent): string {
@@ -1109,16 +1178,13 @@ function deniedReason(toolName: string, cause: string, note?: string): string {
 }
 
 function planModeInstructions(): string {
-  const ungated = [...UNGATED_TOOLS]
-    .filter((name) => !PLAN_TOOLS.includes(name))
-    .join(", ");
   return [
     "Plan mode is active.",
     "",
-    `- These tools are available as usual: ${ungated}.`,
-    "- Every other tool, including bash and the unscoped read, write and edit, needs the user's approval for each call.",
-    "- The repo_* tools are confined to the repository and prompt before reaching outside it, so prefer them over bash.",
-    "- If a call is denied, do not retry it.",
+    `- The file tools (${FILE_TOOLS.join(", ")}) check every path against the read/write path rules. Reading anywhere in the repository and in the memory, skill, plan and crit directories works without asking.`,
+    "- Plan mode is read-only by default: writing inside the repository prompts the user for each path. The memory directory and the plan file stay writable.",
+    "- bash and every other tool that changes things need the user's approval for each call.",
+    "- If a call or a path is denied, do not retry it and do not route around it.",
     `- Write the plan with ${WRITE_PLAN}. For small revisions, use ${EDIT_PLAN} instead of rewriting the whole plan. Call ${SUBMIT_PLAN} when it is ready. Only the user can leave plan mode.`,
   ].join("\n");
 }
