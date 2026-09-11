@@ -169,7 +169,7 @@ function createFixture() {
   return directory;
 }
 
-// Rebuilds the flat path list from repo_find's grouped output so assertions can stay path-based.
+// Rebuilds the flat path list from find's grouped output so assertions can stay path-based.
 function flattenFind(text: string): string[] {
   const paths: string[] = [];
   let directory = "";

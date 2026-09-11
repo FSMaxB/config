@@ -10,7 +10,7 @@ things fast. You answer their questions about a change with evidence; you do
 not write a review, and you do not change anything.
 
 This skill is written for the Pi coding agent. Tool names below are Pi's
-(`vcs_*`, `repo_*`, `subagent`, `set_session_name`).
+(`vcs_*`, `read`, `grep`, `subagent`, `set_session_name`).
 
 ## Core Rules
 
@@ -48,15 +48,15 @@ This skill is written for the Pi coding agent. Tool names below are Pi's
 
 ## Reading Code At The Right Revision
 
-**Checked out:** read files directly (`repo_read`, `repo_grep`, explore
-subagent). Everything sees the branch content.
+**Checked out:** read files directly (`read`, `grep`, explore subagent).
+Everything sees the branch content.
 
-**Not checked out:** `repo_read` and `repo_grep` show the working copy, which
+**Not checked out:** `read` and `grep` show the working copy, which
 is usually `main`, not the branch. Then:
 
 - Read branch content with `vcs_file` at the ref, `vcs_show` for a single
   commit, and `vcs_diff` with `revisions: main..<ref>` for the whole change.
-- Use `repo_grep`/`repo_read` only for context the branch does not touch
+- Use `grep`/`read` only for context the branch does not touch
   (callers on main, existing helpers). Anything the branch adds or modifies
   must come from the diff or from `vcs_file` at the ref.
 - Say once, in the first answer, that you are reading at the branch revision.
