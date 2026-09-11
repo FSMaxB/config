@@ -1012,17 +1012,13 @@ function formatToolCall(
   args: Record<string, unknown>,
   themeFg: (color: any, text: string) => string,
 ): string {
-  // Children load the global extensions, so almost every call to these arrives under the
-  // repo_*/memory_* names rather than the bare built-in ones.
   switch (toolName) {
     case "bash": {
       const command = (args.command as string) || "...";
       const preview = command.length > 60 ? `${command.slice(0, 60)}...` : command;
       return themeFg("muted", "$ ") + themeFg("toolOutput", preview);
     }
-    case "read":
-    case "repo_read":
-    case "memory_read": {
+    case "read": {
       const rawPath = (args.file_path || args.path || "...") as string;
       const filePath = shortenPath(rawPath);
       const offset = args.offset as number | undefined;
@@ -1035,9 +1031,7 @@ function formatToolCall(
       }
       return themeFg("muted", `${toolName} `) + text;
     }
-    case "write":
-    case "repo_write":
-    case "memory_write": {
+    case "write": {
       const rawPath = (args.file_path || args.path || "...") as string;
       const filePath = shortenPath(rawPath);
       const content = (args.content || "") as string;
@@ -1046,27 +1040,23 @@ function formatToolCall(
       if (lines > 1) text += themeFg("dim", ` (${lines} lines)`);
       return text;
     }
-    case "edit":
-    case "repo_edit": {
+    case "edit": {
       const rawPath = (args.file_path || args.path || "...") as string;
       return themeFg("muted", `${toolName} `) + themeFg("accent", shortenPath(rawPath));
     }
     case "ls":
-    case "repo_ls":
-    case "memory_ls": {
+    case "delete": {
       const rawPath = (args.path || ".") as string;
       return themeFg("muted", `${toolName} `) + themeFg("accent", shortenPath(rawPath));
     }
-    case "find":
-    case "repo_find": {
+    case "find": {
       const pattern = (args.pattern || "*") as string;
       const rawPath = (args.path || ".") as string;
       return (
         themeFg("muted", `${toolName} `) + themeFg("accent", pattern) + themeFg("dim", ` in ${shortenPath(rawPath)}`)
       );
     }
-    case "grep":
-    case "repo_grep": {
+    case "grep": {
       const pattern = (args.pattern || "") as string;
       const rawPath = (args.path || ".") as string;
       return (
