@@ -41,6 +41,7 @@
 
 - Do not amend or rewrite existing commits.
 - Create a separate fixup commit that I can squash later.
+- For jj it is fine for fixup commits to be made in between existing commits (they don't necessarily have to be on top)
 - Identify the target in the commit message using its native identifier:
   - jj: the target’s change ID.
   - git: the target’s commit hash.
