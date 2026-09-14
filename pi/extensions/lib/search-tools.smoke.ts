@@ -2,7 +2,6 @@
 // so this is plain node: `node pi/extensions/lib/search-tools.smoke.ts` (see the plan for the
 // transient node_modules symlink that makes the bare pi import resolve).
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -165,7 +164,7 @@ function createFixture() {
   writeFileSync(path.join(directory, ".gitignore"), "ignored.txt\n");
   writeFileSync(path.join(directory, "ignored.txt"), "transactor hidden\n");
   // rg and fd only honor .gitignore inside a git repo, and this exercises fd's git-boundary branch.
-  spawnSync("git", ["init", "-q"], { cwd: directory });
+  mkdirSync(path.join(directory, ".git"));
   return directory;
 }
 

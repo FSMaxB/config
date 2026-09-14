@@ -27,12 +27,8 @@ import {
   restoreSessionPathRules,
   setPlanModeEnabled,
 } from "./lib/path-permissions.ts";
-import type {
-  AccessMode,
-  PathRule,
-  RuleKind,
-  RuleTier,
-} from "./lib/path-permissions.ts";
+import { normalizePathSelector } from "./lib/path-rule-normalization.ts";
+import { selectorKey, selectorLabel, type AccessMode, type PathRule, type RuleKind, type RuleTier } from "./lib/path-permission-rules.ts";
 import {
   latestPlanModeEntry,
   PLAN_MODE_ENTRY_TYPE,
@@ -1112,8 +1108,8 @@ function listDecisions(
       }),
     ),
     ...pathRules.map((rule) => ({
-      label: `${rule.mode} ${rule.kind} ${rule.pattern} — path (${rule.tier})`,
-      toolName: rule.pattern,
+      label: `${rule.mode} ${rule.kind} ${selectorLabel(rule.selector!)} — path (${rule.tier})`,
+      toolName: selectorKey(rule.selector!),
       remove: () => removePathRule(rule),
     })),
   ];
@@ -1125,36 +1121,22 @@ async function addPathRuleInteractively(
   ctx: ExtensionCommandContext,
 ): Promise<void> {
   if (!pattern) {
-    ctx.ui.notify(`Usage: /plan ${kind} <glob>`, "error");
+    ctx.ui.notify(`Usage: /plan ${kind} <path-or-glob>`, "error");
     return;
   }
   if (!ctx.hasUI) {
     ctx.ui.notify("Adding path rules needs an interactive UI.", "error");
     return;
   }
-
-  const modeChoice = await ctx.ui.select(
-    `${kind} ${pattern} for which access?`,
-    ["read", "write", "read and write"],
-  );
+  const modeChoice = await ctx.ui.select(`${kind} ${pattern} for which access?`, ["read", "write", "read and write"]);
   if (modeChoice === undefined) return;
-  const tierChoice = await ctx.ui.select("For how long?", [
-    "This session",
-    "Always",
-  ]);
+  const tierChoice = await ctx.ui.select("For how long?", ["This session", "Always"]);
   if (tierChoice === undefined) return;
-
   const tier: RuleTier = tierChoice === "Always" ? "always" : "session";
-  const modes: AccessMode[] =
-    modeChoice === "read and write"
-      ? ["read", "write"]
-      : [modeChoice as AccessMode];
-  for (const mode of modes) {
-    await addPathRule({ mode, kind, tier, pattern });
-  }
-  ctx.ui.notify(
-    `Path rule added: ${kind} ${modes.join("+")} ${pattern} (${tier}).`,
-  );
+  const selector = await normalizePathSelector(pattern, ctx.cwd);
+  const modes: AccessMode[] = modeChoice === "read and write" ? ["read", "write"] : [modeChoice as AccessMode];
+  for (const mode of modes) await addPathRule({ mode, kind, tier, selector });
+  ctx.ui.notify(`Path rule added: ${kind} ${modes.join("+")} ${selectorLabel(selector)} (${tier}).`);
 }
 
 function summarizeInput(event: ToolCallEvent): string {
