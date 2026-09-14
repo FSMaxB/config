@@ -27,6 +27,8 @@ import { Type } from "typebox";
 import { shortenPath } from "../lib/format.ts";
 import { createLineSplitter } from "../lib/lines.ts";
 import { latestPlanModeEntry, readPersistedDecisions } from "../lib/plan-decisions.ts";
+import { captureChildPathPolicy } from "../lib/path-permissions.ts";
+import { serializeChildPathPolicy, CHILD_POLICY_ENV, type ChildPathPolicy } from "../lib/path-permission-snapshot.ts";
 import { registerToolWithGuidelines } from "../lib/register-tool.ts";
 import { type AgentConfig, discoverAgents } from "./agents.ts";
 import { guidanceTable, loadPolicyConfig, resolveSubagentModel, type SubagentModelConfig } from "./model-policy.ts";
@@ -105,6 +107,7 @@ export default function (pi: ExtensionAPI) {
         availableModels: ctx.modelRegistry.getAvailable(),
         policyConfig: loadPolicyConfig(EXTENSION_DIRECTORY),
         planAllowedTools,
+        pathPolicy: await captureChildPathPolicy(),
       };
       const agents = discoverAgents();
 
@@ -632,8 +635,8 @@ interface DispatchContext {
   thinkingLevel?: ThinkingLevel;
   availableModels: Model<Api>[];
   policyConfig: SubagentModelConfig;
-  /** Tools the main agent may use freely under plan mode; undefined when plan mode is off. */
   planAllowedTools: Set<string> | undefined;
+  pathPolicy: ChildPathPolicy;
 }
 
 interface TaskOverrides {
@@ -903,9 +906,10 @@ type TaskConfiguration = {
 
 function childEnvironment(dispatch: DispatchContext): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = { ...process.env, PI_SUBAGENT_CHILD: "1" };
-  if (dispatch.planAllowedTools) {
-    environment.PI_SUBAGENT_PLAN_ALLOWED_TOOLS = [...dispatch.planAllowedTools].sort().join(",");
-  }
+  delete environment.PI_SUBAGENT_PLAN_ALLOWED_TOOLS;
+  delete environment[CHILD_POLICY_ENV];
+  if (dispatch.planAllowedTools) environment.PI_SUBAGENT_PLAN_ALLOWED_TOOLS = [...dispatch.planAllowedTools].sort().join(",");
+  environment[CHILD_POLICY_ENV] = serializeChildPathPolicy(dispatch.pathPolicy);
   return environment;
 }
 
