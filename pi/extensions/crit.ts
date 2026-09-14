@@ -5,7 +5,6 @@ import { basename, join } from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { confirm } from "./lib/confirm.ts";
 import { execChecked } from "./lib/exec.ts";
 import { createLineSplitter } from "./lib/lines.ts";
 import { getCurrentPlanPath } from "./lib/plan-file.ts";
@@ -236,138 +235,6 @@ export default function (pi: ExtensionAPI) {
       return await runCrit(pi, ["status"], signal);
     },
   });
-
-  pi.registerTool({
-    name: "crit_pull",
-    label: "Crit pull",
-    description:
-      "Fetch review comments from a GitHub pull request into the local review file. Needs an authenticated gh CLI.",
-    promptSnippet: "Fetch GitHub pull request comments into the crit review",
-    parameters: Type.Object({
-      pr: Type.Optional(
-        Type.String({
-          description:
-            "Pull request number. Auto-detected from the branch when omitted",
-        }),
-      ),
-    }),
-
-    async execute(_toolCallId, params, signal) {
-      const { pr } = params;
-      return await runCrit(pi, ["pull", ...(pr ? [pr] : [])], signal);
-    },
-  });
-
-  pi.registerTool({
-    name: "crit_push",
-    label: "Crit push",
-    description:
-      "Post the local review comments to a GitHub pull request as a review. This is visible to everyone on the PR, " +
-      "so the user is asked to confirm first. Needs an authenticated gh CLI.",
-    promptSnippet: "Post the crit review to a GitHub pull request",
-    executionMode: "sequential",
-    parameters: Type.Object({
-      pr: Type.Optional(
-        Type.String({
-          description:
-            "Pull request number. Auto-detected from the branch when omitted",
-        }),
-      ),
-      event: Type.Optional(
-        StringEnum(["comment", "approve", "request-changes"] as const),
-      ),
-      message: Type.Optional(
-        Type.String({ description: "Review-level body message" }),
-      ),
-      dryRun: Type.Optional(
-        Type.Boolean({
-          description:
-            "Print what would be posted without posting. Default: false",
-        }),
-      ),
-    }),
-
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const { pr, event, message, dryRun } = params;
-      const args = [
-        "push",
-        ...(dryRun ? ["--dry-run"] : []),
-        ...(event ? ["--event", event] : []),
-        ...(message ? ["--message", message] : []),
-        ...(pr ? [pr] : []),
-      ];
-
-      if (!dryRun) {
-        const target = pr
-          ? `pull request ${pr}`
-          : "the pull request for this branch";
-        const kind =
-          event === "approve"
-            ? "an approval"
-            : event === "request-changes"
-              ? "a change request"
-              : "a review";
-        const allowed = await confirm(
-          ctx,
-          `Post ${kind} to ${target} on GitHub?`,
-          `  crit ${args.join(" ")}`,
-        );
-        if (!allowed) return declined("Nothing was posted to GitHub.");
-      }
-      return await runCrit(pi, args, signal);
-    },
-  });
-
-  pi.registerTool({
-    name: "crit_share",
-    label: "Crit share",
-    description:
-      "Upload files to crit-web and return a shareable URL. This publishes their contents to a third-party service, " +
-      "so the user is asked to confirm first.",
-    promptSnippet: "Upload files to crit-web and return a share URL",
-    executionMode: "sequential",
-    parameters: Type.Object({
-      paths: Type.Array(Type.String(), { description: "Files to share" }),
-    }),
-
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const { paths } = params;
-      if (paths.length === 0)
-        throw new Error("crit_share needs at least one file.");
-
-      const allowed = await confirm(
-        ctx,
-        "Upload these files to crit-web?",
-        `  ${paths.join("\n  ")}`,
-      );
-      if (!allowed) return declined("Nothing was uploaded.");
-      return await runCrit(pi, ["share", ...paths], signal);
-    },
-  });
-
-  pi.registerTool({
-    name: "crit_unpublish",
-    label: "Crit unpublish",
-    description:
-      "Remove a shared review from crit-web. The user is asked to confirm first.",
-    promptSnippet: "Remove a shared review from crit-web",
-    executionMode: "sequential",
-    parameters: Type.Object({
-      paths: Type.Optional(
-        Type.Array(Type.String(), {
-          description: "Files to unpublish. Defaults to the whole review",
-        }),
-      ),
-    }),
-
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const { paths = [] } = params;
-      const what = paths.length > 0 ? paths.join("\n  ") : "the current review";
-      const allowed = await confirm(ctx, "Remove this from crit-web?", `  ${what}`);
-      if (!allowed) return declined("Nothing was unpublished.");
-      return await runCrit(pi, ["unpublish", ...paths], signal);
-    },
-  });
 }
 
 interface ReviewParams {
@@ -485,18 +352,6 @@ function toCritEntry(comment: CommentParams): Record<string, unknown> {
     ...(replyTo ? { reply_to: replyTo } : {}),
     ...(scope ? { scope } : {}),
     ...(resolve ? { resolve: true } : {}),
-  };
-}
-
-function declined(detail: string): AgentToolResult<unknown> {
-  return {
-    content: [
-      {
-        type: "text",
-        text: `The user declined. ${detail} Ask before trying again.`,
-      },
-    ],
-    details: { declined: true },
   };
 }
 
