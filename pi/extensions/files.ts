@@ -57,21 +57,21 @@ export default function (pi: ExtensionAPI) {
   registerToolWithGuidelines(
     pi,
     withNote(
-      gatedTool(createLsToolDefinition(cwd), "read"),
+      gatedTool(createLsToolDefinition(cwd), "read", PathResolution.Follow, "children"),
       "Use ls to list a directory instead of shelling out to ls. Pass limit to change the entry cap.",
     ),
   );
   registerToolWithGuidelines(
     pi,
     withNote(
-      gatedTool(findDefinition(cwd), "read"),
+      gatedTool(findDefinition(cwd), "read", PathResolution.Follow, "recursive"),
       "Use find to locate files by glob instead of shelling out to find or fd.",
     ),
   );
   registerToolWithGuidelines(
     pi,
     withNote(
-      gatedTool(grepDefinition(cwd), "read"),
+      gatedTool(grepDefinition(cwd), "read", PathResolution.Follow, "recursive"),
       "Use grep to search file contents instead of shelling out to grep or rg.",
     ),
   );
