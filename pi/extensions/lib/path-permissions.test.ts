@@ -10,6 +10,8 @@ import {
   evaluate,
   matchesRule,
   recordRule,
+  selectorKey,
+  selectorLabel,
   subtree,
 } from "./path-permission-rules.ts";
 
@@ -130,9 +132,8 @@ test("a new opposite rule removes the identical rule from the other tier", () =>
     { session, always },
   );
 
-  // assert
   assert.deepEqual(changed, new Set(["session", "always"]));
-  assert.deepEqual(session.read.allow, new Set(["/tmp/**"]));
+  assert.deepEqual(session.read.allow, new Set([selectorKey({ kind: "tree", path: "/tmp" })]));
   assert.deepEqual(always.read.deny, new Set());
 });
 
@@ -205,12 +206,8 @@ test("default write access changes with plan mode", () => {
   const normal = defaultAllowed("write", { ...options, planMode: false });
 
   // assert
-  assert.deepEqual(planning, ["/memory/**", "/plans/current.md"]);
-  assert.deepEqual(normal, [
-    "/repo/**",
-    "/memory/**",
-    "/plans/current.md",
-  ]);
+  assert.deepEqual(planning.map(selectorLabel), ["/memory/**", "/plans/current.md"]);
+  assert.deepEqual(normal.map(selectorLabel), ["/repo/**", "/memory/**", "/plans/current.md"]);
 });
 
 test("default read access includes every trusted root", () => {
@@ -228,7 +225,7 @@ test("default read access includes every trusted root", () => {
   const allowed = defaultAllowed("read", options);
 
   // assert
-  assert.deepEqual(allowed, [
+  assert.deepEqual(allowed.map(selectorLabel), [
     "/repo/**",
     "/memory/**",
     "/plans/current.md",
