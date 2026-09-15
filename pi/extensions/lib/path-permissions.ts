@@ -5,7 +5,6 @@ import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-w
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { defaultAllowed, emptyRules, evaluate, parseRules, recordRule, selectorFromKey, selectorKey, selectorLabel, serializeRules, tree, type AccessMode, type PathRule, type RuleSets, type RuleTier, type SerializedRules, type Verdict } from "./path-permission-rules.ts";
 import { readStoredRules, transaction } from "./path-rule-store.ts";
-import { getCurrentPlanPath } from "./plan-file.ts";
 import { contains, findRepoRoot, isVcsInternal, memoryDirectory, resolveThroughSymlinks, skillRoots } from "./repo.ts";
 import { serialize } from "./ui-queue.ts";
 import { inheritedRules, parseChildPathPolicy, type ChildPathPolicy } from "./path-permission-snapshot.ts";
@@ -86,10 +85,9 @@ async function requestAccess(resolved: string, mode: AccessMode, context: Extens
 async function grantRootFor(path: string): Promise<string> { const stats = await stat(path).catch(() => undefined); return findRepoRoot(stats?.isDirectory() ? path : dirname(path)); }
 async function currentDefaults(mode: AccessMode): Promise<ReturnType<typeof defaultAllowed>> {
   const repoRoot = await resolveThroughSymlinks(findRepoRoot());
-  const [memoryRoot, planPath, resolvedSkills, agentDirectory] = await Promise.all([resolveThroughSymlinks(memoryDirectory()), resolvePlanPath(), resolvedSkillRoots(repoRoot), resolveThroughSymlinks(getAgentDir())]);
-  return defaultAllowed(mode, { planMode: state.planMode, repoRoot, memoryDirectory: memoryRoot, planPath, skillRoots: resolvedSkills, agentDirectory });
+  const [memoryRoot, resolvedSkills, agentDirectory] = await Promise.all([resolveThroughSymlinks(memoryDirectory()), resolvedSkillRoots(repoRoot), resolveThroughSymlinks(getAgentDir())]);
+  return defaultAllowed(mode, { planMode: state.planMode, repoRoot, memoryDirectory: memoryRoot, skillRoots: resolvedSkills, agentDirectory });
 }
-async function resolvePlanPath(): Promise<string | undefined> { const planPath = getCurrentPlanPath(); return planPath === undefined ? undefined : resolveThroughSymlinks(planPath); }
 async function resolvedSkillRoots(repoRoot: string): Promise<string[]> { const roots = [...skillRoots()], resolved = new Set<string>(); for (const [index, root] of roots.entries()) { const resolvedRoot = await resolveThroughSymlinks(root); if (index >= 2 || contains(repoRoot, resolvedRoot)) resolved.add(resolvedRoot); } for (const root of roots.slice(2)) for (const entry of await readdir(root).catch(() => [] as string[])) resolved.add(await resolveThroughSymlinks(join(root, entry))); return [...resolved]; }
 function anchorTarget(target: string, cwd: string): string { const expanded = target === "~" || target.startsWith("~/") ? join(homedir(), target.slice(1)) : target; return isAbsolute(expanded) ? expanded : resolve(cwd, expanded); }
 function assertWritablePath(path: string, mode: AccessMode): void { if (mode === "write" && isVcsInternal(path)) throw new Error(`${path} is inside a version control directory. Reading and searching .git and .jj is fine, but writing to them is not.`); }

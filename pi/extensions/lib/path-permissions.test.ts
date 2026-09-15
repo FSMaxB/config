@@ -198,7 +198,6 @@ test("default write access changes with plan mode", () => {
   const options = {
     repoRoot: "/repo",
     memoryDirectory: "/memory",
-    planPath: "/plans/current.md",
     skillRoots: ["/skills"],
     agentDirectory: "/agent",
   };
@@ -208,8 +207,8 @@ test("default write access changes with plan mode", () => {
   const normal = defaultAllowed("write", { ...options, planMode: false });
 
   // assert
-  assert.deepEqual(planning.map(selectorLabel), ["/memory/**", "/plans/current.md"]);
-  assert.deepEqual(normal.map(selectorLabel), ["/repo/**", "/memory/**", "/plans/current.md"]);
+  assert.deepEqual(planning.map(selectorLabel), ["/memory/**", "/agent/plans/**"]);
+  assert.deepEqual(normal.map(selectorLabel), ["/repo/**", "/memory/**", "/agent/plans/**"]);
 });
 
 test("default read access includes every trusted root", () => {
@@ -218,7 +217,6 @@ test("default read access includes every trusted root", () => {
     planMode: true,
     repoRoot: "/repo",
     memoryDirectory: "/memory",
-    planPath: "/plans/current.md",
     skillRoots: ["/skills/one", "/skills/two"],
     agentDirectory: "/agent",
   };
@@ -230,9 +228,8 @@ test("default read access includes every trusted root", () => {
   assert.deepEqual(allowed.map(selectorLabel), [
     "/repo/**",
     "/memory/**",
-    "/plans/current.md",
-    join(homedir(), ".crit", "**"),
     "/agent/plans/**",
+    join(homedir(), ".crit", "**"),
     "/skills/one/**",
     "/skills/two/**",
   ]);
