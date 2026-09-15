@@ -16,7 +16,6 @@ export interface PlanModeEntry {
   enabled: boolean;
   sessionGrants: string[];
   sessionDenials: Denial[];
-  planPath?: string;
 }
 
 // The newest "plan-mode" session entry holds the live plan-mode state. plan-mode.ts reads
@@ -40,17 +39,15 @@ export function latestPlanModeEntry(
   if (!entry || typeof entry.data !== "object" || entry.data === null)
     return undefined;
 
-  const { enabled, sessionGrants, sessionDenials, planPath } = entry.data as {
+  const { enabled, sessionGrants, sessionDenials } = entry.data as {
     enabled?: unknown;
     sessionGrants?: unknown;
     sessionDenials?: unknown;
-    planPath?: unknown;
   };
   return {
     enabled: enabled === true,
     sessionGrants: stringList(sessionGrants),
     sessionDenials: denialList(sessionDenials),
-    planPath: typeof planPath === "string" ? planPath : undefined,
   };
 }
 
