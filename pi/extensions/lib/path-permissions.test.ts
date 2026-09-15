@@ -9,9 +9,11 @@ import {
   emptyRules,
   evaluate,
   matchesRule,
+  parseRules,
   recordRule,
   selectorKey,
   selectorLabel,
+  serializeRules,
   subtree,
 } from "./path-permission-rules.ts";
 
@@ -234,4 +236,105 @@ test("default read access includes every trusted root", () => {
     "/skills/one/**",
     "/skills/two/**",
   ]);
+});
+
+test("recorded rules take part in evaluation", () => {
+  // arrange
+  const session = emptyRules();
+  recordRule(
+    { mode: "read", kind: "allow", tier: "session", selector: { kind: "tree", path: "/granted" } },
+    { session, always: emptyRules() },
+  );
+
+  // act
+  const inside = evaluate("/granted/file", "read", { defaults: [], always: emptyRules(), session });
+  const outside = evaluate("/elsewhere/file", "read", { defaults: [], always: emptyRules(), session });
+
+  // assert
+  assert.equal(inside, "allow");
+  assert.equal(outside, "prompt");
+});
+
+test("serialized rules survive a round trip through JSON and parseRules", () => {
+  // arrange
+  const rules = emptyRules();
+  const always = emptyRules();
+  for (const selector of [
+    { kind: "tree", path: "/repo" } as const,
+    { kind: "exact", path: "/notes/todo.md" } as const,
+    { kind: "glob", base: "/src", pattern: "**/*.ts" } as const,
+  ]) {
+    recordRule({ mode: "read", kind: "allow", tier: "session", selector }, { session: rules, always });
+  }
+  recordRule({ mode: "write", kind: "deny", tier: "session", selector: { kind: "tree", path: "/secrets" } }, { session: rules, always });
+
+  // act
+  const serialized = JSON.parse(JSON.stringify(serializeRules(rules)));
+  const parsed = parseRules(serialized);
+
+  // assert
+  assert.deepEqual(serialized.read.allow, [
+    { kind: "exact", path: "/notes/todo.md" },
+    { kind: "glob", base: "/src", pattern: "**/*.ts" },
+    { kind: "tree", path: "/repo" },
+  ]);
+  assert.deepEqual(parsed, rules);
+});
+
+test("parseRules accepts version 2 selectors persisted in key form", () => {
+  // arrange
+  const stored = {
+    version: 2,
+    read: { allow: [["tree", "/agent"]], deny: [["glob", "/agent", "**/*.log"]] },
+    write: { allow: [], deny: [] },
+  };
+
+  // act
+  const parsed = parseRules(stored);
+  const verdict = evaluate("/agent/settings.json", "read", { defaults: [], always: parsed, session: emptyRules() });
+  const denied = evaluate("/agent/debug.log", "read", { defaults: [], always: parsed, session: emptyRules() });
+
+  // assert
+  assert.deepEqual(parsed.read.allow, new Set([selectorKey({ kind: "tree", path: "/agent" })]));
+  assert.equal(verdict, "allow");
+  assert.equal(denied, "deny");
+});
+
+test("parseRules rejects malformed version 2 selectors", () => {
+  // arrange
+  const stored = { version: 2, read: { allow: [{ kind: "tree" }], deny: [] }, write: { allow: [], deny: [] } };
+
+  // act & assert
+  assert.throws(() => parseRules(stored), /Invalid path permission rules/);
+});
+
+test("legacy subtree strings become tree selectors", () => {
+  // arrange
+  const stored = { read: { allow: ["/repo/**", "~/notes/*.md"], deny: [] }, write: { allow: [], deny: [] } };
+
+  // act
+  const parsed = parseRules(stored);
+  const nested = evaluate("/repo/src/main.ts", "read", { defaults: [], always: parsed, session: emptyRules() });
+  const note = evaluate(join(homedir(), "notes", "todo.md"), "read", { defaults: [], always: parsed, session: emptyRules() });
+
+  // assert
+  assert.deepEqual(parsed.read.allow, new Set([
+    selectorKey({ kind: "tree", path: "/repo" }),
+    selectorKey({ kind: "glob", base: join(homedir(), "notes"), pattern: "*.md" }),
+  ]));
+  assert.equal(nested, "allow");
+  assert.equal(note, "allow");
+});
+
+test("a stored tree selector drops a redundant trailing subtree glob", () => {
+  // arrange
+  const stored = { version: 2, read: { allow: [{ kind: "tree", path: "/agent/**" }], deny: [] }, write: { allow: [], deny: [] } };
+
+  // act
+  const parsed = parseRules(stored);
+  const verdict = evaluate("/agent/settings.json", "read", { defaults: [], always: parsed, session: emptyRules() });
+
+  // assert
+  assert.deepEqual(parsed.read.allow, new Set([selectorKey({ kind: "tree", path: "/agent" })]));
+  assert.equal(verdict, "allow");
 });
