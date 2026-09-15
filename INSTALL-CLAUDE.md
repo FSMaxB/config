@@ -11,10 +11,9 @@
 
 ## Exploration
 
-- Delegate codebase exploration to an explore subagent (when the harness provides one) instead of searching the codebase yourself. Unless you already know the exact file and location that answers a question, dispatch the subagent up front — exploration that starts as "one or two greps" tends to sprawl and fills the main context with raw internals, while a subagent returns a compressed report.
-- If you do start searching directly and are not done after ~2 search calls, stop and delegate the rest.
+- Delegate complex codebase exploration that requires reading lots of code to an explore subagent (when the harness provides one).
 - Write the subagent brief so it contains everything already known, so the subagent verifies instead of re-deriving it.
-- For mechanical fact-finding, run the subagent on a cheaper model and/or a lower thinking level than the main session instead of inheriting the session model. Pick the cheaper model from whatever provider the session uses.
+- For mechanical fact-finding, run the subagent on a cheaper model or a lower thinking level than the main session instead of inheriting the session model. Pick the cheaper model from whatever provider the session uses.
 
 ## VCS
 
