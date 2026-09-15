@@ -1,5 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { stat } from "node:fs/promises";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type {
@@ -10,12 +9,7 @@ import type {
   Theme,
   ToolCallEvent,
 } from "@earendil-works/pi-coding-agent";
-import { createEditToolDefinition, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
-import type {
-  EditToolDetails,
-  EditToolInput,
-} from "@earendil-works/pi-coding-agent";
-import { Container, Markdown, Text } from "@earendil-works/pi-tui";
+import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { FILE_TOOLS } from "./lib/file-tools.ts";
 import {
@@ -35,24 +29,17 @@ import {
   readPersistedDecisions,
   writePersistedDecisions,
 } from "./lib/plan-decisions.ts";
-import {
-  getCurrentPlanPath,
-  planFileName,
-  plansDirectory,
-  setCurrentPlanPath,
-} from "./lib/plan-file.ts";
+import { newPlanPath, plansDirectory } from "./lib/plan-file.ts";
 import {
   latestPlanHandoffEntry,
   PLAN_HANDOFF_ENTRY_TYPE,
 } from "./lib/plan-handoff.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
-import { renameRenderedTitle } from "./lib/tool-title.ts";
 import { serialize } from "./lib/ui-queue.ts";
 
-const WRITE_PLAN = "write_plan";
-const EDIT_PLAN = "edit_plan";
+const PLAN_PATH = "plan_path";
 const SUBMIT_PLAN = "submit_plan";
-const PLAN_TOOLS = [WRITE_PLAN, EDIT_PLAN, SUBMIT_PLAN];
+const PLAN_TOOLS = [PLAN_PATH, SUBMIT_PLAN];
 const UNGATED_TOOLS = new Set([
   // File tools are gated per path by lib/path-permissions.ts rather than per call.
   ...FILE_TOOLS,
@@ -80,8 +67,6 @@ const CONTEXT_COMPACT = "Compact — summarize, then implement in a fresh turn";
 const CONTEXT_FRESH = "Fresh session — only the plan file, nothing else";
 const FRESH_HANDOFF_ARGUMENT = "fresh-handoff";
 
-const COLLAPSED_PLAN_LINES = 15;
-
 export default function (pi: ExtensionAPI) {
   initPathPermissions(pi);
   let planMode = false;
@@ -94,8 +79,6 @@ export default function (pi: ExtensionAPI) {
   // instead of only saying no.
   const sessionDenials = new Map<string, string | undefined>();
   const alwaysDenials = new Map<string, string | undefined>();
-  const planFileEditTool = createEditToolDefinition(process.cwd());
-  const renderPlanEditCall = renameRenderedTitle(planFileEditTool, EDIT_PLAN);
 
   function isAllowed(toolName: string): boolean {
     return (
@@ -164,7 +147,6 @@ export default function (pi: ExtensionAPI) {
         name,
         note,
       })),
-      planPath: getCurrentPlanPath(),
     });
   }
 
@@ -197,9 +179,6 @@ export default function (pi: ExtensionAPI) {
   function setPlanMode(enabled: boolean, ctx: ExtensionContext): void {
     planMode = enabled;
     setPlanModeEnabled(enabled);
-    // Leaving plan mode retires the plan file so the next plan starts a fresh one instead
-    // of overwriting an approved plan.
-    if (!enabled) setCurrentPlanPath(undefined);
     syncPlanTools();
     refreshIndicators(ctx);
     persist();
@@ -370,174 +349,55 @@ export default function (pi: ExtensionAPI) {
   });
 
   registerToolWithGuidelines(pi, {
-    name: WRITE_PLAN,
-    label: "Write plan",
+    name: PLAN_PATH,
+    label: "Plan path",
     description:
-      "Write or update the plan for the current plan-mode session. Only available in plan mode. " +
-      "The first call creates the plan file, and every later call overwrites that same file, so pass the plan in full each time. " +
-      "No other plan file can be touched. Call submit_plan once the plan is ready for the user to approve. " +
-      "For small revisions to an existing plan, prefer edit_plan instead of rewriting the whole plan here.",
-    promptSnippet:
-      "Write or update the plan file for the current plan-mode session",
+      "Return the absolute path a new plan file should be written to, inside the plans directory for this working directory. " +
+      "Only available in plan mode. It creates nothing: write the plan to the returned path with the write tool, revise it with edit, " +
+      "and pass the same path to submit_plan and crit_review.",
+    promptSnippet: "Get the path for a new plan file",
     promptGuidelines: [
-      "Write the plan with write_plan before calling submit_plan, and rewrite it in full after addressing review feedback.",
+      "Call plan_path once per plan and keep using the path it returns; do not call it again to revise the same plan.",
     ],
     parameters: Type.Object({
-      title: Type.String({
-        description:
-          "Short title for the plan, used for the filename on the first call",
+      slug: Type.String({
+        description: "Short kebab-case name for the plan, used in the filename",
       }),
-      plan: Type.String({ description: "The full plan, as markdown" }),
     }),
 
-    async execute(
-      _toolCallId,
-      params,
-    ): Promise<AgentToolResult<{ path: string | null; created: boolean }>> {
-      const { title, plan } = params;
+    async execute(_toolCallId, params): Promise<AgentToolResult<{ path: string | null }>> {
       if (!planMode) {
-        const error = "write_plan is only available in plan mode.";
         return {
-          content: [{ type: "text", text: error }],
-          details: { path: null, created: false },
+          content: [{ type: "text", text: "plan_path is only available in plan mode." }],
+          details: { path: null },
         };
       }
-
-      const created = getCurrentPlanPath() === undefined;
-      const path = await writePlanFile(title, plan);
-      persist();
-
-      const text = created
-        ? `Plan written to ${path}. Call write_plan again to revise it, or submit_plan once it is ready.`
-        : `Plan at ${path} updated.`;
-      return { content: [{ type: "text", text }], details: { path, created } };
+      const path = newPlanPath(params.slug);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Write the plan to ${path} with the write tool, revise it with edit, and pass this path to submit_plan.`,
+          },
+        ],
+        details: { path },
+      };
     },
 
-    renderCall(args, theme, context) {
-      const title = new Text(
-        theme.fg("toolTitle", theme.bold("write_plan ")) +
-          theme.fg("muted", args.title ?? ""),
+    renderCall(args, theme) {
+      return new Text(
+        theme.fg("toolTitle", theme.bold("plan_path ")) + theme.fg("muted", args.slug ?? ""),
         0,
         0,
       );
-      const plan = typeof args.plan === "string" ? args.plan.trim() : "";
-      if (!context.argsComplete || !plan) return title;
-
-      const lines = plan.split("\n");
-      const visible = context.expanded
-        ? lines
-        : lines.slice(0, COLLAPSED_PLAN_LINES);
-
-      const container = new Container();
-      container.addChild(title);
-      container.addChild(
-        new Markdown(visible.join("\n"), 2, 0, getMarkdownTheme()),
-      );
-      if (visible.length < lines.length) {
-        const hint = `… ${lines.length - visible.length} more lines (expand to see all)`;
-        container.addChild(new Text(theme.fg("dim", hint), 2, 0));
-      }
-      return container;
     },
 
     renderResult(result, _renderOptions, theme) {
-      const details = result.details as
-        | { path: string | null; created: boolean }
-        | undefined;
+      const details = result.details as { path: string | null } | undefined;
       if (!details?.path) {
-        return new Text(
-          theme.fg("error", "✗ only available in plan mode"),
-          0,
-          0,
-        );
+        return new Text(theme.fg("error", "✗ only available in plan mode"), 0, 0);
       }
-      const label = details.created ? "created" : "updated";
-      return new Text(
-        theme.fg("success", "✓ ") +
-          theme.fg("accent", label) +
-          theme.fg("dim", ` — ${details.path}`),
-        0,
-        0,
-      );
-    },
-  });
-
-  registerToolWithGuidelines(pi, {
-    ...planFileEditTool,
-    name: EDIT_PLAN,
-    label: "Edit plan",
-    description:
-      "Apply targeted text replacements to the current plan file, like the edit tool. Only available in plan mode, " +
-      "and only after write_plan has created a plan. Each edits[].oldText must be unique in the current plan " +
-      "content; edits must not overlap. Prefer this over write_plan for small revisions — it costs far fewer " +
-      "output tokens than rewriting the whole plan.",
-    promptSnippet: "Apply targeted text replacements to the current plan file",
-    promptGuidelines: [
-      "Use edit_plan for small, targeted revisions to an existing plan instead of rewriting it in full with write_plan.",
-      "Use write_plan only to create the plan initially, or when most of the plan content is changing.",
-      "Each edits[].oldText must match exactly, including whitespace and newlines, and must be unique in the plan.",
-    ],
-    parameters: Type.Object({
-      edits: Type.Array(
-        Type.Object({
-          oldText: Type.String({
-            description:
-              "Exact text for one targeted replacement. Must be unique in the current plan content and must not overlap with any other edits[].oldText in the same call.",
-          }),
-          newText: Type.String({
-            description: "Replacement text for this targeted edit.",
-          }),
-        }),
-        {
-          description:
-            "One or more targeted replacements, matched against the current plan content.",
-        },
-      ),
-    }),
-
-    async execute(toolCallId, params, signal, onUpdate, ctx) {
-      const { edits } = params;
-      if (!planMode) {
-        const error = "edit_plan is only available in plan mode.";
-        return {
-          content: [{ type: "text", text: error }],
-          details: { path: null },
-        };
-      }
-
-      const path = getCurrentPlanPath();
-      if (!path) {
-        const error =
-          "No plan has been written yet. Call write_plan first, then edit_plan.";
-        return {
-          content: [{ type: "text", text: error }],
-          details: { path: null },
-        };
-      }
-
-      return await planFileEditTool.execute(
-        toolCallId,
-        { path, edits },
-        signal,
-        onUpdate,
-        ctx,
-      );
-    },
-
-    renderCall(args, theme, context) {
-      return renderPlanEditCall!(withCurrentPlanPath(args), theme, context);
-    },
-
-    renderResult(result, options, theme, context) {
-      return planFileEditTool.renderResult!(
-        result as AgentToolResult<EditToolDetails | undefined>,
-        options,
-        theme,
-        {
-          ...context,
-          args: withCurrentPlanPath(context.args) as EditToolInput,
-        },
-      );
+      return new Text(theme.fg("success", "✓ ") + theme.fg("dim", details.path), 0, 0);
     },
   });
 
@@ -545,19 +405,21 @@ export default function (pi: ExtensionAPI) {
     name: SUBMIT_PLAN,
     label: "Submit plan",
     description:
-      "Submit the plan that write_plan wrote for the user to approve. Only available in plan mode, and only after write_plan. " +
-      "It submits whatever write_plan last wrote. Optionally suggest a different model to implement the plan; " +
-      "the user decides whether to use it. " +
+      "Submit the plan file at path for the user to approve. Only available in plan mode. " +
+      "Optionally suggest a different model to implement the plan; the user decides whether to use it. " +
       "Asks the user whether to approve it, request changes, or stay in plan mode. Approval is the only way out of plan mode.",
     promptSnippet:
       "Submit the written plan for the user to approve, ending plan mode",
     promptGuidelines: [
-      "Call submit_plan once write_plan holds the finished plan, rather than describing the plan and waiting for a reply.",
+      "Call submit_plan with the plan file path once the file holds the finished plan, rather than describing the plan and waiting for a reply.",
       "Only the user can leave plan mode, so never assume approval before submit_plan returns it.",
       "Suggest an implementation model via suggestedModel only when a different model is clearly better suited than the current one (for example a cheaper model for a mechanical plan); otherwise omit it.",
     ],
     executionMode: "sequential",
     parameters: Type.Object({
+      path: Type.String({
+        description: "Absolute path of the plan file to submit, as returned by plan_path",
+      }),
       suggestedModel: Type.Optional(
         Type.String({
           description:
@@ -582,12 +444,11 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
-      const path = getCurrentPlanPath();
-      if (!path) {
-        const error =
-          "No plan has been written yet. Call write_plan first, then submit_plan.";
+      const { path } = params;
+      const planFile = await stat(path).catch(() => undefined);
+      if (!planFile?.isFile()) {
         return {
-          content: [{ type: "text", text: error }],
+          content: [{ type: "text", text: `No plan file exists at ${path}. Write it first, then call submit_plan with its path.` }],
           details: { path: null, outcome: "missing" },
         };
       }
@@ -692,12 +553,11 @@ export default function (pi: ExtensionAPI) {
     },
 
     renderCall(args, theme) {
-      const suggested =
-        typeof args.suggestedModel === "string" && args.suggestedModel
-          ? theme.fg("muted", ` suggests ${args.suggestedModel}`)
-          : "";
+      const suggested = typeof args.suggestedModel === "string" && args.suggestedModel
+        ? theme.fg("muted", ` suggests ${args.suggestedModel}`)
+        : "";
       return new Text(
-        theme.fg("toolTitle", theme.bold("submit_plan")) + suggested,
+        theme.fg("toolTitle", theme.bold("submit_plan ")) + theme.fg("muted", args.path ?? "") + suggested,
         0,
         0,
       );
@@ -717,7 +577,7 @@ export default function (pi: ExtensionAPI) {
       if (!details?.path) {
         const reason =
           details?.outcome === "missing"
-            ? "no plan written yet"
+            ? "plan file not found"
             : "only available in plan mode";
         return new Text(theme.fg("error", `✗ ${reason}`), 0, 0);
       }
@@ -983,7 +843,6 @@ export default function (pi: ExtensionAPI) {
     const restored = latestPlanModeEntry(ctx.sessionManager);
     if (restored) {
       planMode = restored.enabled;
-      setCurrentPlanPath(restored.planPath);
       for (const toolName of restored.sessionGrants) {
         sessionGrants.add(toolName);
       }
@@ -1164,17 +1023,11 @@ function planModeInstructions(): string {
     "Plan mode is active.",
     "",
     `- The file tools (${FILE_TOOLS.join(", ")}) check every path against the read/write path rules. Reading anywhere in the repository and in the memory, skill, plan and crit directories works without asking.`,
-    "- Plan mode is read-only by default: writing inside the repository prompts the user for each path. The memory directory and the plan file stay writable.",
+    `- Plan mode is read-only by default: writing inside the repository prompts the user for each path. The memory directory and the plans directory (${plansDirectory()}) stay writable.`,
     "- bash and every other tool that changes things need the user's approval for each call.",
     "- If a call or a path is denied, do not retry it and do not route around it.",
-    `- Write the plan with ${WRITE_PLAN}. For small revisions, use ${EDIT_PLAN} instead of rewriting the whole plan. Call ${SUBMIT_PLAN} when it is ready. Only the user can leave plan mode.`,
+    `- To write a plan, call ${PLAN_PATH} once to get a file path, create the file there with write, and revise it with edit. Call ${SUBMIT_PLAN} with that path when it is ready. Only the user can leave plan mode.`,
   ].join("\n");
-}
-
-function withCurrentPlanPath(
-  args: Record<string, unknown>,
-): Record<string, unknown> {
-  return { ...args, path: getCurrentPlanPath() };
 }
 
 function findSuggestedModel(
@@ -1203,16 +1056,3 @@ function notApproved(
     details: { path: planPath, outcome: "saved" },
   };
 }
-
-// The session's plan file is created once and then overwritten in place, so a plan that goes
-// through several review rounds leaves one file behind instead of one per round.
-async function writePlanFile(title: string, plan: string): Promise<string> {
-  const path =
-    getCurrentPlanPath() ?? join(plansDirectory(), planFileName(title));
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, plan.endsWith("\n") ? plan : `${plan}\n`);
-  setCurrentPlanPath(path);
-  return path;
-}
-
-
