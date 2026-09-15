@@ -36,7 +36,6 @@ export interface DefaultAllowedOptions {
   planMode: boolean;
   repoRoot: string;
   memoryDirectory: string;
-  planPath: string | undefined;
   skillRoots: string[];
   agentDirectory: string;
 }
@@ -92,9 +91,9 @@ export function evaluate(resolvedPath: string, mode: AccessMode, layers: { defau
 }
 
 export function defaultAllowed(mode: AccessMode, options: DefaultAllowedOptions): PathSelector[] {
-  const { planMode, repoRoot, memoryDirectory, planPath, skillRoots, agentDirectory } = options;
-  const scratch = [tree(memoryDirectory), ...(planPath === undefined ? [] : [exact(planPath)])];
-  if (mode === "read") return [tree(repoRoot), ...scratch, tree(join(homedir(), ".crit")), tree(join(agentDirectory, "plans")), ...skillRoots.map(tree)];
+  const { planMode, repoRoot, memoryDirectory, skillRoots, agentDirectory } = options;
+  const scratch = [tree(memoryDirectory), tree(join(agentDirectory, "plans"))];
+  if (mode === "read") return [tree(repoRoot), ...scratch, tree(join(homedir(), ".crit")), ...skillRoots.map(tree)];
   return planMode ? scratch : [tree(repoRoot), ...scratch];
 }
 
