@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { defaultAllowed, emptyRules, evaluate, parseRules, recordRule, selectorKey, selectorLabel, serializeRules, tree, type AccessMode, type PathRule, type RuleSets, type RuleTier, type SerializedRules, type Verdict } from "./path-permission-rules.ts";
+import { defaultAllowed, emptyRules, evaluate, parseRules, recordRule, selectorFromKey, selectorKey, selectorLabel, serializeRules, tree, type AccessMode, type PathRule, type RuleSets, type RuleTier, type SerializedRules, type Verdict } from "./path-permission-rules.ts";
 import { readStoredRules, transaction } from "./path-rule-store.ts";
 import { getCurrentPlanPath } from "./plan-file.ts";
 import { contains, findRepoRoot, isVcsInternal, memoryDirectory, resolveThroughSymlinks, skillRoots } from "./repo.ts";
@@ -110,6 +110,17 @@ export async function addPathRule(rule: PathRule): Promise<void> {
     return;
   }
   await transaction({ filePath: RULES_FILE }, (always) => { recordRule(normalizedRule, { session: emptyRules(), always }); });
+}
+export async function listPathRules(): Promise<PathRule[]> {
+  const always = await readStoredRules({ filePath: RULES_FILE });
+  const tiers: [RuleTier, RuleSets][] = [["session", state.session], ["always", always]];
+  return tiers.flatMap(([tier, sets]) =>
+    (["read", "write"] as const).flatMap((mode) =>
+      (["allow", "deny"] as const).flatMap((kind) =>
+        [...sets[mode][kind]].sort().map((key) => ({ mode, kind, tier, selector: selectorFromKey(key) })),
+      ),
+    ),
+  );
 }
 export async function clearPathRules(): Promise<void> { state.session = emptyRules(); state.persistSession?.(serializeRules(state.session)); await transaction({ filePath: RULES_FILE }, (always) => { always.read.allow.clear(); always.read.deny.clear(); always.write.allow.clear(); always.write.deny.clear(); }); }
 
