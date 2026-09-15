@@ -1,6 +1,5 @@
-// Overrides the built-in read/write/edit/ls/find/grep tools with path-gated variants. The
-// read/write/edit tools use hashlines (see lib/hashline.ts and lib/hashline-tools.ts), unless
-// PI_HASHLINE=0 selects their stock implementations. Path checks remain enabled either way.
+// Overrides Pi's built-in file tools with path-gated variants; read, write, and edit otherwise
+// retain their stock behavior.
 // Pi warns about each intentional built-in override once at startup.
 import { lstat, unlink } from "node:fs/promises";
 import type {
@@ -8,16 +7,14 @@ import type {
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import {
+  createEditToolDefinition,
   createFindToolDefinition,
   createGrepToolDefinition,
   createLsToolDefinition,
+  createReadToolDefinition,
+  createWriteToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import {
-  createHashlineEditToolDefinition,
-  createHashlineReadToolDefinition,
-  createHashlineWriteToolDefinition,
-} from "./lib/hashline-tools.ts";
 import {
   gatedTool,
   initPathPermissions,
@@ -36,21 +33,21 @@ export default function (pi: ExtensionAPI) {
   registerToolWithGuidelines(
     pi,
     withNote(
-      gatedTool(createHashlineReadToolDefinition(cwd), "read"),
+      gatedTool(createReadToolDefinition(cwd), "read"),
       "Use read to examine files instead of cat or sed.",
     ),
   );
   registerToolWithGuidelines(
     pi,
     withNote(
-      gatedTool(createHashlineWriteToolDefinition(cwd), "write"),
+      gatedTool(createWriteToolDefinition(cwd), "write"),
       "Use write only for new files or complete rewrites.",
     ),
   );
   registerToolWithGuidelines(
     pi,
     withNote(
-      gatedTool(createHashlineEditToolDefinition(cwd), "write"),
+      gatedTool(createEditToolDefinition(cwd), "write"),
       "Use edit to change an existing file instead of rewriting it wholesale.",
     ),
   );
