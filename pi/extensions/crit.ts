@@ -7,7 +7,6 @@ import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-ag
 import { Type } from "typebox";
 import { execChecked } from "./lib/exec.ts";
 import { createLineSplitter } from "./lib/lines.ts";
-import { getCurrentPlanPath } from "./lib/plan-file.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 
 const TIMEOUT = 60_000;
@@ -26,7 +25,7 @@ export default function (pi: ExtensionAPI) {
     description:
       "Open a crit review in the browser and block until the user submits it, then return their comments. " +
       "Give at most one target: paths, pr, range, url, html, plan or story. " +
-      "With no target this reviews the current plan file if there is one, and the branch diff otherwise.",
+      "With no target this reviews the branch diff.",
     promptSnippet: "Open a crit review and wait for the user's inline comments",
     promptGuidelines: [
       "Do not continue past a crit review until the user submits it, and address every unresolved comment before moving on.",
@@ -55,8 +54,8 @@ export default function (pi: ExtensionAPI) {
         }),
       ),
       plan: Type.Optional(
-        Type.Boolean({
-          description: "Review the current plan file. Default: false",
+        Type.String({
+          description: "Path of a plan file to review in plan mode",
         }),
       ),
       story: Type.Optional(
@@ -243,7 +242,7 @@ interface ReviewParams {
   range?: string;
   url?: string;
   html?: string;
-  plan?: boolean;
+  plan?: string;
   story?: boolean;
   session?: string;
   baseBranch?: string;
@@ -277,16 +276,10 @@ function reviewArgs(params: ReviewParams): { args: string[]; slug?: string } {
   if (html) return { args: ["preview", html] };
   if (story) return { args: ["story", ...base] };
   if (session) return { args: ["--session", session] };
+  if (!plan) return { args: base };
 
-  const planPath = getCurrentPlanPath();
-  if (plan && !planPath)
-    throw new Error(
-      "No plan file exists yet. Call write_plan first, or review something else.",
-    );
-  if (!planPath) return { args: base };
-
-  const slug = basename(planPath, ".md");
-  return { args: ["plan", "--name", slug, planPath], slug };
+  const slug = basename(plan, ".md");
+  return { args: ["plan", "--name", slug, plan], slug };
 }
 
 // crit blocks for as long as the user is reviewing, so its output is streamed rather than
