@@ -100,21 +100,6 @@ Open file:line under cursor (current window) | gF
 Open file:line in a split (keeps the terminal) | <C-w>F
 Open file:line in a new tab | <C-w>gF
 
-## claude @claudecode @ai @mcp @diff
-# WebSocket/MCP integration like the IDE extensions: send buffers/selections/files as context,
-# review proposed edits in a native diff (accept/deny per-diff). Needs the claude CLI on PATH;
-# uses the Snacks terminal. Auto-save skips Claude diff buffers so changes are never written
-# before you review them. <leader>a is the which-key group.
-Toggle Claude terminal | <leader>ac
-Focus Claude terminal | <leader>af
-Start Claude with --resume / --continue | <leader>ar / <leader>aC
-Select Claude model | <leader>am
-Add current buffer to context | <leader>ab
-Send selection to Claude (visual) | <leader>as
-Add file under cursor to context (in tree/picker) | <leader>as
-Accept / deny the proposed diff | <leader>aa / <leader>ad
-Close any diffs left open after a disconnect | :ClaudeCodeCloseAllDiffs
-
 ## sessions @persistence @restore @dashboard
 # Bare nvim opens the Snacks dashboard; restore this dir's session with s there or the keys below.
 Restore session for this dir | <leader>qs
