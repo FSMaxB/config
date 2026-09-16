@@ -5,7 +5,8 @@ import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-w
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { defaultAllowed, emptyRules, evaluate, parseRules, recordRule, selectorFromKey, selectorKey, selectorLabel, serializeRules, tree, type AccessMode, type PathRule, type RuleSets, type RuleTier, type SerializedRules, type Verdict } from "./path-permission-rules.ts";
 import { readStoredRules, transaction } from "./path-rule-store.ts";
-import { contains, findRepoRoot, isVcsInternal, memoryDirectory, resolveThroughSymlinks, skillRoots } from "./repo.ts";
+import { contains, findRepoRoot, isVcsInternal, memoryDirectory, resolveThroughSymlinks } from "./repo.ts";
+import { skillRoots } from "./skill-roots.ts";
 import { serialize } from "./ui-queue.ts";
 import { inheritedRules, parseChildPathPolicy, type ChildPathPolicy } from "./path-permission-snapshot.ts";
 export type { AccessMode, PathRule, RuleKind, RuleSets, RuleTier, SerializedRules, Verdict } from "./path-permission-rules.ts";

@@ -30,6 +30,7 @@ import {
   writePersistedDecisions,
 } from "./lib/plan-decisions.ts";
 import { newPlanPath, plansDirectory } from "./lib/plan-file.ts";
+import { commitPlanFile, type Executor } from "./lib/plan-commit.ts";
 import {
   latestPlanHandoffEntry,
   PLAN_HANDOFF_ENTRY_TYPE,
@@ -66,6 +67,7 @@ const CONTEXT_FULL = "Full context — inherit the whole conversation";
 const CONTEXT_COMPACT = "Compact — summarize, then implement in a fresh turn";
 const CONTEXT_FRESH = "Fresh session — only the plan file, nothing else";
 const FRESH_HANDOFF_ARGUMENT = "fresh-handoff";
+const PLAN_COMMIT_TIMEOUT_MS = 30_000;
 
 export default function (pi: ExtensionAPI) {
   initPathPermissions(pi);
@@ -407,7 +409,8 @@ export default function (pi: ExtensionAPI) {
     description:
       "Submit the plan file at path for the user to approve. Only available in plan mode. " +
       "Optionally suggest a different model to implement the plan; the user decides whether to use it. " +
-      "Asks the user whether to approve it, request changes, or stay in plan mode. Approval is the only way out of plan mode.",
+      "Asks the user whether to approve it, request changes, or stay in plan mode. Approval is the only way out of plan mode. " +
+      "The submitted file is committed into the plans directory's repository (jj, or git as fallback).",
     promptSnippet:
       "Submit the written plan for the user to approve, ending plan mode",
     promptGuidelines: [
@@ -464,6 +467,8 @@ export default function (pi: ExtensionAPI) {
           details: { path, outcome: "saved" },
         };
       }
+
+      await commitSubmittedPlan(path, ctx);
 
       const { suggestedModel, suggestedModelReason } = params;
       let suggested = suggestedModel
@@ -598,6 +603,19 @@ export default function (pi: ExtensionAPI) {
       );
     },
   });
+
+  // The commit is bookkeeping for the user, not something the model can act on, so
+  // failures surface as a UI warning and never change the tool result.
+  async function commitSubmittedPlan(planPath: string, ctx: ExtensionContext): Promise<void> {
+    const execute: Executor = (command, args, cwd) =>
+      pi.exec(command, args, { cwd, timeout: PLAN_COMMIT_TIMEOUT_MS });
+    try {
+      await commitPlanFile(execute, planPath);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      ctx.ui.notify(`Plan file not committed: ${message}`, "warning");
+    }
+  }
 
   async function handleImplementDifferent(
     planPath: string,
