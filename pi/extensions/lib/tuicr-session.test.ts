@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { shellQuote } from "./panes.ts";
+import { floatingPaneCommands, shellQuote } from "./panes.ts";
 import {
   advanceQuiet,
   formatComments,
@@ -168,4 +168,94 @@ test("shellQuote escapes single quotes", () => {
 
   // assert
   assert.equal(quoted, "'a'\\''b'");
+});
+
+const LAYOUT = `layout {
+    cwd "/home/user"
+    tab name="Tab #1" {
+        pane size=1 borderless=true {
+            plugin location="zellij:tab-bar"
+        }
+        pane cwd="other"
+        floating_panes {
+            pane command="claude" cwd="other"
+        }
+    }
+    tab name="Tab #2" focus=true hide_floating_panes=true {
+        pane command="nvim" cwd="config"
+        floating_panes {
+            pane command="/opt/homebrew/bin/pi" cwd="config" focus=true {
+                args "--yolo"
+            }
+        }
+    }
+    new_tab_template {
+        pane
+    }
+}
+`;
+
+test("floatingPaneCommands returns the focused tab's floating pane commands by basename", () => {
+  // arrange
+  const layout = LAYOUT;
+
+  // act
+  const commands = floatingPaneCommands(layout);
+
+  // assert
+  assert.deepEqual([...commands], ["pi"]);
+});
+
+test("floatingPaneCommands ignores tiled panes and floating panes of unfocused tabs", () => {
+  // arrange
+  const layout = LAYOUT;
+
+  // act
+  const commands = floatingPaneCommands(layout);
+
+  // assert
+  assert.equal(commands.has("nvim"), false);
+  assert.equal(commands.has("claude"), false);
+});
+
+test("floatingPaneCommands finds nothing when the focused tab has no floating panes", () => {
+  // arrange
+  const layout = `layout {
+    tab name="Tab #1" focus=true {
+        pane command="nvim" cwd="config"
+    }
+    tab name="Tab #2" {
+        floating_panes {
+            pane command="pi"
+        }
+    }
+}
+`;
+
+  // act
+  const commands = floatingPaneCommands(layout);
+
+  // assert
+  assert.equal(commands.size, 0);
+});
+
+test("floatingPaneCommands is not thrown off by braces inside quoted arguments", () => {
+  // arrange
+  const layout = `layout {
+    tab name="Tab #1" focus=true {
+        pane command="bash" {
+            args "-c" "f() { :; }"
+        }
+        floating_panes {
+            pane command="pi"
+        }
+    }
+}
+`;
+
+  // act
+  const commands = floatingPaneCommands(layout);
+
+  // assert
+  assert.deepEqual([...commands], ["pi"]);
 });
