@@ -22,6 +22,8 @@ Discovery only picks up `*.ts` and `*/index.ts`, so `pi/extensions/lib/` holds s
 
 The file tools (`read`, `write`, `edit`, `ls`, `find`, `grep`, `delete`) go through the path-permission engine in `pi/extensions/lib/path-permissions.ts`: the repository and the memory, skill, plan and crit directories are allowed by default, other paths prompt, and plan mode makes the repository read-only. Rules are globs, persisted in `~/.pi/agent/path-permissions.json` (always) and the session (session); manage them with `/plan grants`, `/plan allow <glob>` and `/plan deny <glob>`. `read`, `write`, and `edit` wrap Pi's stock implementations while remaining subject to the path-permission engine.
 
+`submit_plan` commits each submitted plan file into a repository in its plans directory (`~/.pi/agent/plans/<cwd-slug>/`), creating a colocated jj repository (or a git one when jj is missing) on first use.
+
 ## pi skills
 
 `pi/skills/` is symlinked to `~/.pi/agent/skills`, pi's global skill root. Each skill is `pi/skills/<name>/SKILL.md`. Skills meant for Claude Code as well go in `<name>-skill/` at the top level and are linked into `~/.claude/skills/` instead (see `tuicr-skill`).
