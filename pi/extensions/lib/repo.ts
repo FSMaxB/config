@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
 export { expandHome, resolveThroughSymlinks } from "./path-resolution.ts";
 
 export interface VcsInfo {
@@ -41,16 +40,6 @@ function findVcsRoot(from: string): string | undefined {
   }
 }
 
-
-// Ordered by precedence: project-level skills shadow the global ones.
-export function* skillRoots(): Generator<string> {
-  const repoRoot = findRepoRoot();
-  yield join(repoRoot, ".agents", "skills");
-  yield join(repoRoot, ".pi", "skills");
-  yield join(getAgentDir(), "skills");
-  yield join(homedir(), ".agents", "skills");
-  yield join(homedir(), ".claude", "skills");
-}
 
 // Keep this in one place so file tools and other extensions agree on where project memory
 // lives. Claude Code derives the directory from the cwd.
