@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { emptyRules, selectorKey, tree, type RuleSets } from "./path-permission-rules.ts";
+import { emptyRules, exact, selectorKey, tree, type RuleSets } from "./path-permission-rules.ts";
 import type { PathAuthorization } from "./path-permissions.ts";
 import { preflightPath } from "./path-preflight.ts";
 
@@ -48,6 +48,23 @@ test("a denied real descendant fails the preflight and is named in the error", a
   }
 });
 
+test("a denied directory is reported without fd's trailing slash", async () => {
+  // arrange
+  const fixture = await realpath(await mkdtemp(join(tmpdir(), "pi-path-preflight-")));
+  const root = join(fixture, "repo");
+  const denied = join(root, "src", "private");
+  await mkdir(denied, { recursive: true });
+  const session = emptyRules();
+  session.read.deny.add(selectorKey(exact(denied)));
+
+  try {
+    // act & assert
+    await assert.rejects(preflightPath(authorizationFor(root, session), "recursive"), new RegExp(`rejected ${denied} \\(denied`));
+  } finally {
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
+
 test("the children scope does not descend into subdirectories", async () => {
   // arrange
   const fixture = await realpath(await mkdtemp(join(tmpdir(), "pi-path-preflight-")));
@@ -60,6 +77,45 @@ test("the children scope does not descend into subdirectories", async () => {
   try {
     // act & assert
     await assert.doesNotReject(preflightPath(authorizationFor(root, session), "children"));
+  } finally {
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
+
+test("gitignored entries are not evaluated", async () => {
+  // arrange
+  const fixture = await realpath(await mkdtemp(join(tmpdir(), "pi-path-preflight-")));
+  const root = join(fixture, "repo");
+  const ignored = join(root, "build");
+  await mkdir(join(root, ".git"), { recursive: true });
+  await mkdir(ignored);
+  await writeFile(join(root, ".gitignore"), "/build\n");
+  await writeFile(join(ignored, "secret.txt"), "generated\n");
+  const session = emptyRules();
+  session.read.deny.add(selectorKey(tree(ignored)));
+
+  try {
+    // act & assert
+    await assert.doesNotReject(preflightPath(authorizationFor(root, session), "recursive"));
+  } finally {
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
+
+test("a .gitignore outside any repository is honored too", async () => {
+  // arrange
+  const fixture = await realpath(await mkdtemp(join(tmpdir(), "pi-path-preflight-")));
+  const root = join(fixture, "plain");
+  const ignored = join(root, "build");
+  await mkdir(ignored, { recursive: true });
+  await writeFile(join(root, ".gitignore"), "/build\n");
+  await writeFile(join(ignored, "secret.txt"), "generated\n");
+  const session = emptyRules();
+  session.read.deny.add(selectorKey(tree(ignored)));
+
+  try {
+    // act & assert
+    await assert.doesNotReject(preflightPath(authorizationFor(root, session), "recursive"));
   } finally {
     await rm(fixture, { recursive: true, force: true });
   }
@@ -97,6 +153,22 @@ test("denying a version control directory itself still fails the preflight", asy
   try {
     // act & assert
     await assert.rejects(preflightPath(authorizationFor(root, session), "recursive"), new RegExp(`rejected ${gitDirectory} `));
+  } finally {
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
+
+test("an aborted preflight rejects with the abort error", async () => {
+  // arrange
+  const fixture = await realpath(await mkdtemp(join(tmpdir(), "pi-path-preflight-")));
+  const root = join(fixture, "repo");
+  await mkdir(join(root, "src"), { recursive: true });
+  const controller = new AbortController();
+  controller.abort();
+
+  try {
+    // act & assert
+    await assert.rejects(preflightPath(authorizationFor(root, emptyRules()), "recursive", controller.signal), /aborted/);
   } finally {
     await rm(fixture, { recursive: true, force: true });
   }
