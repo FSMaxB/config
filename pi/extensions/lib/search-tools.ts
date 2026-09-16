@@ -1,5 +1,4 @@
-import { spawn, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -11,6 +10,7 @@ import {
   truncateHead,
   truncateLine,
 } from "@earendil-works/pi-coding-agent";
+import { insideGitRepository, locateBinary } from "./search-binaries.ts";
 
 // The built-in grep/find tools cannot express "files with matches" or "only directories", and
 // their internals are not importable (the package's exports map is closed), so these executes
@@ -356,22 +356,7 @@ export function createFindExecute(
           const effectiveLimit = limit ?? DEFAULT_LIMIT;
 
           const args = ["--glob", "--color=never", "--hidden"];
-
-          // fd normally ignores .gitignore outside git repos, so keep --no-require-git
-          // there. Inside repos, use fd's default git-aware behavior so parent
-          // .gitignore rules stop at nested repo boundaries:
-          // https://github.com/earendil-works/pi/issues/5960
-          let insideGitRepo = false;
-          for (let current = searchPath; ; ) {
-            if (existsSync(path.join(current, ".git"))) {
-              insideGitRepo = true;
-              break;
-            }
-            const parent = path.dirname(current);
-            if (parent === current) break;
-            current = parent;
-          }
-          if (!insideGitRepo) args.push("--no-require-git");
+          if (!insideGitRepository(searchPath)) args.push("--no-require-git");
 
           if (type) args.push("--type", FD_TYPES[type]);
           args.push("--max-results", String(effectiveLimit));
@@ -528,28 +513,4 @@ function resolvePath(filePath: string, cwd: string) {
     ? path.join(homedir(), filePath.slice(1))
     : filePath;
   return path.resolve(cwd, expanded);
-}
-
-const binaryCache = new Map<string, string>();
-
-function locateBinary(name: string, fallbackNames: string[] = []) {
-  const cached = binaryCache.get(name);
-  if (cached) return cached;
-
-  // pi's own tool downloader puts binaries here, so prefer it before the PATH.
-  const downloaded = path.join(homedir(), ".pi", "agent", "bin", name);
-  const candidates = existsSync(downloaded)
-    ? [downloaded, name, ...fallbackNames]
-    : [name, ...fallbackNames];
-
-  for (const candidate of candidates) {
-    const { status } = spawnSync(candidate, ["--version"], { stdio: "ignore" });
-    if (status === 0) {
-      binaryCache.set(name, candidate);
-      return candidate;
-    }
-  }
-  throw new Error(
-    `${name} is not available. Install it or run a pi built-in ${name} tool once so pi downloads it.`,
-  );
 }
