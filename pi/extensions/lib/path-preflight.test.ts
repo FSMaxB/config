@@ -65,6 +65,43 @@ test("the children scope does not descend into subdirectories", async () => {
   }
 });
 
+test("the recursive walk does not descend into version control internals", async () => {
+  // arrange
+  const fixture = await realpath(await mkdtemp(join(tmpdir(), "pi-path-preflight-")));
+  const root = join(fixture, "repo");
+  const gitObjects = join(root, ".git", "objects");
+  const jjStore = join(root, ".jj", "repo", "store");
+  await mkdir(gitObjects, { recursive: true });
+  await mkdir(jjStore, { recursive: true });
+  const session = emptyRules();
+  session.read.deny.add(selectorKey(tree(gitObjects)));
+  session.read.deny.add(selectorKey(tree(jjStore)));
+
+  try {
+    // act & assert
+    await assert.doesNotReject(preflightPath(authorizationFor(root, session), "recursive"));
+  } finally {
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
+
+test("denying a version control directory itself still fails the preflight", async () => {
+  // arrange
+  const fixture = await realpath(await mkdtemp(join(tmpdir(), "pi-path-preflight-")));
+  const root = join(fixture, "repo");
+  const gitDirectory = join(root, ".git");
+  await mkdir(gitDirectory, { recursive: true });
+  const session = emptyRules();
+  session.read.deny.add(selectorKey(tree(gitDirectory)));
+
+  try {
+    // act & assert
+    await assert.rejects(preflightPath(authorizationFor(root, session), "recursive"), new RegExp(`rejected ${gitDirectory} `));
+  } finally {
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
+
 function authorizationFor(root: string, session: RuleSets): PathAuthorization {
   return {
     operationPath: root,

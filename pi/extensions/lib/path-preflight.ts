@@ -25,9 +25,16 @@ export async function preflightPath(authorization: PathAuthorization, scope: Gat
       const encountered = join(directory, entry.name);
       const verdict = evaluatePath(encountered, authorization);
       if (verdict !== "allow") throw new Error(`Path preflight rejected ${encountered} (${describeVerdict(verdict)}) while checking ${authorization.operationPath}.`);
-      if (entry.isDirectory() && scope === "recursive") queue.push(encountered);
+      if (entry.isDirectory() && scope === "recursive" && !isVcsDirectory(entry.name)) queue.push(encountered);
     }
   }
+}
+
+// Version control internals hold a large share of a repository's entries and only ever contain
+// history the repository root already grants read access to, so the walk does not descend into
+// them. The directory itself is still evaluated, so denying .git or .jj as a whole keeps working.
+function isVcsDirectory(name: string): boolean {
+  return name === ".git" || name === ".jj";
 }
 
 function evaluatePath(path: string, authorization: PathAuthorization) {
