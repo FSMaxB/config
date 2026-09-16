@@ -1,46 +1,86 @@
-import { lstat, readdir } from "node:fs/promises";
-import { join } from "node:path";
+import { spawn } from "node:child_process";
+import { lstat } from "node:fs/promises";
+import { sep } from "node:path";
 import type { PathAuthorization, GatedScope } from "./path-permissions.ts";
-import { evaluate } from "./path-permission-rules.ts";
+import { evaluate, type Verdict } from "./path-permission-rules.ts";
+import { insideGitRepository, locateBinary } from "./search-binaries.ts";
 
 export async function preflightPath(authorization: PathAuthorization, scope: GatedScope, signal?: AbortSignal): Promise<void> {
   if (scope === "root") return;
-  const rootStats = await lstat(authorization.operationPath).catch((error) => { throw new Error(`Path preflight failed: ${error.message}`); });
+  const root = authorization.operationPath;
+  const rootStats = await lstat(root).catch((error) => { throw new Error(`Path preflight failed: ${error.message}`); });
   if (!rootStats.isDirectory()) return;
-  const queue = [authorization.operationPath];
-  while (queue.length > 0) {
-    if (signal?.aborted) throw new Error("Path preflight aborted");
-    const directory = queue.shift()!;
-    let entries;
-    try { entries = await readdir(directory, { withFileTypes: true }); }
-    catch (error) { throw new Error(`Path preflight failed: ${error instanceof Error ? error.message : String(error)}`); }
-    for (const entry of entries) {
-      if (signal?.aborted) throw new Error("Path preflight aborted");
-      // The gated tools never follow symlinks during discovery (fd and rg run without --follow),
-      // so a link only exposes its own name, which lives under the already authorized root.
-      // Resolving it would wrongly reject links such as Bazel's bazel-out pointing out of the repo.
-      if (entry.isSymbolicLink()) continue;
-      // The root is canonical and no symlink was crossed to reach this entry, so the joined
-      // path is canonical too and needs no per-entry resolution.
-      const encountered = join(directory, entry.name);
-      const verdict = evaluatePath(encountered, authorization);
-      if (verdict !== "allow") throw new Error(`Path preflight rejected ${encountered} (${describeVerdict(verdict)}) while checking ${authorization.operationPath}.`);
-      if (entry.isDirectory() && scope === "recursive" && !isVcsDirectory(entry.name)) queue.push(encountered);
-    }
-  }
+  const rejected = await firstRejectedEntry(root, scope, authorization, signal);
+  if (!rejected) return;
+  throw new Error(`Path preflight rejected ${rejected.path} (${describeVerdict(rejected.verdict)}) while checking ${root}.`);
 }
 
-// Version control internals hold a large share of a repository's entries and only ever contain
-// history the repository root already grants read access to, so the walk does not descend into
-// them. The directory itself is still evaluated, so denying .git or .jj as a whole keeps working.
-function isVcsDirectory(name: string): boolean {
-  return name === ".git" || name === ".jj";
+interface RejectedEntry { path: string; verdict: Exclude<Verdict, "allow"> }
+
+// fd is the discovery engine the find tool itself uses and rg shares its ignore semantics, so
+// enumerating with it yields exactly the entries a search would touch: .gitignore is honored,
+// symlinks are not followed (no --follow, and --type f/d excludes the links themselves), and
+// version control internals are pruned while the .git/.jj directory itself stays listed so a
+// rule denying it as a whole still applies.
+function firstRejectedEntry(root: string, scope: GatedScope, authorization: PathAuthorization, signal?: AbortSignal): Promise<RejectedEntry | undefined> {
+  const fd = locateBinary("fd", ["fdfind"]);
+  const args = ["--hidden", "--color=never", "--type", "f", "--type", "d", "--exclude", "**/.git/*", "--exclude", "**/.jj/*", "--print0"];
+  if (scope === "children") args.push("--max-depth", "1");
+  if (!insideGitRepository(root)) args.push("--no-require-git");
+  // A regex pattern, not --glob: "." matches every name.
+  args.push("--", ".", root);
+
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(new Error("Path preflight aborted")); return; }
+    const child = spawn(fd, args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stderrText = "", remainder = "", sawEntry = false;
+    let rejected: RejectedEntry | undefined;
+
+    const onAbort = () => child.kill();
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      if (rejected) return;
+      // --print0 output can be split mid-path across chunks; the last piece is always incomplete.
+      const pieces = (remainder + chunk.toString()).split("\0");
+      remainder = pieces.pop() ?? "";
+      for (const piece of pieces) {
+        if (piece === "") continue;
+        sawEntry = true;
+        const path = stripTrailingSeparator(piece);
+        const verdict = evaluatePath(path, authorization);
+        if (verdict === "allow") continue;
+        rejected = { path, verdict };
+        child.kill();
+        return;
+      }
+    });
+    child.stderr.on("data", (chunk: Buffer) => { stderrText += chunk.toString(); });
+    child.on("error", (error) => {
+      signal?.removeEventListener("abort", onAbort);
+      reject(new Error(`Path preflight failed: ${error.message}`));
+    });
+    child.on("close", (code) => {
+      signal?.removeEventListener("abort", onAbort);
+      if (signal?.aborted) { reject(new Error("Path preflight aborted")); return; }
+      if (rejected) { resolve(rejected); return; }
+      // Mirrors the find tool: fd exits non-zero for unreadable subtrees but still lists the rest,
+      // and whatever it could not read the search could not read either.
+      if (code !== 0 && !sawEntry) { reject(new Error(`Path preflight failed: ${stderrText.trim() || `fd exited with code ${code}`}`)); return; }
+      resolve(undefined);
+    });
+  });
 }
 
-function evaluatePath(path: string, authorization: PathAuthorization) {
+// fd prints directories with a trailing separator, which would never match an exact rule.
+function stripTrailingSeparator(path: string): string {
+  return path.length > 1 && path.endsWith(sep) ? path.slice(0, -1) : path;
+}
+
+function evaluatePath(path: string, authorization: PathAuthorization): Verdict {
   return evaluate(path, authorization.mode, { defaults: authorization.defaults, always: authorization.always, session: authorization.session });
 }
 
-function describeVerdict(verdict: "deny" | "prompt"): string {
+function describeVerdict(verdict: Exclude<Verdict, "allow">): string {
   return verdict === "deny" ? "denied by the path rules" : "not covered by the path rules";
 }
