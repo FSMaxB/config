@@ -7,6 +7,8 @@ import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-ag
 import { Type } from "typebox";
 import { execChecked } from "./lib/exec.ts";
 import { createLineSplitter } from "./lib/lines.ts";
+import { commitPlanFileForUser } from "./lib/plan-commit.ts";
+import { isInPlansDirectory } from "./lib/plan-file.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 
 const TIMEOUT = 60_000;
@@ -25,7 +27,8 @@ export default function (pi: ExtensionAPI) {
     description:
       "Open a crit review in the browser and block until the user submits it, then return their comments. " +
       "Give at most one target: paths, pr, range, url, html, plan or story. " +
-      "With no target this reviews the branch diff.",
+      "With no target this reviews the branch diff. " +
+      "A plan file inside the plans directory is committed there before the review opens.",
     promptSnippet: "Open a crit review and wait for the user's inline comments",
     promptGuidelines: [
       "Do not continue past a crit review until the user submits it, and address every unresolved comment before moving on.",
@@ -75,8 +78,12 @@ export default function (pi: ExtensionAPI) {
       ),
     }),
 
-    async execute(_toolCallId, params, signal, onUpdate) {
+    async execute(_toolCallId, params, signal, onUpdate, ctx) {
       const { args, slug } = reviewArgs(params);
+      const { plan } = params;
+      if (plan && isInPlansDirectory(plan)) {
+        await commitPlanFileForUser(pi, ctx, plan, "review");
+      }
       const recent: string[] = [];
 
       const { output, code } = await streamCrit(args, signal, (line) => {
