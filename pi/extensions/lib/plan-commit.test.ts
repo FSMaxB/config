@@ -49,12 +49,10 @@ test("commitInvocations for git stages and commits only the plan file", () => {
   assert.deepEqual(invocations.map((invocation) => invocation.args.slice(-2)), [["--", path], ["--", path]]);
 });
 
-test("commitMessage strips the extension", () => {
-  // arrange / act
-  const message = commitMessage("/plans/20260916-1628-plan.md");
-
-  // assert
-  assert.equal(message, "Submit plan: 20260916-1628-plan");
+test("commitMessage names the reason and strips the extension", () => {
+  // arrange / act / assert
+  assert.equal(commitMessage("/plans/20260916-1628-plan.md", "submit"), "Submit plan: 20260916-1628-plan");
+  assert.equal(commitMessage("/plans/20260916-1628-plan.md", "review"), "Review plan: 20260916-1628-plan");
 });
 
 test("isUnchanged treats whitespace-only status as clean", () => {
@@ -71,7 +69,7 @@ test("a fresh directory becomes a jj repository holding only the submitted plan"
   await writeFile(join(directory, "other.md"), "# Other\n");
 
   // act
-  const outcome = await commitPlanFile(realExecutor, planFile);
+  const outcome = await commitPlanFile(realExecutor, planFile, "submit");
 
   // assert
   assert.deepEqual(outcome, { kind: "committed", vcs: "jj" });
@@ -87,10 +85,10 @@ test("re-submitting an unchanged plan does not commit again", { skip: !(await ha
   const directory = await mkdtemp(join(tmpdir(), "plan-commit-"));
   const planFile = join(directory, "20260916-1628-plan.md");
   await writeFile(planFile, "# Plan\n");
-  await commitPlanFile(realExecutor, planFile);
+  await commitPlanFile(realExecutor, planFile, "submit");
 
   // act
-  const outcome = await commitPlanFile(realExecutor, planFile);
+  const outcome = await commitPlanFile(realExecutor, planFile, "submit");
 
   // assert
   assert.deepEqual(outcome, { kind: "unchanged", vcs: "jj" });
@@ -105,7 +103,7 @@ test("without jj a fresh directory becomes a git repository holding only the sub
   await writeFile(join(directory, "other.md"), "# Other\n");
 
   // act
-  const outcome = await commitPlanFile(withoutJj, planFile);
+  const outcome = await commitPlanFile(withoutJj, planFile, "submit");
 
   // assert
   assert.deepEqual(outcome, { kind: "committed", vcs: "git" });
@@ -124,10 +122,35 @@ test("an existing git-only repository is used as-is even when jj is available", 
   await writeFile(planFile, "# Plan\n");
 
   // act
-  const outcome = await commitPlanFile(realExecutor, planFile);
+  const outcome = await commitPlanFile(realExecutor, planFile, "submit");
 
   // assert
   assert.deepEqual(outcome, { kind: "committed", vcs: "git" });
+  await rm(directory, { recursive: true, force: true });
+});
+
+test("a review followed by a submit produces two commits with their own messages", { skip: !(await hasBinary("jj")) }, async () => {
+  // arrange
+  const directory = await mkdtemp(join(tmpdir(), "plan-commit-"));
+  const planFile = join(directory, "20260916-1628-plan.md");
+  await writeFile(planFile, "# Plan\n");
+  await commitPlanFile(realExecutor, planFile, "review");
+  await writeFile(planFile, "# Plan\n\nRevised.\n");
+
+  // act
+  const outcome = await commitPlanFile(realExecutor, planFile, "submit");
+
+  // assert
+  assert.deepEqual(outcome, { kind: "committed", vcs: "jj" });
+  const log = await realExecutor(
+    "jj",
+    ["-R", directory, "--no-pager", "log", "--no-graph", "-r", "all() ~ @ ~ root()", "-T", "description"],
+    directory,
+  );
+  assert.deepEqual(log.stdout.trim().split("\n").sort(), [
+    "Review plan: 20260916-1628-plan",
+    "Submit plan: 20260916-1628-plan",
+  ]);
   await rm(directory, { recursive: true, force: true });
 });
 
