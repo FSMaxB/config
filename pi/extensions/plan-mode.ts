@@ -1,5 +1,5 @@
 import { stat } from "node:fs/promises";
-import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
+import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type {
   AgentToolResult,
@@ -36,6 +36,7 @@ import {
   PLAN_HANDOFF_ENTRY_TYPE,
 } from "./lib/plan-handoff.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
+import { selectWithDefault } from "./lib/select-with-default.ts";
 import { serialize } from "./lib/ui-queue.ts";
 
 const PLAN_PATH = "plan_path";
@@ -629,14 +630,21 @@ export default function (pi: ExtensionAPI) {
     if (modelChoice === undefined) return notApproved(planPath);
     const selectedModel = models[modelOptions.indexOf(modelChoice)];
 
-    let level: ModelThinkingLevel = pi.getThinkingLevel();
+    // The session level may not exist on the target model, so the preselected
+    // entry is the clamped level; the "(current)" marker still tags the real one.
+    const currentLevel = pi.getThinkingLevel();
+    let level = clampThinkingLevel(selectedModel, currentLevel);
     const supportedLevels = getSupportedThinkingLevels(selectedModel);
     if (supportedLevels.length > 1) {
-      const currentLevel = level;
       const levelOptions = supportedLevels.map((candidate) =>
         candidate === currentLevel ? `${candidate} (current)` : candidate,
       );
-      const levelChoice = await ctx.ui.select("Thinking level", levelOptions);
+      const levelChoice = await selectWithDefault(
+        ctx.ui,
+        "Thinking level",
+        levelOptions,
+        levelOptions[supportedLevels.indexOf(level)],
+      );
       if (levelChoice !== undefined) {
         level = supportedLevels[levelOptions.indexOf(levelChoice)];
       }
@@ -652,12 +660,14 @@ export default function (pi: ExtensionAPI) {
     ctx: ExtensionContext,
   ): Promise<AgentToolResult<{ path: string; outcome: string }>> {
     const modelName = `${selectedModel.provider}/${selectedModel.id}`;
-    const choice = await ctx.ui.select(
+    const choice = await selectWithDefault(
+      ctx.ui,
       `How should ${modelName} start?\n\n` +
         "  Full context keeps the whole conversation, plan text included.\n" +
         "  Compact aborts this turn, summarizes, and implements from the summary plus the plan file.\n" +
         "  Fresh session abandons this conversation entirely; the new session only gets the plan file path.",
       [CONTEXT_FULL, CONTEXT_COMPACT, CONTEXT_FRESH],
+      CONTEXT_FRESH,
     );
 
     if (choice === CONTEXT_FRESH) {
