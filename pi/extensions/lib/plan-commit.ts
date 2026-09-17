@@ -1,4 +1,5 @@
 import { dirname, basename, relative } from "node:path";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { detectVcs } from "./repo.ts";
 
 export interface CommandResult {
@@ -24,12 +25,34 @@ export type CommitOutcome =
   | { kind: "committed"; vcs: RepositoryKind }
   | { kind: "unchanged"; vcs: RepositoryKind };
 
+export type CommitReason = "submit" | "review";
+
+// The commit is bookkeeping for the user, not something the model can act on, so
+// failures surface as a UI warning and never change the tool result.
+export async function commitPlanFileForUser(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  planFile: string,
+  reason: CommitReason,
+): Promise<void> {
+  const TIMEOUT_MS = 30_000;
+  const execute: Executor = (command, args, cwd) =>
+    pi.exec(command, args, { cwd, timeout: TIMEOUT_MS });
+  try {
+    await commitPlanFile(execute, planFile, reason);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    ctx.ui.notify(`Plan file not committed: ${message}`, "warning");
+  }
+}
+
 // Commits exactly the plan file into the repository containing it, creating one in the
 // plan directory when there is none. Throws on any command failure; the caller decides
 // how loud to be about it.
 export async function commitPlanFile(
   execute: Executor,
   planFile: string,
+  reason: CommitReason,
 ): Promise<CommitOutcome> {
   const directory = dirname(planFile);
   const detected = detectVcs(directory);
@@ -49,7 +72,7 @@ export async function commitPlanFile(
   const status = await run(execute, statusInvocation(vcs, root, path), root);
   if (isUnchanged(status.stdout)) return { kind: "unchanged", vcs };
 
-  for (const invocation of commitInvocations(vcs, root, path, commitMessage(planFile))) {
+  for (const invocation of commitInvocations(vcs, root, path, commitMessage(planFile, reason))) {
     await run(execute, invocation, root);
   }
   return { kind: "committed", vcs };
@@ -90,8 +113,9 @@ export function commitInvocations(
   ];
 }
 
-export function commitMessage(planFile: string): string {
-  return `Submit plan: ${basename(planFile, ".md")}`;
+export function commitMessage(planFile: string, reason: CommitReason): string {
+  const prefix = reason === "submit" ? "Submit plan" : "Review plan";
+  return `${prefix}: ${basename(planFile, ".md")}`;
 }
 
 // -R / -C pin the command to the detected root the same way lib/vcs.ts does, so the
