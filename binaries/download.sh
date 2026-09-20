@@ -24,12 +24,89 @@ TUICR_RAW_URL="https://raw.githubusercontent.com/agavra/tuicr/v${TUICR_VERSION}/
 CRIT_VERSION="0.19.1"
 CRIT_BASE_URL="https://github.com/tomasz-tomczyk/crit/releases/download/v${CRIT_VERSION}"
 
+# Every tool spells the same platform differently, and bat, jj and tuicr publish no
+# checksum assets at all, so each platform keeps its identifier spellings and its pinned
+# digests together.
+function download_platform() {
+	local PLATFORM="$1"
+	local TRIPLE JQ_NAME CRIT_NAME BAT_SHA256 JJ_SHA256 TUICR_SHA256
+	case "${PLATFORM}" in
+		Linux/aarch64)
+			TRIPLE="aarch64-unknown-linux-musl"
+			JQ_NAME="linux-arm64"
+			CRIT_NAME="linux-arm64"
+			BAT_SHA256="6369242c584065f195fb20cb36fbd7cb63ae690605bbe89868a7596b596c2c23"
+			JJ_SHA256="7349a43dd5a20dbc998b10114daa0ee63d2ab863fb822c7eb6b0ebca5903cc69"
+			TUICR_SHA256="c299c0c2c4fbcfb66c7d957def41e6f5d8434cc5dad413538f29057bfc3a1b44"
+			;;
+		Linux/x86_64)
+			TRIPLE="x86_64-unknown-linux-musl"
+			JQ_NAME="linux-amd64"
+			CRIT_NAME="linux-amd64"
+			BAT_SHA256="0dcd8ac79732c0d5b136f11f4ee00e581440e16a44eab5b3105b611bbf2cf191"
+			JJ_SHA256="f35438350b5d61963aac5dd74ede510b31d6b9690769d1a6268cf058cc825f72"
+			TUICR_SHA256="e7080ad46507559951d4a57db3d7cd2e33ec4c55dc0d48cd44d45e98b48ba624"
+			;;
+		Darwin/arm64)
+			TRIPLE="aarch64-apple-darwin"
+			JQ_NAME="macos-arm64"
+			CRIT_NAME="darwin-arm64"
+			BAT_SHA256="e30beff26779c9bf60bb541e1d79046250cb74378f2757f8eb250afddb19e114"
+			JJ_SHA256="51ba42e3d0682616f6eb015045bfe45289b396f03511f9897f645ce8e9272743"
+			TUICR_SHA256="3a74ce242e1e8f70bfbf90db8aaf69daaf02480e4925f8013af11c54a06d9b07"
+			;;
+		Darwin/x86_64)
+			TRIPLE="x86_64-apple-darwin"
+			JQ_NAME="macos-amd64"
+			CRIT_NAME="darwin-amd64"
+			BAT_SHA256="830d63b0bba1fa040542ec569e3cf77f60d3356b9de75116a344b061e0894245"
+			JJ_SHA256="6171582d0b5a98a1005cd9643faebff7936812ec264d7968a39d9cef3654a99b"
+			TUICR_SHA256="509b4c82dbc868e7bca7e578137881997abf156a3cc05db343597cb707da37a5"
+			;;
+		*)
+			echo "unsupported platform ${PLATFORM}" >&2
+			exit 1
+			;;
+	esac
+
+	local OUTDIR="${BINARIES_DIR}/${PLATFORM}"
+	mkdir -p "${OUTDIR}"
+
+	# NOTE: Using musl on Linux because those binaries are statically linked. This
+	# prevents glibc issues.
+	download_starship "${TRIPLE}" "${OUTDIR}"
+	download_zellij "${TRIPLE}" "${OUTDIR}"
+	download_bat "${TRIPLE}" "${OUTDIR}" "${BAT_SHA256}"
+	download_jj "${TRIPLE}" "${OUTDIR}" "${JJ_SHA256}"
+	download_jq "${JQ_NAME}" "${OUTDIR}"
+	download_crit "${CRIT_NAME}" "${OUTDIR}"
+	download_tuicr "${TRIPLE}" "${OUTDIR}" "${TUICR_SHA256}"
+}
+
+# macOS reports arm64 where Linux reports aarch64. The directory layout follows `uname` on
+# each so that .shellrc-common can build its PATH entry from it directly.
+function host_platform() {
+	local PLATFORM
+	PLATFORM="$(uname -s)/$(uname -m)"
+	case "${PLATFORM}" in
+		Linux/aarch64|Linux/x86_64|Darwin/arm64|Darwin/x86_64)
+			echo "${PLATFORM}"
+			;;
+		*)
+			echo "unsupported platform ${PLATFORM}" >&2
+			exit 1
+			;;
+	esac
+}
+
 function download_starship() {
 	local PLATFORM="$1"
+	local OUTDIR="$2"
 	local TARBALL="starship-${PLATFORM}.tar.gz"
 	curl -fL --output "${TARBALL}" "${STARSHIP_BASE_URL}/${TARBALL}"
 	curl -fL --output "${TARBALL}.sha256" "${STARSHIP_BASE_URL}/${TARBALL}.sha256"
 	verify "${TARBALL}" "$(cut -d' ' -f1 "${TARBALL}.sha256")"
+	tar --directory "${OUTDIR}" -xf "${TARBALL}"
 }
 
 # Unlike starship, zellij publishes the digest of the *extracted* binary rather
@@ -47,9 +124,9 @@ function download_zellij() {
 	verify "${OUTDIR}/zellij" "$(cut -d' ' -f1 "${DIGEST}")"
 }
 
-# bat publishes no checksum assets at all; the digests passed in below are
-# pinned from the sha256 digests in the GitHub release asset metadata. The
-# tarball nests everything in a directory, so extract just the binary.
+# bat publishes no checksum assets at all; the digests passed in above are pinned
+# from the sha256 digests in the GitHub release asset metadata. The tarball nests
+# everything in a directory, so extract just the binary.
 function download_bat() {
 	local PLATFORM="$1"
 	local OUTDIR="$2"
@@ -74,11 +151,12 @@ function download_jj() {
 }
 
 # jq publishes raw binaries instead of tarballs, plus a single sha256sum.txt
-# covering all of them (downloaded once as jq-sha256sum.txt below).
+# covering all of them.
 function download_jq() {
 	local PLATFORM="$1"
 	local OUTDIR="$2"
 	local BINARY="jq-${PLATFORM}"
+	curl -fL --output jq-sha256sum.txt "${JQ_BASE_URL}/sha256sum.txt"
 	curl -fL --output "${BINARY}" "${JQ_BASE_URL}/${BINARY}"
 	verify "${BINARY}" "$(grep " ${BINARY}\$" jq-sha256sum.txt | cut -d' ' -f1)"
 	install -m 755 "${BINARY}" "${OUTDIR}/jq"
@@ -91,13 +169,14 @@ function download_crit() {
 	local PLATFORM="$1"
 	local OUTDIR="$2"
 	local BINARY="crit-${PLATFORM}"
+	curl -fL --output checksums.txt "${CRIT_BASE_URL}/checksums.txt"
 	curl -fL --output "${BINARY}" "${CRIT_BASE_URL}/${BINARY}"
 	verify "${BINARY}" "$(grep " ${BINARY}\$" checksums.txt | cut -d' ' -f1)"
 	install -m 755 "${BINARY}" "${OUTDIR}/crit"
 }
 
 # tuicr publishes no checksum assets, so its release asset metadata digests are
-# pinned here. Each tarball contains only the binary at its root.
+# pinned above. Each tarball contains only the binary at its root.
 function download_tuicr() {
 	local PLATFORM="$1"
 	local OUTDIR="$2"
@@ -118,7 +197,7 @@ function download_tuicr_skill() {
 	local DOWNLOAD="tuicr-skill-${FILE}"
 	curl -fL --output "${DOWNLOAD}" "${TUICR_RAW_URL}/${FILE}"
 	verify "${DOWNLOAD}" "${SHA256}"
-	install -m "${MODE}" "${DOWNLOAD}" "../tuicr-skill/${FILE}"
+	install -m "${MODE}" "${DOWNLOAD}" "${BINARIES_DIR}/../tuicr-skill/${FILE}"
 }
 
 # Verify a downloaded file against its expected sha256 digest before we trust
@@ -138,53 +217,27 @@ function verify() {
 	fi
 }
 
-mkdir -p Darwin/{arm64,x86_64} Linux/{aarch64,x86_64}
+BINARIES_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# NOTE: Using musl because the binaries are statically linked. This prevents glibc issues.
-download_starship aarch64-unknown-linux-musl
-download_starship x86_64-unknown-linux-musl
-download_starship aarch64-apple-darwin
-download_starship x86_64-apple-darwin
+if [[ "${1:-}" == "--all" ]]; then
+	PLATFORMS=(Linux/aarch64 Linux/x86_64 Darwin/arm64 Darwin/x86_64)
+else
+	PLATFORMS=("$(host_platform)")
+fi
 
-tar --directory Darwin/arm64 -xf starship-aarch64-apple-darwin.tar.gz
-tar --directory Darwin/x86_64 -xf starship-x86_64-apple-darwin.tar.gz
-tar --directory Linux/aarch64 -xf starship-aarch64-unknown-linux-musl.tar.gz
-tar --directory Linux/x86_64 -xf starship-x86_64-unknown-linux-musl.tar.gz
+# Downloads and unpacked intermediates land in a scratch directory so that a failed or
+# interrupted run leaves nothing behind in the repo.
+SCRATCH="$(mktemp -d)"
+trap 'rm -rf "${SCRATCH}"' EXIT
+cd "${SCRATCH}"
 
-download_zellij aarch64-unknown-linux-musl Linux/aarch64
-download_zellij x86_64-unknown-linux-musl Linux/x86_64
-download_zellij aarch64-apple-darwin Darwin/arm64
-download_zellij x86_64-apple-darwin Darwin/x86_64
+for PLATFORM in "${PLATFORMS[@]}"; do
+	download_platform "${PLATFORM}"
+done
 
-download_bat aarch64-unknown-linux-musl Linux/aarch64 6369242c584065f195fb20cb36fbd7cb63ae690605bbe89868a7596b596c2c23
-download_bat x86_64-unknown-linux-musl Linux/x86_64 0dcd8ac79732c0d5b136f11f4ee00e581440e16a44eab5b3105b611bbf2cf191
-download_bat aarch64-apple-darwin Darwin/arm64 e30beff26779c9bf60bb541e1d79046250cb74378f2757f8eb250afddb19e114
-download_bat x86_64-apple-darwin Darwin/x86_64 830d63b0bba1fa040542ec569e3cf77f60d3356b9de75116a344b061e0894245
-
-download_jj aarch64-unknown-linux-musl Linux/aarch64 7349a43dd5a20dbc998b10114daa0ee63d2ab863fb822c7eb6b0ebca5903cc69
-download_jj x86_64-unknown-linux-musl Linux/x86_64 f35438350b5d61963aac5dd74ede510b31d6b9690769d1a6268cf058cc825f72
-download_jj aarch64-apple-darwin Darwin/arm64 51ba42e3d0682616f6eb015045bfe45289b396f03511f9897f645ce8e9272743
-download_jj x86_64-apple-darwin Darwin/x86_64 6171582d0b5a98a1005cd9643faebff7936812ec264d7968a39d9cef3654a99b
-
-curl -fL --output jq-sha256sum.txt "${JQ_BASE_URL}/sha256sum.txt"
-download_jq linux-arm64 Linux/aarch64
-download_jq linux-amd64 Linux/x86_64
-download_jq macos-arm64 Darwin/arm64
-download_jq macos-amd64 Darwin/x86_64
-
-# crit publishes raw binaries and a checksums.txt file.
-curl -fL --output checksums.txt "${CRIT_BASE_URL}/checksums.txt"
-download_crit darwin-arm64 Darwin/arm64
-download_crit darwin-amd64 Darwin/x86_64
-download_crit linux-arm64 Linux/aarch64
-download_crit linux-amd64 Linux/x86_64
-
-download_tuicr aarch64-unknown-linux-musl Linux/aarch64 c299c0c2c4fbcfb66c7d957def41e6f5d8434cc5dad413538f29057bfc3a1b44
-download_tuicr x86_64-unknown-linux-musl Linux/x86_64 e7080ad46507559951d4a57db3d7cd2e33ec4c55dc0d48cd44d45e98b48ba624
-download_tuicr aarch64-apple-darwin Darwin/arm64 3a74ce242e1e8f70bfbf90db8aaf69daaf02480e4925f8013af11c54a06d9b07
-download_tuicr x86_64-apple-darwin Darwin/x86_64 509b4c82dbc868e7bca7e578137881997abf156a3cc05db343597cb707da37a5
-
-mkdir -p ../tuicr-skill
+# The tuicr Claude skill is plain text and platform independent, so it is fetched once and
+# stays checked in.
+mkdir -p "${BINARIES_DIR}/../tuicr-skill"
 download_tuicr_skill SKILL.md 644 3a29ecc43792496af8ca46cf6ac4062b0717b042461edb430b7154f03ed971e4
 download_tuicr_skill tuicr-wrapper.sh 755 a8ff39f3967a4109de9221849cff82ba80e38a74d636086d8f1d87e45aff5efc
 download_tuicr_skill tuicr-wrapper-zellij.sh 755 95d4f8eb41dc8ff48c2bd46736fe6a2c52150e7e79615013d68f6d442391b36d
