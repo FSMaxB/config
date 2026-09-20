@@ -1,6 +1,3 @@
-*.tar.gz
-*.tar.gz.sha256
-jq-linux-*
-jq-macos-*
-jq-sha256sum.txt
-tuicr-skill-*
+# Downloaded by download.sh.
+/Darwin/
+/Linux/

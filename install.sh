@@ -86,6 +86,14 @@ if [[ -L ~/.pi/agent/keybindings.json || ! -e ~/.pi/agent/keybindings.json ]]; t
   ln -sfnv ~/config/pi/keybindings.json ~/.pi/agent/keybindings.json
 fi
 
+platform_binaries=~/config/binaries/$(uname -s)/$(uname -m)
+for tool in bat crit jj jq starship tuicr zellij; do
+  if [[ ! -x "${platform_binaries}/${tool}" ]]; then
+    ~/config/binaries/download.sh || echo "binaries/download.sh failed, ${platform_binaries} is incomplete"
+    break
+  fi
+done
+
 if hash git 2>/dev/null; then
   git config --global init.templatedir '~/.git_template'
   git config --global color.ui true

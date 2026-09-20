@@ -12,7 +12,9 @@ Symlinks configs into `$HOME`, sets global git config, and syncs vim (vim-plug) 
 
 ## Binaries
 
-`binaries/download.sh` pins tool versions via the `*_VERSION` variables at the top, verifies checksums, and extracts binaries into `binaries/<OS>/<arch>/`. To bump a version: edit the variable, re-run the script.
+`binaries/download.sh` pins tool versions via the `*_VERSION` variables at the top, verifies checksums, and extracts binaries into `binaries/<OS>/<arch>/`. Those directories are gitignored: the binaries are not committed, and `install.sh` runs the script whenever one of the expected tools is missing for the host platform.
+
+By default the script only downloads the host platform; `--all` gets all four. Downloads happen in a scratch directory, so nothing is left behind in `binaries/` on failure. To bump a version: edit the `*_VERSION` variable, and for bat, jj and tuicr also the pinned digests in `download_platform` (they publish no checksum assets), then re-run the script.
 
 ## pi extensions
 
