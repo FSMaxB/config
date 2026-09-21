@@ -9,6 +9,7 @@ import {
   formatSize,
   truncateHead,
 } from "@earendil-works/pi-coding-agent";
+import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { execChecked } from "./lib/exec.ts";
 import { formatJjAnnotate, JJ_ANNOTATE_TEMPLATE } from "./lib/jj-annotate.ts";
@@ -27,6 +28,7 @@ const PATHS_NOTE =
 const NARROW_HINT =
   "pass stat: true to see which files changed, then paths to narrow the output";
 const PAGE_HINT = "pass offset/limit to page through the rest";
+const PATTERN_HINT = "pass a pattern to narrow the list";
 
 const CAP_NOTE =
   `Output is truncated to ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB, ` +
@@ -149,6 +151,58 @@ export default function (pi: ExtensionAPI) {
         limitChangedFiles(output, limit),
         "pass a larger limit only if you need the full list",
       );
+    },
+  });
+
+  pi.registerTool({
+    name: "vcs_branches",
+    label: "VCS branches",
+    description:
+      "List branches (git) or bookmarks (jj) with the revision each one points at. " +
+      "By default only local names are listed; scope: all adds every remote-tracking branch or bookmark. " +
+      "In a jj repository an indented @remote line shows the remote's copy of a bookmark when it differs from the local one, " +
+      "and (deleted) marks a bookmark deleted locally but still present on a remote. " +
+      "In a git repository the current branch is marked with * and each line shows the upstream and how far ahead or behind it is. " +
+      CAP_NOTE,
+    promptSnippet: "List branches or bookmarks and the revisions they point at",
+    parameters: Type.Object({
+      scope: Type.Optional(
+        StringEnum(["local", "all"] as const, {
+          description:
+            "local lists local branches or bookmarks; all also lists remote-tracking ones. Default: local",
+        }),
+      ),
+      pattern: Type.Optional(
+        Type.String({
+          description:
+            "Glob matched against the branch or bookmark name, e.g. 'feature/*'",
+        }),
+      ),
+      revisions: Type.Optional(
+        Type.String({
+          description:
+            "Only list names pointing at these revisions: a jj revset, or a single git commit-ish",
+        }),
+      ),
+    }),
+
+    async execute(_toolCallId, params, signal) {
+      const { scope = "local", pattern, revisions } = params;
+      const jj = ["bookmark", "list"];
+      const git = ["branch", "-vv"];
+      if (scope === "all") {
+        jj.push("--all-remotes");
+        git.push("--all");
+      }
+      if (revisions) {
+        jj.push("-r", revisions);
+        git.push("--points-at", revisions);
+      }
+      if (pattern) {
+        jj.push(pattern);
+        git.push("--list", pattern);
+      }
+      return await report(pi, jj, git, signal, undefined, PATTERN_HINT);
     },
   });
 

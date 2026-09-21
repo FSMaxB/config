@@ -31,8 +31,9 @@ This skill is written for the Pi coding agent. Tool names below are Pi's
 1. Detect the VCS with `vcs_info`.
 
 2. Resolve the ref the user named with `vcs_log`. Try the name as given, then
-   the remote form (jj: `name@origin`; git: `origin/name`). If both fail, the
-   error lists the nearest matches; show them and ask which one is meant.
+   the remote form (jj: `name@origin`; git: `origin/name`). If both fail, list
+   candidates with `vcs_branches` (`scope: all`, `pattern` built from the
+   name, e.g. `*login*`), show them and ask which one is meant.
 
 3. List the commits under review with `vcs_log` and `revisions: main..<ref>`
    (substitute the trunk name if the repository uses another). Report the
