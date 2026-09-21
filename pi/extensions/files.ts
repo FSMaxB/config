@@ -14,6 +14,7 @@ import {
   createReadToolDefinition,
   createWriteToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import {
   gatedTool,
@@ -21,7 +22,11 @@ import {
   PathResolution,
 } from "./lib/path-permissions.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
-import { createFindExecute, createGrepExecute } from "./lib/search-tools.ts";
+import {
+  createFindExecute,
+  createGrepExecute,
+  createLsExecute,
+} from "./lib/search-tools.ts";
 
 const ACCESS_NOTE =
   "Paths are checked against the read/write path rules: the repository and the memory, skill, plan and crit directories are allowed by default, anything else prompts the user, and denied paths error.";
@@ -54,22 +59,32 @@ export default function (pi: ExtensionAPI) {
   registerToolWithGuidelines(
     pi,
     withNote(
-      gatedTool(createLsToolDefinition(cwd), "read", PathResolution.Follow, "children"),
-      "Use ls to list a directory instead of shelling out to ls. Pass limit to change the entry cap.",
+      gatedTool(lsDefinition(cwd), "read", PathResolution.Follow, "children"),
+      'Before a potentially broad ls operation, use output="count" to measure it; do not shell out to ls plus wc -l. Pass limit to change the returned entry cap in results mode.',
     ),
   );
   registerToolWithGuidelines(
     pi,
     withNote(
-      gatedTool(findDefinition(cwd), "read", PathResolution.Follow, "recursive"),
-      "Use find to locate files by glob instead of shelling out to find or fd.",
+      gatedTool(
+        findDefinition(cwd),
+        "read",
+        PathResolution.Follow,
+        "recursive",
+      ),
+      'Before a potentially broad find operation, use output="count" to measure it; do not shell out to find or fd plus wc -l.',
     ),
   );
   registerToolWithGuidelines(
     pi,
     withNote(
-      gatedTool(grepDefinition(cwd), "read", PathResolution.Follow, "recursive"),
-      "Use grep to search file contents instead of shelling out to grep or rg.",
+      gatedTool(
+        grepDefinition(cwd),
+        "read",
+        PathResolution.Follow,
+        "recursive",
+      ),
+      'Before a potentially broad grep operation, use output="count" to measure it; do not shell out to grep or rg plus wc -l.',
     ),
   );
   registerToolWithGuidelines(
@@ -96,6 +111,23 @@ function withNote(
   };
 }
 
+function lsDefinition(cwd: string): ToolDefinition<any, any, any> {
+  const stockDefinition = createLsToolDefinition(cwd) as ToolDefinition<
+    any,
+    any,
+    any
+  >;
+  return {
+    ...stockDefinition,
+    description:
+      "List directory contents. Returns entries sorted alphabetically, with '/' suffix for directories. " +
+      "Includes dotfiles. Output is truncated to 500 entries or 50KB (whichever is hit first). " +
+      'Use output="count" to return only the exact number of immediate entries, omitting names and ignoring limit.',
+    parameters: lsParameters,
+    execute: createLsExecute(cwd, stockDefinition.execute),
+  };
+}
+
 function findDefinition(cwd: string): ToolDefinition<any, any, any> {
   return {
     ...(createFindToolDefinition(cwd) as ToolDefinition<any, any, any>),
@@ -103,7 +135,8 @@ function findDefinition(cwd: string): ToolDefinition<any, any, any> {
       "Search for files by glob pattern. Results are grouped by directory relative to the search " +
       "directory: an unindented 'dir/' line ('./' for the top level), then indented basenames. " +
       "Respects .gitignore. Output is truncated to 1000 results or 50KB (whichever is hit first). " +
-      "Pass type ('file', 'directory' or 'symlink') to restrict what kind of entries are returned (like find -type).",
+      "Pass type ('file', 'directory' or 'symlink') to restrict what kind of entries are returned (like find -type). " +
+      'Use output="count" to return only the exact number of matching entries, omitting paths and ignoring limit.',
     parameters: findParameters,
     execute: createFindExecute(cwd),
   };
@@ -116,7 +149,8 @@ function grepDefinition(cwd: string): ToolDefinition<any, any, any> {
       "Search file contents for a pattern. Matches are grouped by file: an unindented path line, " +
       "then indented 'line: text' rows for that file (context rows use 'line- text'). Respects .gitignore. " +
       "Output is truncated to 100 matches or 50KB (whichever is hit first). Long lines are truncated to 500 chars. " +
-      "Set filesOnly to return only the paths of files containing matches (like grep -l); limit then counts files and context is ignored.",
+      "Set filesOnly to return only the paths of files containing matches (like grep -l); limit then counts files and context is ignored. " +
+      'Use output="count" to return only the exact number of matches (or files with matches), omitting lines and ignoring limit.',
     parameters: grepParameters,
     execute: createGrepExecute(cwd),
   };
@@ -155,6 +189,28 @@ function deleteDefinition(): ToolDefinition<any, any, any> {
   };
 }
 
+const outputParameter = Type.Optional(
+  StringEnum(["results", "count"] as const, {
+    description:
+      "Return matching results, or only their exact count (default: results)",
+  }),
+);
+
+const lsParameters = Type.Object({
+  path: Type.Optional(
+    Type.String({
+      description: "Directory to list (default: current directory)",
+    }),
+  ),
+  limit: Type.Optional(
+    Type.Number({
+      description:
+        "Maximum number of entries to return (default: 500); ignored when output is count",
+    }),
+  ),
+  output: outputParameter,
+});
+
 const findParameters = Type.Object({
   pattern: Type.String({
     description:
@@ -166,8 +222,12 @@ const findParameters = Type.Object({
     }),
   ),
   limit: Type.Optional(
-    Type.Number({ description: "Maximum number of results (default: 1000)" }),
+    Type.Number({
+      description:
+        "Maximum number of results to return (default: 1000); ignored when output is count",
+    }),
   ),
+  output: outputParameter,
   type: Type.Optional(
     Type.Union(
       [
@@ -175,7 +235,9 @@ const findParameters = Type.Object({
         Type.Literal("directory"),
         Type.Literal("symlink"),
       ],
-      { description: "Restrict results to this entry type (default: all types)" },
+      {
+        description: "Restrict results to this entry type (default: all types)",
+      },
     ),
   ),
 });
@@ -191,7 +253,8 @@ const grepParameters = Type.Object({
   ),
   glob: Type.Optional(
     Type.String({
-      description: "Filter files by glob pattern, e.g. '*.ts' or '**/*.spec.ts'",
+      description:
+        "Filter files by glob pattern, e.g. '*.ts' or '**/*.spec.ts'",
     }),
   ),
   ignoreCase: Type.Optional(
@@ -199,17 +262,20 @@ const grepParameters = Type.Object({
   ),
   literal: Type.Optional(
     Type.Boolean({
-      description: "Treat pattern as literal string instead of regex (default: false)",
+      description:
+        "Treat pattern as literal string instead of regex (default: false)",
     }),
   ),
   context: Type.Optional(
     Type.Number({
-      description: "Number of lines to show before and after each match (default: 0)",
+      description:
+        "Number of lines to show before and after each match (default: 0)",
     }),
   ),
   limit: Type.Optional(
     Type.Number({
-      description: "Maximum number of matches to return (default: 100)",
+      description:
+        "Maximum number of matches to return (default: 100); ignored when output is count",
     }),
   ),
   filesOnly: Type.Optional(
@@ -218,4 +284,5 @@ const grepParameters = Type.Object({
         "Return only the paths of files containing matches, like grep -l; limit counts files and context is ignored (default: false)",
     }),
   ),
+  output: outputParameter,
 });

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { readFile, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
@@ -26,6 +26,7 @@ export interface GrepParams {
   context?: number;
   limit?: number;
   filesOnly?: boolean;
+  output?: "results" | "count";
 }
 
 export function createGrepExecute(
@@ -45,6 +46,7 @@ export function createGrepExecute(
         context,
         limit,
         filesOnly,
+        output,
       } = params as GrepParams;
 
       if (signal?.aborted) {
@@ -73,7 +75,10 @@ export function createGrepExecute(
           }
 
           const contextValue = context && context > 0 ? context : 0;
-          const effectiveLimit = Math.max(1, limit ?? DEFAULT_LIMIT);
+          const countOnly = output === "count";
+          const effectiveLimit = countOnly
+            ? undefined
+            : Math.max(1, limit ?? DEFAULT_LIMIT);
 
           const formatPath = (filePath: string) => {
             if (isDirectory) {
@@ -143,21 +148,23 @@ export function createGrepExecute(
             stderrText += chunk.toString();
           });
 
-          const matchedPaths: string[] = [];
-          const matches: {
-            filePath: string;
-            lineNumber: number;
-            lineText?: string;
-          }[] = [];
+          const matchedPaths = countOnly ? undefined : ([] as string[]);
+          const matches = countOnly
+            ? undefined
+            : ([] as {
+                filePath: string;
+                lineNumber: number;
+                lineText?: string;
+              }[]);
 
           lineReader.on("line", (line) => {
-            if (matchCount >= effectiveLimit) return;
+            if (!countOnly && matchCount >= effectiveLimit!) return;
 
             if (filesOnly) {
               const filePath = line.replace(/\r$/, "").trim();
               if (!filePath) return;
               matchCount++;
-              matchedPaths.push(formatPath(filePath));
+              matchedPaths?.push(formatPath(filePath));
             } else {
               if (!line.trim()) return;
               let event: any;
@@ -172,11 +179,11 @@ export function createGrepExecute(
               const lineNumber = event.data?.line_number;
               const lineText = event.data?.lines?.text;
               if (filePath && typeof lineNumber === "number") {
-                matches.push({ filePath, lineNumber, lineText });
+                matches?.push({ filePath, lineNumber, lineText });
               }
             }
 
-            if (matchCount >= effectiveLimit) {
+            if (!countOnly && matchCount >= effectiveLimit!) {
               matchLimitReached = true;
               stopChild(true);
             }
@@ -201,6 +208,20 @@ export function createGrepExecute(
               settle(() => reject(new Error(message)));
               return;
             }
+            if (countOnly) {
+              settle(() =>
+                resolve({
+                  content: [
+                    {
+                      type: "text",
+                      text: `${matchCount} ${filesOnly ? "files with matches" : "matches"}`,
+                    },
+                  ],
+                  details: undefined,
+                }),
+              );
+              return;
+            }
             if (matchCount === 0) {
               settle(() =>
                 resolve({
@@ -213,7 +234,7 @@ export function createGrepExecute(
 
             const outputLines: string[] = [];
             if (filesOnly) {
-              outputLines.push(...matchedPaths);
+              outputLines.push(...matchedPaths!);
             } else {
               const rowsByFile = new Map<string, string[]>();
               const rowsFor = (relativePath: string) => {
@@ -225,7 +246,7 @@ export function createGrepExecute(
                 return rows;
               };
 
-              for (const { filePath, lineNumber, lineText } of matches) {
+              for (const { filePath, lineNumber, lineText } of matches!) {
                 const rows = rowsFor(formatPath(filePath));
                 if (contextValue === 0 && lineText !== undefined) {
                   const sanitized = lineText
@@ -317,6 +338,13 @@ export interface FindParams {
   path?: string;
   limit?: number;
   type?: "file" | "directory" | "symlink";
+  output?: "results" | "count";
+}
+
+export interface LsParams {
+  path?: string;
+  limit?: number;
+  output?: "results" | "count";
 }
 
 export function createFindExecute(
@@ -327,7 +355,13 @@ export function createFindExecute(
 
   return (_toolCallId, params, signal) =>
     new Promise((resolve, reject) => {
-      const { pattern, path: searchDir, limit, type } = params as FindParams;
+      const {
+        pattern,
+        path: searchDir,
+        limit,
+        type,
+        output,
+      } = params as FindParams;
 
       if (signal?.aborted) {
         reject(new Error("Operation aborted"));
@@ -353,13 +387,16 @@ export function createFindExecute(
         try {
           const fd = locateBinary("fd", ["fdfind"]);
           const searchPath = resolvePath(searchDir || ".", cwd);
-          const effectiveLimit = limit ?? DEFAULT_LIMIT;
+          const countOnly = output === "count";
+          const effectiveLimit = countOnly
+            ? undefined
+            : (limit ?? DEFAULT_LIMIT);
 
           const args = ["--glob", "--color=never", "--hidden"];
           if (!insideGitRepository(searchPath)) args.push("--no-require-git");
 
           if (type) args.push("--type", FD_TYPES[type]);
-          args.push("--max-results", String(effectiveLimit));
+          if (!countOnly) args.push("--max-results", String(effectiveLimit));
 
           // fd --glob matches against the basename unless --full-path is set; in --full-path
           // mode it matches against the absolute candidate path, so a path-containing
@@ -381,6 +418,8 @@ export function createFindExecute(
           const lineReader = createInterface({ input: child.stdout });
 
           let stderrText = "";
+          let resultCount = 0;
+          let hasOutput = false;
           const lines: string[] = [];
 
           stopChild = () => {
@@ -391,6 +430,13 @@ export function createFindExecute(
             stderrText += chunk.toString();
           });
           lineReader.on("line", (line) => {
+            if (countOnly) {
+              if (line.replace(/\r$/, "").trim()) {
+                resultCount++;
+                hasOutput = true;
+              }
+              return;
+            }
             lines.push(line);
           });
 
@@ -408,13 +454,25 @@ export function createFindExecute(
               return;
             }
 
-            const output = lines.join("\n");
-            if (code !== 0 && !output) {
-              const message = stderrText.trim() || `fd exited with code ${code}`;
+            const rawOutput = lines.join("\n");
+            if (code !== 0 && !(countOnly ? hasOutput : rawOutput)) {
+              const message =
+                stderrText.trim() || `fd exited with code ${code}`;
               settle(() => reject(new Error(message)));
               return;
             }
-            if (!output) {
+            if (countOnly) {
+              settle(() =>
+                resolve({
+                  content: [
+                    { type: "text", text: `${resultCount} matching entries` },
+                  ],
+                  details: undefined,
+                }),
+              );
+              return;
+            }
+            if (!rawOutput) {
               settle(() =>
                 resolve({
                   content: [
@@ -472,6 +530,102 @@ export function createFindExecute(
     });
 }
 
+export function createLsExecute(
+  cwd: string,
+  stockExecute: ToolDefinition<any, any, any>["execute"],
+): ToolDefinition<any, any, any>["execute"] {
+  return (toolCallId, params, signal, onUpdate, context) => {
+    const { output, ...stockParams } = params as LsParams;
+    if (output !== "count") {
+      return stockExecute(toolCallId, stockParams, signal, onUpdate, context);
+    }
+
+    return new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(new Error("Operation aborted"));
+        return;
+      }
+
+      let settled = false;
+      const settle = (finish: () => void) => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener("abort", onAbort);
+        finish();
+      };
+      const onAbort = () => {
+        settle(() => reject(new Error("Operation aborted")));
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+
+      void (async () => {
+        try {
+          const directoryPath = resolvePath(
+            (params as LsParams).path || ".",
+            context?.cwd || cwd,
+          );
+          let directoryStats;
+          try {
+            directoryStats = await stat(directoryPath);
+          } catch {
+            settle(() => reject(new Error(`Path not found: ${directoryPath}`)));
+            return;
+          }
+          if (!directoryStats.isDirectory()) {
+            settle(() =>
+              reject(new Error(`Not a directory: ${directoryPath}`)),
+            );
+            return;
+          }
+
+          let entries: string[];
+          try {
+            entries = await readdir(directoryPath);
+          } catch (error) {
+            if (signal?.aborted) {
+              settle(() => reject(new Error("Operation aborted")));
+              return;
+            }
+            const message =
+              error instanceof Error ? error.message : String(error);
+            settle(() =>
+              reject(new Error(`Cannot read directory: ${message}`)),
+            );
+            return;
+          }
+
+          let entryCount = 0;
+          for (const entry of entries) {
+            if (signal?.aborted) {
+              settle(() => reject(new Error("Operation aborted")));
+              return;
+            }
+            try {
+              await stat(path.join(directoryPath, entry));
+              entryCount++;
+            } catch {
+              // Match stock ls by skipping entries that cannot be statted.
+            }
+          }
+
+          settle(() =>
+            resolve({
+              content: [{ type: "text", text: `${entryCount} entries` }],
+              details: undefined,
+            }),
+          );
+        } catch (error) {
+          if (signal?.aborted) {
+            settle(() => reject(new Error("Operation aborted")));
+            return;
+          }
+          settle(() => reject(error));
+        }
+      })();
+    });
+  };
+}
+
 // Each directory prefix is printed once; on a repo-wide listing that is a third of the bytes.
 export function groupByDirectory(relativePaths: string[]): string {
   const namesByDirectory = new Map<string, string[]>();
@@ -480,7 +634,8 @@ export function groupByDirectory(relativePaths: string[]): string {
     const isDirectory = relativePath.endsWith("/");
     const withoutSlash = isDirectory ? relativePath.slice(0, -1) : relativePath;
     const separator = withoutSlash.lastIndexOf("/");
-    const directory = separator === -1 ? "./" : `${withoutSlash.slice(0, separator)}/`;
+    const directory =
+      separator === -1 ? "./" : `${withoutSlash.slice(0, separator)}/`;
     const name = withoutSlash.slice(separator + 1) + (isDirectory ? "/" : "");
     const names = namesByDirectory.get(directory);
     if (names) {
@@ -493,7 +648,8 @@ export function groupByDirectory(relativePaths: string[]): string {
   const lines: string[] = [];
   for (const directory of [...namesByDirectory.keys()].sort()) {
     lines.push(directory);
-    for (const name of namesByDirectory.get(directory)!.sort()) lines.push(`  ${name}`);
+    for (const name of namesByDirectory.get(directory)!.sort())
+      lines.push(`  ${name}`);
   }
   return lines.join("\n");
 }
