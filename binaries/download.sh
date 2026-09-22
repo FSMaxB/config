@@ -17,11 +17,11 @@ JJ_BASE_URL="https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}"
 JQ_VERSION="1.8.2"
 JQ_BASE_URL="https://github.com/jqlang/jq/releases/download/jq-${JQ_VERSION}"
 
-TUICR_VERSION="0.25.0"
+TUICR_VERSION="0.26.0"
 TUICR_BASE_URL="https://github.com/agavra/tuicr/releases/download/v${TUICR_VERSION}"
 TUICR_RAW_URL="https://raw.githubusercontent.com/agavra/tuicr/v${TUICR_VERSION}/skills/tuicr"
 
-CRIT_VERSION="0.19.1"
+CRIT_VERSION="0.20.2"
 CRIT_BASE_URL="https://github.com/tomasz-tomczyk/crit/releases/download/v${CRIT_VERSION}"
 
 RTK_VERSION="0.49.0"
@@ -41,7 +41,7 @@ function download_platform() {
 			RTK_NAME="aarch64-unknown-linux-gnu"
 			BAT_SHA256="6369242c584065f195fb20cb36fbd7cb63ae690605bbe89868a7596b596c2c23"
 			JJ_SHA256="7349a43dd5a20dbc998b10114daa0ee63d2ab863fb822c7eb6b0ebca5903cc69"
-			TUICR_SHA256="c299c0c2c4fbcfb66c7d957def41e6f5d8434cc5dad413538f29057bfc3a1b44"
+			TUICR_SHA256="c68f690e65846bc5d097c281ff3b75fb228d1d94cfafab6d7ebf8933e5e3a881"
 			;;
 		Linux/x86_64)
 			TRIPLE="x86_64-unknown-linux-musl"
@@ -50,7 +50,7 @@ function download_platform() {
 			RTK_NAME="x86_64-unknown-linux-musl"
 			BAT_SHA256="0dcd8ac79732c0d5b136f11f4ee00e581440e16a44eab5b3105b611bbf2cf191"
 			JJ_SHA256="f35438350b5d61963aac5dd74ede510b31d6b9690769d1a6268cf058cc825f72"
-			TUICR_SHA256="e7080ad46507559951d4a57db3d7cd2e33ec4c55dc0d48cd44d45e98b48ba624"
+			TUICR_SHA256="2cfb422eda4ccb0faab3eedb218f2cbbb09e54eeb14bfb6995a99af389b3f998"
 			;;
 		Darwin/arm64)
 			TRIPLE="aarch64-apple-darwin"
@@ -59,7 +59,7 @@ function download_platform() {
 			RTK_NAME="aarch64-apple-darwin"
 			BAT_SHA256="e30beff26779c9bf60bb541e1d79046250cb74378f2757f8eb250afddb19e114"
 			JJ_SHA256="51ba42e3d0682616f6eb015045bfe45289b396f03511f9897f645ce8e9272743"
-			TUICR_SHA256="3a74ce242e1e8f70bfbf90db8aaf69daaf02480e4925f8013af11c54a06d9b07"
+			TUICR_SHA256="2516c51d6f77cf78b69e7135fe9341de276fa3b7718e21597bf9719d4795bae2"
 			;;
 		Darwin/x86_64)
 			TRIPLE="x86_64-apple-darwin"
@@ -68,7 +68,7 @@ function download_platform() {
 			RTK_NAME="x86_64-apple-darwin"
 			BAT_SHA256="830d63b0bba1fa040542ec569e3cf77f60d3356b9de75116a344b061e0894245"
 			JJ_SHA256="6171582d0b5a98a1005cd9643faebff7936812ec264d7968a39d9cef3654a99b"
-			TUICR_SHA256="509b4c82dbc868e7bca7e578137881997abf156a3cc05db343597cb707da37a5"
+			TUICR_SHA256="5fe41523cc5ff58f92078e93a8dd4479a886765f49bdf59bd92b5677f1a98704"
 			;;
 		*)
 			echo "unsupported platform ${PLATFORM}" >&2
@@ -259,6 +259,6 @@ done
 # The tuicr Claude skill is plain text and platform independent, so it is fetched once and
 # stays checked in.
 mkdir -p "${BINARIES_DIR}/../tuicr-skill"
-download_tuicr_skill SKILL.md 644 3a29ecc43792496af8ca46cf6ac4062b0717b042461edb430b7154f03ed971e4
+download_tuicr_skill SKILL.md 644 c97f2b6cc17549536de167ef0bd9dad17ee8be10f8213dd567523f593418fcda
 download_tuicr_skill tuicr-wrapper.sh 755 a8ff39f3967a4109de9221849cff82ba80e38a74d636086d8f1d87e45aff5efc
-download_tuicr_skill tuicr-wrapper-zellij.sh 755 95d4f8eb41dc8ff48c2bd46736fe6a2c52150e7e79615013d68f6d442391b36d
+download_tuicr_skill tuicr-wrapper-zellij.sh 755 e442e97902abaa4924ab295707de455a15371f0d72e89c1b76f0563bbf43125a
