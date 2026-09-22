@@ -51,7 +51,7 @@ fi
 
 if [[ ! -e ~/.claude/CLAUDE.md ]]; then
   mkdir -p ~/.claude
-  ln -s ~/config/INSTALL-CLAUDE.md ~/.claude/CLAUDE.md
+  ln -s ~/config/INSTALL-AGENTS.md ~/.claude/AGENTS.md
 fi
 if [[ ! -e ~/.claude/skills/tuicr ]]; then
   mkdir -p ~/.claude/skills
@@ -59,7 +59,7 @@ if [[ ! -e ~/.claude/skills/tuicr ]]; then
 fi
 if [[ ! -e ~/.pi/agent/CLAUDE.md ]]; then
   mkdir -p ~/.pi/agent
-  ln -s ~/config/INSTALL-CLAUDE.md ~/.pi/agent/CLAUDE.md
+  ln -s ~/config/INSTALL-AGENTS.md ~/.pi/agent/AGENTS.md
 fi
 if [[ -L ~/.pi/agent/extensions || ! -e ~/.pi/agent/extensions ]]; then
   mkdir -p ~/.pi/agent
