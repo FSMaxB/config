@@ -24,17 +24,21 @@ TUICR_RAW_URL="https://raw.githubusercontent.com/agavra/tuicr/v${TUICR_VERSION}/
 CRIT_VERSION="0.19.1"
 CRIT_BASE_URL="https://github.com/tomasz-tomczyk/crit/releases/download/v${CRIT_VERSION}"
 
+RTK_VERSION="0.49.0"
+RTK_BASE_URL="https://github.com/rtk-ai/rtk/releases/download/v${RTK_VERSION}"
+
 # Every tool spells the same platform differently, and bat, jj and tuicr publish no
 # checksum assets at all, so each platform keeps its identifier spellings and its pinned
 # digests together.
 function download_platform() {
 	local PLATFORM="$1"
-	local TRIPLE JQ_NAME CRIT_NAME BAT_SHA256 JJ_SHA256 TUICR_SHA256
+	local TRIPLE JQ_NAME CRIT_NAME RTK_NAME BAT_SHA256 JJ_SHA256 TUICR_SHA256
 	case "${PLATFORM}" in
 		Linux/aarch64)
 			TRIPLE="aarch64-unknown-linux-musl"
 			JQ_NAME="linux-arm64"
 			CRIT_NAME="linux-arm64"
+			RTK_NAME="aarch64-unknown-linux-gnu"
 			BAT_SHA256="6369242c584065f195fb20cb36fbd7cb63ae690605bbe89868a7596b596c2c23"
 			JJ_SHA256="7349a43dd5a20dbc998b10114daa0ee63d2ab863fb822c7eb6b0ebca5903cc69"
 			TUICR_SHA256="c299c0c2c4fbcfb66c7d957def41e6f5d8434cc5dad413538f29057bfc3a1b44"
@@ -43,6 +47,7 @@ function download_platform() {
 			TRIPLE="x86_64-unknown-linux-musl"
 			JQ_NAME="linux-amd64"
 			CRIT_NAME="linux-amd64"
+			RTK_NAME="x86_64-unknown-linux-musl"
 			BAT_SHA256="0dcd8ac79732c0d5b136f11f4ee00e581440e16a44eab5b3105b611bbf2cf191"
 			JJ_SHA256="f35438350b5d61963aac5dd74ede510b31d6b9690769d1a6268cf058cc825f72"
 			TUICR_SHA256="e7080ad46507559951d4a57db3d7cd2e33ec4c55dc0d48cd44d45e98b48ba624"
@@ -51,6 +56,7 @@ function download_platform() {
 			TRIPLE="aarch64-apple-darwin"
 			JQ_NAME="macos-arm64"
 			CRIT_NAME="darwin-arm64"
+			RTK_NAME="aarch64-apple-darwin"
 			BAT_SHA256="e30beff26779c9bf60bb541e1d79046250cb74378f2757f8eb250afddb19e114"
 			JJ_SHA256="51ba42e3d0682616f6eb015045bfe45289b396f03511f9897f645ce8e9272743"
 			TUICR_SHA256="3a74ce242e1e8f70bfbf90db8aaf69daaf02480e4925f8013af11c54a06d9b07"
@@ -59,6 +65,7 @@ function download_platform() {
 			TRIPLE="x86_64-apple-darwin"
 			JQ_NAME="macos-amd64"
 			CRIT_NAME="darwin-amd64"
+			RTK_NAME="x86_64-apple-darwin"
 			BAT_SHA256="830d63b0bba1fa040542ec569e3cf77f60d3356b9de75116a344b061e0894245"
 			JJ_SHA256="6171582d0b5a98a1005cd9643faebff7936812ec264d7968a39d9cef3654a99b"
 			TUICR_SHA256="509b4c82dbc868e7bca7e578137881997abf156a3cc05db343597cb707da37a5"
@@ -80,6 +87,7 @@ function download_platform() {
 	download_jj "${TRIPLE}" "${OUTDIR}" "${JJ_SHA256}"
 	download_jq "${JQ_NAME}" "${OUTDIR}"
 	download_crit "${CRIT_NAME}" "${OUTDIR}"
+	download_rtk "${RTK_NAME}" "${OUTDIR}"
 	download_tuicr "${TRIPLE}" "${OUTDIR}" "${TUICR_SHA256}"
 }
 
@@ -173,6 +181,19 @@ function download_crit() {
 	curl -fL --output "${BINARY}" "${CRIT_BASE_URL}/${BINARY}"
 	verify "${BINARY}" "$(grep " ${BINARY}\$" checksums.txt | cut -d' ' -f1)"
 	install -m 755 "${BINARY}" "${OUTDIR}/crit"
+}
+
+# rtk publishes a checksums.txt file covering all platforms. Its Linux aarch64
+# build is glibc rather than musl (no musl build exists for that arch), so its
+# name doesn't follow the shared TRIPLE the way jj's and bat's do.
+function download_rtk() {
+	local PLATFORM="$1"
+	local OUTDIR="$2"
+	local TARBALL="rtk-${PLATFORM}.tar.gz"
+	curl -fL --output rtk-checksums.txt "${RTK_BASE_URL}/checksums.txt"
+	curl -fL --output "${TARBALL}" "${RTK_BASE_URL}/${TARBALL}"
+	verify "${TARBALL}" "$(grep " ${TARBALL}\$" rtk-checksums.txt | cut -d' ' -f1)"
+	tar --directory "${OUTDIR}" -xf "${TARBALL}" rtk
 }
 
 # tuicr publishes no checksum assets, so its release asset metadata digests are

@@ -87,7 +87,7 @@ if [[ -L ~/.pi/agent/keybindings.json || ! -e ~/.pi/agent/keybindings.json ]]; t
 fi
 
 platform_binaries=~/config/binaries/$(uname -s)/$(uname -m)
-for tool in bat crit jj jq starship tuicr zellij; do
+for tool in bat crit jj jq rtk starship tuicr zellij; do
   if [[ ! -x "${platform_binaries}/${tool}" ]]; then
     ~/config/binaries/download.sh || echo "binaries/download.sh failed, ${platform_binaries} is incomplete"
     break
