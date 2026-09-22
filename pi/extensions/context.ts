@@ -7,6 +7,11 @@ import type {
   ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
 import { shortenPath } from "./lib/format.ts";
+import {
+  collectContextMessages,
+  measureTranscriptSystem,
+  splitContextMessages,
+} from "./lib/context-messages.ts";
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("context", {
@@ -21,10 +26,17 @@ function buildReport(
   pi: ExtensionAPI,
   context: ExtensionCommandContext,
 ): string {
+  const { messages, systemMessages } = splitContextMessages(
+    collectContextMessages(
+      context.sessionManager,
+      sessionEntryToContextMessages,
+    ),
+  );
   const sections = [
-    buildSystemPromptRows(context),
-    buildToolRows(pi),
-    buildMessageRows(context),
+    ...(systemMessages.length > 0
+      ? buildTranscriptSystemRows(systemMessages)
+      : [buildSystemPromptRows(context), buildToolRows(pi)]),
+    buildMessageRows(messages),
   ];
   const estimatedTotal = sections.reduce(
     (sum, rows) => sum + (rows[0]?.tokens ?? 0),
@@ -55,6 +67,12 @@ function buildReport(
   lines.push("");
   lines.push(...renderRows(sections.flat(), contextWindow));
   lines.push("");
+  if (systemMessages.length > 0) {
+    lines.push(
+      "System/tool rows estimate stored transcript declarations, including updates; " +
+        "providers may fold these into the current prompt and tools.",
+    );
+  }
   lines.push(
     usage?.tokens != null
       ? `Total is provider-reported (last response + trailing estimate); ` +
@@ -62,6 +80,31 @@ function buildReport(
       : "No provider-reported usage yet; everything shown uses the chars/4 heuristic.",
   );
   return lines.join("\n");
+}
+
+function buildTranscriptSystemRows(
+  messages: Parameters<typeof measureTranscriptSystem>[0],
+): Row[][] {
+  const { instructionCharacters, toolCharacters, toolDeclarations } =
+    measureTranscriptSystem(messages);
+  return [
+    [
+      {
+        indent: 0,
+        label: "System instructions (transcript)",
+        tokens: Math.ceil(instructionCharacters / 4),
+        note: `${messages.length} system entries`,
+      },
+    ],
+    [
+      {
+        indent: 0,
+        label: "Tool declarations (transcript)",
+        tokens: Math.ceil(toolCharacters / 4),
+        note: `${toolDeclarations} declarations, including redeclarations`,
+      },
+    ],
+  ];
 }
 
 function buildSystemPromptRows(context: ExtensionCommandContext): Row[] {
@@ -146,7 +189,9 @@ function buildToolRows(pi: ExtensionAPI): Row[] {
   return rows;
 }
 
-function buildMessageRows(context: ExtensionCommandContext): Row[] {
+function buildMessageRows(
+  messages: ReturnType<typeof sessionEntryToContextMessages>,
+): Row[] {
   let messageCount = 0;
   let userTokens = 0;
   let userCount = 0;
@@ -171,42 +216,40 @@ function buildMessageRows(context: ExtensionCommandContext): Row[] {
     map.set(key, stats);
   };
 
-  for (const entry of context.sessionManager.buildContextEntries()) {
-    for (const message of sessionEntryToContextMessages(entry)) {
-      messageCount += 1;
-      switch (message.role) {
-        case "user":
-          userTokens += estimateTokens(message);
-          userCount += 1;
-          break;
-        case "assistant":
-          for (const block of message.content) {
-            if (block.type === "text") {
-              assistantTextChars += block.text.length;
-            } else if (block.type === "thinking") {
-              assistantThinkingChars += block.thinking.length;
-            } else if (block.type === "toolCall") {
-              toolCallChars +=
-                block.name.length + JSON.stringify(block.arguments).length;
-            }
+  for (const message of messages) {
+    messageCount += 1;
+    switch (message.role) {
+      case "user":
+        userTokens += estimateTokens(message);
+        userCount += 1;
+        break;
+      case "assistant":
+        for (const block of message.content) {
+          if (block.type === "text") {
+            assistantTextChars += block.text.length;
+          } else if (block.type === "thinking") {
+            assistantThinkingChars += block.thinking.length;
+          } else if (block.type === "toolCall") {
+            toolCallChars +=
+              block.name.length + JSON.stringify(block.arguments).length;
           }
-          break;
-        case "toolResult":
-          tally(toolResults, message.toolName, estimateTokens(message));
-          break;
-        case "custom":
-          tally(customMessages, message.customType, estimateTokens(message));
-          break;
-        case "bashExecution":
-          bashTokens += estimateTokens(message);
-          bashCount += 1;
-          break;
-        case "compactionSummary":
-        case "branchSummary":
-          summaryTokens += estimateTokens(message);
-          summaryCount += 1;
-          break;
-      }
+        }
+        break;
+      case "toolResult":
+        tally(toolResults, message.toolName, estimateTokens(message));
+        break;
+      case "custom":
+        tally(customMessages, message.customType, estimateTokens(message));
+        break;
+      case "bashExecution":
+        bashTokens += estimateTokens(message);
+        bashCount += 1;
+        break;
+      case "compactionSummary":
+      case "branchSummary":
+        summaryTokens += estimateTokens(message);
+        summaryCount += 1;
+        break;
     }
   }
 
