@@ -140,6 +140,10 @@ export function convertPiMessages(
 
 	for (let i = 0; i < messages.length; i++) {
 		const msg = messages[i];
+		// Pi 0.86+ records prompt and tool-set changes as system messages. Claude
+		// Code owns its own system prompt and receives Pi's current prompt-derived
+		// append with every query, so a system message has no record to import.
+		if (msg.role === "system") continue;
 		if (msg.role === "user") {
 			// Rebuild imports each pi user message as its OWN record. The REUSE path
 			// (extractUserPrompt/extractUserPromptBlocks in index.ts) instead merges a
@@ -182,6 +186,7 @@ export function convertPiMessages(
 					if (next.role === "assistant") break;
 					if (next.role === "toolResult") toolMessages.push(next);
 					else if (next.role === "user") interleavedUsers.push(next);
+					else if (next.role === "system") continue;
 					else break;
 				}
 				if (toolMessages.length > 0) {

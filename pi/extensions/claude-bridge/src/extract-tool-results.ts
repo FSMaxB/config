@@ -41,7 +41,8 @@ export function extractAllToolResults(
 		if (msg.role === "toolResult") {
 			results.unshift({ content: toolResultToMcpContent(msg.content as string | Array<{ type: string; text?: string; data?: string; mimeType?: string }>), isError: msg.isError, toolCallId: msg.toolCallId });
 		} else if (msg.role === "assistant") { stopIdx = i; break; }
-		// user messages: skip (steer/followUp injected mid-tool-execution)
+		// user messages (steer/followUp injected mid-tool-execution) and system
+		// messages (a prompt or tool-set change Pi recorded at the boundary): skip
 	}
 	return { results, stopIdx };
 }

@@ -6,7 +6,8 @@ import { join } from "node:path";
 import { it } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { __testSetBridgeIntegrityState, __testSetSdkQueryFactory, streamClaudeAgentSdk } from "../src/index.ts";
+import { __testSetBridgeIntegrityState, __testSetSdkQueryFactory } from "../src/index.ts";
+import { streamNormalized } from "./lib/stream-normalized.mjs";
 import { ctx, resetStack } from "../src/query-state.ts";
 import { cancelScheduledToolUseEnd } from "../src/assistant-stream.ts";
 
@@ -43,7 +44,7 @@ async function withBridge(ids, run) {
 		};
 	});
 	try {
-		const initial = await collect(streamClaudeAgentSdk(model, { messages: [{ role: "user", content: "run" }], tools: [tool] }, { cwd: root, signal: abort.signal }));
+		const initial = await collect(streamNormalized(model, { messages: [{ role: "user", content: "run" }], tools: [tool] }, { cwd: root, signal: abort.signal }));
 		assert.deepEqual(initial.find((event) => event.type === "done").message.content.map((block) => block.id), ids);
 		const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 		client = new Client({ name: "queue-test", version: "1.0.0" });
@@ -62,7 +63,7 @@ async function withBridge(ids, run) {
 				return { result };
 			},
 			deliver(results) {
-				streamClaudeAgentSdk(model, { messages: [
+				streamNormalized(model, { messages: [
 					{ role: "assistant", content: ids.map((id) => ({ type: "toolCall", id, name: "echo", arguments: { id } })) },
 					...results.map(({ id, text = id, isError = false }) => ({ role: "toolResult", toolCallId: id, content: [{ type: "text", text }], isError })),
 				] }, { cwd: root });

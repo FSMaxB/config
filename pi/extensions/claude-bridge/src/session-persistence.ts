@@ -1,4 +1,4 @@
-import { type AssistantMessage, type Context } from "@earendil-works/pi-ai";
+import { type AssistantMessage, type Message } from "@earendil-works/pi-ai";
 import { createSession, deleteSession, openSession, repairToolPairing } from "cc-session-io";
 import { createHash } from "crypto";
 import { realpathSync, statSync } from "fs";
@@ -8,6 +8,7 @@ import { displayPath } from "./config.js";
 import { convertPiMessages } from "./convert.js";
 import { DEBUG, DEBUG_LOG_PATH, debug, diagDump } from "./debug.js";
 import { verifyWrittenSession as _verifyWrittenSession } from "./session-verify.js";
+import { conversationMessages } from "./transcript.js";
 import {
 	findUnpairedToolUses,
 	insertLostToolResultPlaceholders,
@@ -60,7 +61,7 @@ function shortHash(text: string): string {
  *  identity unknown, callers must fail open to the pre-fingerprint behavior,
  *  never treat it as a mismatch. Distinct from fingerprintMessages below,
  *  which hashes a cursor slice for restore integrity. */
-export function conversationFingerprint(messages: Context["messages"]): string | undefined {
+export function conversationFingerprint(messages: Message[]): string | undefined {
 	const firstUser = messages.find((message) => (message as { role?: string }).role === "user");
 	if (!firstUser) return undefined;
 	const userText = normalizedMessageText(firstUser);
@@ -104,7 +105,7 @@ function conversationFingerprintUpgrade(recorded: string | undefined, incoming: 
 	return rec && inc && !rec.assistant && inc.assistant && rec.user === inc.user ? incoming : undefined;
 }
 
-function fingerprintMessages(messages: Context["messages"]): string {
+function fingerprintMessages(messages: Message[]): string {
 	const normalized = messages.map((message) => {
 		if (message.role === "assistant") {
 			return {
@@ -119,9 +120,14 @@ function fingerprintMessages(messages: Context["messages"]): string {
 	return createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
 }
 
-function readBuiltSessionContext(sessionManager: unknown): { messages: Context["messages"] } | undefined {
+/** Pi's built session context carries its prompt-section, tool-delta and
+ *  compaction system messages. The provider lane indexes conversation
+ *  messages only (src/transcript.ts), so the same view is taken here or a
+ *  persisted cursor would point one message off after every such entry. */
+function readBuiltSessionContext(sessionManager: unknown): { messages: Message[] } | undefined {
 	const built = typeof (sessionManager as any)?.buildSessionContext === "function" ? (sessionManager as any).buildSessionContext() : undefined;
-	return Array.isArray(built?.messages) ? built as { messages: Context["messages"] } : undefined;
+	if (!Array.isArray(built?.messages)) return undefined;
+	return { messages: conversationMessages(built.messages as Message[]) };
 }
 
 function latestPersistedBridgeSession(sessionManager: unknown): PersistedBridgeSessionState | undefined {
@@ -306,7 +312,7 @@ export function schedulePersistSharedSession(ctxLike?: { sessionManager?: unknow
 // sequence stays valid before repairToolPairing runs.
 function convertAndImportMessages(
 	session: ReturnType<typeof createSession>,
-	messages: Context["messages"],
+	messages: Message[],
 	customToolNameToSdk?: Map<string, string>,
 	cwd?: string,
 ): void {
@@ -381,9 +387,12 @@ export interface IncrementalPromptBatchPlan {
  * delivered together by Pi (for example, followUpMode="all"). Claude Code has
  * already persisted the optional leading assistant message; every user message
  * after it must be sent as this query's prompt rather than imported via rebuild.
+ * `messages` are conversation messages (see `src/transcript.ts::conversationMessages`);
+ * the provider lane filters the transcript before calling, so a `system` message
+ * here is a caller bug.
  */
 export function planIncrementalPromptBatch(
-	messages: Context["messages"],
+	messages: Message[],
 	cursor: number,
 ): IncrementalPromptBatchPlan | undefined {
 	const lastIndex = messages.length - 1;
@@ -501,8 +510,12 @@ function debugSessionPaths(label: string, cwd: string, jsonlPath: string, claude
 //
 // Log strings still say "Case 1/2/3/4" so existing diagnostics (int-cache.sh,
 // int-session-resume.mjs) keep grepping the same anchors.
+//
+// `messages` are conversation messages (see `src/transcript.ts::conversationMessages`);
+// the provider lane filters the transcript before calling, so a `system` message
+// here is a caller bug.
 export function syncSharedSession(
-	messages: Context["messages"],
+	messages: Message[],
 	cwd: string,
 	customToolNameToSdk?: Map<string, string>,
 	modelId?: string,

@@ -26,8 +26,8 @@ import {
 	__testSetBridgeIntegrityState,
 	__testSetSdkQueryFactory,
 	onPiHistoryReplaced,
-	streamClaudeAgentSdk,
 } from "../src/index.ts";
+import { streamNormalized } from "./lib/stream-normalized.mjs";
 import { cancelScheduledToolUseEnd } from "../src/assistant-stream.ts";
 import { ctx, resetStack } from "../src/query-state.ts";
 import { waitFor } from "./lib/wait-for.mjs";
@@ -173,7 +173,7 @@ async function withBridge(run, openingQuery = toolCallQuery) {
 	});
 	try {
 		const preCompaction = { messages: [user("earlier prompt"), assistantText("earlier reply"), user("run the tool")], tools: [tool] };
-		const opened = await collect(streamClaudeAgentSdk(model, preCompaction, { cwd: root, signal: abort.signal }));
+		const opened = await collect(streamNormalized(model, preCompaction, { cwd: root, signal: abort.signal }));
 		assert.equal(opened.filter((event) => event.type === "done").length, 1, "the tool-call turn reached pi");
 		assert.notEqual(ctx().activeQuery, null, "the query stays active, waiting for the tool result");
 		await run({ root, calls, queued, firstQuery, abort, opened, diagPath: env.CLAUDE_BRIDGE_DIAG_PATH, oldSession: { path: oldSession.jsonlPath, bytes: oldSessionBytes } });
@@ -204,7 +204,7 @@ describe("compaction while a bridge query waits for a tool result", () => {
 			assert.equal(__testGetBridgeIntegrityState().sharedSession?.needsRebuild, true, "the record must rebuild");
 			assert.equal(__testGetBridgeIntegrityState().sharedSession?.forceRotate, true, "away from the session the killed child still writes");
 
-			const events = await collect(streamClaudeAgentSdk(model, toolResultDelivery(), { cwd: root }));
+			const events = await collect(streamNormalized(model, toolResultDelivery(), { cwd: root }));
 
 			assert.equal(firstQuery.closed, true, "the pre-compaction query is stopped, not continued");
 			assert.equal(calls.length, 2, "the tool result opened a replacement query");
@@ -236,7 +236,7 @@ describe("compaction while a bridge query waits for a tool result", () => {
 
 	it("delivers into the running query when pi has not replaced the history", { timeout: 10_000 }, async () => {
 		await withBridge(async ({ root, calls, firstQuery }) => {
-			streamClaudeAgentSdk(model, toolResultDelivery(), { cwd: root });
+			streamNormalized(model, toolResultDelivery(), { cwd: root });
 
 			assert.equal(calls.length, 1, "an ordinary tool result opens no second query");
 			assert.equal(firstQuery.closed, false, "the running query keeps the turn");
@@ -258,7 +258,7 @@ describe("compaction while a bridge query waits for a tool result", () => {
 			assert.equal(__testGetBridgeIntegrityState().sharedSession?.forceRotate, undefined, "which kills no child and rotates nothing");
 
 			const next = { messages: [user(SUMMARY), user("the next prompt")], tools: [tool] };
-			const events = await collect(streamClaudeAgentSdk(model, next, { cwd: root }));
+			const events = await collect(streamNormalized(model, next, { cwd: root }));
 
 			assert.equal(calls.length, 2, "the prompt opens the next query");
 			assert.equal(calls[1].prompt, "the next prompt", "prompted with the user's own message, not a continuation");
@@ -275,15 +275,15 @@ describe("compaction while a bridge query waits for a tool result", () => {
 			// A steer arrives while the first query runs, so it replays as a
 			// continuation query once that query ends.
 			const steered = [user(SUMMARY), assistantToolCall("t0"), toolResult("t0", TOOL_OUTPUT), user("steer one")];
-			streamClaudeAgentSdk(model, { messages: steered, tools: [tool] }, { cwd: root });
-			streamClaudeAgentSdk(model, { messages: [...steered, user("steer two")], tools: [tool] }, { cwd: root });
+			streamNormalized(model, { messages: steered, tools: [tool] }, { cwd: root });
+			streamNormalized(model, { messages: [...steered, user("steer two")], tools: [tool] }, { cwd: root });
 			firstQuery.release();
 			assert.equal(await waitFor(() => calls.length === 2), true, "the steer replays as a continuation query");
 			assert.equal(calls[1].prompt, "steer one");
 
 			// Pi compacts while THAT query waits for its own tool result.
 			onPiHistoryReplaced("session_compact");
-			const events = await collect(streamClaudeAgentSdk(model, {
+			const events = await collect(streamNormalized(model, {
 				messages: [user(SUMMARY), assistantToolCall("t1"), toolResult("t1", TOOL_OUTPUT)],
 				tools: [tool],
 			}, { cwd: root }));
@@ -313,7 +313,7 @@ describe("compaction while a bridge query waits for a tool result", () => {
 			await withBridge(async ({ root, calls, firstQuery }) => {
 				onPiHistoryReplaced("session_compact");
 
-				streamClaudeAgentSdk(model, toolResultDelivery(), { cwd: root });
+				streamNormalized(model, toolResultDelivery(), { cwd: root });
 
 				assert.equal(calls.length, 1, "that call cannot be rebuilt from pi's context, so no replacement is opened");
 				assert.equal(firstQuery.closed, false, "the query keeps its own history, that exchange included");
@@ -334,13 +334,13 @@ describe("compaction while a bridge query waits for a tool result", () => {
 			queued.push(() => throwingQuery(continuation));
 
 			const steered = [user(SUMMARY), assistantToolCall("t0"), toolResult("t0", TOOL_OUTPUT), user("steer one")];
-			streamClaudeAgentSdk(model, { messages: steered, tools: [tool] }, { cwd: root });
-			streamClaudeAgentSdk(model, { messages: [...steered, user("steer two")], tools: [tool] }, { cwd: root });
+			streamNormalized(model, { messages: steered, tools: [tool] }, { cwd: root });
+			streamNormalized(model, { messages: [...steered, user("steer two")], tools: [tool] }, { cwd: root });
 			firstQuery.release();
 			assert.equal(await waitFor(() => calls.length === 2), true, "the steer replays as a continuation query");
 
 			onPiHistoryReplaced("session_compact");
-			await collect(streamClaudeAgentSdk(model, {
+			await collect(streamNormalized(model, {
 				messages: [user(SUMMARY), assistantToolCall("t1"), toolResult("t1", TOOL_OUTPUT), user("steer two")],
 				tools: [tool],
 			}, { cwd: root }));
@@ -365,7 +365,7 @@ describe("compaction while a bridge query waits for a tool result", () => {
 		await withBridge(async ({ root, calls }) => {
 			onPiHistoryReplaced("session_compact");
 
-			const events = await collect(streamClaudeAgentSdk(model, toolResultDelivery(), { cwd: root }));
+			const events = await collect(streamNormalized(model, toolResultDelivery(), { cwd: root }));
 
 			assert.equal(calls.length, 2, "the replacement still opens");
 			assert.deepEqual(events.filter((event) => event.type === "text_delta").map((event) => event.delta), ["restarted"]);
@@ -381,12 +381,12 @@ describe("compaction while a bridge query waits for a tool result", () => {
 
 			const second = {};
 			queued.push(() => toolCallQuery(second));
-			await collect(streamClaudeAgentSdk(model, { messages: [user(SUMMARY), user("a turn with no connector")], tools: [tool] }, { cwd: root }));
+			await collect(streamNormalized(model, { messages: [user(SUMMARY), user("a turn with no connector")], tools: [tool] }, { cwd: root }));
 			onPiHistoryReplaced("session_compact");
 
 			// The refused path leaves the callback stream open on the stale query, so
 			// wait for the replacement rather than for this stream to end.
-			streamClaudeAgentSdk(model, toolResultDelivery(), { cwd: root });
+			streamNormalized(model, toolResultDelivery(), { cwd: root });
 
 			assert.equal(await waitFor(() => calls.length === 3), true, "this turn ran no connector, so the handover happens");
 			assert.equal(calls[2].prompt, HISTORY_REPLACED_PROMPT, "on the replacement query");
@@ -398,7 +398,7 @@ describe("compaction while a bridge query waits for a tool result", () => {
 		await withBridge(async ({ root, calls, abort, opened }) => {
 			onPiHistoryReplaced("session_compact");
 
-			const events = collect(streamClaudeAgentSdk(model, toolResultDelivery(), { cwd: root, signal: abort.signal }));
+			const events = collect(streamNormalized(model, toolResultDelivery(), { cwd: root, signal: abort.signal }));
 			abort.abort(); // the user stops the turn before the stale query has torn down
 			const collected = await events;
 

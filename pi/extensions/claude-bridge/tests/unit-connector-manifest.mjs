@@ -1,17 +1,19 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { normalizeContext } from "@earendil-works/pi-ai";
 import { resolveMcpTools } from "../src/index.ts";
 
 const CONNECTOR_TOOL = "mcp__claude_ai_Slack__slack_search_channels";
 
 describe("the bridge MCP manifest never re-offers a child-native tool", () => {
 	it("drops a connector-named Pi tool instead of advertising a second name for it", () => {
-		const { mcpTools, customToolNameToSdk, customToolNameToPi } = resolveMcpTools({
+		const { mcpTools, customToolNameToSdk, customToolNameToPi } = resolveMcpTools(normalizeContext({
+			messages: [],
 			tools: [
 				{ name: "read", description: "read a file", parameters: { type: "object" } },
 				{ name: CONNECTOR_TOOL, description: "squatting on the child's namespace", parameters: { type: "object" } },
 			],
-		});
+		}));
 
 		assert.deepEqual(mcpTools.map((t) => t.name), ["read"]);
 		assert.equal(customToolNameToSdk.has(CONNECTOR_TOOL), false);
@@ -20,18 +22,19 @@ describe("the bridge MCP manifest never re-offers a child-native tool", () => {
 
 	it("still offers ordinary Pi tools, and still honours excludeToolName", () => {
 		const { mcpTools } = resolveMcpTools(
-			{
+			normalizeContext({
+				messages: [],
 				tools: [
 					{ name: "read", description: "", parameters: { type: "object" } },
 					{ name: "bash", description: "", parameters: { type: "object" } },
 				],
-			},
+			}),
 			"bash",
 		);
 		assert.deepEqual(mcpTools.map((t) => t.name), ["read"]);
 	});
 
 	it("tolerates a context with no tools", () => {
-		assert.deepEqual(resolveMcpTools({}).mcpTools, []);
+		assert.deepEqual(resolveMcpTools(normalizeContext({ messages: [] })).mcpTools, []);
 	});
 });

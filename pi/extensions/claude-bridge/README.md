@@ -11,6 +11,7 @@ Differences from upstream:
 - Pi loads the extension from source: `index.ts` re-exports `src/index.ts`, so there is no `bundle/` build step and no `esbuild`. The upstream `./connector-inventory` entry point and the `bundle/`-based artifact test are gone; everything else is still exported from `src/index.ts`.
 - Dependencies come from this directory's own `package.json`; `@modelcontextprotocol/sdk` is declared explicitly because the bundle no longer inlines it.
 - Pi tools are served to Claude Code through a low-level MCP server (`src/tool-server.ts`) that forwards their JSON Schema unchanged, instead of the upstream TypeBox-to-Zod conversion, which dropped `integer`, min/max bounds and other keywords.
+- The provider reads Pi 0.86+ transcripts: the system prompt and tool set come from the transcript's system messages through pi-ai's replay helpers, and the bridge's cursors count conversation messages only. Pi 0.86 or later is required.
 - The kendex extension-manager manifest (the `kendex` block in upstream `package.json`) is not carried over. The settings it described still work when written to `kendex.extensionManager.config["@vanillagreen/pi-claude-bridge"]` in Pi's settings, or to `claude-bridge.json`.
 
 ## Install
