@@ -282,53 +282,19 @@ export default function (pi: ExtensionAPI) {
         const single = details.results[0];
         const isError = isFailedResult(single);
         const icon = isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
-        const displayItems = getDisplayItems(single.messages);
-        const finalOutput = getFinalOutput(single.messages);
-
-        if (expanded) {
-          const container = new Container();
-          let header =
-            `${icon} ${theme.fg("toolTitle", theme.bold(single.agent))}` +
-            formatAgentConfiguration(single.model, single.thinkingLevel, "unresolved", theme);
-          if (isError && single.stopReason) header += ` ${theme.fg("error", `[${single.stopReason}]`)}`;
-          container.addChild(new Text(header, 0, 0));
-          if (isError && single.errorMessage)
-            container.addChild(new Text(theme.fg("error", `Error: ${single.errorMessage}`), 0, 0));
-          container.addChild(new Spacer(1));
-          container.addChild(new Text(theme.fg("muted", "─── Task ───"), 0, 0));
-          container.addChild(new Text(theme.fg("dim", single.task), 0, 0));
-          container.addChild(new Spacer(1));
-          container.addChild(new Text(theme.fg("muted", "─── Output ───"), 0, 0));
-          if (displayItems.length === 0 && !finalOutput) {
-            container.addChild(new Text(theme.fg("muted", "(no output)"), 0, 0));
-          } else {
-            for (const item of displayItems) {
-              if (item.type === "toolCall")
-                container.addChild(
-                  new Text(
-                    theme.fg("muted", "→ ") + formatToolCall(item.name, item.args, theme.fg.bind(theme)),
-                    0,
-                    0,
-                  ),
-                );
-            }
-            if (finalOutput) {
-              container.addChild(new Spacer(1));
-              container.addChild(new Markdown(finalOutput.trim(), 0, 0, markdownTheme));
-            }
-          }
-          const usageText = formatUsageStats(single.usage);
-          if (usageText) {
-            container.addChild(new Spacer(1));
-            container.addChild(new Text(theme.fg("dim", usageText), 0, 0));
-          }
-          return container;
-        }
-
         let text =
           `${icon} ${theme.fg("toolTitle", theme.bold(single.agent))}` +
           formatAgentConfiguration(single.model, single.thinkingLevel, "unresolved", theme);
         if (isError && single.stopReason) text += ` ${theme.fg("error", `[${single.stopReason}]`)}`;
+
+        if (expanded) {
+          const container = new Container();
+          const errorLine = isError && single.errorMessage ? `\n${theme.fg("error", `Error: ${single.errorMessage}`)}` : "";
+          renderTaskSection(container, text + errorLine, single, theme, markdownTheme);
+          return container;
+        }
+
+        const displayItems = getDisplayItems(single.messages);
         if (isError && single.errorMessage) text += `\n${theme.fg("error", `Error: ${single.errorMessage}`)}`;
         else if (displayItems.length === 0) text += `\n${theme.fg("muted", "(no output)")}`;
         else {
@@ -370,6 +336,7 @@ export default function (pi: ExtensionAPI) {
             theme.fg("accent", item.agent) +
             formatAgentConfiguration(item.model, item.thinkingLevel, "unresolved", theme) +
             ` ${itemIcon}`;
+          container.addChild(new Spacer(1));
           renderTaskSection(container, header, item, theme, markdownTheme);
         }
 
@@ -912,8 +879,8 @@ function renderCollapsedItems(
   return text.trimEnd();
 }
 
-// Per-item block of the parallel expanded view: a caller-formatted header line, the task text,
-// any tool calls, the final markdown output, and per-item usage stats.
+// One task in an expanded view: a caller-formatted header, the task text, any tool calls, the
+// final markdown output, and usage stats.
 function renderTaskSection(
   container: Container,
   header: string,
@@ -924,7 +891,6 @@ function renderTaskSection(
   const displayItems = getDisplayItems(item.messages);
   const finalOutput = getFinalOutput(item.messages);
 
-  container.addChild(new Spacer(1));
   container.addChild(new Text(header, 0, 0));
   container.addChild(new Text(theme.fg("muted", "Task: ") + theme.fg("dim", item.task), 0, 0));
 
