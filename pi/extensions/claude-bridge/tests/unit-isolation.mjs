@@ -238,7 +238,7 @@ describe("resolveAgentsMdPath isolation", () => {
 });
 
 describe("loadConfig isolation", () => {
-	it("isolated mode ignores shared manager and trusted project config in favor of authoritative config", () => withTempDir((dir) => {
+	it("isolated mode ignores trusted project config in favor of user config", () => withTempDir((dir) => {
 		const agentDir = join(dir, "agent");
 		const project = join(dir, "project");
 		mkdirSync(agentDir, { recursive: true });
@@ -274,16 +274,16 @@ describe("loadConfig isolation", () => {
 		}));
 		withEnv({ PI_CODING_AGENT_DIR: agentDir }, () => {
 			recordProjectTrust({ cwd: project, isProjectTrusted: () => true });
-			// Normal Pi behavior is unchanged: trusted project manager settings win.
+			// Trusted project bridge config wins in normal mode.
 			withEnv({ CLAUDE_BRIDGE_ISOLATED: undefined }, () => {
 				const config = loadConfig(project);
 				assert.equal(config.provider?.fastMode, true);
-				assert.equal(config.provider?.pathToClaudeCodeExecutable, "/opt/project/manager-claude");
-				assert.equal(config.provider?.enableConnectors, true);
-				assert.equal(config.provider?.connectorWriteMode, "allow");
-				assert.equal(config.enabled, false);
+				assert.equal(config.provider?.pathToClaudeCodeExecutable, "/opt/project/claude");
+				assert.equal(config.provider?.enableConnectors, false);
+				assert.equal(config.provider?.connectorWriteMode, "deny");
+				assert.equal(config.enabled, true);
 			});
-			// Isolated mode ignores both settings overlays and both project files.
+			// Isolated mode reads only the user bridge file.
 			withEnv({ CLAUDE_BRIDGE_ISOLATED: "1" }, () => {
 				const config = loadConfig(project);
 				assert.equal(config.provider?.fastMode, false);

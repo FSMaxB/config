@@ -9,7 +9,7 @@ import { MCP_SERVER_NAME, MCP_TOOL_PREFIX } from "./skills.js";
 import { extractAllToolResults as _extractAllToolResults, type McpResult } from "./extract-tool-results.js";
 import { QueryContext, ctx, deleteQueryLane, drainPendingToolCalls, drainStrandedToolCalls, popContext, stackDepth, pushContext, summarizeDroppedUserMessages, takeQueuedOrParkedResult, toolCallDrainCause, type DeferredUserMessage, type QueryRestartRequest } from "./query-state.js";
 import { abortSdkQuery, closeSdkQuery, teardownQuery } from "./query-teardown.js";
-import { loadConfig, recordProjectTrust, registerExternalConfigResolver } from "./config.js";
+import { loadConfig, recordProjectTrust } from "./config.js";
 import { hasClaudeCredentials } from "./auth-presence.js";
 import { NATIVE_PROVIDER_UNSUPPORTED_MESSAGE, buildNativeProvider, supportsNativeProvider } from "./native-provider.js";
 import { createToolServer, type BridgedTool } from "./tool-server.js";
@@ -1571,7 +1571,6 @@ export default function (pi: ExtensionAPI) {
 	// Registered before the disabled early return: a bridge switched off by
 	// claude-bridge.json is exactly when the settings editor has to show where
 	// that value came from.
-	registerExternalConfigResolver();
 	registerBridgeCommands(pi);
 	if (config.enabled === false) {
 		debug("provider: disabled by configuration");

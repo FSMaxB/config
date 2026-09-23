@@ -5,9 +5,7 @@ import { debug } from "./debug.js";
 
 export interface PromptContextSettings {
 	includeAppendSystemPromptMd?: boolean;
-	includeProjectAgentsHook?: boolean;
-	includeTaskPanelHook?: boolean;
-	includeCavemanHook?: boolean;
+
 }
 
 export interface PromptContextAppend {
@@ -59,41 +57,7 @@ export function readAppendSystemPromptFiles(cwd: string): Array<{ label: string;
 	return output;
 }
 
-function splitPromptBlocks(systemPrompt?: string): string[] {
-	return (systemPrompt ?? "")
-		.split(/\n{2,}/)
-		.map((block) => block.trim())
-		.filter(Boolean);
-}
-
-function extractHeadingSection(systemPrompt: string | undefined, headings: string[]): string | undefined {
-	if (!systemPrompt) return undefined;
-	let start = -1;
-	for (const heading of headings) {
-		const index = systemPrompt.indexOf(heading);
-		if (index >= 0 && (start < 0 || index < start)) start = index;
-	}
-	if (start < 0) return undefined;
-	const rest = systemPrompt.slice(start).trim();
-	const endCandidates = [
-		rest.slice(1).search(/\n##\s+/),
-		rest.search(/\n<\/project_instructions>/),
-		rest.search(/\n<\/project_context>/),
-	]
-		.map((index, offset) => (index >= 0 && offset === 0 ? index + 1 : index))
-		.filter((index) => index >= 0);
-	const end = endCandidates.length > 0 ? Math.min(...endCandidates) : -1;
-	return (end >= 0 ? rest.slice(0, end) : rest).trim();
-}
-
-function extractBlockByMarkers(systemPrompt: string | undefined, markers: RegExp[]): string | undefined {
-	for (const block of splitPromptBlocks(systemPrompt)) {
-		if (markers.some((marker) => marker.test(block))) return block;
-	}
-	return undefined;
-}
-
-export function buildPromptContextAppend(systemPrompt: string | undefined, cwd: string, settings: PromptContextSettings): PromptContextAppend {
+export function buildPromptContextAppend(cwd: string, settings: PromptContextSettings): PromptContextAppend {
 	const parts: string[] = [];
 	const labels: string[] = [];
 
@@ -104,29 +68,11 @@ export function buildPromptContextAppend(systemPrompt: string | undefined, cwd: 
 		}
 	}
 
-	if (settings.includeProjectAgentsHook) {
-		const projectAgents = extractHeadingSection(systemPrompt, ["## Project Agents", "## Project Subagents"]);
-		if (projectAgents) {
-			parts.push(xmlBlock("before_agent_start", { source: "project-agents" }, projectAgents));
-			labels.push("project agents hook");
-		}
-	}
 
-	if (settings.includeTaskPanelHook) {
-		const taskReminder = extractBlockByMarkers(systemPrompt, [/^Task workflow reminder:/]);
-		if (taskReminder) {
-			parts.push(xmlBlock("before_agent_start", { source: "task-panel" }, taskReminder));
-			labels.push("task panel hook");
-		}
-	}
 
-	if (settings.includeCavemanHook) {
-		const caveman = extractBlockByMarkers(systemPrompt, [/^You MUST respond in caveman /m]);
-		if (caveman) {
-			parts.push(xmlBlock("before_agent_start", { source: "caveman" }, caveman));
-			labels.push("caveman hook");
-		}
-	}
+
+
+
 
 	if (parts.length === 0) return { labels };
 	return {
@@ -135,7 +81,7 @@ export function buildPromptContextAppend(systemPrompt: string | undefined, cwd: 
 			"forwarded_pi_context",
 			{},
 			[
-				"The following content was explicitly enabled in pi-claude-bridge settings and comes from Pi prompt files or before_agent_start prompt hooks.",
+				"The following content was explicitly enabled in pi-claude-bridge settings and comes from Pi prompt files.",
 				...parts,
 			].join("\n\n"),
 			false,

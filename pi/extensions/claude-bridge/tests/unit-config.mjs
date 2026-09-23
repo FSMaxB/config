@@ -26,19 +26,17 @@ function withTempDirs(fn) {
 }
 
 describe("loadConfig", () => {
-	it("ignores project settings until project trust is recorded", () => withTempDirs(({ user, project }) => {
-		writeFileSync(join(user, "settings.json"), JSON.stringify({
-			kendex: { extensionManager: { config: { "@vanillagreen/pi-claude-bridge": { fastMode: false } } } },
-		}));
-		writeFileSync(join(project, ".pi", "settings.json"), JSON.stringify({
-			kendex: { extensionManager: { config: { "@vanillagreen/pi-claude-bridge": { fastMode: true } } } },
-		}));
-
+	it("ignores untrusted project config", () => withTempDirs(({ user, project }) => {
+		// arrange
+		writeFileSync(join(user, "claude-bridge.json"), JSON.stringify({ provider: { fastMode: false } }));
+		writeFileSync(join(project, ".pi", "claude-bridge.json"), JSON.stringify({ provider: { fastMode: true } }));
+		// act
 		const config = loadConfig(project);
+		// assert
 		assert.equal(config.provider?.fastMode, false);
 	}));
 
-	it("reads trusted legacy project config from project root when cwd is nested", () => withTempDirs(({ project }) => {
+	it("reads trusted project config from project root when cwd is nested", () => withTempDirs(({ project }) => {
 		const nested = join(project, "src", "feature");
 		mkdirSync(nested, { recursive: true });
 		writeFileSync(join(project, ".pi", "settings.json"), "{}");
@@ -49,125 +47,72 @@ describe("loadConfig", () => {
 		assert.equal(config.provider?.fastMode, true);
 	}));
 
-	it("lets trusted project settings override user settings", () => withTempDirs(({ user, project }) => {
-		writeFileSync(join(user, "settings.json"), JSON.stringify({
-			kendex: { extensionManager: { config: { "@vanillagreen/pi-claude-bridge": { fastMode: false } } } },
-		}));
-		writeFileSync(join(project, ".pi", "settings.json"), JSON.stringify({
-			kendex: { extensionManager: { config: { "@vanillagreen/pi-claude-bridge": { fastMode: true } } } },
-		}));
+	it("lets trusted project config override user config", () => withTempDirs(({ user, project }) => {
+		// arrange
+		writeFileSync(join(user, "claude-bridge.json"), JSON.stringify({ provider: { fastMode: false } }));
+		writeFileSync(join(project, ".pi", "claude-bridge.json"), JSON.stringify({ provider: { fastMode: true } }));
 		recordProjectTrust({ cwd: project, isProjectTrusted: () => true });
-
+		// act
 		const config = loadConfig(project);
+		// assert
 		assert.equal(config.provider?.fastMode, true);
 	}));
 
-	it("maps extension-manager effort overrides into provider config", () => withTempDirs(({ user, project }) => {
-		writeFileSync(join(user, "settings.json"), JSON.stringify({
-			kendex: { extensionManager: { config: { "@vanillagreen/pi-claude-bridge": {
-				fastMode: false,
-				forceEffort: "high",
-				modelEffortOverrides: JSON.stringify({ "claude-opus-4-8": "xhigh", ignored: "bogus" }),
-			} } } },
-		}));
-		writeFileSync(join(project, ".pi", "settings.json"), JSON.stringify({
-			kendex: { extensionManager: { config: { "@vanillagreen/pi-claude-bridge": {
-				fastMode: true,
-				forceEffort: "max",
-				modelEffortOverrides: { "pi-claude/claude-opus-4-8": "max", "claude-haiku-4-5": "low" },
-			} } } },
-		}));
+	it("layers nested effort overrides", () => withTempDirs(({ user, project }) => {
+		// arrange
+		writeFileSync(join(user, "claude-bridge.json"), JSON.stringify({ provider: { forceEffort: "high" } }));
+		writeFileSync(join(project, ".pi", "claude-bridge.json"), JSON.stringify({ provider: {
+			forceEffort: "max", modelEffortOverrides: { "claude-opus-4-8": "xhigh", ignored: "bogus" },
+		} }));
 		recordProjectTrust({ cwd: project, isProjectTrusted: () => true });
-
+		// act
 		const config = loadConfig(project);
-		assert.equal(config.provider?.fastMode, true);
+		// assert
 		assert.equal(config.provider?.forceEffort, "max");
-		assert.deepEqual(config.provider?.modelEffortOverrides, {
-			"pi-claude/claude-opus-4-8": "max",
-			"claude-haiku-4-5": "low",
-		});
+		assert.deepEqual(config.provider?.modelEffortOverrides, { "claude-opus-4-8": "xhigh" });
 	}));
 
-	it("ignores each invalid effort override setting", () => withTempDirs(({ project }) => {
+	it("invalid higher effort overrides clear lower values", () => withTempDirs(({ user, project }) => {
+		// arrange
+		writeFileSync(join(user, "claude-bridge.json"), JSON.stringify({ provider: { forceEffort: "max", modelEffortOverrides: { opus: "max" } } }));
+		writeFileSync(join(project, ".pi", "claude-bridge.json"), JSON.stringify({ provider: { forceEffort: "none", modelEffortOverrides: "{}" } }));
 		recordProjectTrust({ cwd: project, isProjectTrusted: () => true });
-		for (const [key, value] of [["forceEffort", "ultracode"], ["modelEffortOverrides", "not json"]]) {
-			writeFileSync(join(project, ".pi", "settings.json"), JSON.stringify({
-				kendex: { extensionManager: { config: { "@vanillagreen/pi-claude-bridge": { [key]: value } } } },
-			}));
-			assert.equal(loadConfig(project).provider?.[key], undefined, key);
-		}
-	}));
-
-	// --- connector keys are user-scope + env only ---
-	// enableConnectors/connectorWriteMode expose (and un-gate writes on) the
-	// account's live connectors; a repo-controlled channel must not flip them
-	// even for a trusted project.
-
-	it("ignores project-scope enableConnectors/connectorWriteMode from manager settings", () => withTempDirs(({ user, project }) => {
-		writeFileSync(join(user, "settings.json"), JSON.stringify({
-			kendex: { extensionManager: { config: { "@vanillagreen/pi-claude-bridge": { fastMode: false } } } },
-		}));
-		writeFileSync(join(project, ".pi", "settings.json"), JSON.stringify({
-			kendex: { extensionManager: { config: { "@vanillagreen/pi-claude-bridge": {
-				fastMode: true,
-				enableConnectors: true,
-				connectorWriteMode: "allow",
-			} } } },
-		}));
-		recordProjectTrust({ cwd: project, isProjectTrusted: () => true });
-
+		// act
 		const config = loadConfig(project);
-		assert.equal(config.provider?.fastMode, true, "ordinary options still honor trusted project scope");
-		assert.equal(config.provider?.enableConnectors, undefined, "project scope cannot enable connectors");
-		assert.equal(config.provider?.connectorWriteMode, undefined, "project scope cannot open connector writes");
+		// assert
+		assert.equal(config.provider?.forceEffort, undefined);
+		assert.equal(config.provider?.modelEffortOverrides, undefined);
 	}));
 
-	it("ignores trusted project claude-bridge.json for the connector keys", () => withTempDirs(({ project }) => {
-		writeFileSync(join(project, ".pi", "settings.json"), "{}");
-		writeFileSync(join(project, ".pi", "claude-bridge.json"), JSON.stringify({
-			provider: { fastMode: true, enableConnectors: true, connectorWriteMode: "allow" },
-			enableConnectors: true,
-		}));
+	it("does not allow trusted projects to enable cloud connectors while they remain supported", () => withTempDirs(({ project }) => {
+		// arrange
+		writeFileSync(join(project, ".pi", "claude-bridge.json"), JSON.stringify({ provider: {
+			fastMode: true, enableConnectors: true, connectorWriteMode: "allow",
+		} }));
 		recordProjectTrust({ cwd: project, isProjectTrusted: () => true });
-
+		// act
 		const config = loadConfig(project);
-		assert.equal(config.provider?.fastMode, true, "ordinary legacy options still merge");
+		// assert
+		assert.equal(config.provider?.fastMode, true);
 		assert.equal(config.provider?.enableConnectors, undefined);
 		assert.equal(config.provider?.connectorWriteMode, undefined);
 	}));
 
-	it("still honors user-scope connector keys (manager settings and legacy file)", () => withTempDirs(({ user, project }) => {
-		writeFileSync(join(user, "settings.json"), JSON.stringify({
-			kendex: { extensionManager: { config: { "@vanillagreen/pi-claude-bridge": {
-				enableConnectors: true,
-				connectorWriteMode: "allow",
-			} } } },
-		}));
-		assert.equal(loadConfig(project).provider?.enableConnectors, true);
-		assert.equal(loadConfig(project).provider?.connectorWriteMode, "allow");
-
-		rmSync(join(user, "settings.json"));
+	it("ignores flat keys, manager settings, and removed prompt hooks", () => withTempDirs(({ user, project }) => {
+		// arrange
+		writeFileSync(join(user, "settings.json"), JSON.stringify({ kendex: { extensionManager: { config: {
+			"@vanillagreen/pi-claude-bridge": { enabled: false, fastMode: true },
+		} } } }));
 		writeFileSync(join(user, "claude-bridge.json"), JSON.stringify({
-			provider: { enableConnectors: true, connectorWriteMode: "allow" },
+			fastMode: true, includeAppendSystemPromptMd: true,
+			provider: { unknownSetting: "ignored" },
+			promptContext: { includeCavemanHook: true },
 		}));
-		assert.equal(loadConfig(project).provider?.enableConnectors, true);
-		assert.equal(loadConfig(project).provider?.connectorWriteMode, "allow");
-	}));
-
-	it("lets manager defaults clear lower-precedence legacy effort overrides", () => withTempDirs(({ user, project }) => {
-		writeFileSync(join(user, "claude-bridge.json"), JSON.stringify({
-			provider: { forceEffort: "max", modelEffortOverrides: { "claude-opus-4-8": "max" } },
-		}));
-		writeFileSync(join(project, ".pi", "settings.json"), JSON.stringify({
-			kendex: { extensionManager: { config: { "@vanillagreen/pi-claude-bridge": {
-				forceEffort: "none",
-				modelEffortOverrides: "{}",
-			} } } },
-		}));
-		recordProjectTrust({ cwd: project, isProjectTrusted: () => true });
-
+		// act
 		const config = loadConfig(project);
-		assert.equal(config.provider?.forceEffort, undefined);
-		assert.equal(config.provider?.modelEffortOverrides, undefined);
+		// assert
+		assert.equal(config.enabled, true);
+		assert.deepEqual(config.provider, {});
+		assert.deepEqual(config.promptContext, {});
 	}));
 });
