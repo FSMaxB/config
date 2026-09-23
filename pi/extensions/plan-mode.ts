@@ -23,11 +23,11 @@ import {
   DENY_SESSION,
   initPathPermissions,
   listPathRules,
+  normalizePathSelector,
   removePathRule,
   restoreSessionPathRules,
   setPlanModeEnabled,
 } from "./lib/path-permissions.ts";
-import { normalizePathSelector } from "./lib/path-rule-normalization.ts";
 import { selectorLabel, type AccessMode, type PathRule, type RuleKind, type RuleTier } from "./lib/path-permission-rules.ts";
 import {
   latestPlanModeEntry,

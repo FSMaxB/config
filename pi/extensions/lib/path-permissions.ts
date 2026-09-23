@@ -1,12 +1,12 @@
 import { readdir, stat } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { homedir } from "node:os";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { defaultAllowed, emptyRules, evaluate, parseRules, recordRule, selectorFromKey, selectorKey, selectorLabel, serializeRules, tree, type AccessMode, type PathRule, type RuleSets, type RuleTier, type SerializedRules, type Verdict } from "./path-permission-rules.ts";
+import { defaultAllowed, emptyRules, evaluate, exact, glob, parseRules, recordRule, selectorFromKey, selectorKey, selectorLabel, serializeRules, tree, type AccessMode, type PathSelector, type PathRule, type RuleSets, type RuleTier, type SerializedRules, type Verdict } from "./path-permission-rules.ts";
 import { expandHome } from "./path-resolution.ts";
 import { readStoredRules, transaction } from "./path-rule-store.ts";
 import { contains, findRepoRoot, isVcsInternal, memoryDirectory, resolveThroughSymlinks } from "./repo.ts";
-import { skillRoots } from "./skill-roots.ts";
 import { latestCustomData } from "./session-entries.ts";
 import { serialize } from "./ui-queue.ts";
 import { inheritedRules, parseChildPathPolicy, type ChildPathPolicy } from "./path-permission-snapshot.ts";
@@ -82,7 +82,23 @@ async function currentDefaults(mode: AccessMode): Promise<ReturnType<typeof defa
   const [memoryRoot, resolvedSkills, agentDirectory] = await Promise.all([resolveThroughSymlinks(memoryDirectory()), resolvedSkillRoots(repoRoot), resolveThroughSymlinks(getAgentDir())]);
   return defaultAllowed(mode, { planMode: state.planMode, repoRoot, memoryDirectory: memoryRoot, skillRoots: resolvedSkills, agentDirectory });
 }
-async function resolvedSkillRoots(repoRoot: string): Promise<string[]> { const roots = [...skillRoots()], resolved = new Set<string>(); for (const [index, root] of roots.entries()) { const resolvedRoot = await resolveThroughSymlinks(root); if (index >= 2 || contains(repoRoot, resolvedRoot)) resolved.add(resolvedRoot); } for (const root of roots.slice(2)) for (const entry of await readdir(root).catch(() => [] as string[])) resolved.add(await resolveThroughSymlinks(join(root, entry))); return [...resolved]; }
+// Project skill roots count only while they resolve inside the repository. Global roots also
+// allow every entry they hold, since skills are commonly symlinked in from elsewhere.
+async function resolvedSkillRoots(repoRoot: string): Promise<string[]> {
+  const projectRoot = findRepoRoot();
+  const projectRoots = [join(projectRoot, ".agents", "skills"), join(projectRoot, ".pi", "skills")];
+  const globalRoots = [join(getAgentDir(), "skills"), join(homedir(), ".agents", "skills"), join(homedir(), ".claude", "skills")];
+  const resolved = new Set<string>();
+  for (const root of projectRoots) {
+    const resolvedRoot = await resolveThroughSymlinks(root);
+    if (contains(repoRoot, resolvedRoot)) resolved.add(resolvedRoot);
+  }
+  for (const root of globalRoots) {
+    resolved.add(await resolveThroughSymlinks(root));
+    for (const entry of await readdir(root).catch(() => [] as string[])) resolved.add(await resolveThroughSymlinks(join(root, entry)));
+  }
+  return [...resolved];
+}
 function anchorTarget(target: string, cwd: string): string { const expanded = expandHome(target); return isAbsolute(expanded) ? expanded : resolve(cwd, expanded); }
 function assertWritablePath(path: string, mode: AccessMode): void { if (mode === "write" && isVcsInternal(path)) throw new Error(`${path} is inside a version control directory. Reading and searching .git and .jj is fine, but writing to them is not.`); }
 function deniedError(path: string, mode: AccessMode): Error { return new Error(`${path} is denied for ${mode} access by the path rules. Do not retry this path and do not route around it with a different tool.`); }
@@ -126,4 +142,20 @@ function mergeInheritedSession(session: RuleSets, inherited: ChildPathPolicy | n
     read: { allow: new Set([...parent.read.allow, ...session.read.allow]), deny: new Set([...parent.read.deny, ...session.read.deny]) },
     write: { allow: new Set([...parent.write.allow, ...session.write.allow]), deny: new Set([...parent.write.deny, ...session.write.deny]) },
   };
+}
+
+const GLOB_COMPONENT = /[*?\[\]{}]|\([^)]*[?+*@!]\)|\([^)]*\)/;
+
+export async function normalizePathSelector(input: string, cwd: string): Promise<PathSelector> {
+  const expanded = expandHome(input);
+  const absolute = expanded.startsWith(sep) ? expanded : `${cwd}${sep}${expanded}`;
+  const components = absolute.split(sep);
+  const globIndex = components.findIndex((component) => GLOB_COMPONENT.test(component));
+  if (globIndex < 0) return exact(await resolveThroughSymlinks(absolute));
+  if (components.slice(globIndex + 1).some((component) => component === "." || component === "..")) throw new Error("Path patterns cannot contain . or .. after a glob component");
+  const prefix = components.slice(0, globIndex).join(sep) || sep;
+  const base = await resolveThroughSymlinks(prefix);
+  const pattern = components.slice(globIndex).join(sep);
+  if (pattern === `**`) return tree(base);
+  return glob(base, pattern);
 }
