@@ -75,27 +75,19 @@ export default function (pi: ExtensionAPI) {
         .map(coerceOption)
         .filter((option): option is QuestionOption => option !== null);
 
-      const cancelled = (text: string) => ({
+      const result = (text: string, response: QuestionResponse | null, error?: string) => ({
         content: [{ type: "text" as const, text }],
         details: {
           question,
           context: normalizedContext,
           options,
-          response: null,
-          cancelled: true,
+          response,
+          cancelled: response === null,
+          ...(error ? { error } : {}),
         },
       });
-      const failure = (error: string) => ({
-        content: [{ type: "text" as const, text: error }],
-        details: {
-          question,
-          context: normalizedContext,
-          options,
-          response: null,
-          cancelled: true,
-          error,
-        },
-      });
+      const cancelled = (text: string) => result(text, null);
+      const failure = (error: string) => result(error, null, error);
 
       if (signal?.aborted) return cancelled("Cancelled");
 
@@ -121,21 +113,9 @@ export default function (pi: ExtensionAPI) {
         const freeformHint = allowFreeform
           ? "\n\nYou may also answer freely."
           : "";
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Interactive UI is unavailable. Please answer directly:\n\n${prompt}${optionText}${freeformHint}`,
-            },
-          ],
-          details: {
-            question,
-            context: normalizedContext,
-            options,
-            response: null,
-            cancelled: true,
-          },
-        };
+        return cancelled(
+          `Interactive UI is unavailable. Please answer directly:\n\n${prompt}${optionText}${freeformHint}`,
+        );
       }
 
       const outcome =
@@ -164,18 +144,7 @@ export default function (pi: ExtensionAPI) {
         unresolved.length > 0
           ? ` (could not interpret: ${unresolved.join(", ")} — confirm with the user before relying on this answer)`
           : "";
-      return {
-        content: [
-          { type: "text", text: `User answered: ${summary}${warning}` },
-        ],
-        details: {
-          question,
-          context: normalizedContext,
-          options,
-          response: outcome,
-          cancelled: false,
-        },
-      };
+      return result(`User answered: ${summary}${warning}`, outcome);
     },
 
     renderCall(args, theme) {
