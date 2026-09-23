@@ -3,7 +3,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
   DEFAULT_MAX_BYTES,
   formatSize,
@@ -540,90 +540,42 @@ export function createLsExecute(
       return stockExecute(toolCallId, stockParams, signal, onUpdate, context);
     }
 
-    return new Promise((resolve, reject) => {
-      if (signal?.aborted) {
-        reject(new Error("Operation aborted"));
-        return;
-      }
-
-      let settled = false;
-      const settle = (finish: () => void) => {
-        if (settled) return;
-        settled = true;
-        signal?.removeEventListener("abort", onAbort);
-        finish();
-      };
-      const onAbort = () => {
-        settle(() => reject(new Error("Operation aborted")));
-      };
-      signal?.addEventListener("abort", onAbort, { once: true });
-
-      void (async () => {
-        try {
-          const directoryPath = resolvePath(
-            (params as LsParams).path || ".",
-            context?.cwd || cwd,
-          );
-          let directoryStats;
-          try {
-            directoryStats = await stat(directoryPath);
-          } catch {
-            settle(() => reject(new Error(`Path not found: ${directoryPath}`)));
-            return;
-          }
-          if (!directoryStats.isDirectory()) {
-            settle(() =>
-              reject(new Error(`Not a directory: ${directoryPath}`)),
-            );
-            return;
-          }
-
-          let entries: string[];
-          try {
-            entries = await readdir(directoryPath);
-          } catch (error) {
-            if (signal?.aborted) {
-              settle(() => reject(new Error("Operation aborted")));
-              return;
-            }
-            const message =
-              error instanceof Error ? error.message : String(error);
-            settle(() =>
-              reject(new Error(`Cannot read directory: ${message}`)),
-            );
-            return;
-          }
-
-          let entryCount = 0;
-          for (const entry of entries) {
-            if (signal?.aborted) {
-              settle(() => reject(new Error("Operation aborted")));
-              return;
-            }
-            try {
-              await stat(path.join(directoryPath, entry));
-              entryCount++;
-            } catch {
-              // Match stock ls by skipping entries that cannot be statted.
-            }
-          }
-
-          settle(() =>
-            resolve({
-              content: [{ type: "text", text: `${entryCount} entries` }],
-              details: undefined,
-            }),
-          );
-        } catch (error) {
-          if (signal?.aborted) {
-            settle(() => reject(new Error("Operation aborted")));
-            return;
-          }
-          settle(() => reject(error));
-        }
-      })();
-    });
+    return countEntries(resolvePath((params as LsParams).path || ".", context?.cwd || cwd), signal);
   };
+}
+
+async function countEntries(
+  directoryPath: string,
+  signal: AbortSignal | undefined,
+): Promise<AgentToolResult<undefined>> {
+  const throwIfAborted = () => {
+    if (signal?.aborted) throw new Error("Operation aborted");
+  };
+  throwIfAborted();
+  const directoryStats = await stat(directoryPath).catch(() => {
+    throw new Error(`Path not found: ${directoryPath}`);
+  });
+  if (!directoryStats.isDirectory()) {
+    throw new Error(`Not a directory: ${directoryPath}`);
+  }
+
+  const entries = await readdir(directoryPath).catch((error) => {
+    throwIfAborted();
+    throw new Error(`Cannot read directory: ${error instanceof Error ? error.message : String(error)}`);
+  });
+
+  let entryCount = 0;
+  for (const entry of entries) {
+    throwIfAborted();
+    try {
+      await stat(path.join(directoryPath, entry));
+      entryCount++;
+    } catch {
+      // Match stock ls by skipping entries that cannot be statted.
+    }
+  }
+  throwIfAborted();
+  return { content: [{ type: "text", text: `${entryCount} entries` }], details: undefined };
 }
 
 // Each directory prefix is printed once; on a repo-wide listing that is a third of the bytes.
