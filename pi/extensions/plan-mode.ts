@@ -14,7 +14,13 @@ import { Type } from "typebox";
 import { FILE_TOOLS } from "./lib/file-tools.ts";
 import {
   addPathRule,
+  ALLOW_ALWAYS,
+  ALLOW_ONCE,
+  ALLOW_SESSION,
   clearPathRules,
+  DENY_ALWAYS,
+  DENY_ONCE,
+  DENY_SESSION,
   initPathPermissions,
   listPathRules,
   removePathRule,
@@ -31,12 +37,9 @@ import {
 } from "./lib/plan-decisions.ts";
 import { newPlanPath, plansDirectory } from "./lib/plan-file.ts";
 import { commitPlanFileForUser } from "./lib/plan-commit.ts";
-import {
-  latestPlanHandoffEntry,
-  PLAN_HANDOFF_ENTRY_TYPE,
-} from "./lib/plan-handoff.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 import { selectWithDefault } from "./lib/select-with-default.ts";
+import { latestCustomData } from "./lib/session-entries.ts";
 import { serialize } from "./lib/ui-queue.ts";
 
 const PLAN_PATH = "plan_path";
@@ -52,12 +55,6 @@ const UNGATED_TOOLS = new Set([
   ...PLAN_TOOLS,
 ]);
 
-const ALLOW_ONCE = "Allow once";
-const ALLOW_SESSION = "Allow in session";
-const ALLOW_ALWAYS = "Allow always";
-const DENY_ONCE = "Deny once";
-const DENY_SESSION = "Deny in session";
-const DENY_ALWAYS = "Deny always";
 const APPROVE = "Approve — leave plan mode";
 const APPROVE_CURRENT = "Approve — implement with current model";
 const IMPLEMENT_DIFFERENT = "Implement with different model";
@@ -68,13 +65,14 @@ const CONTEXT_FULL = "Full context — inherit the whole conversation";
 const CONTEXT_COMPACT = "Compact — summarize, then implement in a fresh turn";
 const CONTEXT_FRESH = "Fresh session — only the plan file, nothing else";
 const FRESH_HANDOFF_ARGUMENT = "fresh-handoff";
+const PLAN_HANDOFF_ENTRY_TYPE = "plan-handoff";
 
 export default function (pi: ExtensionAPI) {
   initPathPermissions(pi);
   let planMode = false;
   let agentRunning = false;
   let pendingToggle: boolean | undefined;
-  let pendingFreshHandoff: FreshHandoff | undefined;
+  let pendingFreshHandoff: PlanHandoff | undefined;
   const sessionGrants = new Set<string>();
   const alwaysGrants = new Set<string>();
   // Denials carry the note the user left, so a repeat block can keep repeating the guidance
@@ -866,7 +864,7 @@ export default function (pi: ExtensionAPI) {
     }
     const handoff =
       event.reason === "new"
-        ? latestPlanHandoffEntry(ctx.sessionManager)
+        ? latestPlanHandoff(ctx.sessionManager)
         : undefined;
     if (pi.getFlag("plan") === true && !handoff) {
       planMode = true;
@@ -907,11 +905,29 @@ export default function (pi: ExtensionAPI) {
   });
 }
 
-interface FreshHandoff {
+interface PlanHandoff {
   planPath: string;
   provider: string;
   modelId: string;
   thinkingLevel: string;
+}
+
+// A fresh implementation session is seeded with this entry before session_start fires,
+// so the new plan-mode instance knows which model to activate and which plan to kick off.
+function latestPlanHandoff(
+  sessionManager: { getEntries(): readonly unknown[] },
+): PlanHandoff | undefined {
+  const { planPath, provider, modelId, thinkingLevel } =
+    latestCustomData(sessionManager, PLAN_HANDOFF_ENTRY_TYPE) ?? {};
+  if (
+    typeof planPath !== "string" ||
+    typeof provider !== "string" ||
+    typeof modelId !== "string" ||
+    typeof thinkingLevel !== "string"
+  ) {
+    return undefined;
+  }
+  return { planPath, provider, modelId, thinkingLevel };
 }
 
 type Decision =

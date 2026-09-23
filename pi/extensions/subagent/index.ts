@@ -29,7 +29,7 @@ import { latestPlanModeEntry, readPersistedDecisions } from "../lib/plan-decisio
 import { captureChildPathPolicy } from "../lib/path-permissions.ts";
 import { serializeChildPathPolicy, CHILD_POLICY_ENV, type ChildPathPolicy } from "../lib/path-permission-snapshot.ts";
 import { registerToolWithGuidelines } from "../lib/register-tool.ts";
-import { type AgentConfig, discoverAgents } from "./agents.ts";
+import { type AgentConfig, discoverAgents, THINKING_LEVELS } from "./agents.ts";
 import { guidanceTable, loadPolicyConfig, resolveSubagentModel, type SubagentModelConfig } from "./model-policy.ts";
 import { planModeAllowedTools, type PersistedPlanDecisions } from "./plan-restrictions.ts";
 
@@ -416,7 +416,7 @@ const ModelParam = Type.Optional(
 );
 
 const ThinkingLevelParam = Type.Optional(
-  StringEnum(["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const, {
+  StringEnum(THINKING_LEVELS, {
     description:
       "Thinking level for this subagent. Omit to inherit the session's level. Lowering it on the inherited model is the cheapest way to scale effort down.",
   }),

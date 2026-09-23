@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { join, matchesGlob, relative, sep } from "node:path";
+import { contains } from "./repo.ts";
 
 
 export type AccessMode = "read" | "write";
@@ -138,10 +139,5 @@ function matchesAny(path: string, selectorsOrKeys: Iterable<string | PathSelecto
     if (matchesRule(path, typeof value === "string" ? selectorFromKey(value) : value)) return true;
   }
   return false;
-}
-
-function contains(root: string, path: string): boolean {
-  const remainder = relative(root, path);
-  return remainder === "" || (!remainder.startsWith(`..${sep}`) && remainder !== ".." && !remainder.startsWith(sep));
 }
 

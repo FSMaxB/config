@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import type { PathSelector, RuleSets, SerializedRules } from "./path-permission-rules.ts";
+import { emptyRules, selectorKey, type PathSelector, type RuleSets, type SerializedRules } from "./path-permission-rules.ts";
 
 export interface ChildPathPolicy { version: 1; session: SerializedRules; readDefaults: PathSelector[]; writeDefaults: PathSelector[] }
 export const CHILD_POLICY_ENV = "PI_SUBAGENT_PATH_POLICY";
@@ -21,7 +21,6 @@ export function parseChildPathPolicy(value: string | undefined): ChildPathPolicy
 }
 export function inheritedRules(policy: ChildPathPolicy): RuleSets {
   const rules = emptyRules();
-  for (const mode of ["read", "write"] as const) for (const kind of ["allow", "deny"] as const) for (const selector of policy.session[mode][kind]) rules[mode][kind].add(JSON.stringify(selector.kind === "glob" ? [selector.kind, selector.base, selector.pattern] : [selector.kind, selector.path]));
+  for (const mode of ["read", "write"] as const) for (const kind of ["allow", "deny"] as const) for (const selector of policy.session[mode][kind]) rules[mode][kind].add(selectorKey(selector));
   return rules;
 }
-function emptyRules(): RuleSets { return { read: { allow: new Set(), deny: new Set() }, write: { allow: new Set(), deny: new Set() } }; }

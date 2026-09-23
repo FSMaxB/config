@@ -1,12 +1,12 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { parseRules, serializeRules, type RuleSets } from "./path-permission-rules.ts";
+import { emptyRules, parseRules, serializeRules, type RuleSets } from "./path-permission-rules.ts";
 
 export async function readStoredRules(filePath: string): Promise<RuleSets> {
   try { return parseRules(JSON.parse(await readFile(filePath, "utf8"))); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return emptyStoredRules(); throw error; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return emptyRules(); throw error; }
 }
 
 export async function transaction<T>(filePath: string, operation: (rules: RuleSets) => Promise<T> | T): Promise<T> {
@@ -31,5 +31,3 @@ export async function transaction<T>(filePath: string, operation: (rules: RuleSe
   }
 }
 
-function basename(path: string): string { return path.slice(path.lastIndexOf("/") + 1); }
-function emptyStoredRules(): RuleSets { return { read: { allow: new Set(), deny: new Set() }, write: { allow: new Set(), deny: new Set() } }; }

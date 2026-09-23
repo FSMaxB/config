@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { readJsonObject } from "./json.ts";
+import { latestCustomData } from "./session-entries.ts";
 
 export const PLAN_MODE_ENTRY_TYPE = "plan-mode";
 
@@ -24,26 +25,10 @@ export interface PlanModeEntry {
 export function latestPlanModeEntry(
   sessionManager: { getEntries(): readonly unknown[] },
 ): PlanModeEntry | undefined {
-  const entries = sessionManager.getEntries() as readonly {
-    type: string;
-    customType?: string;
-    data?: unknown;
-  }[];
-  const entry = entries
-    .filter(
-      (candidate) =>
-        candidate.type === "custom" &&
-        candidate.customType === PLAN_MODE_ENTRY_TYPE,
-    )
-    .pop();
-  if (!entry || typeof entry.data !== "object" || entry.data === null)
-    return undefined;
+  const data = latestCustomData(sessionManager, PLAN_MODE_ENTRY_TYPE);
+  if (!data) return undefined;
 
-  const { enabled, sessionGrants, sessionDenials } = entry.data as {
-    enabled?: unknown;
-    sessionGrants?: unknown;
-    sessionDenials?: unknown;
-  };
+  const { enabled, sessionGrants, sessionDenials } = data;
   return {
     enabled: enabled === true,
     sessionGrants: stringList(sessionGrants),
