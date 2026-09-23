@@ -13,6 +13,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { execChecked } from "./lib/exec.ts";
 import { formatJjAnnotate, JJ_ANNOTATE_TEMPLATE } from "./lib/jj-annotate.ts";
+import { pageLines } from "./lib/lines.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 import { detectVcs, type VcsInfo } from "./lib/repo.ts";
 
@@ -602,16 +603,8 @@ function paginate(
   // A trailing newline leaves a final empty element that is not a real line.
   if (lines.at(-1) === "") lines.pop();
 
-  const start = Math.max((offset ?? 1) - 1, 0);
-  if (start >= lines.length) {
-    return `(no lines: offset ${start + 1} starts past the end of this ${lines.length}-line file)`;
-  }
-
-  const slice = lines.slice(
-    start,
-    limit === undefined ? undefined : start + Math.max(limit, 0),
-  );
-  return `[lines ${start + 1}-${start + slice.length} of ${lines.length}]\n${slice.join("\n")}`;
+  const page = pageLines(lines, offset, limit);
+  return page.kind === "past-end" ? page.message : `${page.header}\n${page.items.join("\n")}`;
 }
 
 async function capture(
