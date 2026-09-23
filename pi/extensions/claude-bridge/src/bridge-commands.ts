@@ -15,18 +15,6 @@ function commandCwd(ctx: unknown): string {
 	return typeof value === "string" && value.length > 0 ? value : process.cwd();
 }
 
-async function tryOpenExtensionManagerSettings(ctx: { ui: ExtensionUIContext }): Promise<boolean> {
-	const host = globalThis as unknown as Record<PropertyKey, unknown>;
-	const openQuickSettings = host[Symbol.for("kendex.pi.extension-manager.open-quick-settings")];
-	if (typeof openQuickSettings !== "function") return false;
-	try {
-		await (openQuickSettings as (ctx: unknown, hint?: string) => Promise<void>)(ctx, "@vanillagreen/pi-claude-bridge");
-		return true;
-	} catch {
-		return false;
-	}
-}
-
 function showBridgeStatus(ctx: { ui: ExtensionUIContext; cwd?: string }): void {
 	const config = loadConfig(commandCwd(ctx));
 	ctx.ui.notify([
@@ -72,10 +60,9 @@ export function registerBridgeCommands(pi: ExtensionAPI): void {
 	guard[COMMANDS_REGISTERED_KEY] = true;
 
 	pi.registerCommand("pi-claude", {
-		description: "Open Pi Claude settings/status",
+		description: "Show Pi Claude status",
 		handler: async (args: string, ctx) => {
 			if (args.trim()) ctx.ui.notify("Unknown /pi-claude argument.", "warning");
-			if (await tryOpenExtensionManagerSettings(ctx)) return;
 			showBridgeStatus(ctx);
 		},
 	});
