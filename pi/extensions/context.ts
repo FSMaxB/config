@@ -192,36 +192,17 @@ function buildToolRows(pi: ExtensionAPI): Row[] {
 function buildMessageRows(
   messages: ReturnType<typeof sessionEntryToContextMessages>,
 ): Row[] {
-  let messageCount = 0;
-  let userTokens = 0;
-  let userCount = 0;
+  const totals = new Map<"user" | "bash" | "summary", Stats>();
+  const toolResults = new Map<string, Stats>();
+  const customMessages = new Map<string, Stats>();
   let assistantTextChars = 0;
   let assistantThinkingChars = 0;
   let toolCallChars = 0;
-  const toolResults = new Map<string, { tokens: number; count: number }>();
-  const customMessages = new Map<string, { tokens: number; count: number }>();
-  let bashTokens = 0;
-  let bashCount = 0;
-  let summaryTokens = 0;
-  let summaryCount = 0;
-
-  const tally = (
-    map: Map<string, { tokens: number; count: number }>,
-    key: string,
-    tokens: number,
-  ) => {
-    const stats = map.get(key) ?? { tokens: 0, count: 0 };
-    stats.tokens += tokens;
-    stats.count += 1;
-    map.set(key, stats);
-  };
 
   for (const message of messages) {
-    messageCount += 1;
     switch (message.role) {
       case "user":
-        userTokens += estimateTokens(message);
-        userCount += 1;
+        tally(totals, "user", estimateTokens(message));
         break;
       case "assistant":
         for (const block of message.content) {
@@ -242,65 +223,51 @@ function buildMessageRows(
         tally(customMessages, message.customType, estimateTokens(message));
         break;
       case "bashExecution":
-        bashTokens += estimateTokens(message);
-        bashCount += 1;
+        tally(totals, "bash", estimateTokens(message));
         break;
       case "compactionSummary":
       case "branchSummary":
-        summaryTokens += estimateTokens(message);
-        summaryCount += 1;
+        tally(totals, "summary", estimateTokens(message));
         break;
     }
   }
 
+  const user = totals.get("user") ?? { tokens: 0, count: 0 };
+  const bash = totals.get("bash");
+  const summary = totals.get("summary");
   const assistantTextTokens = Math.ceil(assistantTextChars / 4);
   const assistantThinkingTokens = Math.ceil(assistantThinkingChars / 4);
   const toolCallTokens = Math.ceil(toolCallChars / 4);
-  const toolResultEntries = [...toolResults.entries()].sort(
-    (a, b) => b[1].tokens - a[1].tokens,
-  );
-  const toolResultTokens = toolResultEntries.reduce(
-    (sum, [, stats]) => sum + stats.tokens,
-    0,
-  );
-  const toolResultCount = toolResultEntries.reduce(
-    (sum, [, stats]) => sum + stats.count,
-    0,
-  );
-  const customEntries = [...customMessages.entries()].sort(
-    (a, b) => b[1].tokens - a[1].tokens,
-  );
-  const customTokens = customEntries.reduce(
-    (sum, [, stats]) => sum + stats.tokens,
-    0,
-  );
+  const toolResultEntries = sortedByTokens(toolResults);
+  const toolResultTotal = sumStats(toolResultEntries);
+  const customEntries = sortedByTokens(customMessages);
 
   const totalTokens =
-    userTokens +
+    user.tokens +
     assistantTextTokens +
     assistantThinkingTokens +
     toolCallTokens +
-    toolResultTokens +
-    customTokens +
-    bashTokens +
-    summaryTokens;
+    toolResultTotal.tokens +
+    sumStats(customEntries).tokens +
+    (bash?.tokens ?? 0) +
+    (summary?.tokens ?? 0);
 
   const rows: Row[] = [
     {
       indent: 0,
       label: "Messages",
       tokens: totalTokens,
-      note: `${messageCount} in context`,
+      note: `${messages.length} in context`,
     },
-    { indent: 1, label: "user", tokens: userTokens, note: `${userCount}` },
+    { indent: 1, label: "user", tokens: user.tokens, note: `${user.count}` },
     { indent: 1, label: "assistant text", tokens: assistantTextTokens },
     { indent: 1, label: "assistant thinking", tokens: assistantThinkingTokens },
     { indent: 1, label: "tool calls", tokens: toolCallTokens },
     {
       indent: 1,
       label: "tool results",
-      tokens: toolResultTokens,
-      note: `${toolResultCount}`,
+      tokens: toolResultTotal.tokens,
+      note: `${toolResultTotal.count}`,
     },
     ...toolResultEntries.map(([name, stats]) => ({
       indent: 2,
@@ -315,23 +282,46 @@ function buildMessageRows(
       note: `${stats.count}`,
     })),
   ];
-  if (bashCount > 0) {
+  if (bash) {
     rows.push({
       indent: 1,
       label: "bash executions",
-      tokens: bashTokens,
-      note: `${bashCount}`,
+      tokens: bash.tokens,
+      note: `${bash.count}`,
     });
   }
-  if (summaryCount > 0) {
+  if (summary) {
     rows.push({
       indent: 1,
       label: "compaction/branch summaries",
-      tokens: summaryTokens,
-      note: `${summaryCount}`,
+      tokens: summary.tokens,
+      note: `${summary.count}`,
     });
   }
   return rows;
+}
+
+interface Stats {
+  tokens: number;
+  count: number;
+}
+
+function tally<Key>(map: Map<Key, Stats>, key: Key, tokens: number): void {
+  const stats = map.get(key) ?? { tokens: 0, count: 0 };
+  stats.tokens += tokens;
+  stats.count += 1;
+  map.set(key, stats);
+}
+
+function sortedByTokens(map: Map<string, Stats>): [string, Stats][] {
+  return [...map.entries()].sort((a, b) => b[1].tokens - a[1].tokens);
+}
+
+function sumStats(entries: [string, Stats][]): Stats {
+  return entries.reduce(
+    (total, [, stats]) => ({ tokens: total.tokens + stats.tokens, count: total.count + stats.count }),
+    { tokens: 0, count: 0 },
+  );
 }
 
 function renderRows(rows: Row[], contextWindow: number | undefined): string[] {
