@@ -107,8 +107,9 @@ describe("QueryContext class", () => {
 	});
 
 	it("claimToolCall claims the sole same-name call even when recorded args diverge", () => {
-		// Recorded args = raw streamed input; handler args = zod-validated copy.
-		// A stripped/extra key must not strand the only call this handler can be.
+		// Recorded args = raw streamed input; handler args = the raw MCP arguments too.
+		// A stray/extra key must not strand the only call this handler can be (the
+		// argsMismatch fallback now guards against future schema/validator drift).
 		ctx().recordToolCall("edit-1", "edit", { path: "a.ts", edits: [{ oldText: "x", newText: "y", stray: true }] });
 
 		const claim = ctx().claimToolCall("edit", { path: "a.ts", edits: [{ oldText: "x", newText: "y" }] });

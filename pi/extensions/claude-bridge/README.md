@@ -9,7 +9,8 @@ This directory is a fork of [`@vanillagreen/pi-claude-bridge`](https://github.co
 Differences from upstream:
 
 - Pi loads the extension from source: `index.ts` re-exports `src/index.ts`, so there is no `bundle/` build step and no `esbuild`. The upstream `./connector-inventory` entry point and the `bundle/`-based artifact test are gone; everything else is still exported from `src/index.ts`.
-- Dependencies come from this directory's own `package.json`; `zod` and `@modelcontextprotocol/sdk` are declared explicitly because the bundle no longer inlines them.
+- Dependencies come from this directory's own `package.json`; `@modelcontextprotocol/sdk` is declared explicitly because the bundle no longer inlines it.
+- Pi tools are served to Claude Code through a low-level MCP server (`src/tool-server.ts`) that forwards their JSON Schema unchanged, instead of the upstream TypeBox-to-Zod conversion, which dropped `integer`, min/max bounds and other keywords.
 - The kendex extension-manager manifest (the `kendex` block in upstream `package.json`) is not carried over. The settings it described still work when written to `kendex.extensionManager.config["@vanillagreen/pi-claude-bridge"]` in Pi's settings, or to `claude-bridge.json`.
 
 ## Install

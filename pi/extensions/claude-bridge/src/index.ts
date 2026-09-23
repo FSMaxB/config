@@ -1,7 +1,7 @@
 import { type AssistantMessage, type AssistantMessageEventStream, type Context, type Model, type SimpleStreamOptions, type Tool } from "@earendil-works/pi-ai";
 import * as piAi from "@earendil-works/pi-ai";
 import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { createSdkMcpServer, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { Base64ImageSource, ContentBlockParam, MessageParam } from "@anthropic-ai/sdk/resources";
 import { PROVIDER_ID, messageContentToText } from "./convert.js";
 import { buildModels, modelDisplayName } from "./models.js";
@@ -12,7 +12,7 @@ import { abortSdkQuery, closeSdkQuery, teardownQuery } from "./query-teardown.js
 import { loadConfig, recordProjectTrust, registerExternalConfigResolver } from "./config.js";
 import { hasClaudeCredentials } from "./auth-presence.js";
 import { NATIVE_PROVIDER_UNSUPPORTED_MESSAGE, buildNativeProvider, supportsNativeProvider } from "./native-provider.js";
-import { jsonSchemaToZodShape } from "./typebox-to-zod.js";
+import { createToolServer, type BridgedTool } from "./tool-server.js";
 import { resolveGetModels } from "./pi-ai-compat.js";
 // Re-exported from the extension entry point ON PURPOSE. Consuming apps
 // regenerate their vendored package.json with a CLOSED exports map
@@ -332,18 +332,19 @@ export function resolveMcpTools(context: Context, excludeToolName?: string): {
 // count — ending the pi stream at handler invocation is what froze pi's
 // per-turn output figures at the message_start placeholders (1–7 tokens).
 
-// Creates an MCP server that bridges pi tools to the SDK. Each tool handler
-// blocks on a Promise until pi delivers the tool result via streamSimple.
-// Handlers claim their tool_call id by matching the actual MCP call
-// (tool name + arguments) against the recorded tool_use blocks, then results
-// are matched by ID. Handlers close over the captured `queryCtx`, ensuring they
-// operate on the correct query's state even across pushContext/popContext calls.
-function buildMcpServers(tools: Tool[], queryCtx: QueryContext): Record<string, ReturnType<typeof createSdkMcpServer>> | undefined {
+// Bridges pi tools to the SDK via a low-level MCP server (tool-server.ts) that
+// forwards each tool's JSON Schema unchanged. Each tool handler blocks on a
+// Promise until pi delivers the tool result via streamSimple. Handlers claim
+// their tool_call id by matching the actual MCP call (tool name + arguments)
+// against the recorded tool_use blocks, then results are matched by ID.
+// Handlers close over the captured `queryCtx`, ensuring they operate on the
+// correct query's state even across pushContext/popContext calls.
+function buildMcpServers(tools: Tool[], queryCtx: QueryContext): Record<string, ReturnType<typeof createToolServer>> | undefined {
 	if (!tools.length) return undefined;
-	const mcpTools = tools.map((tool) => ({
+	const mcpTools: BridgedTool[] = tools.map((tool) => ({
 		name: tool.name,
 		description: tool.description,
-		inputSchema: jsonSchemaToZodShape(tool.parameters),
+		parameters: tool.parameters,
 		handler: async (args?: Record<string, unknown>) => {
 			const mappedArgs = mapToolArgs(tool.name, args);
 			const claim = queryCtx.claimToolCall(tool.name, mappedArgs);
@@ -366,8 +367,10 @@ function buildMcpServers(tools: Tool[], queryCtx: QueryContext): Record<string, 
 				return { content: [{ type: "text", text: `Claude bridge internal error: no matching tool_call id for ${tool.name}` }], isError: true } satisfies McpResult;
 			}
 			if (claim.argsMismatch) {
-				// Claimed anyway (sole same-name candidate) — record the divergence so
-				// a schema/validator drift stays visible without stranding the call.
+				// Claimed anyway (sole same-name candidate). The handler now receives
+				// the raw MCP arguments, so this can no longer come from Zod stripping
+				// keys — only a genuine schema/validator drift reaches here, and this
+				// branch is a safety net rather than the normal path.
 				debug(`mcp handler: ${tool.name} [${toolCallId}] claimed sole same-name call despite args mismatch`);
 				diagDump("tool_claim_args_mismatch", {
 					toolName: tool.name,
@@ -406,8 +409,7 @@ function buildMcpServers(tools: Tool[], queryCtx: QueryContext): Record<string, 
 			});
 		},
 	}));
-	const server = createSdkMcpServer({ name: MCP_SERVER_NAME, version: "1.0.0", tools: mcpTools });
-	return { [MCP_SERVER_NAME]: server };
+	return { [MCP_SERVER_NAME]: createToolServer(MCP_SERVER_NAME, mcpTools) };
 }
 
 
