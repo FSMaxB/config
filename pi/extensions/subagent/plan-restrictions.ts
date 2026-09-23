@@ -16,7 +16,6 @@
 import { READ_FILE_TOOLS } from "../lib/file-tools.ts";
 
 export interface PlanModeSnapshot {
-  enabled: boolean;
   sessionGrants: string[];
   sessionDenials: string[];
 }
