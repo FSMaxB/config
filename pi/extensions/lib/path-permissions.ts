@@ -1,26 +1,25 @@
 import { readdir, stat } from "node:fs/promises";
-import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { defaultAllowed, emptyRules, evaluate, parseRules, recordRule, selectorFromKey, selectorKey, selectorLabel, serializeRules, tree, type AccessMode, type PathRule, type RuleSets, type RuleTier, type SerializedRules, type Verdict } from "./path-permission-rules.ts";
+import { expandHome } from "./path-resolution.ts";
 import { readStoredRules, transaction } from "./path-rule-store.ts";
 import { contains, findRepoRoot, isVcsInternal, memoryDirectory, resolveThroughSymlinks } from "./repo.ts";
 import { skillRoots } from "./skill-roots.ts";
+import { latestCustomData } from "./session-entries.ts";
 import { serialize } from "./ui-queue.ts";
 import { inheritedRules, parseChildPathPolicy, type ChildPathPolicy } from "./path-permission-snapshot.ts";
 export const PATH_RULES_ENTRY_TYPE = "path-permissions";
 const RULES_FILE = join(getAgentDir(), "path-permissions.json");
-const ALLOW_ONCE = "Allow once", ALLOW_SESSION = "Allow in session", ALLOW_ALWAYS = "Allow always", DENY_ONCE = "Deny once", DENY_SESSION = "Deny in session", DENY_ALWAYS = "Deny always";
+export const ALLOW_ONCE = "Allow once", ALLOW_SESSION = "Allow in session", ALLOW_ALWAYS = "Allow always", DENY_ONCE = "Deny once", DENY_SESSION = "Deny in session", DENY_ALWAYS = "Deny always";
 interface SharedState { session: RuleSets; planMode: boolean; inherited?: ChildPathPolicy | null; persistSession?: (snapshot: SerializedRules) => void }
 const globalState = globalThis as { piPathPermissions?: SharedState };
 const state = (globalState.piPathPermissions ??= { session: emptyRules(), planMode: false, inherited: parseChildPathPolicy(process.env.PI_SUBAGENT_PATH_POLICY) });
 export function setPlanModeEnabled(enabled: boolean): void { state.planMode = enabled; }
 export function initPathPermissions(pi: ExtensionAPI): void { state.persistSession = (snapshot) => pi.appendEntry(PATH_RULES_ENTRY_TYPE, snapshot); }
 export function restoreSessionPathRules(sessionManager: { getEntries(): readonly unknown[] }): void {
-  const entries = sessionManager.getEntries() as readonly { type?: unknown; customType?: unknown; data?: unknown }[];
-  const entry = entries.filter((candidate) => candidate.type === "custom" && candidate.customType === PATH_RULES_ENTRY_TYPE).pop();
-  state.session = parseSession(entry?.data);
+  state.session = parseSession(latestCustomData(sessionManager, PATH_RULES_ENTRY_TYPE));
 }
 
 export const PathResolution = { Follow: "follow", PreserveFinalSymlink: "preserve-final-symlink" } as const;
@@ -84,7 +83,7 @@ async function currentDefaults(mode: AccessMode): Promise<ReturnType<typeof defa
   return defaultAllowed(mode, { planMode: state.planMode, repoRoot, memoryDirectory: memoryRoot, skillRoots: resolvedSkills, agentDirectory });
 }
 async function resolvedSkillRoots(repoRoot: string): Promise<string[]> { const roots = [...skillRoots()], resolved = new Set<string>(); for (const [index, root] of roots.entries()) { const resolvedRoot = await resolveThroughSymlinks(root); if (index >= 2 || contains(repoRoot, resolvedRoot)) resolved.add(resolvedRoot); } for (const root of roots.slice(2)) for (const entry of await readdir(root).catch(() => [] as string[])) resolved.add(await resolveThroughSymlinks(join(root, entry))); return [...resolved]; }
-function anchorTarget(target: string, cwd: string): string { const expanded = target === "~" || target.startsWith("~/") ? join(homedir(), target.slice(1)) : target; return isAbsolute(expanded) ? expanded : resolve(cwd, expanded); }
+function anchorTarget(target: string, cwd: string): string { const expanded = expandHome(target); return isAbsolute(expanded) ? expanded : resolve(cwd, expanded); }
 function assertWritablePath(path: string, mode: AccessMode): void { if (mode === "write" && isVcsInternal(path)) throw new Error(`${path} is inside a version control directory. Reading and searching .git and .jj is fine, but writing to them is not.`); }
 function deniedError(path: string, mode: AccessMode): Error { return new Error(`${path} is denied for ${mode} access by the path rules. Do not retry this path and do not route around it with a different tool.`); }
 

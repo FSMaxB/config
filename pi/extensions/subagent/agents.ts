@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 
+export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const satisfies readonly ModelThinkingLevel[];
+
 export interface AgentConfig {
   name: string;
   description: string;
@@ -102,6 +104,5 @@ function parseToolList(value: unknown): string[] | undefined {
 
 // Lenient like parseToolList: a bad value must not take down the whole agent file.
 function parseThinkingLevel(value: unknown): ModelThinkingLevel | undefined {
-  const levels: ModelThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
-  return levels.find((level) => level === value);
+  return THINKING_LEVELS.find((level) => level === value);
 }

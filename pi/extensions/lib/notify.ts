@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { sanitizeDisplayText } from "./format.ts";
+import { shellQuote } from "./panes.ts";
 
 export function notifyUser(
   pi: ExtensionAPI,
@@ -87,10 +88,6 @@ function focusPaneCommand(): string | undefined {
   // The click command runs from a relaunched terminal-notifier, which inherits
   // launchd's bare PATH instead of one holding zellij.
   return [`export PATH=${shellQuote(path ?? "")}`, ...steps].join("; ");
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 function notifyAppleScript(title: string, body: string): void {
