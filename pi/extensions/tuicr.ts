@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -205,7 +206,7 @@ export default function (pi: ExtensionAPI) {
           ],
           details: {},
         });
-        await sleep(POLL_INTERVAL, signal);
+        await sleep(POLL_INTERVAL, undefined, { signal });
       }
     },
   });
@@ -303,7 +304,7 @@ async function waitForSession(
     const picked = pickNewSession(entries, activeBefore);
     if (picked) return picked;
     if (Date.now() >= deadline) return undefined;
-    await sleep(POLL_INTERVAL, signal);
+    await sleep(POLL_INTERVAL, undefined, { signal });
   }
 }
 
@@ -336,7 +337,7 @@ async function resolveSession(
     }
     if (Date.now() >= deadline)
       throw new Error(`No active tuicr session in ${repo}. Call tuicr_open, or ask the user to start tuicr there.`);
-    await sleep(POLL_INTERVAL, signal);
+    await sleep(POLL_INTERVAL, undefined, { signal });
   }
 }
 
@@ -380,24 +381,6 @@ async function readComments(
   } catch {
     return [];
   }
-}
-
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolvePromise, reject) => {
-    if (signal?.aborted) {
-      reject(new Error("The tuicr wait was aborted."));
-      return;
-    }
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", abort);
-      resolvePromise();
-    }, ms);
-    const abort = () => {
-      clearTimeout(timer);
-      reject(new Error("The tuicr wait was aborted."));
-    };
-    signal?.addEventListener("abort", abort, { once: true });
-  });
 }
 
 function text(body: string, details: unknown = {}): AgentToolResult<unknown> {

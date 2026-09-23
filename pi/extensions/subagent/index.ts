@@ -12,7 +12,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { existsSync, rmdirSync, unlinkSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import type { AgentToolResult, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Message, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { clampThinkingLevel, getSupportedThinkingLevels, StringEnum } from "@earendil-works/pi-ai";
-import { type ExtensionAPI, getMarkdownTheme, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { shortenPath } from "../lib/format.ts";
@@ -534,8 +534,7 @@ async function runSingleAgent(
   }
   if (agent.tools && agent.tools.length > 0) args.push("--tools", agent.tools.join(","));
 
-  let temporaryPromptDirectory: string | null = null;
-  let temporaryPromptPath: string | null = null;
+  let temporaryPromptDirectory: string | undefined;
 
   const currentResult: SingleResult = {
     agent: agentName,
@@ -559,10 +558,9 @@ async function runSingleAgent(
 
   try {
     if (agent.systemPrompt.trim()) {
-      const promptFile = await writePromptToTempFile(agent.name, agent.systemPrompt);
-      temporaryPromptDirectory = promptFile.directory;
-      temporaryPromptPath = promptFile.filePath;
-      args.push("--append-system-prompt", temporaryPromptPath);
+      const promptPath = await writePromptToTempFile(agent.name, agent.systemPrompt);
+      temporaryPromptDirectory = dirname(promptPath);
+      args.push("--append-system-prompt", promptPath);
     }
 
     args.push(`Task: ${task}`);
@@ -646,18 +644,7 @@ async function runSingleAgent(
     if (wasAborted) throw new Error("Subagent was aborted");
     return currentResult;
   } finally {
-    if (temporaryPromptPath)
-      try {
-        unlinkSync(temporaryPromptPath);
-      } catch {
-        /* ignore */
-      }
-    if (temporaryPromptDirectory)
-      try {
-        rmdirSync(temporaryPromptDirectory);
-      } catch {
-        /* ignore */
-      }
+    if (temporaryPromptDirectory) rmSync(temporaryPromptDirectory, { recursive: true, force: true });
   }
 }
 
@@ -762,17 +749,12 @@ function getPiInvocation(args: string[]): { command: string; args: string[] } {
   return { command: "pi", args };
 }
 
-async function writePromptToTempFile(
-  agentName: string,
-  prompt: string,
-): Promise<{ directory: string; filePath: string }> {
+async function writePromptToTempFile(agentName: string, prompt: string): Promise<string> {
   const temporaryDirectory = await mkdtemp(join(tmpdir(), "pi-subagent-"));
   const safeName = agentName.replace(/[^\w.-]+/g, "_");
   const filePath = join(temporaryDirectory, `prompt-${safeName}.md`);
-  await withFileMutationQueue(filePath, async () => {
-    await writeFile(filePath, prompt, { encoding: "utf-8", mode: 0o600 });
-  });
-  return { directory: temporaryDirectory, filePath };
+  await writeFile(filePath, prompt, { encoding: "utf-8", mode: 0o600 });
+  return filePath;
 }
 
 function getFinalOutput(messages: Message[]): string {
