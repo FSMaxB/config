@@ -39,12 +39,12 @@ const MODELS = [
 ];
 
 describe("supportsNativeProvider", () => {
-	it("detects the installed pi-ai (>=0.81) as supported", () => {
+	it("detects the installed pi-ai (>=0.86) as supported", () => {
 		assert.equal(supportsNativeProvider(piAi), true);
 	});
 
-	it("rejects hosts without createProvider (pi-ai 0.80.x shape)", () => {
-		for (const host of [{}, undefined, { createProvider: "nope" }]) {
+	it("rejects hosts without createProvider or getCurrentTools (pi-ai <0.86 shape)", () => {
+		for (const host of [{}, undefined, { createProvider: "nope" }, { createProvider() {} }, { getCurrentTools() {} }]) {
 			assert.equal(supportsNativeProvider(host), false, JSON.stringify(host) ?? "undefined");
 		}
 	});

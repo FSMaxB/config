@@ -1,4 +1,4 @@
-// Native pi >=0.81 provider construction (bridge 2.x).
+// Native pi >=0.86 provider construction.
 //
 // Bridge 1.x could not register unconditionally: pi's legacy
 // ModelRegistry.hasConfiguredAuth() treated the dummy `apiKey: "not-used"` as
@@ -25,12 +25,16 @@ import { hasClaudeCredentials } from "./auth-presence.js";
 import { PROVIDER_ID } from "./convert.js";
 
 export const NATIVE_PROVIDER_UNSUPPORTED_MESSAGE =
-	"Claude bridge 2.x requires pi >= 0.81 (native provider API). Upgrade the host pi, or pin @vanillagreen/pi-claude-bridge@1.x.";
+	"Claude bridge requires pi >= 0.86 (native provider API with transcript contexts). Upgrade the host pi.";
 
-/** pi-ai gained createProvider in 0.81 alongside the object-form
- *  registerProvider; its presence is the capability signal for both. */
+/** pi-ai gained createProvider in 0.81 with the object-form registerProvider,
+ *  and getCurrentTools in 0.86 when providers started receiving a
+ *  TranscriptContext. The bridge reads its tool set from the transcript, so an
+ *  older host would register fine and then offer Claude Code no tools at all;
+ *  refuse it up front instead. */
 export function supportsNativeProvider(piAi: unknown): boolean {
-	return typeof (piAi as { createProvider?: unknown })?.createProvider === "function";
+	const host = piAi as { createProvider?: unknown; getCurrentTools?: unknown } | undefined;
+	return typeof host?.createProvider === "function" && typeof host?.getCurrentTools === "function";
 }
 
 /** Auth source label for pi's status UI, chosen by the same existence-only
@@ -46,7 +50,7 @@ export function claudeAuthSourceLabel(env: NodeJS.ProcessEnv = process.env): str
  * Build the Provider object for pi.registerProvider(provider).
  *
  * `piAi` is the HOST's pi-ai namespace (the bundle externalizes it), passed in
- * rather than imported so a pre-0.81 host fails the supportsNativeProvider()
+ * rather than imported so a pre-0.86 host fails the supportsNativeProvider()
  * check with a clear message instead of crashing module load on a missing
  * named export. `env` is bindable for tests; the credential probes themselves
  * run at check/resolve CALL time, so a login/logout between calls is seen.
