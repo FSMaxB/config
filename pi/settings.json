@@ -6,7 +6,6 @@
   "defaultThinkingLevel": "high",
   "packages": [
     "npm:pi-web-access",
-    "npm:@vanillagreen/pi-claude-bridge",
     "npm:@firstpick/pi-themes-bundle"
   ],
   "compaction": {
