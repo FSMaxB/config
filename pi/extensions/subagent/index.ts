@@ -798,7 +798,7 @@ async function runSingleAgent(
           wasAborted = true;
           child.kill("SIGTERM");
           setTimeout(() => {
-            if (!child.killed) child.kill("SIGKILL");
+            if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
           }, 5000);
         };
         if (signal.aborted) killChild();
