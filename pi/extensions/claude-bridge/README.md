@@ -1,20 +1,22 @@
-# @vanillagreen/pi-claude-bridge
+# pi-claude-bridge (fork)
 
 A Pi provider that uses a logged-in Claude Code account through the Claude Agent SDK. You keep Pi's terminal interface and tools while Claude Code handles model requests.
 
-![Claude bridge demo response](https://raw.githubusercontent.com/vanillagreencom/kendex/main/pi-extensions/pi-claude-bridge/assets/bridge-demo.png) ![Pi Claude settings panel](https://raw.githubusercontent.com/vanillagreencom/kendex/main/pi-extensions/pi-claude-bridge/assets/settings-panel.png)
+## About this fork
+
+This directory is a fork of [`@vanillagreen/pi-claude-bridge`](https://github.com/vanillagreencom/kendex/tree/main/pi-extensions/pi-claude-bridge) 4.0.2 by Eli Dickinson (vanillagreen), published under the MIT license. The upstream copyright notice and license text are kept in [LICENSE](LICENSE); modifications made here are copyright Max Bruckner and released under the same license. The first commit touching this directory is the unmodified upstream import, so `jj diff` from that commit shows every local change.
+
+Differences from upstream:
+
+- Pi loads the extension from source: `index.ts` re-exports `src/index.ts`, so there is no `bundle/` build step and no `esbuild`. The upstream `./connector-inventory` entry point and the `bundle/`-based artifact test are gone; everything else is still exported from `src/index.ts`.
+- Dependencies come from this directory's own `package.json`; `zod` and `@modelcontextprotocol/sdk` are declared explicitly because the bundle no longer inlines them.
+- The kendex extension-manager manifest (the `kendex` block in upstream `package.json`) is not carried over. The settings it described still work when written to `kendex.extensionManager.config["@vanillagreen/pi-claude-bridge"]` in Pi's settings, or to `claude-bridge.json`.
 
 ## Install
 
-- npm: `pi install npm:@vanillagreen/pi-claude-bridge`.
-- kendex: add the declaration below to the project's `kendex.toml`, or to `~/.config/kendex/kendex.toml` for user scope. Run `kendex update-pi`.
+The extension lives in `~/config/pi/extensions/claude-bridge/`, which `install.sh` symlinks into `~/.pi/agent/extensions/`. Run `npm ci` in this directory once so `node_modules/` exists (`install.sh` does this when it is missing), then restart Pi. A Claude Code login is required. Make `claude` available on `PATH` or set its executable path below.
 
-```toml
-[pi-extensions."@vanillagreen/pi-claude-bridge"]
-source = "kendex"
-```
-
-Restart Pi after installation. Use `kendex update-pi --check` to preview the installation. A Claude Code login is required. Make `claude` available on `PATH` or set its executable path below.
+`npm test` runs the unit tests and `npm run typecheck` runs `tsc`; both work offline. `npm run test:int` needs a logged-in Claude account and the `pi` binary on `PATH`.
 
 Fable 5.1 requires [Claude Code 2.1.255 or later](https://code.claude.com/docs/en/model-config#work-with-fable). This includes any executable chosen through `pathToClaudeCodeExecutable` or found on `PATH`, which takes precedence over the SDK's bundled CLI. Account access and usage-credit requirements still apply.
 
