@@ -8,7 +8,7 @@
  * real home directory. Default (unset) behavior must be byte-identical to the
  * pre-isolation bridge.
  */
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
@@ -37,13 +37,22 @@ function withEnv(overrides, fn) {
 }
 
 function withTempDir(fn) {
-	const dir = mkdtempSync(join(tmpdir(), "claude-bridge-isolation-"));
+	// realpath: macOS's tmpdir() is a symlink (/var -> /private/var) and process.cwd()
+	// reports the resolved path after chdir, so expectations built from dir must match.
+	const dir = realpathSync(mkdtempSync(join(tmpdir(), "claude-bridge-isolation-")));
 	try {
 		return fn(dir);
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
 }
+
+// APFS and NTFS default to case-insensitive lookups, so AGENTS.md already matches
+// a file spelled AGENTS.MD and the candidate-order test cannot observe the difference.
+const caseInsensitiveTempFs = withTempDir((dir) => {
+	writeFileSync(join(dir, "case-probe"), "");
+	return existsSync(join(dir, "CASE-PROBE"));
+});
 
 describe("isolatedFromEnv", () => {
 	it("parses the isolated-mode flag spellings", () => {
@@ -139,7 +148,7 @@ describe("resolveAgentsMdPath isolation", () => {
 		}
 	}));
 
-	it("AGENTS.MD is accepted, matching Pi's candidate order", () => withTempDir((dir) => {
+	it("AGENTS.MD is accepted, matching Pi's candidate order", { skip: caseInsensitiveTempFs && "case-insensitive filesystem" }, () => withTempDir((dir) => {
 		const cwdDir = join(dir, "cwd");
 		mkdirSync(cwdDir, { recursive: true });
 		writeFileSync(join(cwdDir, "AGENTS.MD"), "# uppercase instructions\n");

@@ -13,7 +13,7 @@ import {
 	isConnectorWriteTool,
 	connectorQueryOptions,
 	connectorServerNamespace,
-} from "../bundle/index.js";
+} from "../src/index.ts";
 
 function withEnv(value, fn) {
 	const prev = process.env.CLAUDE_BRIDGE_ENABLE_CONNECTORS;

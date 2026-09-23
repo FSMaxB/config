@@ -6,7 +6,7 @@ import {
 	connectorWriteDenyHook,
 	CONNECTOR_WRITE_TOOLS,
 	CLAUDE_AI_CONNECTOR_TOOL_PATTERNS,
-} from "../bundle/index.js";
+} from "../src/index.ts";
 
 // Drive the hook the way the SDK does: PreToolUse input + tool name.
 async function runHook(hook, toolName) {

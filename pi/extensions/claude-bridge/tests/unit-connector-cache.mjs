@@ -7,7 +7,7 @@ import { join, dirname } from "node:path";
 import {
 	connectorCachePath, connectorCacheScopeKey, readCachedConnectors, writeCachedConnectors,
 	connectorMcpServers,
-} from "../bundle/index.js";
+} from "../src/index.ts";
 
 // The payload stores the FULL sha256 hex of the scope key (the filename keeps
 // only the first 16 chars), never the raw CLAUDE_CONFIG_DIR path — a config-dir
