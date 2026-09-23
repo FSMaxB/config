@@ -94,21 +94,19 @@ function anchorTarget(target: string, cwd: string): string { const expanded = ta
 function assertWritablePath(path: string, mode: AccessMode): void { if (mode === "write" && isVcsInternal(path)) throw new Error(`${path} is inside a version control directory. Reading and searching .git and .jj is fine, but writing to them is not.`); }
 function deniedError(path: string, mode: AccessMode): Error { return new Error(`${path} is denied for ${mode} access by the path rules. Do not retry this path and do not route around it with a different tool.`); }
 
-export async function removePathRule(rule: PathRule): Promise<void> { const selector = rule.selector ?? (rule.pattern ? { kind: "exact", path: rule.pattern } as const : undefined); if (!selector) return; if (rule.tier === "session") { state.session[rule.mode][rule.kind].delete(selectorKey(selector)); state.persistSession?.(serializeRules(state.session)); return; } await transaction({ filePath: RULES_FILE }, (always) => { always[rule.mode][rule.kind].delete(selectorKey(selector)); }); }
+export async function removePathRule(rule: PathRule): Promise<void> { const { selector } = rule; if (rule.tier === "session") { state.session[rule.mode][rule.kind].delete(selectorKey(selector)); state.persistSession?.(serializeRules(state.session)); return; } await transaction({ filePath: RULES_FILE }, (always) => { always[rule.mode][rule.kind].delete(selectorKey(selector)); }); }
 export async function addPathRule(rule: PathRule): Promise<void> {
-  const selector = rule.selector ?? (rule.pattern ? { kind: "exact", path: rule.pattern } as const : undefined);
-  if (!selector) return;
-  const normalizedRule = { ...rule, selector };
+  const { selector } = rule;
   if (rule.tier === "session") {
     const always = await readStoredRules({ filePath: RULES_FILE });
     const opposite = rule.kind === "allow" ? "deny" : "allow";
     const oppositeKey = selectorKey(selector);
     if (always[rule.mode][opposite].has(oppositeKey)) await transaction({ filePath: RULES_FILE }, (latest) => { latest[rule.mode][opposite].delete(oppositeKey); });
-    recordRule(normalizedRule, { session: state.session, always });
+    recordRule(rule, { session: state.session, always });
     state.persistSession?.(serializeRules(state.session));
     return;
   }
-  await transaction({ filePath: RULES_FILE }, (always) => { recordRule(normalizedRule, { session: emptyRules(), always }); });
+  await transaction({ filePath: RULES_FILE }, (always) => { recordRule(rule, { session: emptyRules(), always }); });
 }
 export async function listPathRules(): Promise<PathRule[]> {
   const always = await readStoredRules({ filePath: RULES_FILE });

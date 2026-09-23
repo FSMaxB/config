@@ -8,6 +8,8 @@ import {
   defaultAllowed,
   emptyRules,
   evaluate,
+  exact,
+  glob,
   matchesRule,
   parseRules,
   recordRule,
@@ -15,28 +17,29 @@ import {
   selectorLabel,
   serializeRules,
   subtree,
+  tree,
 } from "./path-permission-rules.ts";
 
 test("a plain path matches exactly", () => {
   // arrange
-  const pattern = "/repo/foo.txt";
+  const pattern = exact("/repo/foo.txt");
 
   // act
-  const exact = matchesRule("/repo/foo.txt", pattern);
+  const same = matchesRule("/repo/foo.txt", pattern);
   const child = matchesRule("/repo/foo.txt/bar", pattern);
   const sibling = matchesRule("/repo/foo.txtx", pattern);
   const parent = matchesRule("/repo", pattern);
 
   // assert
-  assert.equal(exact, true);
+  assert.equal(same, true);
   assert.equal(child, false);
   assert.equal(sibling, false);
   assert.equal(parent, false);
 });
 
-test("a subtree glob includes the directory itself and its descendants", () => {
+test("a tree includes the directory itself and its descendants", () => {
   // arrange
-  const pattern = "/repo/**";
+  const pattern = tree("/repo");
 
   // act
   const root = matchesRule("/repo", pattern);
@@ -55,9 +58,9 @@ test("a subtree glob includes the directory itself and its descendants", () => {
 
 test("glob rules use Node glob semantics", () => {
   // arrange
-  const nestedTypeScript = "/repo/**/*.ts";
-  const directTypeScript = "/repo/*.ts";
-  const sourceFiles = "/repo/**/*.{ts,md}";
+  const nestedTypeScript = glob("/repo", "**/*.ts");
+  const directTypeScript = glob("/repo", "*.ts");
+  const sourceFiles = glob("/repo", "**/*.{ts,md}");
 
   // act
   const nestedMatch = matchesRule("/repo/src/main.ts", nestedTypeScript);
@@ -85,17 +88,6 @@ test("subtree appends the recursive glob", () => {
   assert.equal(pattern, "/repo/**");
 });
 
-test("rules expand the home directory", () => {
-  // arrange
-  const path = join(homedir(), "notes", "todo.md");
-
-  // act
-  const matches = matchesRule(path, "~/notes/**");
-
-  // assert
-  assert.equal(matches, true);
-});
-
 test("path resolution follows a dangling final symlink", async () => {
   // arrange
   const fixture = await mkdtemp(join(tmpdir(), "pi-path-permissions-"));
@@ -121,7 +113,7 @@ test("a new opposite rule removes the identical rule from the other tier", () =>
   // arrange
   const session = emptyRules();
   const always = emptyRules();
-  always.read.deny.add("/tmp/**");
+  always.read.deny.add(selectorKey(tree("/tmp")));
 
   // act
   const changed = recordRule(
@@ -129,13 +121,13 @@ test("a new opposite rule removes the identical rule from the other tier", () =>
       mode: "read",
       kind: "allow",
       tier: "session",
-      pattern: "/tmp/**",
+      selector: tree("/tmp"),
     },
     { session, always },
   );
 
   assert.deepEqual(changed, new Set(["session", "always"]));
-  assert.deepEqual(session.read.allow, new Set([selectorKey({ kind: "tree", path: "/tmp" })]));
+  assert.deepEqual(session.read.allow, new Set([selectorKey(tree("/tmp"))]));
   assert.deepEqual(always.read.deny, new Set());
 });
 
@@ -143,12 +135,12 @@ test("deny rules win over allows and defaults", () => {
   // arrange
   const always = emptyRules();
   const session = emptyRules();
-  always.read.allow.add("/repo/**");
-  session.read.deny.add("/repo/private/**");
+  always.read.allow.add(selectorKey(tree("/repo")));
+  session.read.deny.add(selectorKey(tree("/repo/private")));
 
   // act
   const verdict = evaluate("/repo/private/key.txt", "read", {
-    defaults: ["/repo/**"],
+    defaults: [tree("/repo")],
     always,
     session,
   });
@@ -161,12 +153,12 @@ test("evaluation allows every allow layer and prompts without a match", () => {
   // arrange
   const always = emptyRules();
   const session = emptyRules();
-  always.read.allow.add("/always/**");
-  session.read.allow.add("/session/**");
+  always.read.allow.add(selectorKey(tree("/always")));
+  session.read.allow.add(selectorKey(tree("/session")));
 
   // act
   const defaultVerdict = evaluate("/default/file", "read", {
-    defaults: ["/default/**"],
+    defaults: [tree("/default")],
     always,
     session,
   });
@@ -278,49 +270,12 @@ test("serialized rules survive a round trip through JSON and parseRules", () => 
   assert.deepEqual(parsed, rules);
 });
 
-test("parseRules accepts version 2 selectors persisted in key form", () => {
-  // arrange
-  const stored = {
-    version: 2,
-    read: { allow: [["tree", "/agent"]], deny: [["glob", "/agent", "**/*.log"]] },
-    write: { allow: [], deny: [] },
-  };
-
-  // act
-  const parsed = parseRules(stored);
-  const verdict = evaluate("/agent/settings.json", "read", { defaults: [], always: parsed, session: emptyRules() });
-  const denied = evaluate("/agent/debug.log", "read", { defaults: [], always: parsed, session: emptyRules() });
-
-  // assert
-  assert.deepEqual(parsed.read.allow, new Set([selectorKey({ kind: "tree", path: "/agent" })]));
-  assert.equal(verdict, "allow");
-  assert.equal(denied, "deny");
-});
-
 test("parseRules rejects malformed version 2 selectors", () => {
   // arrange
   const stored = { version: 2, read: { allow: [{ kind: "tree" }], deny: [] }, write: { allow: [], deny: [] } };
 
   // act & assert
   assert.throws(() => parseRules(stored), /Invalid path permission rules/);
-});
-
-test("legacy subtree strings become tree selectors", () => {
-  // arrange
-  const stored = { read: { allow: ["/repo/**", "~/notes/*.md"], deny: [] }, write: { allow: [], deny: [] } };
-
-  // act
-  const parsed = parseRules(stored);
-  const nested = evaluate("/repo/src/main.ts", "read", { defaults: [], always: parsed, session: emptyRules() });
-  const note = evaluate(join(homedir(), "notes", "todo.md"), "read", { defaults: [], always: parsed, session: emptyRules() });
-
-  // assert
-  assert.deepEqual(parsed.read.allow, new Set([
-    selectorKey({ kind: "tree", path: "/repo" }),
-    selectorKey({ kind: "glob", base: join(homedir(), "notes"), pattern: "*.md" }),
-  ]));
-  assert.equal(nested, "allow");
-  assert.equal(note, "allow");
 });
 
 test("a stored tree selector drops a redundant trailing subtree glob", () => {

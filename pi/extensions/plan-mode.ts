@@ -981,7 +981,7 @@ function listDecisions(
       }),
     ),
     ...pathRules.map((rule) => ({
-      label: `${rule.mode} ${rule.kind} ${selectorLabel(rule.selector!)} — path (${rule.tier})`,
+      label: `${rule.mode} ${rule.kind} ${selectorLabel(rule.selector)} — path (${rule.tier})`,
       toolName: selectorKey(rule.selector!),
       remove: () => removePathRule(rule),
     })),

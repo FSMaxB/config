@@ -1,6 +1,5 @@
 import { homedir } from "node:os";
 import { join, matchesGlob, relative, sep } from "node:path";
-import { expandHome } from "./path-resolution.ts";
 
 
 export type AccessMode = "read" | "write";
@@ -17,8 +16,7 @@ export interface PathRule {
   mode: AccessMode;
   kind: RuleKind;
   tier: RuleTier;
-  selector?: PathSelector;
-  pattern?: string;
+  selector: PathSelector;
 }
 
 export interface RuleSets {
@@ -66,24 +64,19 @@ export function serializeRules(rules: RuleSets): SerializedRules {
 export function parseRules(value: unknown): RuleSets {
   if (!value || typeof value !== "object") throw new Error("Invalid path permission rules");
   const record = value as Record<string, unknown>;
-  if (record.version === 2) {
-    const read = parseModeRules(record.read), write = parseModeRules(record.write);
-    if (!read || !write) throw new Error("Invalid path permission rules");
-    return { read, write };
-  }
-  if ("version" in record) throw new Error(`Unsupported path permission rules version: ${String(record.version)}`);
-  if (!("read" in record) && !("write" in record)) throw new Error("Invalid path permission rules");
-  return { read: parseLegacyMode(record.read), write: parseLegacyMode(record.write) };
+  if (record.version !== 2) throw new Error(`Unsupported path permission rules version: ${String(record.version)}`);
+  const read = parseModeRules(record.read), write = parseModeRules(record.write);
+  if (!read || !write) throw new Error("Invalid path permission rules");
+  return { read, write };
 }
 
-export function matchesRule(resolvedPath: string, selector: PathSelector | string): boolean {
-  const normalized = typeof selector === "string" ? legacySelector(selector) : selector;
-  if (normalized.kind === "exact") return resolvedPath === normalized.path;
-  if (normalized.kind === "tree") return contains(normalized.path, resolvedPath);
-  return contains(normalized.base, resolvedPath) && matchesGlob(relative(normalized.base, resolvedPath), normalized.pattern);
+export function matchesRule(resolvedPath: string, selector: PathSelector): boolean {
+  if (selector.kind === "exact") return resolvedPath === selector.path;
+  if (selector.kind === "tree") return contains(selector.path, resolvedPath);
+  return contains(selector.base, resolvedPath) && matchesGlob(relative(selector.base, resolvedPath), selector.pattern);
 }
 
-export function evaluate(resolvedPath: string, mode: AccessMode, layers: { defaults: Iterable<PathSelector | string>; always: RuleSets; session: RuleSets }): Verdict {
+export function evaluate(resolvedPath: string, mode: AccessMode, layers: { defaults: Iterable<PathSelector>; always: RuleSets; session: RuleSets }): Verdict {
   const { defaults, always, session } = layers;
   if (matchesAny(resolvedPath, always[mode].deny) || matchesAny(resolvedPath, session[mode].deny)) return "deny";
   if (matchesAny(resolvedPath, defaults) || matchesAny(resolvedPath, always[mode].allow) || matchesAny(resolvedPath, session[mode].allow)) return "allow";
@@ -106,19 +99,16 @@ export function recordRule(rule: PathRule, tiers: RuleTiers): Set<RuleTier> {
   const changed = new Set<RuleTier>([rule.tier]);
   const opposite = rule.kind === "allow" ? "deny" : "allow";
   const otherTier = rule.tier === "session" ? "always" : "session";
-  const key = selectorKey(rule.selector ?? legacySelector(rule.pattern ?? ""));
+  const key = selectorKey(rule.selector);
   tiers[rule.tier][rule.mode][rule.kind].add(key);
   tiers[rule.tier][rule.mode][opposite].delete(key);
-  if (rule.pattern) tiers[rule.tier][rule.mode][opposite].delete(rule.pattern);
-  if (tiers[otherTier][rule.mode][opposite].delete(key) || (rule.pattern !== undefined && tiers[otherTier][rule.mode][opposite].delete(rule.pattern))) changed.add(otherTier);
+  if (tiers[otherTier][rule.mode][opposite].delete(key)) changed.add(otherTier);
   return changed;
 }
 
 export function selectorFromKey(key: string): PathSelector {
-  if (!key.startsWith("[")) return legacySelector(key);
-  const selector = normalizeSelector(JSON.parse(key));
-  if (!selector) throw new Error(`Invalid path selector key: ${key}`);
-  return selector;
+  const [kind, first, second] = JSON.parse(key) as [PathSelector["kind"], string, string?];
+  return kind === "glob" ? glob(first, second ?? "") : { kind, path: first };
 }
 
 function selectors(values: Set<string>): PathSelector[] {
@@ -132,22 +122,7 @@ function parseModeRules(value: unknown): RuleSets[AccessMode] | undefined {
   if (!allowed.every(isDefined) || !denied.every(isDefined)) return undefined;
   return { allow: new Set(allowed.map(selectorKey)), deny: new Set(denied.map(selectorKey)) };
 }
-function parseLegacyMode(value: unknown): RuleSets[AccessMode] {
-  if (!value || typeof value !== "object") return { allow: new Set(), deny: new Set() };
-  const record = value as Record<string, unknown>;
-  return { allow: new Set(legacySelectors(record.allow).map(selectorKey)), deny: new Set(legacySelectors(record.deny).map(selectorKey)) };
-}
-function legacySelectors(value: unknown): PathSelector[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").map(legacySelector) : [];
-}
-// Selectors were briefly persisted in their key form (a JSON array) instead of the object form,
-// so both shapes are accepted when reading rule files, session entries and child policies.
 function normalizeSelector(value: unknown): PathSelector | undefined {
-  if (Array.isArray(value)) {
-    const [kind, first, second] = value as unknown[];
-    if (kind === "glob") return typeof first === "string" && typeof second === "string" ? glob(first, second) : undefined;
-    return (kind === "exact" || kind === "tree") && typeof first === "string" ? pathSelector(kind, first) : undefined;
-  }
   if (!value || typeof value !== "object") return undefined;
   const { kind, path, base, pattern } = value as Record<string, unknown>;
   if (kind === "glob") return typeof base === "string" && typeof pattern === "string" ? glob(base, pattern) : undefined;
@@ -171,12 +146,3 @@ function contains(root: string, path: string): boolean {
   return remainder === "" || (!remainder.startsWith(`..${sep}`) && remainder !== ".." && !remainder.startsWith(sep));
 }
 
-function legacySelector(value: string): PathSelector {
-  const expanded = expandHome(value);
-  if (expanded.endsWith(`${sep}**`)) return tree(expanded.slice(0, -3) || sep);
-  const components = expanded.split(sep);
-  const index = components.findIndex((component) => /[*?\[\]{}]/.test(component));
-  if (index < 0) return exact(expanded);
-  const base = components.slice(0, index).join(sep) || sep;
-  return glob(base, components.slice(index).join(sep));
-}
