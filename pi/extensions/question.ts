@@ -1,7 +1,6 @@
 import type {
   ExtensionAPI,
   ExtensionUIContext,
-  Theme,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";

@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-export { expandHome, resolveThroughSymlinks } from "./path-resolution.ts";
+export { resolveThroughSymlinks } from "./path-resolution.ts";
 
 export interface VcsInfo {
   kind: "jj" | "git" | "none";

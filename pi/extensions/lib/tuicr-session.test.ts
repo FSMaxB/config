@@ -13,10 +13,7 @@ import {
 function entry(overrides: Partial<SessionEntry>): SessionEntry {
   return {
     slug: "owner/repo@main/worktree",
-    kind: "local",
-    path: "/tmp/session.json",
     updated_at: "2026-05-22T17:20:00Z",
-    comment_count: 0,
     active: true,
     ...overrides,
   };
@@ -27,7 +24,6 @@ function comment(overrides: Partial<TuicrComment>): TuicrComment {
     id: "79c9b3e1",
     location: "src/main.rs:42",
     comment_type: "none",
-    lifecycle_state: "local_draft",
     content: "Handle the empty case here.",
     ...overrides,
   };

@@ -9,7 +9,6 @@ import { contains, findRepoRoot, isVcsInternal, memoryDirectory, resolveThroughS
 import { skillRoots } from "./skill-roots.ts";
 import { serialize } from "./ui-queue.ts";
 import { inheritedRules, parseChildPathPolicy, type ChildPathPolicy } from "./path-permission-snapshot.ts";
-export type { AccessMode, PathRule, RuleKind, RuleSets, RuleTier, SerializedRules, Verdict } from "./path-permission-rules.ts";
 export const PATH_RULES_ENTRY_TYPE = "path-permissions";
 const RULES_FILE = join(getAgentDir(), "path-permissions.json");
 const ALLOW_ONCE = "Allow once", ALLOW_SESSION = "Allow in session", ALLOW_ALWAYS = "Allow always", DENY_ONCE = "Deny once", DENY_SESSION = "Deny in session", DENY_ALWAYS = "Deny always";
@@ -17,7 +16,6 @@ interface SharedState { session: RuleSets; planMode: boolean; inherited?: ChildP
 const globalState = globalThis as { piPathPermissions?: SharedState };
 const state = (globalState.piPathPermissions ??= { session: emptyRules(), planMode: false, inherited: parseChildPathPolicy(process.env.PI_SUBAGENT_PATH_POLICY) });
 export function setPlanModeEnabled(enabled: boolean): void { state.planMode = enabled; }
-export function isPlanModeEnabled(): boolean { return state.planMode; }
 export function initPathPermissions(pi: ExtensionAPI): void { state.persistSession = (snapshot) => pi.appendEntry(PATH_RULES_ENTRY_TYPE, snapshot); }
 export function restoreSessionPathRules(sessionManager: { getEntries(): readonly unknown[] }): void {
   const entries = sessionManager.getEntries() as readonly { type?: unknown; customType?: unknown; data?: unknown }[];
@@ -41,10 +39,6 @@ export function gatedTool(definition: ToolDefinition<any, any, any>, mode: Acces
   } };
 }
 
-export async function ensurePathAccess(target: string, mode: AccessMode, context: ExtensionContext, resolution: PathResolution = PathResolution.Follow): Promise<string> {
-  return (await authorizeRoot(target, mode, context, resolution)).operationPath;
-}
-
 export interface PathAuthorization { operationPath: string; checkedPaths: string[]; mode: AccessMode; context: ExtensionContext; defaults: ReturnType<typeof defaultAllowed>; session: RuleSets; always: RuleSets; }
 export async function authorizeRoot(target: string, mode: AccessMode, context: ExtensionContext, resolution: PathResolution = PathResolution.Follow): Promise<PathAuthorization> {
   if (state.inherited === null) throw new Error("The inherited child path policy is invalid; path tools are disabled.");
@@ -53,7 +47,7 @@ export async function authorizeRoot(target: string, mode: AccessMode, context: E
   const operationPath = resolution === PathResolution.PreserveFinalSymlink ? join(await resolveThroughSymlinks(dirname(anchored)), basename(anchored)) : resolved;
   const checkedPaths = [...new Set([resolved, operationPath])];
   for (const path of checkedPaths) assertWritablePath(path, mode);
-  const always = await readStoredRules({ filePath: RULES_FILE });
+  const always = await readStoredRules(RULES_FILE);
   const defaults = await currentDefaults(mode);
   const session = mergeInheritedSession(state.session, state.inherited);
   const inheritedDefaults = state.inherited ? (mode === "read" ? state.inherited.readDefaults : state.inherited.writeDefaults) : [];
@@ -94,22 +88,22 @@ function anchorTarget(target: string, cwd: string): string { const expanded = ta
 function assertWritablePath(path: string, mode: AccessMode): void { if (mode === "write" && isVcsInternal(path)) throw new Error(`${path} is inside a version control directory. Reading and searching .git and .jj is fine, but writing to them is not.`); }
 function deniedError(path: string, mode: AccessMode): Error { return new Error(`${path} is denied for ${mode} access by the path rules. Do not retry this path and do not route around it with a different tool.`); }
 
-export async function removePathRule(rule: PathRule): Promise<void> { const { selector } = rule; if (rule.tier === "session") { state.session[rule.mode][rule.kind].delete(selectorKey(selector)); state.persistSession?.(serializeRules(state.session)); return; } await transaction({ filePath: RULES_FILE }, (always) => { always[rule.mode][rule.kind].delete(selectorKey(selector)); }); }
+export async function removePathRule(rule: PathRule): Promise<void> { const { selector } = rule; if (rule.tier === "session") { state.session[rule.mode][rule.kind].delete(selectorKey(selector)); state.persistSession?.(serializeRules(state.session)); return; } await transaction(RULES_FILE, (always) => { always[rule.mode][rule.kind].delete(selectorKey(selector)); }); }
 export async function addPathRule(rule: PathRule): Promise<void> {
   const { selector } = rule;
   if (rule.tier === "session") {
-    const always = await readStoredRules({ filePath: RULES_FILE });
+    const always = await readStoredRules(RULES_FILE);
     const opposite = rule.kind === "allow" ? "deny" : "allow";
     const oppositeKey = selectorKey(selector);
-    if (always[rule.mode][opposite].has(oppositeKey)) await transaction({ filePath: RULES_FILE }, (latest) => { latest[rule.mode][opposite].delete(oppositeKey); });
+    if (always[rule.mode][opposite].has(oppositeKey)) await transaction(RULES_FILE, (latest) => { latest[rule.mode][opposite].delete(oppositeKey); });
     recordRule(rule, { session: state.session, always });
     state.persistSession?.(serializeRules(state.session));
     return;
   }
-  await transaction({ filePath: RULES_FILE }, (always) => { recordRule(rule, { session: emptyRules(), always }); });
+  await transaction(RULES_FILE, (always) => { recordRule(rule, { session: emptyRules(), always }); });
 }
 export async function listPathRules(): Promise<PathRule[]> {
-  const always = await readStoredRules({ filePath: RULES_FILE });
+  const always = await readStoredRules(RULES_FILE);
   const tiers: [RuleTier, RuleSets][] = [["session", state.session], ["always", always]];
   return tiers.flatMap(([tier, sets]) =>
     (["read", "write"] as const).flatMap((mode) =>
@@ -119,7 +113,7 @@ export async function listPathRules(): Promise<PathRule[]> {
     ),
   );
 }
-export async function clearPathRules(): Promise<void> { state.session = emptyRules(); state.persistSession?.(serializeRules(state.session)); await transaction({ filePath: RULES_FILE }, (always) => { always.read.allow.clear(); always.read.deny.clear(); always.write.allow.clear(); always.write.deny.clear(); }); }
+export async function clearPathRules(): Promise<void> { state.session = emptyRules(); state.persistSession?.(serializeRules(state.session)); await transaction(RULES_FILE, (always) => { always.read.allow.clear(); always.read.deny.clear(); always.write.allow.clear(); always.write.deny.clear(); }); }
 
 function parseSession(value: unknown): RuleSets { try { return value && typeof value === "object" ? (parseRules(value) as RuleSets) : emptyRules(); } catch { return emptyRules(); } }
 export async function captureChildPathPolicy(): Promise<ChildPathPolicy> {
