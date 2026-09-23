@@ -6,7 +6,7 @@
 // Separate from index.ts so tests can import it without activating the extension.
 
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources";
-import type { AssistantMessage, AssistantMessageEventStream, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
+import type { AssistantMessage, AssistantMessageEventStream, Model, SimpleStreamOptions, TranscriptContext } from "@earendil-works/pi-ai";
 import { isConnectorTool } from "./connectors.js";
 import type { McpResult } from "./extract-tool-results.js";
 import { currentRequestLaneId } from "./request-lane.js";
@@ -38,7 +38,7 @@ export function summarizeDroppedUserMessages(site: string, dropped: DeferredUser
  *  replacement runs under the current request instead of the dead query's. */
 export interface QueryRestartRequest {
 	model: Model<any>;
-	context: Context;
+	context: TranscriptContext;
 	options: SimpleStreamOptions | undefined;
 	stream: AssistantMessageEventStream;
 }

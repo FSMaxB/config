@@ -9,8 +9,8 @@ import claudeBridge, {
 	__testGetBridgeIntegrityState,
 	__testSetBridgeIntegrityState,
 	__testSetSdkQueryFactory,
-	streamClaudeAgentSdk,
 } from "../src/index.ts";
+import { streamNormalized } from "./lib/stream-normalized.mjs";
 import {
 	__testSharedSessionLaneCount,
 	deleteSharedSessionLane,
@@ -199,7 +199,7 @@ describe("provider request session lanes", () => {
 			assert.equal(BRIDGE_BILLING_IDENTITY.currentLoginEmail("logout-session"), "previous@example.test");
 
 			setExtensionApi(makeFakePi(new Map()));
-			const events = await collect(streamClaudeAgentSdk(
+			const events = await collect(streamNormalized(
 				model,
 				{ messages: [userMessage("after logout")] },
 				{ sessionId: "logout-session" },
@@ -238,7 +238,7 @@ describe("provider request session lanes", () => {
 
 		const requests = ["parent", "child-a", "child-b", "child-c"].map((label) => ({
 			label,
-			stream: streamClaudeAgentSdk(
+			stream: streamNormalized(
 				model,
 				{ messages: [{ role: "user", content: label, timestamp: Date.now() }] },
 				{ sessionId: label },
@@ -286,12 +286,12 @@ describe("provider request session lanes", () => {
 		});
 
 		const childAbort = new AbortController();
-		const parentEvents = collect(streamClaudeAgentSdk(
+		const parentEvents = collect(streamNormalized(
 			model,
 			{ messages: [{ role: "user", content: "parent", timestamp: Date.now() }] },
 			{ sessionId: "parent" },
 		));
-		const childEvents = collect(streamClaudeAgentSdk(
+		const childEvents = collect(streamNormalized(
 			model,
 			{ messages: [{ role: "user", content: "child", timestamp: Date.now() }] },
 			{ sessionId: "child", signal: childAbort.signal },
@@ -401,8 +401,8 @@ describe("provider request session lanes", () => {
 		__testSetSdkQueryFactory(toolUseQueryFactory(gates));
 
 		const [aEvents, bEvents] = await Promise.all([
-			collect(streamClaudeAgentSdk(model, { messages: [userMessage("A")] }, { sessionId: "A" })),
-			collect(streamClaudeAgentSdk(model, { messages: [userMessage("B")] }, { sessionId: "B" })),
+			collect(streamNormalized(model, { messages: [userMessage("A")] }, { sessionId: "A" })),
+			collect(streamNormalized(model, { messages: [userMessage("B")] }, { sessionId: "B" })),
 		]);
 		assert.ok(aEvents.some((event) => event.type === "done" && event.reason === "toolUse"), "A reached its tool turn");
 		assert.ok(bEvents.some((event) => event.type === "done" && event.reason === "toolUse"), "B reached its tool turn");
@@ -413,13 +413,13 @@ describe("provider request session lanes", () => {
 		assert.equal(runInRequestLane("B", () => ctx().hasRecordedToolCall("call-B")), true);
 
 		// Pi delivers B's result on lane B: queued for B's handler, invisible to A.
-		assert.ok(streamClaudeAgentSdk(model, toolLoopContext("B"), { sessionId: "B" }));
+		assert.ok(streamNormalized(model, toolLoopContext("B"), { sessionId: "B" }));
 		assert.equal(runInRequestLane("B", () => ctx().pendingResults.has("call-B")), true, "B queued its own result");
 		assert.equal(runInRequestLane("A", () => ctx().pendingResults.size), 0, "A untouched by B's delivery");
 		assert.equal(runInRequestLane("A", () => ctx().activeQuery !== null), true, "A still active after B's delivery");
 
 		// A result carrying B's call id delivered on lane A is refused, not applied.
-		assert.ok(streamClaudeAgentSdk(model, toolLoopContext("A", "B", "misrouted"), { sessionId: "A" }));
+		assert.ok(streamNormalized(model, toolLoopContext("A", "B", "misrouted"), { sessionId: "A" }));
 		assert.equal(runInRequestLane("A", () => ctx().pendingResults.has("call-B")), false, "A refuses a foreign call id");
 		assert.equal(runInRequestLane("B", () => ctx().pendingResults.get("call-B")?.content?.[0]?.text), "B-output", "B's queued result is intact");
 
@@ -444,7 +444,7 @@ describe("provider request session lanes", () => {
 		// A named-lane child with an in-flight tool call, aborted from the PARENT's
 		// async context (an AbortSignal listener runs in the aborter's context).
 		const childAbort = new AbortController();
-		const child = collect(streamClaudeAgentSdk(model, { messages: [userMessage("child")] }, { sessionId: "child", signal: childAbort.signal }));
+		const child = collect(streamNormalized(model, { messages: [userMessage("child")] }, { sessionId: "child", signal: childAbort.signal }));
 		await child;
 		assert.ok(runInRequestLane("child", () => ctx().activeQuery), "child is mid tool call");
 		runInRequestLane("parent", () => childAbort.abort());
@@ -459,7 +459,7 @@ describe("provider request session lanes", () => {
 
 		// A DEFAULT-lane query aborted from a named lane marks the default record, not the named lane.
 		const directAbort = new AbortController();
-		const direct = collect(streamClaudeAgentSdk(model, { messages: [userMessage("direct")] }, { signal: directAbort.signal }));
+		const direct = collect(streamNormalized(model, { messages: [userMessage("direct")] }, { signal: directAbort.signal }));
 		await direct;
 		assert.ok(ctx().activeQuery, "direct-host query is mid tool call");
 		runInRequestLane("parent", () => directAbort.abort());
@@ -486,9 +486,9 @@ describe("provider request session lanes", () => {
 
 		// A regular turn keeps its lane and record; Pi's compaction/branch-summary
 		// one-shots (fresh sessionId + cacheRetention "none") must not accumulate.
-		await collect(streamClaudeAgentSdk(model, { messages: [userMessage("turn")] }, { sessionId: "turn-1" }));
+		await collect(streamNormalized(model, { messages: [userMessage("turn")] }, { sessionId: "turn-1" }));
 		for (const n of [1, 2, 3]) {
-			await collect(streamClaudeAgentSdk(model, { messages: [userMessage(`summary-${n}`)] }, { sessionId: `summary-${n}`, cacheRetention: "none" }));
+			await collect(streamNormalized(model, { messages: [userMessage(`summary-${n}`)] }, { sessionId: `summary-${n}`, cacheRetention: "none" }));
 		}
 		assert.equal(await waitFor(() => __testQueryLaneCount() === 1), true, "one-shot query lanes released");
 

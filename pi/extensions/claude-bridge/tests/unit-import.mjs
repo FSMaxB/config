@@ -288,3 +288,25 @@ describe("message structure", () => {
 		assert.equal(content[1].source.media_type, "image/png");
 	});
 });
+
+describe("system messages", () => {
+	it("imports none of them and keeps parallel results grouped across one", () => {
+		// arrange
+		const system = { role: "system", content: "", sections: { skills: "<skills>\nx\n</skills>" } };
+		const messages = [
+			system,
+			{ role: "user", content: "run both" },
+			{ role: "assistant", content: [{ type: "toolCall", id: "t1", name: "bash", arguments: {} }, { type: "toolCall", id: "t2", name: "bash", arguments: {} }] },
+			{ role: "toolResult", toolCallId: "t1", content: "one" },
+			{ role: "system", content: "", toolsAdded: [] },
+			{ role: "toolResult", toolCallId: "t2", content: "two" },
+		];
+
+		// act
+		const result = convert(messages);
+
+		// assert
+		assert.deepEqual(result.map((message) => message.role), ["user", "assistant", "user"]);
+		assert.deepEqual(result[2].content.map((block) => block.tool_use_id), ["t1", "t2"]);
+	});
+});

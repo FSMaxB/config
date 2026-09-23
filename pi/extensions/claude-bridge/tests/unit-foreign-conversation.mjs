@@ -21,8 +21,8 @@ import {
 	__testSetBridgeIntegrityState,
 	__testGetBridgeIntegrityState,
 	__testSetSdkQueryFactory,
-	streamClaudeAgentSdk,
 } from "../src/index.ts";
+import { streamNormalized } from "./lib/stream-normalized.mjs";
 import { conversationFingerprint } from "../src/session-persistence.ts";
 import { setExtensionApi } from "../src/bridge-state.ts";
 import { ctx, resetStack } from "../src/query-state.ts";
@@ -108,7 +108,7 @@ describe("foreign-conversation completion (#1001)", () => {
 			{ type: "result", subtype: "success", result: "subagent answer" },
 		]));
 
-		const events = await collect(streamClaudeAgentSdk(
+		const events = await collect(streamNormalized(
 			model,
 			{ messages: [userMessage("subagent task")] },
 			{ sessionId: "foreign-success" },
@@ -132,7 +132,7 @@ describe("foreign-conversation completion (#1001)", () => {
 			{ type: "result", subtype: "error_max_turns", errors: ["max turns exceeded"] },
 		]));
 
-		const events = await collect(streamClaudeAgentSdk(
+		const events = await collect(streamNormalized(
 			model,
 			{ messages: [userMessage("subagent task")] },
 			{ sessionId: "foreign-failure" },
@@ -162,7 +162,7 @@ describe("foreign-conversation completion (#1001)", () => {
 			// query's abort/teardown.
 		]));
 
-		const events = await collect(streamClaudeAgentSdk(
+		const events = await collect(streamNormalized(
 			model,
 			{ messages: [userMessage("subagent task")] },
 			{ sessionId: "foreign-unresolved-tool" },
@@ -191,7 +191,7 @@ describe("foreign-conversation completion (#1001)", () => {
 		]));
 
 		const messages = [userMessage("hello")];
-		await collect(streamClaudeAgentSdk(model, { messages }, { sessionId: "clean-start" }));
+		await collect(streamNormalized(model, { messages }, { sessionId: "clean-start" }));
 
 		const { sharedSession } = runInRequestLane("clean-start", () => __testGetBridgeIntegrityState());
 		assert.equal(sharedSession?.sessionId, "session-new");

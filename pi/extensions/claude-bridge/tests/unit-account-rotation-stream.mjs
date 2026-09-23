@@ -16,6 +16,7 @@ import {
 	__testSetSdkQueryFactory,
 	streamClaudeAgentSdk,
 } from "../src/index.ts";
+import { streamNormalized } from "./lib/stream-normalized.mjs";
 import * as piAi from "@earendil-works/pi-ai";
 import { buildModels } from "../src/models.ts";
 import { resolveGetModels } from "../src/pi-ai-compat.ts";
@@ -171,7 +172,7 @@ describe("legacy sessions (no account router)", () => {
 			], "legacy", observedState());
 		});
 
-		const events = await collect(streamClaudeAgentSdk(model, context, { sessionId: "legacy-recovery" }));
+		const events = await collect(streamNormalized(model, context, { sessionId: "legacy-recovery" }));
 		assert.equal(calls, 1);
 		assert.deepEqual(textEvents(events), ["recovered"]);
 		assert.equal(events.filter((event) => event.type === "error").length, 0);
@@ -190,7 +191,7 @@ describe("legacy sessions (no account router)", () => {
 			{ type: "result", subtype: "error_during_execution", errors: ["fixture-sdk-failure=weekly-limit\nYou've hit your weekly limit · resets Thursday 4am"] },
 		], "legacy", observedState()));
 
-		const events = await collect(streamClaudeAgentSdk(model, context, { sessionId: "legacy-usage-limit" }));
+		const events = await collect(streamNormalized(model, context, { sessionId: "legacy-usage-limit" }));
 		const errors = events.filter((event) => event.type === "error");
 		assert.equal(errors.length, 1);
 		assert.match(errors[0].error.errorMessage, /fixture-sdk-failure=weekly-limit/);
@@ -222,7 +223,7 @@ describe("legacy sessions (no account router)", () => {
 			};
 		});
 
-		const events = await collect(streamClaudeAgentSdk(model, context, { sessionId: "deferred-terminal" }));
+		const events = await collect(streamNormalized(model, context, { sessionId: "deferred-terminal" }));
 		assert.equal(calls, 1, "no continuation query may be spawned after a surfaced failure");
 		assert.equal(events.filter((event) => event.type === "error").length, 1);
 		const { sharedSession } = bridgeStateFor("deferred-terminal");
@@ -244,7 +245,7 @@ describe("legacy sessions (no account router)", () => {
 			{ type: "result", subtype: "error_max_turns", errors: ["fixture-sdk-failure=max-turns\nmax turns exceeded"] },
 		], "legacy", observedState()));
 
-		const events = await collect(streamClaudeAgentSdk(model, context, { sessionId: "legacy-max-turns" }));
+		const events = await collect(streamNormalized(model, context, { sessionId: "legacy-max-turns" }));
 		const errors = events.filter((event) => event.type === "error");
 		assert.equal(errors.length, 1);
 		assert.match(errors[0].error.errorMessage, /fixture-sdk-failure=max-turns/);
@@ -291,7 +292,7 @@ describe("managed account stream rotation", () => {
 			], "b", observed);
 		});
 
-		const events = await collect(streamClaudeAgentSdk(model, context, { sessionId: "pi-session" }));
+		const events = await collect(streamNormalized(model, context, { sessionId: "pi-session" }));
 		assert.equal(calls, 2);
 		assert.equal(observed.acquires.length, 2);
 		assert.deepEqual(observed.acquires[1].excludedProfileIds, ["a"]);
@@ -330,7 +331,7 @@ describe("managed account stream rotation", () => {
 			], "a", observed);
 		});
 
-		const events = await collect(streamClaudeAgentSdk(model, context, { sessionId: "managed-recovery" }));
+		const events = await collect(streamNormalized(model, context, { sessionId: "managed-recovery" }));
 		assert.equal(calls, 1);
 		assert.deepEqual(textEvents(events), ["recovered-managed"]);
 		assert.equal(events.filter((event) => event.type === "error").length, 0);
@@ -356,7 +357,7 @@ describe("managed account stream rotation", () => {
 				], "b", observed);
 		});
 
-		const events = await collect(streamClaudeAgentSdk(model, context, { sessionId: "network-session" }));
+		const events = await collect(streamNormalized(model, context, { sessionId: "network-session" }));
 		assert.equal(calls, 2);
 		assert.deepEqual(observed.failures, [{ profileId: "a", kind: "network" }]);
 		assert.ok(textEvents(events).includes("network-recovered"));
@@ -389,7 +390,7 @@ describe("managed account stream rotation", () => {
 			return sdkQuery;
 		});
 
-		const events = await collect(streamClaudeAgentSdk(model, context, {
+		const events = await collect(streamNormalized(model, context, {
 			sessionId: "abort-after-queued-retry",
 			signal: controller.signal,
 		}));
@@ -422,7 +423,7 @@ describe("managed account stream rotation", () => {
 				], "b", observed);
 		});
 
-		const stream = streamClaudeAgentSdk(model, context, { sessionId: "mid-retry-throw" });
+		const stream = streamNormalized(model, context, { sessionId: "mid-retry-throw" });
 		// Model the transport dying mid-retry: the first visible event forwarded
 		// from the rotated attempt blows up inside the retry drain loop.
 		const push = stream.push.bind(stream);
@@ -460,7 +461,7 @@ describe("managed account stream rotation", () => {
 				], "b", observed);
 		});
 
-		const events = await collect(streamClaudeAgentSdk(model, context, { sessionId: "extra-usage-session" }));
+		const events = await collect(streamNormalized(model, context, { sessionId: "extra-usage-session" }));
 		assert.equal(calls, 2);
 		assert.deepEqual(observed.failures, [{ profileId: "a", kind: "rate-limit" }]);
 		assert.ok(textEvents(events).includes("recovered-without-local-billing-policy"));
@@ -493,7 +494,7 @@ describe("managed account stream rotation", () => {
 			], "a", observed);
 		});
 
-		const events = await collect(streamClaudeAgentSdk(model, context, { sessionId: "pi-session" }));
+		const events = await collect(streamNormalized(model, context, { sessionId: "pi-session" }));
 		assert.equal(calls, 1);
 		assert.equal(observed.acquires.length, 1);
 		assert.ok(textEvents(events).includes("already-visible"));
@@ -523,7 +524,7 @@ describe("managed account stream rotation", () => {
 			};
 		});
 
-		const events = await collect(streamClaudeAgentSdk(model, context, { sessionId: "buffer-replay-guard" }));
+		const events = await collect(streamNormalized(model, context, { sessionId: "buffer-replay-guard" }));
 		assert.equal(calls, 1);
 		assert.equal(observed.acquires.length, 1);
 		assert.deepEqual(observed.failures, [{ profileId: "a", kind: "network" }]);
@@ -544,7 +545,7 @@ describe("managed account stream rotation", () => {
 			], "a", observed);
 		});
 
-		const events = await collect(streamClaudeAgentSdk(model, context, { sessionId: "post-output-network" }));
+		const events = await collect(streamNormalized(model, context, { sessionId: "post-output-network" }));
 		assert.equal(calls, 1);
 		assert.deepEqual(observed.failures, [{ profileId: "a", kind: "network" }]);
 		assert.ok(textEvents(events).includes("committed"));
@@ -572,7 +573,7 @@ describe("managed account stream rotation", () => {
 			], "a", observed);
 		});
 
-		const events = await collect(streamClaudeAgentSdk(model, context, { sessionId: "connector-replay-boundary" }));
+		const events = await collect(streamNormalized(model, context, { sessionId: "connector-replay-boundary" }));
 		assert.equal(calls, 1);
 		assert.equal(observed.acquires.length, 1);
 		assert.deepEqual(observed.failures, [{ profileId: "a", kind: "network" }]);
@@ -607,7 +608,7 @@ describe("managed account stream rotation", () => {
 				], "b", observed);
 		});
 
-		const events = await collect(streamClaudeAgentSdk(model, context, { sessionId: "toolsearch-rotatable" }));
+		const events = await collect(streamNormalized(model, context, { sessionId: "toolsearch-rotatable" }));
 		assert.equal(calls, 2);
 		assert.deepEqual(observed.failures, [{ profileId: "a", kind: "network" }]);
 		assert.ok(textEvents(events).includes("rotated-after-toolsearch"));
@@ -638,7 +639,7 @@ describe("managed account stream rotation", () => {
 			], "b", observed);
 		});
 
-		const events = await collect(streamClaudeAgentSdk(fableModel, context, { sessionId: "fable-spent" }));
+		const events = await collect(streamNormalized(fableModel, context, { sessionId: "fable-spent" }));
 		assert.equal(queryOptions.model, "claude-opus-5");
 		assert.equal(queryOptions.fallbackModel, "claude-opus-4-8");
 		assert.equal(queryOptions.env.CLAUDE_CONFIG_DIR, "/profiles/b");
@@ -676,7 +677,7 @@ describe("managed account stream rotation", () => {
 			throw new Error("must not start");
 		});
 
-		const events = await collect(streamClaudeAgentSdk(model, context, { sessionId: "pi-session" }));
+		const events = await collect(streamNormalized(model, context, { sessionId: "pi-session" }));
 		assert.equal(calls, 0);
 		assert.equal(events.length, 1);
 		assert.equal(events[0].type, "error");
@@ -698,7 +699,7 @@ describe("managed account stream rotation", () => {
 		});
 		const controller = new AbortController();
 		controller.abort();
-		const events = await collect(streamClaudeAgentSdk(model, context, {
+		const events = await collect(streamNormalized(model, context, {
 			sessionId: "aborted-session",
 			signal: controller.signal,
 		}));
@@ -720,7 +721,7 @@ describe("managed account stream rotation", () => {
 			], "a", observed);
 		});
 
-		const events = await collect(streamClaudeAgentSdk(model, context, { sessionId: "pi-session" }));
+		const events = await collect(streamNormalized(model, context, { sessionId: "pi-session" }));
 		assert.equal(calls, 1);
 		assert.equal(observed.acquires.length, 1);
 		assert.equal(events.filter((event) => event.type === "error").length, 1);
@@ -757,7 +758,7 @@ describe("managed account stream rotation", () => {
 			async usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET() { return {}; },
 		}));
 
-		const events = await collect(streamClaudeAgentSdk(model, context, { sessionId: "clear-flags" }));
+		const events = await collect(streamNormalized(model, context, { sessionId: "clear-flags" }));
 		assert.ok(textEvents(events).includes("success-clears-flags"));
 		const state = bridgeStateFor("clear-flags").sharedSession;
 		assert.equal(state?.sessionId, "successful-session");
@@ -790,14 +791,14 @@ describe("reentrant subagent queries and the shared session (C1)", () => {
 
 		// Parent turn: fresh query, sets ctx().activeQuery. Rebuild is skipped
 		// (single-message context → Case 1), so the seeded record survives sync.
-		const parentStream = streamClaudeAgentSdk(model, context, { sessionId: "parent" });
+		const parentStream = streamNormalized(model, context, { sessionId: "parent" });
 		assert.ok(parentStream);
 		assert.equal(await waitFor(() => runInRequestLane("parent", () => ctx().activeQuery !== null)), true, "parent query started");
 		const before = JSON.stringify(bridgeStateFor("parent").sharedSession);
 
 		// Reentrant call: a subagent's own short [user] conversation (empty text,
 		// so nothing is queued for replay — this isolates the cursor guard).
-		const subagentStream = streamClaudeAgentSdk(model, {
+		const subagentStream = streamNormalized(model, {
 			messages: [{ role: "user", content: "", timestamp: Date.now() }],
 		}, { sessionId: "subagent" });
 		assert.ok(subagentStream, "the reentrant call returns a stream");
@@ -824,7 +825,7 @@ describe("reentrant subagent queries and the shared session (C1)", () => {
 			], "legacy", observedState());
 		});
 
-		const events = await collect(streamClaudeAgentSdk(model, {
+		const events = await collect(streamNormalized(model, {
 			messages: [{ role: "user", content: "subagent prompt", timestamp: Date.now() }],
 		}, { sessionId: "subagent" }));
 		assert.equal(queryOptions.resume, undefined, "must not resume the parent's Claude session");
@@ -850,7 +851,7 @@ describe("stream-independent metadata capture (C3)", () => {
 			{ type: "result", subtype: "error_during_execution", errors: ["internal server error"] },
 		], "a", observed));
 
-		const events = await collect(streamClaudeAgentSdk(model, context, { sessionId: "post-boundary-failure" }));
+		const events = await collect(streamNormalized(model, context, { sessionId: "post-boundary-failure" }));
 		// The Pi stream ended at the toolUse boundary, so completion runs after.
 		assert.equal(await waitFor(() => runInRequestLane("post-boundary-failure", () => ctx().activeQuery === null)), true, "query teardown completed");
 		assert.ok(events.some((event) => event.type === "done" && event.reason === "toolUse"));
@@ -878,7 +879,7 @@ describe("stream-independent metadata capture (C3)", () => {
 				{ type: "result", subtype: "success", result: "done" },
 			], "legacy", observedState()));
 
-			await collect(streamClaudeAgentSdk(model, context, { sessionId: "late-connector-result" }));
+			await collect(streamNormalized(model, context, { sessionId: "late-connector-result" }));
 			assert.equal(await waitFor(() => runInRequestLane("late-connector-result", () => ctx().activeQuery === null)), true, "query teardown completed");
 			const record = auditRecords.find((entry) => entry.toolUseId === "conn-1");
 			assert.ok(record, "the connector call must be audited");
@@ -919,7 +920,7 @@ describe("router callback safety (C5/C7)", () => {
 				], "b", observed);
 		});
 
-		const events = await collect(streamClaudeAgentSdk(model, context, { sessionId: "throw-after-rate-limit" }));
+		const events = await collect(streamNormalized(model, context, { sessionId: "throw-after-rate-limit" }));
 		assert.equal(calls, 2, "the rate-limited attempt still rotates");
 		assert.equal(observed.rateLimits.length, 1, "recordRateLimit exactly once");
 		assert.deepEqual(observed.failures, [], "recordFailure must not double-count the same rejection");
@@ -937,7 +938,7 @@ describe("router callback safety (C5/C7)", () => {
 			{ type: "result", subtype: "success", result: "delivered" },
 		], "a", observedState()));
 
-		const events = await collect(streamClaudeAgentSdk(model, context, { sessionId: "throwing-success" }));
+		const events = await collect(streamNormalized(model, context, { sessionId: "throwing-success" }));
 		assert.deepEqual(textEvents(events), ["delivered"]);
 		assert.equal(events.filter((event) => event.type === "error").length, 0, "no error after a throwing telemetry callback");
 		assert.equal(events.filter((event) => event.type === "done").length, 1);

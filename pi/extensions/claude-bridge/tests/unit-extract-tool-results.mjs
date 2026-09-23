@@ -12,6 +12,7 @@ const rows = [
 	{ name: "user tail without result", messages: [user(), assistant("t1"), user("steer")], expected: [], stopIdx: 1 },
 	{ name: "user tail after result", messages: [user(), assistant("t1"), result("t1", "result"), user("steer")], expected: [["t1", "result"]], stopIdx: 1 },
 	{ name: "user splits two results", messages: [user(), assistant("t1", "t2"), result("t1", "first"), user(), result("t2", "second")], expected: [["t1", "first"], ["t2", "second"]], stopIdx: 1 },
+	{ name: "system message between results", messages: [user(), assistant("t1", "t2"), result("t1", "first"), { role: "system", content: "", toolsAdded: [] }, result("t2", "second")], expected: [["t1", "first"], ["t2", "second"]], stopIdx: 1 },
 	{ name: "user splits five results", messages: [user(), assistant("t1", "t2", "t3", "t4", "t5"), result("t1", "r1"), result("t2", "r2"), result("t3", "r3"), user(), result("t4", "r4"), result("t5", "r5")], expected: [["t1", "r1"], ["t2", "r2"], ["t3", "r3"], ["t4", "r4"], ["t5", "r5"]], stopIdx: 1 },
 	{ name: "multiple interleaved users", messages: [user(), assistant("t1", "t2", "t3"), result("t1", "r1"), user(), result("t2", "r2"), user(), result("t3", "r3")], expected: [["t1", "r1"], ["t2", "r2"], ["t3", "r3"]], stopIdx: 1 },
 	{ name: "user before every result", messages: [user(), assistant("t1", "t2"), user(), result("t1", "r1"), user(), result("t2", "r2")], expected: [["t1", "r1"], ["t2", "r2"]], stopIdx: 1 },
