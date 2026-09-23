@@ -1,3 +1,5 @@
+import { pageLines } from "./lines.ts";
+
 // Machine-readable template for `jj file annotate`; content comes last because it can contain tabs.
 export const JJ_ANNOTATE_TEMPLATE = String.raw`commit.change_id().shortest(8) ++ "\t" ++ commit.author().name() ++ "\t" ++ commit_timestamp(commit).local().format("%Y-%m-%d") ++ "\t" ++ commit.description().first_line() ++ "\t" ++ line_number ++ "\t" ++ content`;
 
@@ -11,17 +13,11 @@ export function formatJjAnnotate(
   const rows = parseAnnotateOutput(output);
   if (rows.length === 0) return "";
 
-  const start = Math.max((offset ?? 1) - 1, 0);
-  if (start >= rows.length) {
-    return `(no lines: offset ${start + 1} starts past the end of this ${rows.length}-line file)`;
-  }
-  const page = rows.slice(
-    start,
-    limit === undefined ? undefined : start + Math.max(limit, 0),
-  );
+  const page = pageLines(rows, offset, limit);
+  if (page.kind === "past-end") return page.message;
 
   const firstRowByChange = new Map<string, AnnotatedLine>();
-  for (const row of page) {
+  for (const row of page.items) {
     if (!firstRowByChange.has(row.changeId)) firstRowByChange.set(row.changeId, row);
   }
 
@@ -31,9 +27,9 @@ export function formatJjAnnotate(
   );
   lines.push("");
   if (offset !== undefined || limit !== undefined) {
-    lines.push(`[lines ${start + 1}-${start + page.length} of ${rows.length}]`);
+    lines.push(page.header);
   }
-  for (const { changeId, lineNumber, content } of page) {
+  for (const { changeId, lineNumber, content } of page.items) {
     lines.push(`${changeId} ${String(lineNumber).padStart(4)}: ${content}`);
   }
   return lines.join("\n");
