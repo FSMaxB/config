@@ -133,7 +133,6 @@ function isLocalModel(model: Model<Api>, config: SubagentModelConfig): boolean {
     const host = new URL(model.baseUrl).hostname;
     return (
       host === "localhost" ||
-      host === "::1" ||
       host === "[::1]" ||
       host === "0.0.0.0" ||
       /^127(\.\d{1,3}){3}$/.test(host)

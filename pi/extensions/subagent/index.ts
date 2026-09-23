@@ -93,7 +93,6 @@ export default function (pi: ExtensionAPI) {
       const planAllowedTools = planEntry?.enabled
         ? planModeAllowedTools(
             {
-              enabled: true,
               sessionGrants: planEntry.sessionGrants,
               sessionDenials: planEntry.sessionDenials.map((denial) => denial.name),
             },
@@ -114,13 +113,6 @@ export default function (pi: ExtensionAPI) {
       const hasSingle = Boolean(params.agent && params.task);
       const modeCount = Number(hasTasks) + Number(hasSingle);
 
-      const makeDetails =
-        (mode: "single" | "parallel") =>
-        (results: SingleResult[]): SubagentDetails => ({
-          mode,
-          results,
-        });
-
       if (modeCount !== 1) {
         const available = agents.map((agent) => `"${agent.name}"`).join(", ") || "none";
         return {
@@ -130,7 +122,7 @@ export default function (pi: ExtensionAPI) {
               text: `Invalid parameters. Provide exactly one mode.\nAvailable agents: ${available}`,
             },
           ],
-          details: makeDetails("single")([]),
+          details: { mode: "single", results: [] },
         };
       }
 
@@ -143,7 +135,7 @@ export default function (pi: ExtensionAPI) {
                 text: `Too many parallel tasks (${params.tasks.length}). Max is ${MAX_PARALLEL_TASKS}.`,
               },
             ],
-            details: makeDetails("parallel")([]),
+            details: { mode: "parallel", results: [] },
           };
 
         const allResults: SingleResult[] = new Array(params.tasks.length);
@@ -178,7 +170,7 @@ export default function (pi: ExtensionAPI) {
               content: [
                 { type: "text", text: `Parallel: ${done}/${allResults.length} done, ${running} running...` },
               ],
-              details: makeDetails("parallel")([...allResults]),
+              details: { mode: "parallel", results: [...allResults] },
             });
           }
         };
@@ -199,7 +191,7 @@ export default function (pi: ExtensionAPI) {
                 emitParallelUpdate();
               }
             },
-            makeDetails("parallel"),
+            "parallel",
           );
           allResults[index] = result;
           emitParallelUpdate();
@@ -221,40 +213,34 @@ export default function (pi: ExtensionAPI) {
               text: `Parallel: ${successCount}/${results.length} succeeded\n\n${summaries.join("\n\n---\n\n")}`,
             },
           ],
-          details: makeDetails("parallel")(results),
+          details: { mode: "parallel", results },
         };
       }
 
-      if (params.agent && params.task) {
-        const result = await runSingleAgent(
-          ctx.cwd,
-          dispatch,
-          agents,
-          params.agent,
-          params.task,
-          { model: params.model, thinkingLevel: params.thinkingLevel },
-          params.cwd,
-          signal,
-          onUpdate,
-          makeDetails("single"),
-        );
-        if (isFailedResult(result)) {
-          const errorMessage = getResultOutput(result);
-          return {
-            content: [{ type: "text", text: `Agent ${result.stopReason || "failed"}: ${errorMessage}` }],
-            details: makeDetails("single")([result]),
-          };
-        }
+      const { agent: agentName, task } = params;
+      if (!agentName || !task) throw new Error("Unreachable: exactly one mode is set");
+      const result = await runSingleAgent(
+        ctx.cwd,
+        dispatch,
+        agents,
+        agentName,
+        task,
+        { model: params.model, thinkingLevel: params.thinkingLevel },
+        params.cwd,
+        signal,
+        onUpdate,
+        "single",
+      );
+      if (isFailedResult(result)) {
+        const errorMessage = getResultOutput(result);
         return {
-          content: [{ type: "text", text: getFinalOutput(result.messages) || "(no output)" }],
-          details: makeDetails("single")([result]),
+          content: [{ type: "text", text: `Agent ${result.stopReason || "failed"}: ${errorMessage}` }],
+          details: { mode: "single", results: [result] },
         };
       }
-
-      const available = agents.map((agent) => `"${agent.name}"`).join(", ") || "none";
       return {
-        content: [{ type: "text", text: `Invalid parameters. Available agents: ${available}` }],
-        details: makeDetails("single")([]),
+        content: [{ type: "text", text: getFinalOutput(result.messages) || "(no output)" }],
+        details: { mode: "single", results: [result] },
       };
     },
 
@@ -292,7 +278,7 @@ export default function (pi: ExtensionAPI) {
 
       const markdownTheme = getMarkdownTheme();
 
-      if (details.mode === "single" && details.results.length === 1) {
+      if (details.mode === "single") {
         const single = details.results[0];
         const isError = isFailedResult(single);
         const icon = isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
@@ -354,75 +340,70 @@ export default function (pi: ExtensionAPI) {
         return new Text(text, 0, 0);
       }
 
-      if (details.mode === "parallel") {
-        const running = details.results.filter((item) => item.exitCode === -1).length;
-        const successCount = details.results.filter((item) => item.exitCode !== -1 && !isFailedResult(item)).length;
-        const failCount = details.results.filter((item) => item.exitCode !== -1 && isFailedResult(item)).length;
-        const isRunning = running > 0;
-        const icon = isRunning
-          ? theme.fg("warning", "⏳")
-          : failCount > 0
-            ? theme.fg("warning", "◐")
-            : theme.fg("success", "✓");
-        const status = isRunning
-          ? `${successCount + failCount}/${details.results.length} done, ${running} running`
-          : `${successCount}/${details.results.length} tasks`;
+      const running = details.results.filter((item) => item.exitCode === -1).length;
+      const successCount = details.results.filter((item) => item.exitCode !== -1 && !isFailedResult(item)).length;
+      const failCount = details.results.filter((item) => item.exitCode !== -1 && isFailedResult(item)).length;
+      const isRunning = running > 0;
+      const icon = isRunning
+        ? theme.fg("warning", "⏳")
+        : failCount > 0
+          ? theme.fg("warning", "◐")
+          : theme.fg("success", "✓");
+      const status = isRunning
+        ? `${successCount + failCount}/${details.results.length} done, ${running} running`
+        : `${successCount}/${details.results.length} tasks`;
 
-        if (expanded && !isRunning) {
-          const container = new Container();
-          container.addChild(
-            new Text(
-              `${icon} ${theme.fg("toolTitle", theme.bold("parallel "))}${theme.fg("accent", status)}`,
-              0,
-              0,
-            ),
-          );
+      if (expanded && !isRunning) {
+        const container = new Container();
+        container.addChild(
+          new Text(
+            `${icon} ${theme.fg("toolTitle", theme.bold("parallel "))}${theme.fg("accent", status)}`,
+            0,
+            0,
+          ),
+        );
 
-          for (const item of details.results) {
-            const itemIcon = isFailedResult(item) ? theme.fg("error", "✗") : theme.fg("success", "✓");
-            const header =
-              theme.fg("muted", "─── ") +
-              theme.fg("accent", item.agent) +
-              formatAgentConfiguration(item.model, item.thinkingLevel, "unresolved", theme) +
-              ` ${itemIcon}`;
-            renderTaskSection(container, header, item, theme, markdownTheme);
-          }
-
-          const usageText = formatUsageStats(aggregateUsage(details.results));
-          if (usageText) {
-            container.addChild(new Spacer(1));
-            container.addChild(new Text(theme.fg("dim", `Total: ${usageText}`), 0, 0));
-          }
-          return container;
-        }
-
-        let text = `${icon} ${theme.fg("toolTitle", theme.bold("parallel "))}${theme.fg("accent", status)}`;
         for (const item of details.results) {
-          const itemIcon =
-            item.exitCode === -1
-              ? theme.fg("warning", "⏳")
-              : isFailedResult(item)
-                ? theme.fg("error", "✗")
-                : theme.fg("success", "✓");
-          const displayItems = getDisplayItems(item.messages);
-          text +=
-            `\n\n${theme.fg("muted", "─── ")}${theme.fg("accent", item.agent)}` +
+          const itemIcon = isFailedResult(item) ? theme.fg("error", "✗") : theme.fg("success", "✓");
+          const header =
+            theme.fg("muted", "─── ") +
+            theme.fg("accent", item.agent) +
             formatAgentConfiguration(item.model, item.thinkingLevel, "unresolved", theme) +
             ` ${itemIcon}`;
-          if (displayItems.length === 0)
-            text += `\n${theme.fg("muted", item.exitCode === -1 ? "(running...)" : "(no output)")}`;
-          else text += `\n${renderCollapsedItems(displayItems, 5, expanded, theme)}`;
+          renderTaskSection(container, header, item, theme, markdownTheme);
         }
-        if (!isRunning) {
-          const usageText = formatUsageStats(aggregateUsage(details.results));
-          if (usageText) text += `\n\n${theme.fg("dim", `Total: ${usageText}`)}`;
+
+        const usageText = formatUsageStats(aggregateUsage(details.results));
+        if (usageText) {
+          container.addChild(new Spacer(1));
+          container.addChild(new Text(theme.fg("dim", `Total: ${usageText}`), 0, 0));
         }
-        if (!expanded) text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
-        return new Text(text, 0, 0);
+        return container;
       }
 
-      const text = result.content[0];
-      return new Text(text?.type === "text" ? text.text : "(no output)", 0, 0);
+      let text = `${icon} ${theme.fg("toolTitle", theme.bold("parallel "))}${theme.fg("accent", status)}`;
+      for (const item of details.results) {
+        const itemIcon =
+          item.exitCode === -1
+            ? theme.fg("warning", "⏳")
+            : isFailedResult(item)
+              ? theme.fg("error", "✗")
+              : theme.fg("success", "✓");
+        const displayItems = getDisplayItems(item.messages);
+        text +=
+          `\n\n${theme.fg("muted", "─── ")}${theme.fg("accent", item.agent)}` +
+          formatAgentConfiguration(item.model, item.thinkingLevel, "unresolved", theme) +
+          ` ${itemIcon}`;
+        if (displayItems.length === 0)
+          text += `\n${theme.fg("muted", item.exitCode === -1 ? "(running...)" : "(no output)")}`;
+        else text += `\n${renderCollapsedItems(displayItems, 5, expanded, theme)}`;
+      }
+      if (!isRunning) {
+        const usageText = formatUsageStats(aggregateUsage(details.results));
+        if (usageText) text += `\n\n${theme.fg("dim", `Total: ${usageText}`)}`;
+      }
+      if (!expanded) text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
+      return new Text(text, 0, 0);
     },
   });
 }
@@ -514,7 +495,7 @@ async function runSingleAgent(
   cwd: string | undefined,
   signal: AbortSignal | undefined,
   onUpdate: OnUpdateCallback | undefined,
-  makeDetails: (results: SingleResult[]) => SubagentDetails,
+  mode: SubagentDetails["mode"],
 ): Promise<SingleResult> {
   const agent = agents.find((candidate) => candidate.name === agentName);
 
@@ -571,7 +552,7 @@ async function runSingleAgent(
     if (onUpdate) {
       onUpdate({
         content: [{ type: "text", text: getFinalOutput(currentResult.messages) || "(running...)" }],
-        details: makeDetails([currentResult]),
+        details: { mode, results: [currentResult] },
       });
     }
   };
@@ -596,7 +577,6 @@ async function runSingleAgent(
         env: childEnvironment(dispatch),
       });
       const processLine = (line: string) => {
-        if (!line.trim()) return;
         let event: any;
         try {
           event = JSON.parse(line);
@@ -761,7 +741,6 @@ type TaskConfiguration = {
 function childEnvironment(dispatch: DispatchContext): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = { ...process.env, PI_SUBAGENT_CHILD: "1" };
   delete environment.PI_SUBAGENT_PLAN_ALLOWED_TOOLS;
-  delete environment[CHILD_POLICY_ENV];
   if (dispatch.planAllowedTools) environment.PI_SUBAGENT_PLAN_ALLOWED_TOOLS = [...dispatch.planAllowedTools].sort().join(",");
   environment[CHILD_POLICY_ENV] = serializeChildPathPolicy(dispatch.pathPolicy);
   return environment;
@@ -837,8 +816,7 @@ async function mapWithConcurrencyLimit<TIn, TOut>(
   concurrency: number,
   mapper: (item: TIn, index: number) => Promise<TOut>,
 ): Promise<TOut[]> {
-  if (items.length === 0) return [];
-  const limit = Math.max(1, Math.min(concurrency, items.length));
+  const limit = Math.min(concurrency, items.length);
   const results: TOut[] = new Array(items.length);
   let nextIndex = 0;
   const workers = new Array(limit).fill(null).map(async () => {
@@ -933,12 +911,12 @@ function formatToolCall(
 
 function renderCollapsedItems(
   items: DisplayItem[],
-  limit: number | undefined,
+  limit: number,
   expanded: boolean,
   theme: { fg: (color: any, text: string) => string },
 ): string {
-  const toShow = limit ? items.slice(-limit) : items;
-  const skipped = limit && items.length > limit ? items.length - limit : 0;
+  const toShow = items.slice(-limit);
+  const skipped = Math.max(0, items.length - limit);
   let text = "";
   if (skipped > 0) text += theme.fg("muted", `... ${skipped} earlier items\n`);
   for (const item of toShow) {

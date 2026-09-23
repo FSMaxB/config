@@ -2,7 +2,7 @@
  * Agent discovery and configuration
  */
 
-import { existsSync, readdirSync, readFileSync, type Dirent } from "node:fs";
+import { readdirSync, readFileSync, type Dirent } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
@@ -41,10 +41,6 @@ export function discoverAgents(): AgentConfig[] {
 
 function loadAgentsFromDir(dir: string): AgentConfig[] {
   const agents: AgentConfig[] = [];
-
-  if (!existsSync(dir)) {
-    return agents;
-  }
 
   let entries: Dirent[];
   try {
