@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { connectorWriteModeFromEnv, connectorWriteModeFor } from "../bundle/index.js";
+import { connectorWriteModeFromEnv, connectorWriteModeFor } from "../src/index.ts";
 
 function withEnv(value, fn) {
 	const prev = process.env.CLAUDE_BRIDGE_CONNECTOR_WRITE;

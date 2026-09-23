@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { connectorMcpServers, connectorServerName, connectorProxyUrl } from "../bundle/index.js";
+import { connectorMcpServers, connectorServerName, connectorProxyUrl } from "../src/index.ts";
 
 const ok = (connectors) => ({ ok: true, complete: true, connectors });
 

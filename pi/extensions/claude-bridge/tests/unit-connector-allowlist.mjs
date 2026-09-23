@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { connectorBuiltinAllowlistHook, CONNECTOR_DISCOVERY_TOOLS } from "../bundle/index.js";
+import { connectorBuiltinAllowlistHook, CONNECTOR_DISCOVERY_TOOLS } from "../src/index.ts";
 
 // The SDK delivers canonical discovery aliases as well as request spellings.
 test("connector session allowlist permits its tools and denies unrelated or unreadable input", async () => {

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { settingSourcesForQuery } from "../bundle/index.js";
+import { settingSourcesForQuery } from "../src/index.ts";
 
 // Project settings carry env and apiKeyHelper. Connector sessions load user
 // settings unless a caller explicitly selects other sources.

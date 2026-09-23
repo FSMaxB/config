@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isConnectorWriteTool, CONNECTOR_WRITE_TOOLS } from "../bundle/index.js";
+import { isConnectorWriteTool, CONNECTOR_WRITE_TOOLS } from "../src/index.ts";
 
 // Tool names include the Slack and Atlassian forms emitted by ToolSearch.
 test("connector write classification permits reads and denies mutations or unclassifiable names", () => {
