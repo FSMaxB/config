@@ -4,7 +4,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execChecked } from "./lib/exec.ts";
-import { closePane, detectMultiplexer, openPane, type PaneHandle } from "./lib/panes.ts";
+import { detectMultiplexer, openPane } from "./lib/panes.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 import { findRepoRoot } from "./lib/repo.ts";
 import {
@@ -30,7 +30,6 @@ interface Session {
   repo: string;
   slug: string;
   seen: Set<string>;
-  pane?: PaneHandle;
 }
 
 // The session opened by tuicr_open (or attached by tuicr_wait), so the other
@@ -43,7 +42,7 @@ export default function (pi: ExtensionAPI) {
     label: "Open tuicr",
     description:
       "Open tuicr, the terminal code review TUI, in a new pane of the surrounding multiplexer " +
-      "(tmux, zellij, cmux or herdr) so the user can review a diff and leave inline comments. " +
+      "(tmux or zellij) so the user can review a diff and leave inline comments. " +
       "Give range for a commit range or revset (git: main..HEAD; jj: main..@), workingTree for " +
       "uncommitted changes, both to combine them, or neither to let the user pick commits. " +
       "Returns as soon as the review session is running; it does not wait for comments.",
@@ -75,7 +74,7 @@ export default function (pi: ExtensionAPI) {
       const multiplexer = detectMultiplexer();
       if (!multiplexer) {
         throw new Error(
-          "No supported multiplexer detected (tmux, zellij, cmux or herdr). " +
+          "No supported multiplexer detected (tmux or zellij). " +
             `Ask the user to run tuicr in ${repo} themselves, then call tuicr_wait, which attaches to the active session.`,
         );
       }
@@ -87,7 +86,7 @@ export default function (pi: ExtensionAPI) {
         ...(workingTree ? ["-w"] : []),
         ...(path ? ["-p", path] : []),
       ];
-      const pane = await openPane(pi, multiplexer, repo, ["tuicr", ...args], signal);
+      await openPane(pi, multiplexer, repo, ["tuicr", ...args], signal);
       onUpdate?.({
         content: [{ type: "text", text: `tuicr started in a ${multiplexer} pane, waiting for its session…` }],
         details: {},
@@ -97,14 +96,14 @@ export default function (pi: ExtensionAPI) {
       if (!entry) {
         // Without -r/-w tuicr shows a commit selector and has no session until the
         // user picks; tuicr_wait keeps looking for it.
-        current = { repo, slug: "", seen: new Set(), pane };
+        current = { repo, slug: "", seen: new Set() };
         return text(
           `tuicr is running in a ${multiplexer} pane for ${repo}, but has no active review session yet ` +
             "(the user may still be choosing commits). Call tuicr_wait; it attaches once a session appears.",
         );
       }
       const existing = await readComments(pi, repo, entry.slug, signal);
-      current = { repo, slug: entry.slug, seen: new Set(existing.map((comment) => comment.id)), pane };
+      current = { repo, slug: entry.slug, seen: new Set(existing.map((comment) => comment.id)) };
       const carried =
         existing.length > 0
           ? ` The session already holds ${existing.length} comment(s) from an earlier review; pass all: true to tuicr_wait to see them.`
@@ -169,7 +168,6 @@ export default function (pi: ExtensionAPI) {
         // A session that vanished or went inactive means the TUI exited (tuicr
         // deletes empty sessions on exit, so absence counts as exit too).
         if (!entry?.active) {
-          await finishPane(pi, session);
           markSeen(session, comments);
           const body =
             unseen.length > 0
@@ -322,7 +320,7 @@ async function resolveSession(
   if (params.session) {
     const repo = resolve(params.repo ?? current?.repo ?? findRepoRoot());
     const seen = current?.slug === params.session ? current.seen : new Set<string>();
-    current = { repo, slug: params.session, seen, pane: current?.pane };
+    current = { repo, slug: params.session, seen };
     return current;
   }
   if (current && current.slug !== "") return current;
@@ -332,7 +330,7 @@ async function resolveSession(
     const active = (await listSessions(pi, repo, signal)).filter((entry) => entry.active);
     const picked = active.sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
     if (picked) {
-      current = { repo, slug: picked.slug, seen: new Set(), pane: current?.pane };
+      current = { repo, slug: picked.slug, seen: new Set() };
       return current;
     }
     if (Date.now() >= deadline)
@@ -343,13 +341,6 @@ async function resolveSession(
 
 function markSeen(session: Session, comments: TuicrComment[]): void {
   for (const comment of comments) session.seen.add(comment.id);
-}
-
-async function finishPane(pi: ExtensionAPI, session: Session): Promise<void> {
-  if (session.pane) {
-    await closePane(pi, session.pane);
-    session.pane = undefined;
-  }
 }
 
 async function listSessions(

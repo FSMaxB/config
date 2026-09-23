@@ -2,26 +2,15 @@ import { basename } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { execChecked } from "./exec.ts";
 
-export type Multiplexer = "tmux" | "zellij" | "cmux" | "herdr";
-
-// tmux/zellij panes have no id we need later ("" for zellij); cmux stores the
-// surface ref, herdr the pane id used to close the pane after tuicr exits.
-export interface PaneHandle {
-  multiplexer: Multiplexer;
-  id: string;
-}
+export type Multiplexer = "tmux" | "zellij";
 
 const TIMEOUT = 15_000;
 
-// tmux or zellij running inside cmux/herdr is the innermost multiplexer, so the
-// terminal multiplexers are checked first.
 export function detectMultiplexer(
   env: NodeJS.ProcessEnv = process.env,
 ): Multiplexer | undefined {
   if (env.TMUX) return "tmux";
   if (env.ZELLIJ) return "zellij";
-  if (env.HERDR_ENV === "1") return "herdr";
-  if (env.CMUX_WORKSPACE_ID) return "cmux";
   return undefined;
 }
 
@@ -31,8 +20,7 @@ export async function openPane(
   cwd: string,
   command: string[],
   signal?: AbortSignal,
-): Promise<PaneHandle> {
-  const shellCommand = command.map(shellQuote).join(" ");
+): Promise<void> {
   switch (multiplexer) {
     case "tmux": {
       const paneId = (
@@ -50,13 +38,13 @@ export async function openPane(
             "80%",
             "-c",
             cwd,
-            shellCommand,
+            command.map(shellQuote).join(" "),
           ],
           signal,
         )
       ).trim();
       await run(pi, "tmux", ["select-pane", "-t", paneId], signal);
-      return { multiplexer, id: paneId };
+      return;
     }
     case "zellij": {
       // A stack is only visible from a tiled pane. Called from a floating
@@ -85,53 +73,7 @@ export async function openPane(
         ],
         signal,
       );
-      return { multiplexer, id: "" };
-    }
-    case "cmux": {
-      const created = await run(
-        pi,
-        "cmux",
-        ["new-pane", "--type", "terminal", "--direction", "right", "--focus", "true"],
-        signal,
-      );
-      const surface = /surface:\d+/.exec(created)?.[0];
-      if (!surface)
-        throw new Error(`cmux did not report a surface id: ${created.trim()}`);
-      await run(
-        pi,
-        "cmux",
-        [
-          "send",
-          "--surface",
-          surface,
-          `cd ${shellQuote(cwd)} && exec ${shellCommand}\n`,
-        ],
-        signal,
-      );
-      return { multiplexer, id: surface };
-    }
-    case "herdr": {
-      const split = await run(
-        pi,
-        "herdr",
-        ["pane", "split", "--current", "--direction", "right", "--cwd", cwd, "--focus"],
-        signal,
-      );
-      const paneId = herdrPaneId(split);
-      // herdr injects the string into the pane's interactive shell, which may be
-      // fish; wrapping in bash -c keeps quoting identical across shells.
-      await run(
-        pi,
-        "herdr",
-        [
-          "pane",
-          "run",
-          paneId,
-          `bash -c ${shellQuote(`cd ${shellQuote(cwd)} && exec ${shellCommand}`)}`,
-        ],
-        signal,
-      );
-      return { multiplexer, id: paneId };
+      return;
     }
   }
 }
@@ -222,20 +164,6 @@ async function callerCommands(
     pid = ancestor.parent;
   }
   return commands;
-}
-
-// Only herdr leaves an empty shell behind once tuicr exits; the other
-// multiplexers close the pane with the process.
-export async function closePane(pi: ExtensionAPI, pane: PaneHandle): Promise<void> {
-  if (pane.multiplexer !== "herdr") return;
-  await run(pi, "herdr", ["pane", "close", pane.id], undefined);
-}
-
-function herdrPaneId(json: string): string {
-  const parsed = JSON.parse(json) as { result?: { pane?: { pane_id?: string } } };
-  const paneId = parsed.result?.pane?.pane_id;
-  if (!paneId) throw new Error(`herdr did not report a pane id: ${json.trim()}`);
-  return paneId;
 }
 
 function run(
