@@ -6,7 +6,8 @@
   "defaultThinkingLevel": "high",
   "packages": [
     "npm:pi-web-access",
-    "npm:@firstpick/pi-themes-bundle"
+    "npm:@firstpick/pi-themes-bundle",
+    "https://github.com/ayghri/i-have-adhd"
   ],
   "compaction": {
     "enabled": false
