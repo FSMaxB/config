@@ -4,10 +4,9 @@
  * Spawns a separate `pi` process for each subagent invocation,
  * giving it an isolated context window.
  *
- * Supports three modes:
+ * Supports two modes:
  *   - Single: { agent: "name", task: "..." }
  *   - Parallel: { tasks: [{ agent: "name", task: "..." }, ...] }
- *   - Chain: { chain: [{ agent: "name", task: "... {previous} ..." }, ...] }
  *
  * Uses JSON mode to capture structured output from subagents.
  */
@@ -75,7 +74,7 @@ export default function (pi: ExtensionAPI) {
       [
         "Delegate tasks to specialized subagents with isolated context.",
         ...(agentListing ? [`Available agents: ${agentListing}.`] : []),
-        "Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder).",
+        "Modes: single (agent + task) or parallel (tasks array).",
         'Model policy: omitting "model" inherits the session model and is always valid.',
         "A different cloud model must belong to the session model's provider family; local models are always allowed.",
         "When the session itself runs on a local model, only local models are valid and switching is discouraged — prefer lowering thinkingLevel on the inherited model instead.",
@@ -111,13 +110,12 @@ export default function (pi: ExtensionAPI) {
       };
       const agents = discoverAgents();
 
-      const hasChain = (params.chain?.length ?? 0) > 0;
       const hasTasks = (params.tasks?.length ?? 0) > 0;
       const hasSingle = Boolean(params.agent && params.task);
-      const modeCount = Number(hasChain) + Number(hasTasks) + Number(hasSingle);
+      const modeCount = Number(hasTasks) + Number(hasSingle);
 
       const makeDetails =
-        (mode: "single" | "parallel" | "chain") =>
+        (mode: "single" | "parallel") =>
         (results: SingleResult[]): SubagentDetails => ({
           mode,
           results,
@@ -133,57 +131,6 @@ export default function (pi: ExtensionAPI) {
             },
           ],
           details: makeDetails("single")([]),
-        };
-      }
-
-      if (params.chain && params.chain.length > 0) {
-        const results: SingleResult[] = [];
-        let previousOutput = "";
-
-        for (let i = 0; i < params.chain.length; i++) {
-          const step = params.chain[i];
-          const taskWithContext = step.task.replace(/\{previous\}/g, () => previousOutput);
-
-          const chainUpdate: OnUpdateCallback | undefined = onUpdate
-            ? (partial) => {
-                const currentResult = partial.details?.results[0];
-                if (currentResult) {
-                  const allResults = [...results, currentResult];
-                  onUpdate({
-                    content: partial.content,
-                    details: makeDetails("chain")(allResults),
-                  });
-                }
-              }
-            : undefined;
-
-          const result = await runSingleAgent(
-            ctx.cwd,
-            dispatch,
-            agents,
-            step.agent,
-            taskWithContext,
-            { model: step.model, thinkingLevel: step.thinkingLevel },
-            step.cwd,
-            i + 1,
-            signal,
-            chainUpdate,
-            makeDetails("chain"),
-          );
-          results.push(result);
-
-          if (isFailedResult(result)) {
-            const errorMessage = getResultOutput(result);
-            return {
-              content: [{ type: "text", text: `Chain stopped at step ${i + 1} (${step.agent}): ${errorMessage}` }],
-              details: makeDetails("chain")(results),
-            };
-          }
-          previousOutput = getFinalOutput(result.messages);
-        }
-        return {
-          content: [{ type: "text", text: getFinalOutput(results[results.length - 1].messages) || "(no output)" }],
-          details: makeDetails("chain")(results),
         };
       }
 
@@ -245,7 +192,6 @@ export default function (pi: ExtensionAPI) {
             taskItem.task,
             { model: taskItem.model, thinkingLevel: taskItem.thinkingLevel },
             taskItem.cwd,
-            undefined,
             signal,
             (partial) => {
               if (partial.details?.results[0]) {
@@ -288,7 +234,6 @@ export default function (pi: ExtensionAPI) {
           params.task,
           { model: params.model, thinkingLevel: params.thinkingLevel },
           params.cwd,
-          undefined,
           signal,
           onUpdate,
           makeDetails("single"),
@@ -314,25 +259,6 @@ export default function (pi: ExtensionAPI) {
     },
 
     renderCall(args, theme, _context) {
-      if (args.chain && args.chain.length > 0) {
-        let text =
-          theme.fg("toolTitle", theme.bold("subagent ")) +
-          theme.fg("accent", `chain (${args.chain.length} steps)`);
-        for (let i = 0; i < Math.min(args.chain.length, 3); i++) {
-          const step = args.chain[i];
-          const cleanTask = step.task.replace(/\{previous\}/g, "").trim();
-          const preview = cleanTask.length > 40 ? `${cleanTask.slice(0, 40)}...` : cleanTask;
-          text +=
-            "\n  " +
-            theme.fg("muted", `${i + 1}.`) +
-            " " +
-            theme.fg("accent", step.agent) +
-            formatAgentConfiguration(step.model, step.thinkingLevel, "inherit", theme) +
-            theme.fg("dim", ` ${preview}`);
-        }
-        if (args.chain.length > 3) text += `\n  ${theme.fg("muted", `... +${args.chain.length - 3} more`)}`;
-        return new Text(text, 0, 0);
-      }
       if (args.tasks && args.tasks.length > 0) {
         let text =
           theme.fg("toolTitle", theme.bold("subagent ")) +
@@ -425,62 +351,6 @@ export default function (pi: ExtensionAPI) {
         }
         const usageText = formatUsageStats(single.usage);
         if (usageText) text += `\n${theme.fg("dim", usageText)}`;
-        return new Text(text, 0, 0);
-      }
-
-      if (details.mode === "chain") {
-        const successCount = details.results.filter((item) => !isFailedResult(item)).length;
-        const icon = successCount === details.results.length ? theme.fg("success", "✓") : theme.fg("error", "✗");
-
-        if (expanded) {
-          const container = new Container();
-          container.addChild(
-            new Text(
-              icon +
-                " " +
-                theme.fg("toolTitle", theme.bold("chain ")) +
-                theme.fg("accent", `${successCount}/${details.results.length} steps`),
-              0,
-              0,
-            ),
-          );
-
-          for (const item of details.results) {
-            const itemIcon = !isFailedResult(item) ? theme.fg("success", "✓") : theme.fg("error", "✗");
-            const header =
-              theme.fg("muted", `─── Step ${item.step}: `) +
-              theme.fg("accent", item.agent) +
-              formatAgentConfiguration(item.model, item.thinkingLevel, "unresolved", theme) +
-              ` ${itemIcon}`;
-            renderTaskSection(container, header, item, theme, markdownTheme);
-          }
-
-          const usageText = formatUsageStats(aggregateUsage(details.results));
-          if (usageText) {
-            container.addChild(new Spacer(1));
-            container.addChild(new Text(theme.fg("dim", `Total: ${usageText}`), 0, 0));
-          }
-          return container;
-        }
-
-        let text =
-          icon +
-          " " +
-          theme.fg("toolTitle", theme.bold("chain ")) +
-          theme.fg("accent", `${successCount}/${details.results.length} steps`);
-        for (const item of details.results) {
-          const itemIcon = !isFailedResult(item) ? theme.fg("success", "✓") : theme.fg("error", "✗");
-          const displayItems = getDisplayItems(item.messages);
-          text +=
-            `\n\n${theme.fg("muted", `─── Step ${item.step}: `)}${theme.fg("accent", item.agent)}` +
-            formatAgentConfiguration(item.model, item.thinkingLevel, "unresolved", theme) +
-            ` ${itemIcon}`;
-          if (displayItems.length === 0) text += `\n${theme.fg("muted", "(no output)")}`;
-          else text += `\n${renderCollapsedItems(displayItems, 5, expanded, theme)}`;
-        }
-        const usageText = formatUsageStats(aggregateUsage(details.results));
-        if (usageText) text += `\n\n${theme.fg("dim", `Total: ${usageText}`)}`;
-        text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
         return new Text(text, 0, 0);
       }
 
@@ -579,21 +449,12 @@ const TaskItem = Type.Object({
   cwd: Type.Optional(Type.String({ description: "Working directory for the agent process" })),
 });
 
-const ChainItem = Type.Object({
-  agent: Type.String({ description: "Name of the agent to invoke" }),
-  task: Type.String({ description: "Task with optional {previous} placeholder for prior output" }),
-  model: ModelParam,
-  thinkingLevel: ThinkingLevelParam,
-  cwd: Type.Optional(Type.String({ description: "Working directory for the agent process" })),
-});
-
 const SubagentParams = Type.Object({
   agent: Type.Optional(Type.String({ description: "Name of the agent to invoke (for single mode)" })),
   task: Type.Optional(Type.String({ description: "Task to delegate (for single mode)" })),
   model: ModelParam,
   thinkingLevel: ThinkingLevelParam,
   tasks: Type.Optional(Type.Array(TaskItem, { description: "Array of {agent, task} for parallel execution" })),
-  chain: Type.Optional(Type.Array(ChainItem, { description: "Array of {agent, task} for sequential execution" })),
   cwd: Type.Optional(Type.String({ description: "Working directory for the agent process (single mode)" })),
 });
 
@@ -618,11 +479,10 @@ interface SingleResult {
   thinkingLevel?: ModelThinkingLevel;
   stopReason?: string;
   errorMessage?: string;
-  step?: number;
 }
 
 interface SubagentDetails {
-  mode: "single" | "parallel" | "chain";
+  mode: "single" | "parallel";
   results: SingleResult[];
 }
 
@@ -652,7 +512,6 @@ async function runSingleAgent(
   task: string,
   overrides: TaskOverrides,
   cwd: string | undefined,
-  step: number | undefined,
   signal: AbortSignal | undefined,
   onUpdate: OnUpdateCallback | undefined,
   makeDetails: (results: SingleResult[]) => SubagentDetails,
@@ -672,13 +531,12 @@ async function runSingleAgent(
         overrides.model ??
         (dispatch.mainModel ? `${dispatch.mainModel.provider}/${dispatch.mainModel.id}` : undefined),
       thinkingLevel: overrides.thinkingLevel ?? dispatch.thinkingLevel,
-      step,
     };
   }
 
   const args: string[] = ["--mode", "json", "-p", "--no-session"];
   const configuration = resolveTaskConfiguration(agent, overrides, dispatch);
-  if (!configuration.ok) return policyFailure(agent, task, step, configuration.error, configuration);
+  if (!configuration.ok) return policyFailure(agent, task, configuration.error, configuration);
   const { model, thinkingLevel } = configuration;
   if (model) args.push("--model", model);
   if (thinkingLevel) args.push("--thinking", thinkingLevel);
@@ -688,7 +546,6 @@ async function runSingleAgent(
     return policyFailure(
       agent,
       task,
-      step,
       `Plan mode restricts every tool of agent "${agent.name}", so dispatching it would be pointless. ` +
         `Tools currently allowed for subagents: ${[...planAllowedTools].sort().join(", ")}.`,
       configuration,
@@ -708,7 +565,6 @@ async function runSingleAgent(
     usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
     model,
     thinkingLevel,
-    step,
   };
 
   const emitUpdate = () => {
@@ -882,7 +738,6 @@ function resolveTaskConfiguration(
 function policyFailure(
   agent: AgentConfig,
   task: string,
-  step: number | undefined,
   message: string,
   configuration?: Pick<TaskConfiguration, "model" | "thinkingLevel">,
 ): SingleResult {
@@ -895,7 +750,6 @@ function policyFailure(
     usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
     model: configuration?.model,
     thinkingLevel: configuration?.thinkingLevel,
-    step,
   };
 }
 
@@ -1098,9 +952,8 @@ function renderCollapsedItems(
   return text.trimEnd();
 }
 
-// Shared by the chain and parallel expanded views, whose per-item blocks are otherwise
-// identical: a header line (caller-formatted, since chain and parallel label it differently),
-// the task text, any tool calls, the final markdown output, and per-item usage stats.
+// Per-item block of the parallel expanded view: a caller-formatted header line, the task text,
+// any tool calls, the final markdown output, and per-item usage stats.
 function renderTaskSection(
   container: Container,
   header: string,
