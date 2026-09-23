@@ -89,19 +89,14 @@ export default function (pi: ExtensionAPI) {
   }
 
   function blockedReason(toolName: string): string | undefined {
-    if (alwaysDenials.has(toolName)) {
-      return deniedReason(
-        toolName,
-        "you denied it for all sessions",
-        alwaysDenials.get(toolName),
-      );
-    }
-    if (sessionDenials.has(toolName)) {
-      return deniedReason(
-        toolName,
-        "you denied it for this session",
-        sessionDenials.get(toolName),
-      );
+    const denials = [
+      [alwaysDenials, "deny-always"],
+      [sessionDenials, "deny-session"],
+    ] as const;
+    for (const [store, decision] of denials) {
+      if (store.has(toolName)) {
+        return deniedReason(toolName, DENIAL_CAUSES[decision], store.get(toolName));
+      }
     }
     return undefined;
   }
@@ -135,6 +130,10 @@ export default function (pi: ExtensionAPI) {
         alwaysDenials.set(toolName, note);
         break;
     }
+    await save();
+  }
+
+  async function save(): Promise<void> {
     persist();
     await writePersistedDecisions(alwaysGrants, alwaysDenials);
   }
@@ -231,52 +230,18 @@ export default function (pi: ExtensionAPI) {
       ],
     );
 
-    switch (choice) {
-      case ALLOW_ONCE:
-        return undefined;
-      case ALLOW_SESSION:
-        await record(event.toolName, "allow-session");
-        return undefined;
-      case ALLOW_ALWAYS:
-        await record(event.toolName, "allow-always");
-        return undefined;
-      case DENY_SESSION: {
-        const note = await askDenyNote(ctx);
-        await record(event.toolName, "deny-session", note);
-        return {
-          block: true,
-          reason: deniedReason(
-            event.toolName,
-            "you denied it for this session",
-            note,
-          ),
-        };
-      }
-      case DENY_ALWAYS: {
-        const note = await askDenyNote(ctx);
-        await record(event.toolName, "deny-always", note);
-        return {
-          block: true,
-          reason: deniedReason(
-            event.toolName,
-            "you denied it for all sessions",
-            note,
-          ),
-        };
-      }
-      default: {
-        // Also covers dismissing the prompt, which should not stop to ask for a note.
-        const note = choice === DENY_ONCE ? await askDenyNote(ctx) : undefined;
-        return {
-          block: true,
-          reason: deniedReason(
-            event.toolName,
-            "the user denied this call",
-            note,
-          ),
-        };
-      }
+    if (choice === ALLOW_ONCE) return undefined;
+    const decision = choice === undefined ? undefined : CHOICE_DECISIONS[choice];
+    if (decision === "allow-session" || decision === "allow-always") {
+      await record(event.toolName, decision);
+      return undefined;
     }
+
+    // Dismissing the prompt denies the call without stopping to ask for a note.
+    const note = choice === undefined ? undefined : await askDenyNote(ctx);
+    if (decision) await record(event.toolName, decision, note);
+    const cause = decision ? DENIAL_CAUSES[decision] : "the user denied this call";
+    return { block: true, reason: deniedReason(event.toolName, cause, note) };
   }
 
   async function askDenyNote(
@@ -326,8 +291,7 @@ export default function (pi: ExtensionAPI) {
         ]) {
           store.clear();
         }
-        persist();
-        await writePersistedDecisions(alwaysGrants, alwaysDenials);
+        await save();
         await clearPathRules();
         ctx.ui.notify("Cleared all plan mode grants, denials and path rules.");
         return;
@@ -337,8 +301,7 @@ export default function (pi: ExtensionAPI) {
       if (!entry) return;
 
       await entry.remove();
-      persist();
-      await writePersistedDecisions(alwaysGrants, alwaysDenials);
+      await save();
     }
   }
 
@@ -535,24 +498,13 @@ export default function (pi: ExtensionAPI) {
         const feedback = (
           await ctx.ui.input("Feedback on the plan:", "What should change?")
         )?.trim();
-        const text = feedback
-          ? `Plan at ${path} not approved. Still in plan mode. The user asks for: ${feedback}`
-          : `Plan at ${path} not approved. Still in plan mode.`;
         return {
-          content: [{ type: "text", text }],
+          ...notApproved(path, feedback && `The user asks for: ${feedback}`),
           details: { path, outcome: "refine" },
         };
       }
 
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Plan at ${path} not approved. Still in plan mode.`,
-          },
-        ],
-        details: { path, outcome: "saved" },
-      };
+      return notApproved(path);
     },
 
     renderCall(args, theme) {
@@ -584,14 +536,7 @@ export default function (pi: ExtensionAPI) {
             : "only available in plan mode";
         return new Text(theme.fg("error", `✗ ${reason}`), 0, 0);
       }
-      const label =
-        details.outcome === "approved"
-          ? "approved"
-          : details.outcome === "refine"
-            ? "needs changes"
-            : details.outcome === "handed-off"
-              ? "handed off"
-              : "submitted";
+      const label = OUTCOME_LABELS[details.outcome] ?? "submitted";
       return new Text(
         theme.fg("success", "✓ ") +
           theme.fg("accent", label) +
@@ -935,6 +880,24 @@ type Decision =
   | "allow-always"
   | "deny-session"
   | "deny-always";
+
+const CHOICE_DECISIONS: Record<string, Decision | undefined> = {
+  [ALLOW_SESSION]: "allow-session",
+  [ALLOW_ALWAYS]: "allow-always",
+  [DENY_SESSION]: "deny-session",
+  [DENY_ALWAYS]: "deny-always",
+};
+
+const DENIAL_CAUSES = {
+  "deny-session": "you denied it for this session",
+  "deny-always": "you denied it for all sessions",
+} satisfies Partial<Record<Decision, string>>;
+
+const OUTCOME_LABELS: Record<string, string | undefined> = {
+  approved: "approved",
+  refine: "needs changes",
+  "handed-off": "handed off",
+};
 
 interface DecisionEntry {
   label: string;
