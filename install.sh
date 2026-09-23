@@ -94,6 +94,18 @@ for tool in bat crit jj jq rtk starship tuicr zellij; do
   fi
 done
 
+# pi installs npm dependencies only for npm and git packages, not for local extension directories.
+for package in ~/config/pi/extensions/*/package.json; do
+  [[ -e "$package" ]] || continue
+  extension=$(dirname "$package")
+  [[ -d "${extension}/node_modules" ]] && continue
+  if ! hash npm 2>/dev/null; then
+    echo "npm is missing, ${extension} has no node_modules"
+    continue
+  fi
+  (cd "$extension" && npm ci) || echo "npm ci failed in ${extension}"
+done
+
 if hash git 2>/dev/null; then
   git config --global init.templatedir '~/.git_template'
   git config --global color.ui true
