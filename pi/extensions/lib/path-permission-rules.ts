@@ -93,7 +93,6 @@ export function defaultAllowed(mode: AccessMode, options: DefaultAllowedOptions)
 export function exact(path: string): PathSelector { return { kind: "exact", path }; }
 export function tree(path: string): PathSelector { return { kind: "tree", path }; }
 export function glob(base: string, pattern: string): PathSelector { return { kind: "glob", base, pattern }; }
-export function subtree(directory: string): string { return join(directory, "**"); }
 
 export function recordRule(rule: PathRule, tiers: RuleTiers): Set<RuleTier> {
   const changed = new Set<RuleTier>([rule.tier]);

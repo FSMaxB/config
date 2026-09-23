@@ -22,7 +22,7 @@ import {
   setPlanModeEnabled,
 } from "./lib/path-permissions.ts";
 import { normalizePathSelector } from "./lib/path-rule-normalization.ts";
-import { selectorKey, selectorLabel, type AccessMode, type PathRule, type RuleKind, type RuleTier } from "./lib/path-permission-rules.ts";
+import { selectorLabel, type AccessMode, type PathRule, type RuleKind, type RuleTier } from "./lib/path-permission-rules.ts";
 import {
   latestPlanModeEntry,
   PLAN_MODE_ENTRY_TYPE,
@@ -922,7 +922,6 @@ type Decision =
 
 interface DecisionEntry {
   label: string;
-  toolName: string;
   remove: () => void | Promise<void>;
 }
 
@@ -964,7 +963,6 @@ function listDecisions(
     ...grants.flatMap(([store, scope]) =>
       [...store].sort().map((toolName) => ({
         label: `${toolName} — ${scope}`,
-        toolName,
         remove: () => void store.delete(toolName),
       })),
     ),
@@ -975,14 +973,12 @@ function listDecisions(
           label: note
             ? `${toolName} — ${scope}: ${note}`
             : `${toolName} — ${scope}`,
-          toolName,
           remove: () => void store.delete(toolName),
         };
       }),
     ),
     ...pathRules.map((rule) => ({
       label: `${rule.mode} ${rule.kind} ${selectorLabel(rule.selector)} — path (${rule.tier})`,
-      toolName: selectorKey(rule.selector!),
       remove: () => removePathRule(rule),
     })),
   ];

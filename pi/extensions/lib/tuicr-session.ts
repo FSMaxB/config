@@ -1,9 +1,6 @@
 export interface SessionEntry {
   slug: string;
-  kind: string;
-  path: string;
   updated_at: string;
-  comment_count: number;
   active: boolean;
 }
 
@@ -11,11 +8,8 @@ export interface TuicrComment {
   id: string;
   location: string;
   path?: string;
-  start_line?: number;
-  end_line?: number;
   side?: string;
   comment_type: string;
-  lifecycle_state: string;
   content: string;
 }
 

@@ -16,7 +16,6 @@ import {
   selectorKey,
   selectorLabel,
   serializeRules,
-  subtree,
   tree,
 } from "./path-permission-rules.ts";
 
@@ -75,17 +74,6 @@ test("glob rules use Node glob semantics", () => {
   assert.equal(directDoesNotCross, false);
   assert.equal(braceTypeScript, true);
   assert.equal(braceMarkdown, true);
-});
-
-test("subtree appends the recursive glob", () => {
-  // arrange
-  const directory = "/repo";
-
-  // act
-  const pattern = subtree(directory);
-
-  // assert
-  assert.equal(pattern, "/repo/**");
 });
 
 test("path resolution follows a dangling final symlink", async () => {

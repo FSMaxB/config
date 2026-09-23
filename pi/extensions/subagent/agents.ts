@@ -15,7 +15,6 @@ export interface AgentConfig {
   model?: string;
   thinkingLevel?: ModelThinkingLevel;
   systemPrompt: string;
-  filePath: string;
 }
 
 /**
@@ -58,10 +57,9 @@ function loadAgentsFromDir(dir: string): AgentConfig[] {
     if (!entry.name.endsWith(".md")) continue;
     if (!entry.isFile() && !entry.isSymbolicLink()) continue;
 
-    const filePath = join(dir, entry.name);
     let content: string;
     try {
-      content = readFileSync(filePath, "utf-8");
+      content = readFileSync(join(dir, entry.name), "utf-8");
     } catch {
       continue;
     }
@@ -79,7 +77,6 @@ function loadAgentsFromDir(dir: string): AgentConfig[] {
       model: typeof frontmatter.model === "string" ? frontmatter.model : undefined,
       thinkingLevel: parseThinkingLevel(frontmatter.thinkingLevel),
       systemPrompt: body,
-      filePath,
     });
   }
 
