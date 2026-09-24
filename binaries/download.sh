@@ -61,15 +61,6 @@ function download_platform() {
 			JJ_SHA256="51ba42e3d0682616f6eb015045bfe45289b396f03511f9897f645ce8e9272743"
 			TUICR_SHA256="2516c51d6f77cf78b69e7135fe9341de276fa3b7718e21597bf9719d4795bae2"
 			;;
-		Darwin/x86_64)
-			TRIPLE="x86_64-apple-darwin"
-			JQ_NAME="macos-amd64"
-			CRIT_NAME="darwin-amd64"
-			RTK_NAME="x86_64-apple-darwin"
-			BAT_SHA256="830d63b0bba1fa040542ec569e3cf77f60d3356b9de75116a344b061e0894245"
-			JJ_SHA256="6171582d0b5a98a1005cd9643faebff7936812ec264d7968a39d9cef3654a99b"
-			TUICR_SHA256="5fe41523cc5ff58f92078e93a8dd4479a886765f49bdf59bd92b5677f1a98704"
-			;;
 		*)
 			echo "unsupported platform ${PLATFORM}" >&2
 			exit 1
@@ -97,7 +88,7 @@ function host_platform() {
 	local PLATFORM
 	PLATFORM="$(uname -s)/$(uname -m)"
 	case "${PLATFORM}" in
-		Linux/aarch64|Linux/x86_64|Darwin/arm64|Darwin/x86_64)
+		Linux/aarch64|Linux/x86_64|Darwin/arm64)
 			echo "${PLATFORM}"
 			;;
 		*)
@@ -241,7 +232,7 @@ function verify() {
 BINARIES_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 if [[ "${1:-}" == "--all" ]]; then
-	PLATFORMS=(Linux/aarch64 Linux/x86_64 Darwin/arm64 Darwin/x86_64)
+	PLATFORMS=(Linux/aarch64 Linux/x86_64 Darwin/arm64)
 else
 	PLATFORMS=("$(host_platform)")
 fi

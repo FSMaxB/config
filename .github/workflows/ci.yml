@@ -1,0 +1,179 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Weekly, to catch upstream breakage that a push wouldn't: dead release
+    # URLs, and vim-plug plugins, which have no lockfile.
+    - cron: "0 6 * * 1"
+
+jobs:
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Install shellcheck v0.11.0
+        run: |
+          curl -fsSL -o shellcheck.tar.xz \
+            https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz
+          echo "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198  shellcheck.tar.xz" | sha256sum -c -
+          tar -xf shellcheck.tar.xz
+          sudo install -m 755 shellcheck-v0.11.0/shellcheck /usr/local/bin/shellcheck
+      - run: .github/scripts/shellcheck.sh
+
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Install shellcheck v0.11.0
+        # actionlint also lints `run:` blocks with shellcheck when it's on PATH.
+        run: |
+          curl -fsSL -o shellcheck.tar.xz \
+            https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz
+          echo "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198  shellcheck.tar.xz" | sha256sum -c -
+          tar -xf shellcheck.tar.xz
+          sudo install -m 755 shellcheck-v0.11.0/shellcheck /usr/local/bin/shellcheck
+      - name: Install actionlint v1.7.12
+        run: |
+          curl -fsSL -o actionlint.tar.gz \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  actionlint.tar.gz" | sha256sum -c -
+          tar -xf actionlint.tar.gz actionlint
+          sudo install -m 755 actionlint /usr/local/bin/actionlint
+      - run: actionlint
+
+  stylua:
+    name: stylua
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: JohnnyMorganz/stylua-action@v5.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: "2.5.2"
+          args: --check nvim/
+
+  node:
+    name: node (${{ matrix.node-version }})
+    runs-on: ubuntu-26.04
+    strategy:
+      matrix:
+        node-version: ["22.19.0", "latest"]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: pi/extensions/*/package-lock.json
+      - name: Extension packages
+        # Every extension directory with a package.json is picked up
+        # automatically; each must define `test` and `typecheck` scripts.
+        # Skipped: test:int / tests/int-*.mjs (need live Claude credentials).
+        run: |
+          for pkg in pi/extensions/*/package.json; do
+            dir=$(dirname "$pkg")
+            echo "::group::$dir"
+            (cd "$dir" && npm ci && npm test && npm run typecheck)
+            echo "::endgroup::"
+          done
+      - name: Install fd v10.5.0
+        # The lib/path-preflight tests drive a real fd. fd publishes no
+        # checksum assets, so the digest is pinned here.
+        run: |
+          curl -fsSL -o fd.tar.gz \
+            https://github.com/sharkdp/fd/releases/download/v10.5.0/fd-v10.5.0-x86_64-unknown-linux-gnu.tar.gz
+          echo "a1259cd129636efbc3fef123525c1b49e88fe5088c012630983c310e52fdfa95  fd.tar.gz" | sha256sum -c -
+          tar -xf fd.tar.gz
+          sudo install -m 755 fd-v10.5.0-x86_64-unknown-linux-gnu/fd /usr/local/bin/fd
+      - name: Unit tests outside packages
+        # lib/ and subagent/ have no package.json; their tests run on plain
+        # node. Skipped: lib/search-tools.smoke.ts (needs a hand-made
+        # node_modules symlink plus rg/fd).
+        run: node --test pi/extensions/*/*.test.ts
+
+  nvim:
+    name: nvim (${{ matrix.nvim }})
+    runs-on: ubuntu-26.04
+    strategy:
+      matrix:
+        nvim: [v0.12.0, stable]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: rhysd/action-setup-vim@v1.6.1
+        # The action extracts into os.tmpdir() and renames into $HOME; on
+        # ubuntu-26.04 /tmp is a separate filesystem, so that rename fails
+        # with EXDEV. runner.temp lives under /home/runner.
+        env:
+          TMPDIR: ${{ runner.temp }}
+        with:
+          neovim: true
+          version: ${{ matrix.nvim }}
+      - name: Symlink nvim config
+        # Not install.sh: it requires ~/config and touches global git config.
+        run: |
+          mkdir -p ~/.config
+          ln -sfn "$GITHUB_WORKSPACE/nvim" ~/.config/nvim
+      - name: Install tree-sitter CLI 0.27.0
+        # nvim-treesitter main needs this to compile parsers; without it,
+        # install() reports an error and the check fails spuriously.
+        run: |
+          curl -fsSL -o tree-sitter.zip \
+            https://github.com/tree-sitter/tree-sitter/releases/download/v0.27.0/tree-sitter-cli-linux-x64.zip
+          echo "e4a3826bcd0fe099ee3a5617767374939cbc23c4a35b5b53f5fc04142525a2c1  tree-sitter.zip" | sha256sum -c -
+          unzip -o tree-sitter.zip -d /tmp/tree-sitter
+          sudo install -m 755 /tmp/tree-sitter/tree-sitter /usr/local/bin/tree-sitter
+      - uses: actions/cache@v6.1.0
+        with:
+          path: ~/.local/share/nvim
+          key: nvim-plugins-${{ matrix.nvim }}-${{ hashFiles('nvim/lazy-lock.json') }}
+      - name: Install plugins at locked commits
+        run: nvim --headless "+Lazy! restore" +qa
+      - name: Check plugin load and config
+        run: nvim --headless --cmd "luafile .github/scripts/nvim-check.lua"
+
+  vim:
+    name: vim
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Symlink vim config
+        run: |
+          ln -sfn "$GITHUB_WORKSPACE/.vimrc" ~/.vimrc
+          ln -sfn "$GITHUB_WORKSPACE/.vim" ~/.vim
+      - name: Install plugins (vim-plug)
+        # The first start errors on `colorscheme gruvbox` because the plugin
+        # isn't there yet, so this step may fail.
+        run: vim -Es -u ~/.vimrc +PlugInstall +qall || true
+      - name: Check for startup errors
+        # vim-plug has no lockfile, so this tests upstream HEAD; the weekly
+        # schedule run is what surfaces breakage there.
+        run: vim -Es -u ~/.vimrc -c 'if !empty(v:errmsg) | cquit 1 | else | qall | endif'
+
+  downloads:
+    name: downloads (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-26.04, ubuntu-26.04-arm, macos-26]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Download binaries for this platform
+        # Unauthenticated curl against github.com release assets isn't
+        # API-rate-limited, so no token is needed. Checksums are verified by
+        # the script itself.
+        run: binaries/download.sh
+      - name: Smoke test
+        run: |
+          set -eu
+          DIR="binaries/$(uname -s)/$(uname -m)"
+          for tool in bat crit jj jq rtk starship tuicr zellij; do
+            "$DIR/$tool" --version
+          done
+      - name: Verify tuicr-skill matches pinned digests
+        run: git diff --exit-code tuicr-skill/

@@ -1,8 +1,9 @@
 #load color codes
+# shellcheck source=.ansi-colors
 source ~/.ansi-colors
 
 # Custom binaries
-export PATH="${PATH}:$HOME/config/binaries/$(uname -s)/$(uname -m)/"
+PATH="${PATH}:$HOME/config/binaries/$(uname -s)/$(uname -m)/"
 
 #check if $1 exists
 function command_exists() {
@@ -66,10 +67,10 @@ if [ -n "$BASH_VERSION" ]; then
         if [[ "$1" =~ ^\.\.+$ ]]; then
             # cd ... to go 2 higher, cd .... to go 3 higher and so on
             for (( i=0; i<${#1}-1; i++ )); do
-                builtin cd .. 1> /dev/null
+                builtin cd .. 1> /dev/null || return
             done
         else
-            builtin cd "${@}" 1> /dev/null
+            builtin cd "${@}" 1> /dev/null || return
         fi
     }
 fi

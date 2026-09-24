@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck disable=SC2034  # sourced variable library; "unused" here is expected
 cblack='\[\e[0;30m\]'    #Black-Regular
 cred='\[\e[0;31m\]'      #Red
 cgreen='\[\e[0;32m\]'     #Green
