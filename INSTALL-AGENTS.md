@@ -18,7 +18,7 @@
 
 ## VCS
 
-- Use jj when the repository uses jj, including colocated jj/git repositories. Otherwise, ask before using git.
+- Use jj when the repository uses jj, including colocated jj/git repositories. Otherwise, ask before using git. Read-only git commands (e.g. `git status`, `git log`, `git diff`) are always fine; asking is only needed for commands that change commits, branches, or the index.
 - Before making changes, inspect the working-copy status. If it already contains changes, make sure they don't end up in your commits.
 - Put each distinct logical change in a separate clean commit. Never include unrelated or pre-existing changes.
 
