@@ -11,9 +11,9 @@ for file in "${HOME_FILES[@]}"; do
   if [[ -L ~/$file || ! -e ~/$file ]]; then
     # Re-point symlinks we own (this self-heals after ~/config is moved),
     # but never clobber a real file the user already has there.
-    ln -sfnv ~/config/$file ~/$file
+    ln -sfnv ~/config/"$file" ~/"$file"
   else
-    echo ~/$file already exists, omitting
+    echo ~/"$file" already exists, omitting
   fi
 done
 
@@ -107,7 +107,7 @@ for package in ~/config/pi/extensions/*/package.json; do
 done
 
 if hash git 2>/dev/null; then
-  git config --global init.templatedir '~/.git_template'
+  git config --global init.templatedir "$HOME/.git_template"
   git config --global color.ui true
   if hash nvim 2>/dev/null; then
     git config --global core.editor nvim
