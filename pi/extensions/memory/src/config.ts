@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import type { Project } from "./project.ts";
 
@@ -42,7 +42,7 @@ export function loadConfiguration(agentDir: string, project: Project): Effective
   const overridePath = projectConfigPath(agentDir, project);
   if (existsSync(dirname(overridePath))) assertSafeDirectory(dirname(overridePath));
   const override = readJson(overridePath);
-  if (Object.keys(override).length === 0) return { config, origin: "global" };
+  if (!existsSync(overridePath)) return { config, origin: "global" };
   validateKeys(override, ["version", "projectRoot", "enabled"]);
   if (override.version !== 1 || override.projectRoot !== project.root || typeof override.enabled !== "boolean") {
     throw new Error("Invalid project memory configuration");
@@ -88,6 +88,7 @@ export function ensurePrivateDirectory(path: string): void {
       mkdirSync(current, { mode: 0o700 });
     }
   }
+  if ((statSync(absolute).mode & 0o077) !== 0) throw new Error("Memory storage directory is not private");
 }
 
 export function assertSafePath(path: string): void {
