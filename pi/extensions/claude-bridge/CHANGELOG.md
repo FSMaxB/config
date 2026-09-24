@@ -2,6 +2,12 @@
 
 ## Consumer-impacting changes
 
+### Unreleased (local fork)
+
+- Removed the extension-manager configuration channel and flat bridge keys. Only nested user and trusted-project `claude-bridge.json` files are read; translate surviving settings manually. `/pi-claude` now shows status only, and optional prompt-hook scraping is gone.
+- Removed multi-account routing, host `/usage` probes, rotation and profile-scoped resume. Old markers with `accountProfileId` rebuild from Pi history rather than resuming under the ambient login; ordinary billing identity and rate-limit events remain.
+- Removed cloud connectors, their inventory command, exports and audit. All SDK queries and continuations now enforce Pi-only tools with strict MCP configuration, a single Pi MCP server and a fail-closed tool hook. Obsolete connector and `strictMcpConfig` opt-out settings have no effect. Restart Pi to load these changes.
+
 ### 4.0.3
 
 - Claude Opus 5.5 (`claude-opus-5-5`) is selectable under the `pi-claude` provider, listed between Fable 5.1 and Opus 5, with the same 1M context, 128k output and `xhigh`/`max` effort mapping as Opus 5 and the same Opus 4.8 safety fallback (kendex#2782).
