@@ -52,7 +52,8 @@ I will handle all rebasing and history rewriting manually.
 
 ## Verification
 
-- After implementing a plan and after committing, ask me with a tool whether I want to do a review with tuicr.
+- After implementing a plan and after committing, ask me with a tool whether I want to do a review with tuicr. Use the harness's tuicr tools or skill; if it has neither, skip the tuicr review and say so.
+- Put fixes for tuicr or crit review comments into fixup commits (see Fixups).
 
 ## Code style / Architecture
 
