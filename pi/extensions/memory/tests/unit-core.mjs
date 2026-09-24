@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -32,6 +32,19 @@ test('default off, project activation, invalid config fails closed', async () =>
     assert.equal(after.origin, 'project');
     assert.equal(existsSync(join(agentDir, 'memory')), false);
     assert.throws(() => loadConfiguration(agentDir, project), /Invalid memory configuration/);
+  });
+});
+
+test('symlinked configuration is rejected instead of following external paths', async () => {
+  // arrange
+  await withRoot(async root => {
+    const project=resolveProject(root);
+    writeFileSync(join(root,'external.json'),'{}');
+    symlinkSync(join(root,'external.json'),join(root,'memory.json'));
+    // act
+    // assert
+    assert.throws(() => loadConfiguration(root,project),/Unsafe memory file path/);
+    assert.equal(existsSync(join(root,'memory')),false);
   });
 });
 
@@ -78,6 +91,26 @@ test('store claim fencing, manual correction, tombstones, reset', async () => {
   });
 });
 
+test('an off/on transition fences an enqueue prepared under the old epoch', async () => {
+  // arrange
+  await withRoot(async root => {
+    const project=resolveProject(root);
+    writeProjectActivation(root,project,true);
+    const first=await Store.open(root,project);
+    const second=await Store.open(root,project);
+    const oldEpoch=first.epoch();
+    // act
+    second.transition(false);
+    second.transition(true);
+    first.observeEntries('session',new Set(['entry']),oldEpoch);
+    first.enqueue('session',join(root,'file.jsonl'),'leaf',JSON.stringify({entries:[{id:'entry',role:'user',text:'off interval'}]}),new Set(),'model/extract','normal',oldEpoch);
+    // assert
+    assert.equal(first.counts().pending,0);
+    assert.equal(first.eligibleEntryIds('session').size,0);
+    first.close();second.close();
+  });
+});
+
 test('project off fences a claimed worker on a second connection', async () => {
   // arrange
   await withRoot(async agentDir => {
@@ -97,6 +130,200 @@ test('project off fences a claimed worker on a second connection', async () => {
     assert.equal(loadConfiguration(agentDir, project).config.enabled, false);
     assert.equal(first.claims().length, 0);
     database.close(); first.close(); second.close();
+  });
+});
+
+test('forget-source removes cross-revision shared evidence but preserves unrelated claims', async () => {
+  // arrange
+  await withRoot(async root => {
+    const project=resolveProject(root);
+    writeProjectActivation(root,project,true);
+    const store=await Store.open(root,project);
+    const database=new DatabaseSync(join(root,'memory',project.hash,'memory.sqlite'));
+    const limits={maxJobsPerDay:20,maxInputEstimatedTokensPerDay:200000,maxOutputTokensPerDay:40000};
+    const firstPayload=JSON.stringify({entries:[{id:'shared',role:'user',text:'same evidence'},{id:'other',role:'user',text:'unrelated evidence'}]});
+    store.enqueue('session',join(root,'file.jsonl'),'leaf-one',firstPayload);
+    database.exec('UPDATE jobs SET retry_at=0');
+    const first=store.claim('first',limits);
+    store.complete(first,[{text:'fact from shared',evidenceEntryIds:['shared']},{text:'fact from other',evidenceEntryIds:['other']}]);
+    const secondPayload=JSON.stringify({entries:[{id:'shared',role:'user',text:'same evidence'},{id:'new',role:'user',text:'new evidence'}]});
+    store.enqueue('session',join(root,'file.jsonl'),'leaf-two',secondPayload);
+    database.exec('UPDATE jobs SET retry_at=0');
+    const second=store.claim('second',limits);
+    store.complete(second,[{text:'duplicate shared fact',evidenceEntryIds:['shared']},{text:'fact from new',evidenceEntryIds:['new']}]);
+    // act
+    store.forgetSource(first.sourceId);
+    // assert
+    assert.deepEqual(store.claims().map(claim=>claim.text),['fact from new']);
+    database.close();store.close();
+  });
+});
+
+test('forgetting one claim does not erase another supported by a different entry in the same source', async () => {
+  // arrange
+  await withRoot(async root => {
+    const project=resolveProject(root);
+    writeProjectActivation(root,project,true);
+    const store=await Store.open(root,project);
+    store.enqueue('session',join(root,'file.jsonl'),'leaf',JSON.stringify({entries:[{id:'a',role:'user',text:'A'},{id:'b',role:'user',text:'B'}]}));
+    const database=new DatabaseSync(join(root,'memory',project.hash,'memory.sqlite'));
+    database.exec('UPDATE jobs SET retry_at=0');
+    const job=store.claim('owner',{maxJobsPerDay:20,maxInputEstimatedTokensPerDay:200000,maxOutputTokensPerDay:40000});
+    store.complete(job,[{text:'fact A',evidenceEntryIds:['a']},{text:'fact B',evidenceEntryIds:['b']}]);
+    // act
+    store.forget(store.claims().find(claim=>claim.text==='fact A').id);
+    // assert
+    assert.deepEqual(store.claims().map(claim=>claim.text),['fact B']);
+    database.close();store.close();
+  });
+});
+
+test('failed jobs erase payload and preserve the daily reservation when usage is unknown', async () => {
+  // arrange
+  await withRoot(async root => {
+    const project=resolveProject(root);
+    writeProjectActivation(root,project,true);
+    const store=await Store.open(root,project);
+    store.enqueue('session',join(root,'file.jsonl'),'leaf',JSON.stringify({entries:[{id:'e',role:'user',text:'value'}]}));
+    const database=new DatabaseSync(join(root,'memory',project.hash,'memory.sqlite'));
+    const limits={maxJobsPerDay:20,maxInputEstimatedTokensPerDay:200000,maxOutputTokensPerDay:40000};
+    // act
+    for (let attempt=0;attempt<3;attempt++) {
+      database.exec('UPDATE jobs SET retry_at=0');
+      const job=store.claim(`worker-${attempt}`,limits);
+      store.fail(job);
+    }
+    // assert
+    const job=database.prepare('SELECT status,payload,attempts FROM jobs').get();
+    assert.equal(job.status,'failed');
+    assert.equal(job.payload,'');
+    assert.equal(Number(job.attempts),3);
+    assert.equal(Number(database.prepare('SELECT jobs FROM budget_days').get().jobs),3);
+    database.close();store.close();
+  });
+});
+
+test('three crashed leases exhaust extraction retries and erase the payload', async () => {
+  // arrange
+  await withRoot(async root => {
+    const project=resolveProject(root);
+    writeProjectActivation(root,project,true);
+    const store=await Store.open(root,project);
+    store.enqueue('session',join(root,'file.jsonl'),'leaf',JSON.stringify({entries:[{id:'e',role:'user',text:'fact'}]}));
+    const database=new DatabaseSync(join(root,'memory',project.hash,'memory.sqlite'));
+    database.exec('UPDATE jobs SET retry_at=0');
+    const limits={maxJobsPerDay:20,maxInputEstimatedTokensPerDay:200000,maxOutputTokensPerDay:40000};
+    // act
+    for (let attempt=0;attempt<3;attempt++) {
+      assert.ok(store.claim(`owner-${attempt}`,limits));
+      database.exec('UPDATE jobs SET lease_until=0; UPDATE state SET worker_until=0');
+    }
+    const fourth=store.claim('owner-four',limits);
+    // assert
+    assert.equal(fourth,undefined);
+    const job=database.prepare('SELECT status,payload,attempts FROM jobs').get();
+    assert.equal(job.status,'failed');
+    assert.equal(job.payload,'');
+    assert.equal(Number(job.attempts),3);
+    database.close();store.close();
+  });
+});
+
+test('reported usage above the reservation blocks later daily admission', async () => {
+  // arrange
+  await withRoot(async root => {
+    const project=resolveProject(root);
+    writeProjectActivation(root,project,true);
+    const store=await Store.open(root,project);
+    store.enqueue('session',join(root,'file.jsonl'),'leaf',JSON.stringify({entries:[{id:'e',role:'user',text:'fact'}]}));
+    const database=new DatabaseSync(join(root,'memory',project.hash,'memory.sqlite'));
+    database.exec('UPDATE jobs SET retry_at=0');
+    const limits={maxJobsPerDay:20,maxInputEstimatedTokensPerDay:5000,maxOutputTokensPerDay:5000};
+    const job=store.claim('owner',limits);
+    // act
+    store.recordUsage('owner','extraction','fake/model',{input:6000,output:4500});
+    store.complete(job,[]);
+    store.enqueue('session',join(root,'file.jsonl'),'next-leaf',JSON.stringify({entries:[{id:'next',role:'user',text:'next'}]}));
+    database.exec('UPDATE jobs SET retry_at=0');
+    const next=store.claim('next-owner',limits);
+    // assert
+    assert.equal(next,undefined);
+    const budget=database.prepare('SELECT inputs,outputs FROM budget_days').get();
+    assert.equal(Number(budget.inputs),6000);
+    assert.equal(Number(budget.outputs),4500);
+    database.close();store.close();
+  });
+});
+
+test('stolen worker lease cannot finalize an old extraction', async () => {
+  // arrange
+  await withRoot(async root => {
+    const project=resolveProject(root);
+    writeProjectActivation(root,project,true);
+    const first=await Store.open(root,project);
+    const second=await Store.open(root,project);
+    first.enqueue('session',join(root,'session.jsonl'),'leaf',JSON.stringify({entries:[{id:'e',role:'user',text:'fact'}]}));
+    const database=new DatabaseSync(join(root,'memory',project.hash,'memory.sqlite'));
+    database.exec('UPDATE jobs SET retry_at=0');
+    const limits={maxJobsPerDay:20,maxInputEstimatedTokensPerDay:200000,maxOutputTokensPerDay:40000};
+    const original=first.claim('original',limits);
+    database.exec('UPDATE state SET worker_until=0; UPDATE jobs SET lease_until=0');
+    // act
+    const replacement=second.claim('replacement',limits);
+    const oldResult=first.complete(original,[{text:'old',evidenceEntryIds:['e']}]);
+    const newResult=second.complete(replacement,[{text:'new',evidenceEntryIds:['e']}]);
+    // assert
+    assert.equal(oldResult,false);
+    assert.equal(newResult,true);
+    assert.deepEqual(first.claims().map(claim=>claim.text),['new']);
+    database.close();first.close();second.close();
+  });
+});
+
+test('a new session can claim a durable snapshot from another session in the same project', async () => {
+  // arrange
+  await withRoot(async root => {
+    const project=resolveProject(root);
+    writeProjectActivation(root,project,true);
+    let store=await Store.open(root,project);
+    const file=join(root,'old-session.jsonl');
+    store.enqueue('old-session',file,'old-leaf',JSON.stringify({entries:[{id:'entry',role:'user',text:'fact'}]}));
+    store.close();
+    const database=new DatabaseSync(join(root,'memory',project.hash,'memory.sqlite'));
+    database.exec('UPDATE jobs SET retry_at=0');
+    // act
+    store=await Store.open(root,project);
+    const job=store.claim('new-session-worker',{maxJobsPerDay:20,maxInputEstimatedTokensPerDay:200000,maxOutputTokensPerDay:40000});
+    // assert
+    assert.equal(job.sessionId,'old-session');
+    assert.equal(job.sessionFile,file);
+    database.close();store.close();
+  });
+});
+
+test('explicit model reload rehydrates only previously opted-in evidence', async () => {
+  // arrange
+  await withRoot(async root => {
+    const project = resolveProject(root);
+    writeProjectActivation(root,project,true);
+    const store = await Store.open(root,project);
+    const payload = JSON.stringify({entries:[{id:'eligible',role:'user',text:'known fact'}]});
+    store.enqueue('session',join(root,'session.jsonl'),'leaf',payload,new Set(),'provider/old');
+    const database = new DatabaseSync(join(root,'memory',project.hash,'memory.sqlite'));
+    database.exec("UPDATE jobs SET status='failed',payload='',attempts=3");
+    // act
+    const changed = store.refreshModels('provider/new','provider/consolidate',true);
+    const eligible = store.eligibleEntryIds('session');
+    store.enqueue('session',join(root,'session.jsonl'),'leaf',payload,new Set(),'provider/new','retry');
+    const revived = database.prepare('SELECT status,model_id,payload,attempts FROM jobs').get();
+    // assert
+    assert.equal(changed,'changed');
+    assert.deepEqual([...eligible],['eligible']);
+    assert.equal(revived.status,'pending');
+    assert.equal(revived.model_id,'provider/new');
+    assert.equal(revived.payload,payload);
+    assert.equal(Number(revived.attempts),0);
+    database.close();store.close();
   });
 });
 

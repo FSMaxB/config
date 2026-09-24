@@ -8,7 +8,7 @@ export function parseExtraction(raw: string, entryIds: Set<string>): Extraction 
   const parsed: unknown = JSON.parse(raw);
   if (!record(parsed) || !keys(parsed, ["summary", "claims"]) || typeof parsed.summary !== "string" || !Array.isArray(parsed.claims) || parsed.claims.length > 256) throw new Error("Invalid extraction response");
   const claims = parsed.claims.map((value: unknown) => {
-    if (!record(value) || !keys(value, ["text", "kind", "evidenceEntryIds"]) || typeof value.text !== "string" || !value.text.trim() || !["procedure", "project_fact", "preference", "outcome"].includes(String(value.kind)) || !Array.isArray(value.evidenceEntryIds) || value.evidenceEntryIds.length === 0 || !value.evidenceEntryIds.every(id => typeof id === "string" && entryIds.has(id))) throw new Error("Invalid extraction claim");
+    if (!record(value) || !keys(value, ["text", "kind", "evidenceEntryIds"]) || typeof value.text !== "string" || !value.text.trim() || !["procedure", "project_fact", "preference", "outcome"].includes(String(value.kind)) || !Array.isArray(value.evidenceEntryIds) || value.evidenceEntryIds.length === 0 || new Set(value.evidenceEntryIds).size !== value.evidenceEntryIds.length || !value.evidenceEntryIds.every(id => typeof id === "string" && entryIds.has(id))) throw new Error("Invalid extraction claim");
     return { text: redact(value.text).slice(0, 2048), kind: value.kind, evidenceEntryIds: value.evidenceEntryIds } as ExtractedClaim;
   });
   return { summary: redact(parsed.summary).slice(0, 8192), claims };

@@ -10,14 +10,20 @@ export interface Claim {
   id: string;
   text: string;
   origin: "manual" | "inferred";
+  kind: "manual" | "procedure" | "project_fact" | "preference" | "outcome" | null;
   sourceId: string | null;
 }
+export type EnqueueMode = "normal" | "retry";
 export interface Job {
   id: string;
   sourceId: string;
+  sessionId: string;
+  sessionFile: string;
   payload: string;
   epoch: number;
   owner: string;
+  inputRevision: number;
+  modelId: string;
 }
 
 export interface ConsolidationTask { owner: string; epoch: number; revision: number; claims: Claim[] }
@@ -47,7 +53,7 @@ export class Store {
       chmodSync(path, 0o600);
       database.exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; BEGIN IMMEDIATE");
       const version = Number(database.prepare("PRAGMA user_version").get()?.user_version);
-      if (version !== 0 && version !== 1 && version !== 2) throw new Error("Unsupported memory database schema");
+      if (version < 0 || version > 4) throw new Error("Unsupported memory database schema");
       if (version === 0) {
         database.exec(`
           CREATE TABLE state (id INTEGER PRIMARY KEY CHECK(id=1), project_root TEXT NOT NULL, epoch INTEGER NOT NULL DEFAULT 1, revision INTEGER NOT NULL DEFAULT 0, worker_owner TEXT, worker_until INTEGER);
@@ -85,6 +91,19 @@ export class Store {
         CREATE TRIGGER claim_deleted AFTER DELETE ON claims BEGIN UPDATE state SET revision=revision+1,changed_at=cast(strftime('%s','now') AS INTEGER)*1000 WHERE id=1; END;
         CREATE TRIGGER tombstone_added AFTER INSERT ON tombstones BEGIN UPDATE state SET revision=revision+1,changed_at=cast(strftime('%s','now') AS INTEGER)*1000 WHERE id=1; END;
         PRAGMA user_version=2;
+      `);
+      if (version < 3) database.exec(`
+        ALTER TABLE claims ADD COLUMN kind TEXT;
+        ALTER TABLE jobs ADD COLUMN model_id TEXT;
+        ALTER TABLE jobs ADD COLUMN input_revision INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE jobs ADD COLUMN completion_revision INTEGER;
+        ALTER TABLE jobs ADD COLUMN failure_category TEXT;
+        ALTER TABLE state ADD COLUMN consolidation_model_id TEXT;
+        PRAGMA user_version=3;
+      `);
+      if (version < 4) database.exec(`
+        CREATE TABLE opt_in_entries (session_id TEXT NOT NULL, entry_id TEXT NOT NULL, epoch INTEGER NOT NULL, PRIMARY KEY(session_id,entry_id,epoch));
+        PRAGMA user_version=4;
       `);
       database.prepare("INSERT OR IGNORE INTO state(id,project_root) VALUES(1,?)").run(project.root);
       if (database.prepare("SELECT project_root FROM state WHERE id=1").get()?.project_root !== project.root) throw new Error("Memory project identity mismatch");
@@ -135,24 +154,47 @@ export class Store {
   }
   close(): void { this.database.close(); }
   epoch(): number { return Number(this.database.prepare("SELECT epoch FROM state WHERE id=1").get()?.epoch); }
-  sourcePath(sourceId: string): string {
-    const row = this.database.prepare("SELECT session_file FROM sources WHERE id=?").get(sourceId);
-    return String(row?.session_file ?? "");
+  eligibleEntryIds(sessionId: string): Set<string> {
+    return new Set(this.database.prepare("SELECT DISTINCT entry_id FROM opt_in_entries e JOIN state s ON s.epoch=e.epoch WHERE e.session_id=? AND NOT EXISTS (SELECT 1 FROM tombstones t WHERE t.id=e.session_id || ':' || e.entry_id) UNION SELECT DISTINCT e.entry_id FROM source_entries e JOIN sources s ON s.id=e.source_id JOIN state state ON state.epoch=s.epoch WHERE s.session_id=? AND s.eligible=1 AND NOT EXISTS (SELECT 1 FROM tombstones t WHERE t.id=s.session_id || ':' || e.entry_id OR t.fingerprint=e.fingerprint)").all(sessionId,sessionId).map(row => String(row.entry_id)));
   }
-  counts(): { pending: number; claims: number } {
+  observeEntries(sessionId: string, ids: Set<string>, expectedEpoch: number): void {
+    if (!ids.size) return;
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      if (this.epoch() === expectedEpoch && loadConfiguration(this.agentDir,this.project).config.enabled) {
+        for (const id of ids) this.database.prepare("INSERT OR IGNORE INTO opt_in_entries(session_id,entry_id,epoch) VALUES(?,?,?)").run(sessionId,id,expectedEpoch);
+      }
+      this.database.exec("COMMIT");
+    } catch (error) { this.database.exec("ROLLBACK"); throw error; }
+  }
+  refreshModels(extractionModel: string, consolidationModel: string, explicitReload = false): "changed" | "unchanged" {
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const changed = !!this.database.prepare("SELECT 1 FROM jobs WHERE model_id IS NULL OR model_id!=? LIMIT 1").get(extractionModel) || this.database.prepare("SELECT consolidation_model_id FROM state WHERE id=1").get()?.consolidation_model_id !== consolidationModel;
+      this.database.prepare("UPDATE jobs SET model_id=?,status=CASE WHEN status='failed' AND payload!='' THEN 'pending' ELSE status END,attempts=CASE WHEN model_id!=? THEN 0 ELSE attempts END,retry_at=CASE WHEN model_id!=? THEN ? ELSE retry_at END WHERE model_id IS NULL OR model_id!=?").run(extractionModel,extractionModel,extractionModel,Date.now()+60_000,extractionModel);
+      if (explicitReload) this.database.prepare("UPDATE jobs SET status='pending',attempts=0,retry_at=? WHERE status='failed' AND payload!=''").run(Date.now()+60_000);
+      const state = this.database.prepare("SELECT consolidation_model_id FROM state WHERE id=1").get();
+      if (state?.consolidation_model_id !== consolidationModel || explicitReload) this.database.prepare("UPDATE state SET consolidation_model_id=?,consolidation_attempts=0,consolidation_retry_at=0,consolidation_retry_revision=NULL,consolidation_failed_revision=NULL WHERE id=1").run(consolidationModel);
+      this.database.exec("COMMIT");
+      return changed ? "changed" : "unchanged";
+    } catch (error) { this.database.exec("ROLLBACK"); throw error; }
+  }
+  counts(): { pending: number; running: number; failed: number; claims: number } {
     return {
       pending: Number(this.database.prepare("SELECT count(*) AS n FROM jobs WHERE status='pending'").get()?.n),
+      running: Number(this.database.prepare("SELECT count(*) AS n FROM jobs WHERE status='running'").get()?.n),
+      failed: Number(this.database.prepare("SELECT count(*) AS n FROM jobs WHERE status='failed'").get()?.n),
       claims: Number(this.database.prepare("SELECT count(*) AS n FROM claims").get()?.n),
     };
   }
   claims(): Claim[] {
-    return this.database.prepare("SELECT id,text,origin,source_id AS sourceId FROM claims ORDER BY origin DESC,id").all() as unknown as Claim[];
+    return this.database.prepare("SELECT id,text,origin,kind,source_id AS sourceId FROM claims ORDER BY origin DESC,id").all() as unknown as Claim[];
   }
   remember(text: string): string {
     const id = `m-${randomUUID()}`;
     this.database.exec("BEGIN IMMEDIATE");
     try {
-      this.database.prepare("INSERT INTO claims(id,text,origin,source_id,epoch) VALUES(?,?,'manual',NULL,?)").run(id, text, this.epoch());
+      this.database.prepare("INSERT INTO claims(id,text,origin,kind,source_id,epoch) VALUES(?,?,'manual','manual',NULL,?)").run(id, text, this.epoch());
       this.database.exec("UPDATE state SET revision=revision+1 WHERE id=1");
       this.database.exec("COMMIT");
       return id;
@@ -163,7 +205,7 @@ export class Store {
     try {
       if (!this.suppressClaim(id)) { this.database.exec("COMMIT"); return undefined; }
       const replacement = `m-${randomUUID()}`;
-      this.database.prepare("INSERT INTO claims(id,text,origin,source_id,epoch) VALUES(?,?,'manual',NULL,?)").run(replacement,text,this.epoch());
+      this.database.prepare("INSERT INTO claims(id,text,origin,kind,source_id,epoch) VALUES(?,?,'manual','manual',NULL,?)").run(replacement,text,this.epoch());
       this.database.exec("COMMIT");
       return replacement;
     } catch (error) { this.database.exec("ROLLBACK"); throw error; }
@@ -183,6 +225,7 @@ export class Store {
       if (!source) { this.database.exec("COMMIT"); return false; }
       this.database.prepare("INSERT OR IGNORE INTO tombstones(id,kind,fingerprint,created_at) VALUES(?,'source',?,?)").run(id, source.fingerprint, Date.now());
       this.database.prepare("INSERT OR IGNORE INTO tombstones(id,kind,fingerprint,created_at) SELECT s.session_id || ':' || e.entry_id,'entry',e.fingerprint,? FROM source_entries e JOIN sources s ON s.id=e.source_id WHERE e.source_id=?").run(Date.now(),id);
+      this.suppressTombstonedClaims();
       this.database.prepare("DELETE FROM claims WHERE source_id=?").run(id);
       this.database.prepare("DELETE FROM jobs WHERE source_id=?").run(id);
       this.database.exec("UPDATE state SET revision=revision+1 WHERE id=1");
@@ -194,7 +237,7 @@ export class Store {
     this.database.exec("BEGIN IMMEDIATE");
     try {
       this.database.exec("INSERT OR IGNORE INTO tombstones(id,kind,fingerprint,created_at) SELECT id,'source',fingerprint,strftime('%s','now')*1000 FROM sources; INSERT OR IGNORE INTO tombstones(id,kind,fingerprint,created_at) SELECT s.session_id || ':' || e.entry_id,'entry',e.fingerprint,strftime('%s','now')*1000 FROM source_entries e JOIN sources s ON s.id=e.source_id");
-      this.database.exec("DELETE FROM claims; DELETE FROM jobs; DELETE FROM source_entries; DELETE FROM sources; UPDATE state SET epoch=epoch+1,revision=revision+1,worker_owner=NULL,worker_until=NULL WHERE id=1; COMMIT");
+      this.database.exec("DELETE FROM claims; DELETE FROM jobs; DELETE FROM source_entries; DELETE FROM sources; DELETE FROM opt_in_entries; DELETE FROM usage; UPDATE state SET epoch=epoch+1,revision=revision+1,worker_owner=NULL,worker_until=NULL WHERE id=1; COMMIT");
     } catch (error) { this.database.exec("ROLLBACK"); throw error; }
   }
   transition(enabled: boolean): void {
@@ -205,10 +248,11 @@ export class Store {
       this.database.exec("COMMIT");
     } catch (error) { this.database.exec("ROLLBACK"); throw error; }
   }
-  enqueue(sessionId: string, sessionFile: string, leafId: string, payload: string, ancestorIds: Set<string> = new Set()): void {
+  enqueue(sessionId: string, sessionFile: string, leafId: string, payload: string, ancestorIds: Set<string> = new Set(), modelId = "", mode: EnqueueMode = "normal", expectedEpoch = this.epoch()): void {
     const entries = (JSON.parse(payload) as { entries: { id: string; role: string; text: string }[] }).entries;
     this.database.exec("BEGIN IMMEDIATE");
     try {
+      if (this.epoch() !== expectedEpoch || !loadConfiguration(this.agentDir,this.project).config.enabled) { this.database.exec("COMMIT"); return; }
       const allowed = entries.filter(entry => {
         const fingerprint = createHash("sha256").update(`${entry.role}:${entry.text}`).digest("hex");
         return !this.database.prepare("SELECT 1 FROM tombstones WHERE id=? OR (kind='entry' AND fingerprint=?)").get(`${sessionId}:${entry.id}`,fingerprint);
@@ -223,7 +267,8 @@ export class Store {
           this.database.prepare("INSERT OR IGNORE INTO sources(id,session_id,session_file,leaf_id,fingerprint,epoch,created_at,supersedes) VALUES(?,?,?,?,?,?,?,?)").run(id, sessionId, sessionFile, leafId, fingerprint, this.epoch(), Date.now(),supersedes);
           for (const source of ancestors) if (ancestorIds.has(String(source.leaf_id)) && source.id !== id) this.database.prepare("DELETE FROM jobs WHERE source_id=? AND status='pending'").run(source.id);
           for (const entry of allowed) this.database.prepare("INSERT OR IGNORE INTO source_entries(source_id,entry_id,fingerprint) VALUES(?,?,?)").run(id,entry.id,createHash("sha256").update(`${entry.role}:${entry.text}`).digest("hex"));
-          this.database.prepare("INSERT OR IGNORE INTO jobs(id,source_id,payload,status,epoch,retry_at) VALUES(?, ?, ?, 'pending', ?, ?)").run(id, id, filtered, this.epoch(), Date.now() + 60_000);
+          this.database.prepare("INSERT OR IGNORE INTO jobs(id,source_id,payload,status,epoch,retry_at,model_id,input_revision) VALUES(?, ?, ?, 'pending', ?, ?,?,(SELECT revision FROM state WHERE id=1))").run(id, id, filtered, this.epoch(), Date.now() + 60_000,modelId);
+          this.database.prepare("UPDATE jobs SET payload=?,status='pending',attempts=0,retry_at=?,model_id=? WHERE id=? AND status='failed' AND (model_id!=? OR ?='retry')").run(filtered,Date.now()+60_000,modelId,id,modelId,mode);
         }
       }
       this.database.exec("COMMIT");
@@ -238,12 +283,13 @@ export class Store {
       this.database.exec("COMMIT");
     } catch (error) { this.database.exec("ROLLBACK"); throw error; }
   }
-  claim(owner: string, limits: { maxJobsPerDay: number; maxInputEstimatedTokensPerDay: number; maxOutputTokensPerDay: number }): Job | undefined {
+  claim(owner: string, limits: { maxJobsPerDay: number; maxInputEstimatedTokensPerDay: number; maxOutputTokensPerDay: number }, modelId = ""): Job | undefined {
     this.database.exec("BEGIN IMMEDIATE");
     try {
       const locked = this.database.prepare("SELECT worker_owner,worker_until FROM state WHERE id=1").get();
       if (locked?.worker_owner && Number(locked.worker_until) > Date.now()) { this.database.exec("COMMIT"); return undefined; }
-      const row = this.database.prepare("SELECT j.id,j.source_id AS sourceId,j.payload,j.epoch FROM jobs j JOIN state s ON s.id=1 WHERE j.epoch=s.epoch AND ((j.status='pending' AND j.retry_at<=?) OR (j.status='running' AND j.lease_until<?)) ORDER BY j.retry_at,j.id LIMIT 1").get(Date.now(), Date.now()) as unknown as Omit<Job,"owner"> | undefined;
+      this.database.prepare("UPDATE jobs SET status='failed',payload='',owner=NULL,lease_until=NULL,failure_category='lease-expired' WHERE status='running' AND lease_until<? AND attempts>=3").run(Date.now());
+      const row = this.database.prepare("SELECT j.id,j.source_id AS sourceId,source.session_id AS sessionId,source.session_file AS sessionFile,j.payload,j.epoch,j.input_revision AS inputRevision,j.model_id AS modelId FROM jobs j JOIN state s ON s.id=1 JOIN sources source ON source.id=j.source_id WHERE j.epoch=s.epoch AND source.eligible=1 AND j.model_id=? AND j.attempts<3 AND ((j.status='pending' AND j.retry_at<=?) OR (j.status='running' AND j.lease_until<?)) ORDER BY j.retry_at,j.id LIMIT 1").get(modelId,Date.now(), Date.now()) as unknown as Omit<Job,"owner"> | undefined;
       if (!row) { this.database.exec("COMMIT"); return undefined; }
       const day = new Date().toISOString().slice(0, 10);
       const tokens = Math.ceil(Buffer.byteLength(row.payload) / 3) + 4096;
@@ -264,7 +310,7 @@ export class Store {
       const row = kind === "extraction" ? this.database.prepare("SELECT j.reservation_day AS day,j.reservation_inputs AS inputs FROM jobs j JOIN state s ON s.worker_owner=j.owner AND s.epoch=j.epoch WHERE j.owner=?").get(owner) : this.database.prepare("SELECT consolidation_reservation_day AS day,consolidation_reservation_inputs AS inputs FROM state WHERE id=1 AND worker_owner=?").get(owner);
       if (!row?.day || !Number.isInteger(row.inputs)) { this.database.exec("COMMIT"); return; }
       this.database.prepare("INSERT INTO inference_usage(owner,kind,model_id,reported_input,reported_output,reserved_input,reserved_output,day) VALUES(?,?,?,?,?,?,4096,?)").run(owner,kind,modelId,usage.input,usage.output,row.inputs,row.day);
-      this.database.prepare("UPDATE budget_days SET inputs=inputs-?,outputs=outputs-? WHERE day=?").run(Math.max(0,Number(row.inputs)-Math.min(Number(row.inputs),usage.input)),Math.max(0,4096-Math.min(4096,usage.output)),row.day);
+      this.database.prepare("UPDATE budget_days SET inputs=inputs+?,outputs=outputs+? WHERE day=?").run(usage.input-Number(row.inputs),usage.output-4096,row.day);
       this.database.exec("COMMIT");
     } catch (error) { this.database.exec("ROLLBACK"); throw error; }
   }
@@ -279,21 +325,23 @@ export class Store {
       return updated.changes > 0;
     } catch (error) { this.database.exec("ROLLBACK"); throw error; }
   }
-  complete(job: Job, claims: { text: string; evidenceEntryIds: string[] }[]): boolean {
+  complete(job: Job, claims: { text: string; evidenceEntryIds: string[]; kind?: Claim["kind"] }[]): boolean {
     this.database.exec("BEGIN IMMEDIATE");
     try {
-      const current = loadConfiguration(this.agentDir, this.project).config.enabled && this.database.prepare("SELECT 1 FROM jobs j JOIN state s ON s.epoch=j.epoch AND s.worker_owner=j.owner JOIN sources source ON source.id=j.source_id AND source.eligible=1 WHERE j.id=? AND j.owner=? AND j.status='running' AND j.lease_until>?").get(job.id, job.owner, Date.now());
+      const current = loadConfiguration(this.agentDir, this.project).config.enabled && this.database.prepare("SELECT 1 FROM jobs j JOIN state s ON s.epoch=j.epoch AND s.worker_owner=j.owner JOIN sources source ON source.id=j.source_id AND source.eligible=1 WHERE j.id=? AND j.owner=? AND j.status='running' AND j.lease_until>? AND j.input_revision=? AND j.model_id=?").get(job.id, job.owner, Date.now(),job.inputRevision,job.modelId);
       if (!current) { this.database.exec("COMMIT"); return false; }
       this.database.prepare("DELETE FROM claims WHERE source_id=? OR source_id IN (WITH RECURSIVE lineage(id) AS (SELECT supersedes FROM sources WHERE id=? UNION ALL SELECT s.supersedes FROM sources s JOIN lineage l ON s.id=l.id WHERE s.supersedes IS NOT NULL) SELECT id FROM lineage WHERE id IS NOT NULL)").run(job.sourceId,job.sourceId);
       for (const claim of claims) {
-        const id = `i-${createHash("sha256").update(`${job.sourceId}:${claim.text}:${claim.evidenceEntryIds.join(',')}`).digest("hex").slice(0,24)}`;
+        const normalized = claim.text.normalize("NFC").trim().replace(/\s+/g," ");
+        const evidence = [...new Set(claim.evidenceEntryIds)].sort();
+        const id = `i-${createHash("sha256").update(JSON.stringify([job.sourceId,normalized,evidence])).digest("hex").slice(0,24)}`;
         const suppressed = claim.evidenceEntryIds.some(entryId => this.database.prepare("SELECT 1 FROM tombstones WHERE kind='entry' AND (id=(SELECT session_id FROM sources WHERE id=?) || ':' || ? OR fingerprint=(SELECT fingerprint FROM source_entries WHERE source_id=? AND entry_id=?))").get(job.sourceId,entryId,job.sourceId,entryId));
         if (!suppressed && !this.database.prepare("SELECT 1 FROM tombstones WHERE id=?").get(id)) {
-          this.database.prepare("INSERT INTO claims(id,text,origin,source_id,epoch) VALUES(?,?,'inferred',?,?)").run(id,claim.text,job.sourceId,job.epoch);
+          this.database.prepare("INSERT INTO claims(id,text,origin,kind,source_id,epoch) VALUES(?,?,'inferred',?,?,?)").run(id,claim.text,claim.kind ?? null,job.sourceId,job.epoch);
           for (const entryId of claim.evidenceEntryIds) this.database.prepare("INSERT INTO claim_support(claim_id,source_id,entry_id) VALUES(?,?,?)").run(id,job.sourceId,entryId);
         }
       }
-      this.database.prepare("UPDATE jobs SET status='done',payload='',owner=NULL,lease_until=NULL WHERE id=?").run(job.id);
+      this.database.prepare("UPDATE jobs SET status='done',payload='',owner=NULL,lease_until=NULL,completion_revision=(SELECT revision FROM state WHERE id=1) WHERE id=?").run(job.id);
       this.database.prepare("UPDATE state SET worker_owner=NULL,worker_until=NULL WHERE id=1 AND worker_owner=?").run(job.owner);
       this.database.exec("UPDATE state SET revision=revision+1 WHERE id=1; COMMIT");
       return true;
@@ -305,7 +353,7 @@ export class Store {
       const state = this.database.prepare("SELECT epoch,revision,published_revision,changed_at,worker_owner,worker_until,consolidation_attempts,consolidation_retry_at,consolidation_retry_revision,consolidation_failed_revision FROM state WHERE id=1").get();
       if (!loadConfiguration(this.agentDir,this.project).config.enabled || state?.published_revision === state?.revision || Number(state?.changed_at) + 60_000 > Date.now() || state?.worker_owner && Number(state.worker_until) > Date.now()) { this.database.exec("COMMIT"); return undefined; }
       if (state?.consolidation_failed_revision === state?.revision || (state?.consolidation_retry_revision === state?.revision && Number(state?.consolidation_retry_at) > Date.now())) { this.database.exec("COMMIT"); return undefined; }
-      const claims = this.database.prepare("SELECT c.id,c.text,c.origin,c.source_id AS sourceId FROM claims c LEFT JOIN sources s ON s.id=c.source_id LEFT JOIN (SELECT source_id, count(*) AS reads FROM usage GROUP BY source_id) u ON u.source_id=c.source_id ORDER BY CASE WHEN c.origin='manual' THEN 0 ELSE 1 END, coalesce(u.reads,0) DESC, coalesce(s.created_at,0) DESC,c.id LIMIT 256").all() as unknown as Claim[];
+      const claims = this.database.prepare("SELECT c.id,c.text,c.origin,c.kind,c.source_id AS sourceId FROM claims c LEFT JOIN sources s ON s.id=c.source_id LEFT JOIN (SELECT source_id, count(*) AS reads FROM usage GROUP BY source_id) u ON u.source_id=c.source_id ORDER BY CASE WHEN c.origin='manual' THEN 0 ELSE 1 END, coalesce(u.reads,0) DESC, coalesce(s.created_at,0) DESC,c.id LIMIT 256").all() as unknown as Claim[];
       if (!claims.length) {
         this.database.prepare("UPDATE state SET active_generation_id=NULL,published_revision=revision WHERE id=1").run();
         this.database.exec("COMMIT");
@@ -391,7 +439,7 @@ export class Store {
   release(job: Job): void {
     this.database.exec("BEGIN IMMEDIATE");
     try {
-      this.database.prepare("UPDATE jobs SET status='pending',owner=NULL,lease_until=NULL,retry_at=? WHERE id=? AND owner=? AND epoch=?").run(Date.now()+60_000,job.id,job.owner,job.epoch);
+      this.database.prepare("UPDATE jobs SET status=CASE WHEN attempts>=3 THEN 'failed' ELSE 'pending' END,payload=CASE WHEN attempts>=3 THEN '' ELSE payload END,owner=NULL,lease_until=NULL,retry_at=? WHERE id=? AND owner=? AND epoch=?").run(Date.now()+60_000,job.id,job.owner,job.epoch);
       this.database.prepare("UPDATE state SET worker_owner=NULL,worker_until=NULL WHERE id=1 AND worker_owner=?").run(job.owner);
       this.database.exec("COMMIT");
     } catch (error) { this.database.exec("ROLLBACK"); throw error; }
@@ -410,11 +458,14 @@ export class Store {
     const support = this.database.prepare("SELECT s.session_id,e.entry_id,e.fingerprint FROM claim_support c JOIN source_entries e ON e.source_id=c.source_id AND e.entry_id=c.entry_id JOIN sources s ON s.id=c.source_id WHERE c.claim_id=?").all(id);
     for (const row of support) {
       this.database.prepare("INSERT OR IGNORE INTO tombstones(id,kind,fingerprint,created_at) VALUES(?,'entry',?,?)").run(`${row.session_id}:${row.entry_id}`,row.fingerprint,Date.now());
-      this.database.prepare("DELETE FROM claims WHERE id IN (SELECT claim_id FROM claim_support WHERE source_id IN (SELECT source_id FROM source_entries WHERE fingerprint=?))").run(row.fingerprint);
     }
+    if (support.length) this.suppressTombstonedClaims();
     const result = this.database.prepare("DELETE FROM claims WHERE id=?").run(id);
     if (result.changes || support.length) this.database.prepare("INSERT OR IGNORE INTO tombstones(id,kind,created_at) VALUES(?,'claim',?)").run(id,Date.now());
     return result.changes > 0 || support.length > 0;
+  }
+  private suppressTombstonedClaims(): void {
+    this.database.exec("DELETE FROM claims WHERE id IN (SELECT c.claim_id FROM claim_support c JOIN source_entries e ON e.source_id=c.source_id AND e.entry_id=c.entry_id JOIN sources s ON s.id=c.source_id JOIN tombstones t ON t.kind='entry' AND (t.fingerprint=e.fingerprint OR t.id=s.session_id || ':' || e.entry_id))");
   }
   fail(job: Job): void {
     this.database.exec("BEGIN IMMEDIATE");
@@ -422,7 +473,7 @@ export class Store {
       const row = this.database.prepare("SELECT attempts FROM jobs WHERE id=? AND owner=? AND epoch=?").get(job.id,job.owner,job.epoch);
       if (row) {
         const attempts = Number(row.attempts);
-        this.database.prepare("UPDATE jobs SET status=?,payload=CASE WHEN ?>=3 THEN '' ELSE payload END,owner=NULL,lease_until=NULL,retry_at=? WHERE id=?").run(attempts>=3 ? "failed" : "pending", attempts, Date.now()+[60_000,300_000,1_800_000][Math.min(attempts-1,2)],job.id);
+        this.database.prepare("UPDATE jobs SET status=?,payload=CASE WHEN ?>=3 THEN '' ELSE payload END,owner=NULL,lease_until=NULL,retry_at=?,failure_category='invalid-or-provider' WHERE id=?").run(attempts>=3 ? "failed" : "pending", attempts, Date.now()+[60_000,300_000,1_800_000][Math.min(attempts-1,2)],job.id);
       }
       this.database.prepare("UPDATE state SET worker_owner=NULL,worker_until=NULL WHERE id=1 AND worker_owner=?").run(job.owner);
       this.database.exec("COMMIT");
