@@ -18,23 +18,20 @@
 
 ## VCS
 
-- Use jj when the repository uses jj, including colocated jj/git repositories. Otherwise, ask
-  before using git.
+- Use jj when the repository uses jj, including colocated jj/git repositories. Otherwise, ask before using git.
 - Before making changes, inspect the working-copy status. If it already contains changes, make sure they don't end up in your commits.
 - Put each distinct logical change in a separate clean commit. Never include unrelated or pre-existing changes.
 
 ### jj
 
-- Finalize each change with `jj commit -m "..."`. This commits the current working-copy revision and creates
-  a fresh empty working-copy revision directly on top of it.
+- Finalize each change with `jj commit -m "..."`. This commits the current working-copy revision and creates a fresh empty working-copy revision directly on top of it.
 - Finish with `jj status` showing an empty working copy whose parent is your completed change.
 - Never change the working-copy parent, move bookmarks, or rebase without asking.
 
 ### git
 
 - Stage only files and changes belonging to the current task, then create a normal commit.
-- Finish with no uncommitted changes from your task. Do not modify, stage, stash, discard, or commit
-  pre-existing changes.
+- Finish with no uncommitted changes from your task. Do not modify, stage, stash, discard, or commit pre-existing changes.
 - Never switch branches, move branches, merge, or rebase without asking.
 
 ### Fixups
