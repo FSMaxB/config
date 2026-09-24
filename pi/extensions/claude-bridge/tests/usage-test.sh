@@ -205,7 +205,6 @@ build_prompts "$TMPFILE_B"
 PROMPT_ARGS=()
 for p in "${PROMPTS[@]}"; do PROMPT_ARGS+=(-p "$p"); done
 
-LOGFILE_B="$LOGDIR/usage-test-direct.ndjson"
 echo ""
 test_notice conversation claude_code
 
@@ -291,6 +290,7 @@ echo "=========================================="
 test_notice phase comparison
 echo "=========================================="
 
+# shellcheck disable=SC2153 # A_* names are assigned via eval at line 123
 python3 -c "
 a_input, a_cr, a_cw, a_output, a_cost = $A_INPUT, $A_CACHE_READ, $A_CACHE_WRITE, $A_OUTPUT, $A_COST
 b_input, b_cr, b_cw, b_output, b_cost = $TOTAL_B_INPUT, $TOTAL_B_CACHE_READ, $TOTAL_B_CACHE_WRITE, $TOTAL_B_OUTPUT, $TOTAL_B_COST
