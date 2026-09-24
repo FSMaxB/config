@@ -58,7 +58,7 @@ I will handle all rebasing and history rewriting manually.
 ### General
 
 - Step-down rule: when adding a function or type, place it below its callers or users. Before finishing any edit that adds a helper, verify the helper appears after every site that calls it. If it doesn't, move it. Do not apply it to imports or module definitions!
-- For tests, follow the `// arrange` `// act` `// assert` style with comments for the subsections
+- For tests, follow the arrange/act/assert style with an `arrange`, `act` and `assert` comment for each subsection. These labels are an intentional exception to the comment rule below.
 - Do not under any circumstance add separating comments like `// ------------`
 - Follow the "functional core, imperative shell" pattern when adequate
 - Only add comments if they add context that is not part of the code itself. Explicitly do not duplicate what code is doing in the comments, only explain rationale and/or high level architecture.
