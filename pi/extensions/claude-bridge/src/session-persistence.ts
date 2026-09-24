@@ -14,17 +14,12 @@ import {
 	insertLostToolResultPlaceholders,
 	recoverLaterToolResults,
 } from "./tool-pairing-audit.js";
-import { claudeDirForProfile, resolveClaudeAccountRouter, type AccountSessionScope } from "./account-router.js";
 
 // --- Session persistence ---
 
 const BRIDGE_SESSION_CUSTOM_TYPE = "claude-bridge-session";
 
-// Persisted shape: SessionState MINUS claudeConfigDir. Config-dir paths are
-// account-identifying and travel with shared session archives, so only the
-// opaque accountProfileId is written; the dir is re-derived via the router on
-// restore (no back-compat reader for older shapes — see CHANGELOG 3.0.0).
-interface PersistedBridgeSessionState extends Omit<SessionState, "claudeConfigDir"> {
+interface PersistedBridgeSessionState extends SessionState {
 	fingerprint: string;
 	piSessionId?: string;
 	updatedAt: string;
@@ -187,6 +182,11 @@ export function shouldRestorePersistedBridgeEntry(
 export function restoreSharedSessionFromPi(ctx: { sessionManager?: unknown; cwd?: string }): void {
 	const persisted = latestPersistedBridgeSession(ctx.sessionManager);
 	if (!persisted) return;
+	// Reject before interpreting a routed UUID as an ambient-login session.
+	if (Object.hasOwn(persisted, "accountProfileId")) {
+		debug("restoreSharedSession: legacy profile marker — rebuilding from Pi history");
+		return;
+	}
 	const currentPiSessionId = typeof (ctx.sessionManager as any)?.getSessionId === "function" ? (ctx.sessionManager as any).getSessionId() : undefined;
 	const currentCwd = typeof (ctx.sessionManager as any)?.getCwd === "function" ? (ctx.sessionManager as any).getCwd() : ctx.cwd;
 	const rejection = shouldRestorePersistedBridgeEntry(persisted, currentPiSessionId, currentCwd);
@@ -202,14 +202,7 @@ export function restoreSharedSessionFromPi(ctx: { sessionManager?: unknown; cwd?
 		debug(`restoreSharedSession: fingerprint mismatch for ${persisted.sessionId.slice(0, 8)}`);
 		return;
 	}
-	// Only the opaque profile id is persisted; a managed session re-derives its
-	// claude dir through the live router (router absent or id unknown → the
-	// default-profile rule, which may fail the existence check and rebuild).
-	const accountProfileId = typeof persisted.accountProfileId === "string" ? persisted.accountProfileId : undefined;
-	const claudeConfigDir = accountProfileId
-		? claudeDirForProfile(resolveClaudeAccountRouter()?.resolveProfile?.(accountProfileId) ?? {})
-		: undefined;
-	if (!claudeSessionExists(persisted.sessionId, persisted.cwd, claudeConfigDir ?? process.env.CLAUDE_CONFIG_DIR)) {
+	if (!claudeSessionExists(persisted.sessionId, persisted.cwd, process.env.CLAUDE_CONFIG_DIR)) {
 		debug(`restoreSharedSession: Claude session missing for ${persisted.sessionId.slice(0, 8)}`);
 		return;
 	}
@@ -220,9 +213,8 @@ export function restoreSharedSessionFromPi(ctx: { sessionManager?: unknown; cwd?
 		// Absent on pre-3.1.1 markers: restore as identity-unknown (the foreign
 		// guard fails open) rather than rejecting the entry.
 		...(typeof persisted.conversationFingerprint === "string" ? { conversationFingerprint: persisted.conversationFingerprint } : {}),
-		...(accountProfileId ? { accountProfileId, claudeConfigDir } : {}),
 	});
-	debug(`restoreSharedSession: restored ${persisted.sessionId.slice(0, 8)}, cursor=${cursor}, account=${accountProfileId ?? "default"}`);
+	debug(`restoreSharedSession: restored ${persisted.sessionId.slice(0, 8)}, cursor=${cursor}`);
 }
 
 // One pending persist per SessionManager: cancelling a shutting-down session's
@@ -268,9 +260,7 @@ export function schedulePersistSharedSession(ctxLike?: { sessionManager?: unknow
 	// starts. Capture the plain SessionManager reference now and cancel the timer
 	// on shutdown rather than dereferencing the ctx proxy from the next tick.
 	const sessionManager = ctxLike.sessionManager as object;
-	// Persist only the opaque profile id — the resolved config dir is an
-	// account-identifying path and stays in memory (see PersistedBridgeSessionState).
-	const { claudeConfigDir: _omitted, ...snapshot } = sharedSession;
+	const snapshot = sharedSession;
 	const timers = scheduledPersistenceTimers();
 	const superseded = timers.get(sessionManager);
 	if (superseded !== undefined) clearTimeout(superseded);
@@ -519,21 +509,10 @@ export function syncSharedSession(
 	cwd: string,
 	customToolNameToSdk?: Map<string, string>,
 	modelId?: string,
-	account?: AccountSessionScope,
 ): SyncResult {
 	const sharedSession = getSharedSession();
 	const priorMessages = messages.slice(0, -1); // everything before the current user prompt
-	const accountProfileId = account?.accountProfileId;
-	const scopeConfigDir = account?.claudeConfigDir; // resolved dir for managed, undefined for legacy
-	// What cc-session-io reads/writes. Managed requests always carry a resolved
-	// dir (accountSessionScope) so this never falls back to the process env the
-	// child does not see; legacy keeps the env rule unchanged.
-	const claudeDir = scopeConfigDir ?? process.env.CLAUDE_CONFIG_DIR;
-	const sameAccount = Boolean(
-		sharedSession &&
-		sharedSession.accountProfileId === accountProfileId &&
-		sharedSession.claudeConfigDir === scopeConfigDir,
-	);
+	const claudeDir = process.env.CLAUDE_CONFIG_DIR;
 	const incomingFingerprint = conversationFingerprint(messages);
 
 	// FOREIGN-CONVERSATION guard. A subagent-shaped query
@@ -573,9 +552,8 @@ export function syncSharedSession(
 		return { sessionId: null, promptStart: messages.length - 1, foreignContext: true };
 	}
 
-	// REUSE path. A Claude session can only be resumed under the credential
-	// profile that created its JSONL and prompt cache.
-	if (sharedSession && sameAccount && !sharedSession.needsRebuild) {
+	// REUSE path.
+	if (sharedSession && !sharedSession.needsRebuild) {
 		const batch = planIncrementalPromptBatch(messages, sharedSession.cursor);
 		if (batch) {
 			// Read the pre-update cursor first: setSharedSession reassigns the live
@@ -597,7 +575,7 @@ export function syncSharedSession(
 			const batching = batch.userMessageCount > 1
 				? `batched ${batch.userMessageCount} consecutive user messages, `
 				: batch.promptStart > cursorBeforeUpdate ? "advanced cursor past trailing assistant, " : "";
-			debug(`Case 3: ${batching}resuming session ${sharedSession.sessionId.slice(0, 8)}, cursor=${batch.promptStart}, account=${accountProfileId ?? "default"}`);
+			debug(`Case 3: ${batching}resuming session ${sharedSession.sessionId.slice(0, 8)}, cursor=${batch.promptStart}`);
 			debug(`syncResult: path=reuse sessionId=${sharedSession.sessionId} cursor=${batch.promptStart} promptUsers=${batch.userMessageCount}`);
 			return {
 				sessionId: sharedSession.sessionId,
@@ -608,16 +586,13 @@ export function syncSharedSession(
 
 	// REBUILD path
 	if (priorMessages.length === 0) {
-		debug(`Case 1: clean start, ${messages.length} total messages, account=${accountProfileId ?? "default"}`);
+		debug(`Case 1: clean start, ${messages.length} total messages`);
 		debug(`syncResult: path=clean-start`);
 		return { sessionId: null, promptStart: messages.length - 1 };
 	}
 	const replacedSessionId = sharedSession?.sessionId;
-	// Preserve a UUID only within the same credential profile: reusing account
-	// A's session id under B could resume the wrong transcript, and deleting A's
-	// JSONL from B's rebuild would destroy A's still-valid history.
-	const previousSessionId = sameAccount ? sharedSession?.sessionId : undefined;
-	const previousCursor = sameAccount ? sharedSession?.cursor ?? 0 : 0;
+	const previousSessionId = sharedSession?.sessionId;
+	const previousCursor = sharedSession?.cursor ?? 0;
 	// preserveId: rebuild in place (deleteSession + createSession with the
 	// existing UUID), so prompt-cache UUIDs stay stable for log correlation
 	// and for any tools that key off them. Skipped only when there's a
@@ -643,13 +618,9 @@ export function syncSharedSession(
 		// The rebuilt file's content IS this context, so its anchor is the
 		// record's identity — including after a compact/tree-nav that moved it.
 		...(incomingFingerprint ? { conversationFingerprint: incomingFingerprint } : {}),
-		...(accountProfileId ? { accountProfileId } : {}),
-		...(scopeConfigDir ? { claudeConfigDir: scopeConfigDir } : {}),
 	});
 	if (replacedSessionId === undefined) {
 		debug(`Case 2: first turn with ${priorMessages.length} prior messages → session ${session.sessionId.slice(0, 8)}, ${session.messages.length} records`);
-	} else if (!sameAccount) {
-		debug(`Case 5 account-rotation: ${priorMessages.length} prior messages → new session ${session.sessionId.slice(0, 8)} for account ${accountProfileId ?? "default"} (replaced ${replacedSessionId.slice(0, 8)})`);
 	} else if (preserveId) {
 		const missedCount = priorMessages.length - previousCursor;
 		debug(`Case 4: ${missedCount} missed messages, ${priorMessages.length} total → rewrote session ${session.sessionId.slice(0, 8)} (same id), ${session.messages.length} records`);
@@ -657,6 +628,6 @@ export function syncSharedSession(
 		debug(`Case 4 post-abort: ${priorMessages.length} total → new session ${session.sessionId.slice(0, 8)} (was ${previousSessionId!.slice(0, 8)}, rotated to avoid race with orphan writer), ${session.messages.length} records`);
 	}
 	debugSessionPaths(`${session.sessionId.slice(0, 8)}`, cwd, session.jsonlPath, claudeDir);
-	debug(`syncResult: path=rebuild sessionId=${session.sessionId} priors=${priorMessages.length} ${replacedSessionId === undefined ? "first" : !sameAccount ? "account-rotated" : preserveId ? "preserved" : "rotated-post-abort"}`);
+	debug(`syncResult: path=rebuild sessionId=${session.sessionId} priors=${priorMessages.length} ${replacedSessionId === undefined ? "first" : preserveId ? "preserved" : "rotated-post-abort"}`);
 	return { sessionId: session.sessionId, promptStart: messages.length - 1 };
 }

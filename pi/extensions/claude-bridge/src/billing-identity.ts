@@ -5,12 +5,9 @@
 // CLAUDE_CONFIG_DIR for itself: that directory names the login only when the
 // child used one. The bridge also accepts an API key and the Bedrock, Vertex,
 // Foundry, Anthropic-AWS and Mantle backends (auth-presence.ts), and it passes
-// those environment values straight to the child (query-options.ts). A
-// companion account router may additionally hand each request its own profile
-// and rotate it while the process environment never changes
-// (account-router.ts). Only the SDK's own accountInfo() names the identity a
-// request ran under, so the rule for reading it lives here once instead of in
-// every consumer.
+// those environment values straight to the child (query-options.ts). Only
+// the SDK's own accountInfo() names the identity a request ran under, so the
+// rule for reading it lives here once instead of in every consumer.
 //
 // SECURITY: this module holds one email per live request lane in memory and
 // never logs it.

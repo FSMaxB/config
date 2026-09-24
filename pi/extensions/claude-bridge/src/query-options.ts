@@ -4,7 +4,6 @@
 
 import { type Model } from "@earendil-works/pi-ai";
 import type { McpSdkServerConfigWithInstance, query, EffortLevel, SettingSource } from "@anthropic-ai/claude-agent-sdk";
-import { accountSessionScope, subscriberProfileEnv, type ClaudeAccountRoute } from "./account-router.js";
 import { extractAgentsAppend } from "./agents-md.js";
 import { spawnClaudeCodeWithDiagnostics } from "./claude-executable.js";
 import { normalizeEffortLevel, type Config } from "./config.js";
@@ -12,7 +11,7 @@ import { connectorQueryOptions, connectorWriteModeFor, connectorsEnabledFor, set
 import { connectorServersSnapshot } from "./connector-runtime.js";
 import { PROVIDER_ID } from "./convert.js";
 import { makeCliDebugOptions } from "./debug.js";
-import { FABLE_MODEL_ID, fallbackModelForPrimaryModel } from "./models.js";
+import { fallbackModelForPrimaryModel } from "./models.js";
 import { buildPromptContextAppend } from "./prompt-context.js";
 import { extractSkillsBlock } from "./skills.js";
 
@@ -47,9 +46,6 @@ export interface BuildClaudeQueryOptionsInput {
 	cwd: string;
 	/** The model Pi requested. */
 	requestedModel: Model<any>;
-	/** The model this attempt actually runs (router may substitute). */
-	queryModel: Model<any>;
-	account?: ClaudeAccountRoute;
 	bridgeConfig: Config;
 	systemPrompt?: string;
 	/** Pi reasoning level from the stream options, if any. */
@@ -71,9 +67,8 @@ export interface BuiltClaudeQueryOptions {
 }
 
 export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): BuiltClaudeQueryOptions {
-	const { cwd, requestedModel, queryModel, account, bridgeConfig, systemPrompt, reasoning, resumeSessionId, mcpServers, claudeExecutable } = input;
+	const { cwd, requestedModel, bridgeConfig, systemPrompt, reasoning, resumeSessionId, mcpServers, claudeExecutable } = input;
 	const providerSettings = bridgeConfig.provider ?? {};
-	const accountScope = accountSessionScope(account);
 	// Whether to expose the Claude account's claude.ai cloud MCP connectors
 	// (Gmail/Calendar/Drive). Enabled via env or config; drives setting-sources,
 	// tool isolation, and the ENABLE_CLAUDEAI_MCP_SERVERS child-env gate below.
@@ -84,7 +79,7 @@ export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): Bu
 	// Declare the account's connected connectors explicitly so `alwaysLoad` can
 	// hold startup until they attach — otherwise the turn-1 manifest is built
 	// before the CLI has fetched them.
-	const connectorServers = enableCloudMcp ? connectorServersSnapshot(accountScope.claudeConfigDir) : {};
+	const connectorServers = enableCloudMcp ? connectorServersSnapshot(process.env.CLAUDE_CONFIG_DIR) : {};
 	const appendSystemPrompt = providerSettings.appendSystemPrompt !== false;
 	const agentsAppend = appendSystemPrompt ? extractAgentsAppend() : undefined;
 	const skillsAppend = appendSystemPrompt ? extractSkillsBlock(systemPrompt) : undefined;
@@ -106,10 +101,10 @@ export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): Bu
 	// per-model overrides — e.g. opus-4-7 wants xhigh→xhigh, not xhigh→max).
 	// Fall back to our generic table for older pi-ai or unmapped levels.
 	const requestedEffort = reasoning
-		? ((queryModel as any).thinkingLevelMap?.[reasoning] as EffortLevel | undefined)
+		? ((requestedModel as any).thinkingLevelMap?.[reasoning] as EffortLevel | undefined)
 			?? REASONING_TO_EFFORT[reasoning]
 		: undefined;
-	const effort = resolveConfiguredEffort(queryModel.id, requestedEffort, providerSettings);
+	const effort = resolveConfiguredEffort(requestedModel.id, requestedEffort, providerSettings);
 
 	const extraArgs: Record<string, string | null> = {};
 	// Opus 4.7 defaults thinking.display to "omitted" (empty thinking text in stream).
@@ -119,14 +114,7 @@ export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): Bu
 	// (verified in sdk.mjs flag mapping), so the typed form cannot set display
 	// without overriding the model's thinking mode alongside our `--effort`.
 	if (effort) extraArgs["thinking-display"] = "summarized";
-	// With a managed Fable pool, let every account's model-scoped allowance run
-	// out (rotation) before changing models — the CLI's own Opus fallback would
-	// silently skip accounts whose Fable quota is still available. Once the
-	// router explicitly selects Opus, its normal Opus→4.8 safety fallback is
-	// back on.
-	const fallbackModel = account && requestedModel.id === FABLE_MODEL_ID && queryModel.id === requestedModel.id
-		? undefined
-		: fallbackModelForPrimaryModel(queryModel.id);
+	const fallbackModel = fallbackModelForPrimaryModel(requestedModel.id);
 
 	// Suppress claude.ai cloud MCP servers (Figma/Canva/etc. auto-discovered via OAuth
 	// when the user is logged into Anthropic). These are a separate code path from
@@ -141,13 +129,13 @@ export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): Bu
 	// When connectors are enabled, allow claude.ai cloud MCP servers so the
 	// authenticated account's Gmail/Calendar/Drive tools load. Default stays "0".
 	const childEnv = {
-		...(account ? subscriberProfileEnv(account) : process.env),
+		...process.env,
 		ENABLE_CLAUDEAI_MCP_SERVERS: enableCloudMcp ? "1" : "0",
 		DISABLE_AUTO_COMPACT: "1",
 	};
 	const queryOptions: NonNullable<Parameters<typeof query>[0]["options"]> = {
 		cwd,
-		model: queryModel.id,
+		model: requestedModel.id,
 		env: childEnv,
 		...connectorQueryOptions(enableCloudMcp, connectorWriteMode),
 		permissionMode: "bypassPermissions",

@@ -8,13 +8,6 @@ export interface SessionState {
 	sessionId: string;
 	cursor: number;
 	cwd: string;
-	// Claude Code session files and resume IDs are credential-profile scoped.
-	// Missing values mean the legacy/default Claude profile (process env rules).
-	// `claudeConfigDir` is the RESOLVED dir (see claudeDirForProfile) and is
-	// in-memory only — persistence strips it and keeps just the opaque profile
-	// id, re-deriving the dir through the router on restore.
-	accountProfileId?: string;
-	claudeConfigDir?: string;
 	// Identity anchor of the pi conversation this record belongs to, encoded
 	// component-wise as `u:<12hex>` or `u:<12hex>|a:<12hex>` (see
 	// conversationFingerprint in session-persistence.ts): a short sha256 of the
