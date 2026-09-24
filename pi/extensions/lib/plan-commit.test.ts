@@ -14,9 +14,18 @@ import {
   type Executor,
 } from "./plan-commit.ts";
 
+// A fixed identity keeps the git commits below independent of the machine's git config
+// (CI runners have none). jj reads its own config and only warns when it is missing.
+const identity = {
+  GIT_AUTHOR_NAME: "plan-commit test",
+  GIT_AUTHOR_EMAIL: "plan-commit@test.invalid",
+  GIT_COMMITTER_NAME: "plan-commit test",
+  GIT_COMMITTER_EMAIL: "plan-commit@test.invalid",
+};
+
 const realExecutor: Executor = (command, args, cwd) =>
   new Promise((resolve) => {
-    execFile(command, args, { cwd }, (error, stdout, stderr) => {
+    execFile(command, args, { cwd, env: { ...process.env, ...identity } }, (error, stdout, stderr) => {
       const code = error && typeof (error as NodeJS.ErrnoException).code === "number"
         ? (error as { code: number }).code
         : error ? 127 : 0;

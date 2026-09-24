@@ -14,7 +14,7 @@ Symlinks configs into `$HOME`, sets global git config, and syncs vim (vim-plug) 
 
 `binaries/download.sh` pins tool versions via the `*_VERSION` variables at the top, verifies checksums, and extracts binaries into `binaries/<OS>/<arch>/`. Those directories are gitignored: the binaries are not committed, and `install.sh` runs the script whenever one of the expected tools is missing for the host platform.
 
-By default the script only downloads the host platform; `--all` gets all four. Downloads happen in a scratch directory, so nothing is left behind in `binaries/` on failure. To bump a version: edit the `*_VERSION` variable, and for bat, jj and tuicr also the pinned digests in `download_platform` (they publish no checksum assets), then re-run the script.
+By default the script only downloads the host platform; `--all` gets all three. Downloads happen in a scratch directory, so nothing is left behind in `binaries/` on failure. To bump a version: edit the `*_VERSION` variable, and for bat, jj and tuicr also the pinned digests in `download_platform` (they publish no checksum assets), then re-run the script.
 
 ## pi extensions
 
@@ -31,6 +31,18 @@ The file tools (`read`, `write`, `edit`, `ls`, `find`, `grep`, `delete`) go thro
 ## pi skills
 
 `pi/skills/` is symlinked to `~/.pi/agent/skills`, pi's global skill root. Each skill is `pi/skills/<name>/SKILL.md`. Skills meant for Claude Code as well go in `<name>-skill/` at the top level and are linked into `~/.claude/skills/` instead (see `tuicr-skill`).
+
+## CI
+
+`.github/workflows/ci.yml` runs 7 independent jobs on push to `main`, on pull requests, on `workflow_dispatch`, and weekly (the weekly run catches upstream breakage that a push wouldn't: dead release URLs, and vim-plug plugins, which have no lockfile):
+
+- **shellcheck** / **actionlint** / **stylua**: lint shell scripts, the workflow file itself, and `nvim/`. `.github/scripts/shellcheck.sh` auto-discovers every tracked file with a shell shebang or `.sh` suffix and runs the same way locally.
+- **node**: `npm ci` + `npm test` + `npm run typecheck` in every `pi/extensions/*/` directory that has a `package.json` (discovered automatically, so new packages need no workflow change but must define both scripts), plus `node --test pi/extensions/*/*.test.ts` for the package-less directories (`lib`, `subagent`; the `lib` tests need `fd` on `PATH`). Matrixed on the `engines` floor (22.19.0) and `latest`.
+- **nvim**: installs plugins from `nvim/lazy-lock.json` via `Lazy! restore`, then runs `.github/scripts/nvim-check.lua` headless, which force-loads every plugin and fails on any config error. Matrixed on `v0.12.0` (the floor, since `nvim-treesitter` on `main` requires it) and `stable`. `nvim-check.lua` runs the same way locally: `nvim --headless --cmd "luafile .github/scripts/nvim-check.lua"`.
+- **vim**: installs plugins with vim-plug and checks for startup errors. vim-plug has no lockfile, so this always tests upstream HEAD — the weekly run is what surfaces breakage here.
+- **downloads**: runs `binaries/download.sh` and smoke-tests every binary, natively on all three supported platforms (`ubuntu-26.04`, `ubuntu-26.04-arm`, `macos-26`).
+
+All actions are pinned to version tags; Dependabot (`.github/dependabot.yml`) keeps them current.
 
 ## Vendored code
 
