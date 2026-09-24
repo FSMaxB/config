@@ -387,13 +387,20 @@ function releaseProviderTokens(event: string): void {
 // hides/shows claude-bridge models itself — the 1.x register/unregister state
 // machine (decideRegistration) is gone. What each trigger does now:
 //   - load: build + register the provider (queued by the loader until bindCore).
-//   - session_start: re-upsert the SAME provider object. registerNativeProvider
-//     is upsert-by-id and kicks pi's model-snapshot/availability refresh, so a
-//     `claude login`/logout since the last session boundary is reflected
-//     deterministically — the same guarantee the 1.x re-check gave — without
-//     depending on pi's own refresh cadence.
-//   - pre-spawn: same re-upsert, from the fail-fast path, so a mid-session
-//     logout also flips availability at first use.
+//   - session_start: re-upsert the SAME provider object, but only when the
+//     credential probe answers differently than at the last upsert. pi's
+//     registerNativeProvider is upsert-by-id and kicks a full, unawaited
+//     model-snapshot/availability refresh; that refresh invalidates any pass
+//     already in flight (pi keeps only the latest), including the awaited pass
+//     pi itself runs while building a replacement session's runtime. Re-upserting
+//     with nothing changed therefore only widened the window in which the
+//     synchronous snapshot lacked the bridge models (plan handoffs read it right
+//     after session_start). A `claude login`/logout since the last boundary
+//     still flips the probe and so still re-upserts.
+//   - pre-spawn: same conditional re-upsert, from the fail-fast path, so a
+//     mid-session logout also flips availability at first use.
+// The tokens are (re)claimed on every trigger regardless: session_shutdown
+// releases them, so a skipped upsert must still leave the provider owned.
 // Non-primary instances (subagents) never touch registration: pi's native
 // registry REPLACES by id, so an unguarded subagent re-register would swap in
 // its own streamSimple — the exact split-brain the tokens exist to prevent.
@@ -401,6 +408,10 @@ function releaseProviderTokens(event: string): void {
 // registering wrongly through the legacy overload.
 let nativeProviderInstance: unknown;
 let notifiedNativeUnsupported = false;
+// Credential-probe answer at the last upsert that reached pi.registerProvider;
+// undefined until the first one. A re-upsert is only worth its refresh when
+// this changes.
+let lastRegisteredCredentialed: boolean | undefined;
 
 function applyProviderRegistration(trigger: string): void {
 	const pi = extensionApi;
@@ -419,10 +430,15 @@ function applyProviderRegistration(trigger: string): void {
 		}
 		return;
 	}
-	debug(`${trigger}: native registration upsert, credentialed=${hasClaudeCredentials()} (module=${moduleInstanceId})`);
+	const credentialed = hasClaudeCredentials();
 	// Claim ordering: stream guard BEFORE registerProvider so a concurrent
 	// subagent can never observe a registered provider without an owner.
 	g[ACTIVE_STREAM_SIMPLE_KEY] = streamClaudeAgentSdk;
+	if (nativeProviderInstance && lastRegisteredCredentialed === credentialed) {
+		debug(`${trigger}: native registration upsert skipped, credentialed=${credentialed} unchanged (module=${moduleInstanceId})`);
+		return;
+	}
+	debug(`${trigger}: native registration upsert, credentialed=${credentialed} (module=${moduleInstanceId})`);
 	try {
 		nativeProviderInstance ??= buildNativeProvider(
 			_piAi,
@@ -432,6 +448,7 @@ function applyProviderRegistration(trigger: string): void {
 			() => hasClaudeCredentials(),
 		);
 		(pi.registerProvider as (provider: unknown) => void)(nativeProviderInstance);
+		lastRegisteredCredentialed = credentialed;
 	} catch (err) {
 		// Self-heal: release ONLY the stream guard we just claimed so a later
 		// re-check retries cleanly. Keep PRIMARY_INSTANCE_KEY: releasing it would

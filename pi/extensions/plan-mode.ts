@@ -433,7 +433,7 @@ export default function (pi: ExtensionAPI) {
 
       const { suggestedModel, suggestedModelReason } = params;
       let suggested = suggestedModel
-        ? findSuggestedModel(suggestedModel, ctx.modelRegistry.getAvailable())
+        ? findSuggestedModel(suggestedModel, await settledAvailableModels(ctx))
         : undefined;
       if (suggestedModel && !suggested) {
         ctx.ui.notify(
@@ -551,7 +551,7 @@ export default function (pi: ExtensionAPI) {
     planPath: string,
     ctx: ExtensionContext,
   ): Promise<AgentToolResult<{ path: string; outcome: string }>> {
-    const models = ctx.modelRegistry.getAvailable();
+    const models = await settledAvailableModels(ctx);
     if (models.length === 0) {
       return notApproved(
         planPath,
@@ -821,13 +821,12 @@ export default function (pi: ExtensionAPI) {
     refreshIndicators(ctx);
 
     if (!handoff) return;
-    const model = ctx.modelRegistry
-      .getAvailable()
-      .find(
-        (candidate) =>
-          candidate.provider === handoff.provider &&
-          candidate.id === handoff.modelId,
-      );
+    // The new runtime's availability snapshot is still being computed while
+    // session_start runs (an extension's provider is registered synchronously,
+    // but its auth check lands in a later async pass), so getAvailable() may not
+    // list the handoff model yet. find() reads the registered providers directly;
+    // setModel does its own live auth check, so availability is still enforced.
+    const model = ctx.modelRegistry.find(handoff.provider, handoff.modelId);
     if (!model || !(await pi.setModel(model))) {
       ctx.ui.notify(
         `Plan handoff: ${handoff.provider}/${handoff.modelId} is not available. ` +
@@ -1017,6 +1016,16 @@ function planModeInstructions(): string {
     "- If a call or a path is denied, do not retry it and do not route around it.",
     `- To write a plan, call ${PLAN_PATH} once to get a file path, create the file there with write, and revise it with edit. Call ${SUBMIT_PLAN} with that path when it is ready. Only the user can leave plan mode.`,
   ].join("\n");
+}
+
+// getAvailable() is a snapshot that an in-flight availability pass has not
+// necessarily updated yet (extension providers registered on this session's
+// start land in a later async pass). Refreshing first is pi's documented way to
+// settle the snapshot before a synchronous read; a failed refresh just leaves
+// the snapshot as it was.
+async function settledAvailableModels(ctx: ExtensionContext): Promise<Model<Api>[]> {
+  await ctx.modelRegistry.refresh({ allowNetwork: false }).catch(() => undefined);
+  return ctx.modelRegistry.getAvailable();
 }
 
 function findSuggestedModel(

@@ -13,6 +13,7 @@ Differences from upstream:
 - Pi tools are served to Claude Code through a low-level MCP server (`src/tool-server.ts`) that forwards their JSON Schema unchanged, instead of the upstream TypeBox-to-Zod conversion, which dropped `integer`, min/max bounds and other keywords.
 - The provider reads Pi 0.86+ transcripts: the system prompt and tool set come from the transcript's system messages through pi-ai's replay helpers, and the bridge's cursors count conversation messages only. Pi 0.86 or later is required.
 - Configuration uses only nested `claude-bridge.json` files. The extension manager, account router and cloud connector integrations are removed. SDK tools are restricted to Pi's bridge.
+- The provider is re-registered on `session_start` only when the Claude credential probe's answer changed since the last registration. Upstream re-registers unconditionally, which restarts Pi's availability refresh and can leave the bridge models missing from the model list for a moment after a new session starts.
 
 ## Install
 
