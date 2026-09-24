@@ -36,9 +36,13 @@ test('consolidation publishes only a validated generation; forget switches to sa
     // act
     const published = store.publish(task,manifest);
     const result = read(store,'session','handbook',1,2);
+    const reopened = await Store.open(root,project);
+    const survivedRestart = reopened.published()?.manifest.id;
+    reopened.close();
     store.forget(claimId);
     // assert
     assert.equal(published,true);
+    assert.equal(survivedRestart,manifest.id);
     assert.match(result,/generation [a-f0-9-]+/);
     assert.match(search(store,'session','fixture'),/No matches/);
     assert.equal(injection(store),undefined);
