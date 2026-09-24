@@ -72,9 +72,9 @@ I will handle all rebasing and history rewriting manually.
 
 - Liberally use struct and enum destructuring, especially if it allows you to avoid an explicit type declaration of a let binding.
 - Use pub instead of pub(crate) or pub(super) where applicable.
-- If you want to make clear that something cannot happen, use `.unwrap_or(|| unreachable!(...))` instead of `.expect(...)`.
+- If you want to make clear that something cannot happen, use `.unwrap_or_else(|| unreachable!(...))` instead of `.expect(...)`.
 - If types can be inferred, let them be inferred.
-- Prefer specifying types to the right of the `=`. E.g. `.collect<Vec<_>>()` instead of `let foo: Vec<_> = ....collect();`
+- Prefer specifying types to the right of the `=`. E.g. `.collect::<Vec<_>>()` instead of `let foo: Vec<_> = ....collect();`
 - Put constants in the smallest scope possible (e.g. function scope if only used in that function)
 - Prefer `let Some(...) = foo else { /* early exit / continue */ }` to nesting code in `if let Some` (same for other enums than Option).
 
