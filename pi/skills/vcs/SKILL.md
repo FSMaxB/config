@@ -29,8 +29,9 @@ description: Use before reading VCS status or history, before making changes in 
 
 ## jj
 
-- Finalize each change with `jj commit -m "..."`. This commits the current working-copy revision and creates a fresh empty working-copy revision directly on top of it.
-- Finish with `jj status` showing an empty working copy whose parent is your completed change.
+- If `jj status` shows changes before you start, run `jj new` first so your work lands in a fresh revision on top of them.
+- Finalize each change with `jj commit <paths> -m "..."`, listing exactly the files you changed. This commits those files from the working-copy revision and leaves everything else in a new working-copy revision directly on top of it.
+- Finish with `jj status` showing no changes from your task in the working copy, whose parent is your completed change.
 - Never change the working-copy parent, move bookmarks, or rebase without asking.
 
 ## git
