@@ -14,7 +14,7 @@ import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { isolatedFromEnv, loadConfig, piUserDir, recordProjectTrust } from "../src/config.ts";
-import { extractAgentsAppend, resolveAgentsMdPath } from "../src/agents-md.ts";
+import { extractAgentsAppend, resolveAgentsMdPaths } from "../src/agents-md.ts";
 import { readAppendSystemPromptFiles } from "../src/prompt-context.ts";
 import { resolveClaudeExecutable } from "../src/index.ts";
 
@@ -83,7 +83,7 @@ describe("piUserDir", () => {
 	}));
 });
 
-describe("resolveAgentsMdPath isolation", () => {
+describe("resolveAgentsMdPaths isolation", () => {
 	it("default mode still finds AGENTS.md in cwd parents", () => withTempDir((dir) => {
 		const cwdDir = join(dir, "cwd");
 		mkdirSync(cwdDir, { recursive: true });
@@ -91,8 +91,8 @@ describe("resolveAgentsMdPath isolation", () => {
 		const oldCwd = process.cwd();
 		try {
 			process.chdir(cwdDir);
-			withEnv({ CLAUDE_BRIDGE_ISOLATED: undefined }, () => {
-				assert.equal(resolveAgentsMdPath(), join(process.cwd(), "AGENTS.md"));
+			withEnv({ CLAUDE_BRIDGE_ISOLATED: undefined, PI_CODING_AGENT_DIR: join(dir, "empty-agent") }, () => {
+				assert.deepEqual(resolveAgentsMdPaths(), [join(process.cwd(), "AGENTS.md")]);
 			});
 		} finally {
 			process.chdir(oldCwd);
@@ -107,8 +107,8 @@ describe("resolveAgentsMdPath isolation", () => {
 		const oldCwd = process.cwd();
 		try {
 			process.chdir(cwdDir);
-			withEnv({ CLAUDE_BRIDGE_ISOLATED: undefined }, () => {
-				assert.equal(resolveAgentsMdPath(), join(process.cwd(), "AGENTS.override.md"));
+			withEnv({ CLAUDE_BRIDGE_ISOLATED: undefined, PI_CODING_AGENT_DIR: join(dir, "empty-agent") }, () => {
+				assert.deepEqual(resolveAgentsMdPaths(), [join(process.cwd(), "AGENTS.override.md")]);
 				assert.match(extractAgentsAppend() ?? "", /override instructions/);
 			});
 		} finally {
@@ -124,8 +124,8 @@ describe("resolveAgentsMdPath isolation", () => {
 		const oldCwd = process.cwd();
 		try {
 			process.chdir(cwdDir);
-			withEnv({ CLAUDE_BRIDGE_ISOLATED: undefined }, () => {
-				assert.equal(resolveAgentsMdPath(), join(process.cwd(), "AGENTS.md"));
+			withEnv({ CLAUDE_BRIDGE_ISOLATED: undefined, PI_CODING_AGENT_DIR: join(dir, "empty-agent") }, () => {
+				assert.deepEqual(resolveAgentsMdPaths(), [join(process.cwd(), "AGENTS.md")]);
 			});
 		} finally {
 			process.chdir(oldCwd);
@@ -141,7 +141,7 @@ describe("resolveAgentsMdPath isolation", () => {
 		try {
 			process.chdir(cwdDir);
 			withEnv({ CLAUDE_BRIDGE_ISOLATED: undefined, PI_CODING_AGENT_DIR: join(dir, "empty-agent") }, () => {
-				assert.equal(resolveAgentsMdPath(), join(dir, "parent", "AGENTS.md"));
+				assert.deepEqual(resolveAgentsMdPaths(), [join(dir, "parent", "AGENTS.md")]);
 			});
 		} finally {
 			process.chdir(oldCwd);
@@ -155,8 +155,8 @@ describe("resolveAgentsMdPath isolation", () => {
 		const oldCwd = process.cwd();
 		try {
 			process.chdir(cwdDir);
-			withEnv({ CLAUDE_BRIDGE_ISOLATED: undefined }, () => {
-				assert.equal(resolveAgentsMdPath(), join(process.cwd(), "AGENTS.MD"));
+			withEnv({ CLAUDE_BRIDGE_ISOLATED: undefined, PI_CODING_AGENT_DIR: join(dir, "empty-agent") }, () => {
+				assert.deepEqual(resolveAgentsMdPaths(), [join(process.cwd(), "AGENTS.MD")]);
 			});
 		} finally {
 			process.chdir(oldCwd);
@@ -171,8 +171,8 @@ describe("resolveAgentsMdPath isolation", () => {
 		const oldCwd = process.cwd();
 		try {
 			process.chdir(cwdDir);
-			withEnv({ CLAUDE_BRIDGE_ISOLATED: undefined }, () => {
-				assert.equal(resolveAgentsMdPath(), join(process.cwd(), "AGENTS.md"));
+			withEnv({ CLAUDE_BRIDGE_ISOLATED: undefined, PI_CODING_AGENT_DIR: join(dir, "empty-agent") }, () => {
+				assert.deepEqual(resolveAgentsMdPaths(), [join(process.cwd(), "AGENTS.md")]);
 				assert.match(extractAgentsAppend() ?? "", /base instructions/);
 			});
 		} finally {
@@ -180,7 +180,7 @@ describe("resolveAgentsMdPath isolation", () => {
 		}
 	}));
 
-	it("the piUserDir fallback honors AGENTS.override.md too", () => withTempDir((dir) => {
+	it("the piUserDir global file honors AGENTS.override.md too", () => withTempDir((dir) => {
 		const cwdDir = join(dir, "cwd");
 		const agentDir = join(dir, "agent");
 		mkdirSync(cwdDir, { recursive: true });
@@ -191,7 +191,7 @@ describe("resolveAgentsMdPath isolation", () => {
 		try {
 			process.chdir(cwdDir);
 			withEnv({ CLAUDE_BRIDGE_ISOLATED: undefined, PI_CODING_AGENT_DIR: agentDir }, () => {
-				assert.equal(resolveAgentsMdPath(), resolve(join(agentDir, "AGENTS.override.md")));
+				assert.deepEqual(resolveAgentsMdPaths(), [resolve(join(agentDir, "AGENTS.override.md"))]);
 				assert.match(extractAgentsAppend() ?? "", /global override/);
 			});
 		} finally {
@@ -199,7 +199,7 @@ describe("resolveAgentsMdPath isolation", () => {
 		}
 	}));
 
-	it("default mode falls back to the piUserDir AGENTS.md", () => withTempDir((dir) => {
+	it("default mode forwards the piUserDir AGENTS.md when cwd has none", () => withTempDir((dir) => {
 		const cwdDir = join(dir, "cwd");
 		const agentDir = join(dir, "agent");
 		mkdirSync(cwdDir, { recursive: true });
@@ -209,8 +209,56 @@ describe("resolveAgentsMdPath isolation", () => {
 		try {
 			process.chdir(cwdDir);
 			withEnv({ CLAUDE_BRIDGE_ISOLATED: undefined, PI_CODING_AGENT_DIR: agentDir }, () => {
-				assert.equal(resolveAgentsMdPath(), resolve(join(agentDir, "AGENTS.md")));
+				assert.deepEqual(resolveAgentsMdPaths(), [resolve(join(agentDir, "AGENTS.md"))]);
 				assert.match(extractAgentsAppend() ?? "", /global instructions/);
+			});
+		} finally {
+			process.chdir(oldCwd);
+		}
+	}));
+
+	it("forwards the piUserDir AGENTS.md before the nearest cwd AGENTS.md", () => withTempDir((dir) => {
+		// arrange
+		const cwdDir = join(dir, "cwd");
+		const agentDir = join(dir, "agent");
+		mkdirSync(cwdDir, { recursive: true });
+		mkdirSync(agentDir, { recursive: true });
+		writeFileSync(join(agentDir, "AGENTS.md"), "# global instructions\n");
+		writeFileSync(join(cwdDir, "AGENTS.md"), "# project instructions\n");
+		const oldCwd = process.cwd();
+		try {
+			process.chdir(cwdDir);
+			withEnv({ CLAUDE_BRIDGE_ISOLATED: undefined, PI_CODING_AGENT_DIR: agentDir }, () => {
+				// act
+				const paths = resolveAgentsMdPaths();
+				const append = extractAgentsAppend() ?? "";
+				// assert
+				assert.deepEqual(paths, [resolve(join(agentDir, "AGENTS.md")), join(process.cwd(), "AGENTS.md")]);
+				assert.equal(append, "# CLAUDE.md\n\n# global instructions\n\n# project instructions");
+			});
+		} finally {
+			process.chdir(oldCwd);
+		}
+	}));
+
+	it("forwards a global AGENTS.md symlinked into the cwd repository only once", () => withTempDir((dir) => {
+		// arrange
+		const cwdDir = join(dir, "dotfiles");
+		const agentDir = join(dir, "agent");
+		mkdirSync(cwdDir, { recursive: true });
+		mkdirSync(agentDir, { recursive: true });
+		writeFileSync(join(cwdDir, "AGENTS.md"), "# shared instructions\n");
+		symlinkSync(join(cwdDir, "AGENTS.md"), join(agentDir, "AGENTS.md"));
+		const oldCwd = process.cwd();
+		try {
+			process.chdir(cwdDir);
+			withEnv({ CLAUDE_BRIDGE_ISOLATED: undefined, PI_CODING_AGENT_DIR: agentDir }, () => {
+				// act
+				const paths = resolveAgentsMdPaths();
+				const append = extractAgentsAppend() ?? "";
+				// assert
+				assert.deepEqual(paths, [resolve(join(agentDir, "AGENTS.md"))]);
+				assert.equal(append, "# CLAUDE.md\n\n# shared instructions");
 			});
 		} finally {
 			process.chdir(oldCwd);
@@ -228,7 +276,7 @@ describe("resolveAgentsMdPath isolation", () => {
 		try {
 			process.chdir(cwdDir);
 			withEnv({ CLAUDE_BRIDGE_ISOLATED: "1", PI_CODING_AGENT_DIR: agentDir }, () => {
-				assert.equal(resolveAgentsMdPath(), undefined);
+				assert.deepEqual(resolveAgentsMdPaths(), []);
 				assert.equal(extractAgentsAppend(), undefined);
 			});
 		} finally {
