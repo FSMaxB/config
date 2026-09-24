@@ -2,10 +2,10 @@
 
 - If you are explicitly asked to implement a plan, ignore this entire planning section and start implementing.
 - When in doubt (either during exploration or planning), prefer to ask me clarifying questions instead of extensive exploration
-- When asking me questions, use the agent harness's question tool rather than plain text, when available (e.g. Claude Code: `AskUserQuestion`, Codex: `request_user_input`, OpenCode: `question`, etc.)
+- When asking me questions, use the agent harness's question tool rather than plain text. If the harness has no question tool, ask in plain text.
 - Explicitly include verification steps in the plan you write
 - Write a self-contained plan that a junior developer with no prior knowledge of this codebase could execute without asking questions or exploring on their own.
-  - Do not defer decisions to the implementer, if multiple approaches exist, discuss them via the question tool first and then include the chosen approach.
+  - Do not defer decisions to the implementer, if multiple approaches exist, discuss them with me first and then include the chosen approach.
   - When describing concrete code changes, prefer small code examples or pseudo-code over bullet points.
 - When done with planning, launch a crit review of the plan. Wait until I finish the review and address all unresolved comments before submitting the plan for implementation.
 
