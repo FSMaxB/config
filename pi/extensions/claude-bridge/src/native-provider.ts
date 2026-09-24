@@ -60,8 +60,7 @@ export function buildNativeProvider(
 	models: Array<Record<string, unknown>>,
 	streamSimple: (...args: unknown[]) => unknown,
 	env: NodeJS.ProcessEnv = process.env,
-	// Availability probe. Defaults to direct credential presence; the extension
-	// passes a probe that also accepts a companion account-router pool.
+	// Availability probe, evaluated at check/resolve time.
 	hasCredentials: () => boolean = () => hasClaudeCredentials(env),
 ): unknown {
 	if (!supportsNativeProvider(piAi)) {

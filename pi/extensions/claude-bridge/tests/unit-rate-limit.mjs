@@ -3,7 +3,7 @@
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { classifyClaudeFailure } from "../src/account-router.ts";
+import { classifyClaudeFailure } from "../src/claude-failure.ts";
 import {
 	DEFAULT_STREAM_IDLE_TIMEOUT_MS,
 	STREAM_IDLE_BACKOFF_HINT_MS,

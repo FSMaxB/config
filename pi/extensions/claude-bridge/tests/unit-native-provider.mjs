@@ -85,16 +85,27 @@ describe("buildNativeProvider", () => {
 		assert.equal(provider.getModels()[0].api, "claude-bridge");
 	});
 
-	it("accepts a dynamic companion account-pool credential probe", async () => {
+	it("only the credential probe controls availability", async () => {
+		// arrange
 		let available = false;
 		const provider = buildNativeProvider(piAi, MODELS, () => {}, {}, () => available);
-		assert.equal(await provider.auth.apiKey.check({ ctx: {} }), undefined);
-		available = true;
-		assert.deepEqual(
-			await provider.auth.apiKey.check({ ctx: {} }),
-			{ type: "api_key", source: "Claude Code login" },
-		);
-		assert.equal((await provider.auth.apiKey.resolve({ ctx: {} })).auth.apiKey, "not-used");
+		const routerSymbol = Symbol.for("kendex.pi.claude-account-router.v1");
+		const previousRouter = globalThis[routerSymbol];
+		globalThis[routerSymbol] = { version: 1, acquire() { throw new Error("unexpected routing"); } };
+		try {
+			// act
+			const missing = await provider.auth.apiKey.check({ ctx: {} });
+			available = true;
+			const configured = await provider.auth.apiKey.check({ ctx: {} });
+			const resolved = await provider.auth.apiKey.resolve({ ctx: {} });
+			// assert
+			assert.equal(missing, undefined);
+			assert.deepEqual(configured, { type: "api_key", source: "Claude Code login" });
+			assert.equal(resolved.auth.apiKey, "not-used");
+		} finally {
+			if (previousRouter === undefined) delete globalThis[routerSymbol];
+			else globalThis[routerSymbol] = previousRouter;
+		}
 	});
 
 	it("reports unconfigured when no credential signal exists", { skip: onDarwin }, () => withTempConfigDir(async (dir) => {

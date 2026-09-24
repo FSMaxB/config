@@ -4,16 +4,7 @@
 
 import { type Model } from "@earendil-works/pi-ai";
 import { type AccountInfo, type query } from "@anthropic-ai/claude-agent-sdk";
-import {
-	classifyClaudeFailure,
-	rateLimitResetFromInfo,
-	rateLimitResetMs,
-	rateLimitTypeFromInfo,
-	safeRouterCall,
-	type ClaudeAccountFailureKind,
-	type ClaudeAccountRoute,
-	type ClaudeAccountRouterV1,
-} from "./account-router.js";
+import { classifyClaudeFailure, rateLimitResetFromInfo, rateLimitResetMs, rateLimitTypeFromInfo, type ClaudeFailureKind } from "./claude-failure.js";
 import { ensureTurnStarted, noteChildExecutedToolResults, processAssistantMessage, processStreamEvent, updateTurnOutputModel } from "./assistant-stream.js";
 import { extensionApi, safeNotify } from "./bridge-state.js";
 import { type Config } from "./config.js";
@@ -66,9 +57,8 @@ function noteFastModeDisabledReason(message: unknown, bridgeConfig: Config): voi
  *  whichever path handles it first (processStreamEvent or processAssistantMessage),
  *  and the MCP handler blocks the generator until pi delivers the tool result. */
 export interface ClaudeAttemptFailure {
-	kind?: ClaudeAccountFailureKind;
+	kind?: ClaudeFailureKind;
 	message: string;
-	rateLimitInfo?: Record<string, unknown>;
 }
 
 export interface ConsumeQueryResult {
@@ -89,40 +79,17 @@ export async function consumeQuery(
 	bridgeConfig: Config,
 	wasAborted: () => boolean,
 	recordBillingIdentity: (info: AccountInfo) => void,
-	account?: ClaudeAccountRoute,
-	router?: ClaudeAccountRouterV1,
-	// Mirror of the held failure for the caller's .catch: the SDK iterator can
-	// THROW after the failure-signal message (a rejected rate_limit_event is the
-	// known case), and the rejection loses this function's return value. Without
-	// the mirror the catch re-classifies from the thrown error, misses
-	// rateLimitInfo, and double-counts the router cooldown.
-	attemptFailureBox?: { failure?: ClaudeAttemptFailure },
 ): Promise<ConsumeQueryResult> {
 	let capturedSessionId: string | undefined;
 	let failure: ClaudeAttemptFailure | undefined;
-	let accountProbe: Promise<void> | undefined;
 	let accountInfoProbe: Promise<AccountInfo> | undefined;
 	const holdFailure = (next: ClaudeAttemptFailure | undefined): void => {
 		failure = next;
-		if (attemptFailureBox) attemptFailureBox.failure = next;
 	};
 
 	for await (const message of sdkQuery) {
 		if (wasAborted()) break;
 		activeStreamIdleWatchdogs.get(queryCtx)?.noteChunk();
-		if (account) {
-			// Thunk, not a value: this runs once per SDK message — including one
-			// stream_event per streamed token — and debug() only evaluates function
-			// args after its DEBUG early return.
-			debug("consumeQuery: managed message", () => JSON.stringify({
-				type: message.type,
-				subtype: (message as any).subtype,
-				error: (message as any).error,
-				eventType: (message as any).event?.type,
-				deltaType: (message as any).event?.delta?.type,
-				contentType: (message as any).event?.content_block?.type,
-			}));
-		}
 		if (!queryCtx.turnOutput) continue;
 		// Only RENDERING needs a live Pi stream. Failure metadata and
 		// child-executed tool results must be captured even when a tool-use turn
@@ -136,17 +103,6 @@ export async function consumeQuery(
 				processStreamEvent(message, customToolNameToPi, model, queryCtx);
 				break;
 			case "assistant": {
-				// Claude Code emits a synthetic assistant text block carrying friendly
-				// rate/auth error copy before the SDK throws. On a managed attempt it
-				// is not model output: forwarding it would commit the stream and make
-				// safe pre-output account failover impossible, so hold it as failure
-				// metadata (with or without a live stream). A legacy attempt renders
-				// it exactly as before.
-				const sdkError = (message as any).error;
-				if (sdkError && account) {
-					if (!failure) holdFailure({ kind: classifyClaudeFailure(sdkError), message: String(sdkError) });
-					break;
-				}
 				if (!streamLive && !queryCtx.turnSawToolCall) break;
 				processAssistantMessage(message, model, customToolNameToPi, queryCtx);
 				break;
@@ -161,11 +117,6 @@ export async function consumeQuery(
 					debug(`consumeQuery: clearing informational ${failure.kind ?? "unclassified"} failure — query recovered with committed output`);
 					holdFailure(undefined);
 				}
-				// The SDK can label the synthetic friendly error carrier as a
-				// successful result immediately before its iterator throws. Once a
-				// managed attempt holds a terminal failure signal, that text is still
-				// error metadata, not assistant output.
-				if (account && failure) break;
 				if (!queryCtx.turnSawStreamEvent && message.subtype === "success") {
 					if (!streamLive) break;
 					const text = message.result || "";
@@ -186,12 +137,7 @@ export async function consumeQuery(
 					const errorLines = Array.isArray((message as any).errors) ? uniqueNonEmptyLines((message as any).errors) : [];
 					const errors = errorLines.length > 0 ? errorLines.join("\n") : String((message as any).result || message.subtype || "Claude Code request failed");
 					const usageLimit = isUsageLimitMessage(message);
-					if (!failure || !failure.rateLimitInfo) {
-						holdFailure({ kind: usageLimit ? "rate-limit" : classifyClaudeFailure(errors), message: errors });
-					}
-					// Managed attempts keep terminal error copy buffered as metadata so
-					// a pre-output failure can move to another subscription profile.
-					if (account) break;
+					holdFailure({ kind: usageLimit ? "rate-limit" : classifyClaudeFailure(errors), message: errors });
 					if (usageLimit) {
 						// isUsageLimitMessage matches the CLI's own usage-limit copy (SDK
 						// USAGE_LIMIT_ERROR_PREFIXES). Surface it immediately, exactly as
@@ -213,15 +159,10 @@ export async function consumeQuery(
 				if (!streamLive) break;
 				if ((message as any).subtype === "init" && (message as any).session_id) {
 					capturedSessionId = (message as any).session_id;
-					// Also on this message's query context, so the connector-call audit
-					// trail can name the child session that executed a call — including
-					// from the teardown flush, which runs outside this function's scope.
 					queryCtx.childSessionId = capturedSessionId;
 					noteFastModeDisabledReason(message, bridgeConfig);
 					// Which login this child authenticated as is published for other
-					// extensions, for every child rather than only a routed one:
-					// an unrouted child is the common case and its identity is
-					// just as unknowable from outside the SDK. Nothing waits for
+					// extensions. Nothing waits for
 					// it, so it stays off the turn's critical path. The call sits
 					// in an async IIFE so a synchronous throw arrives as a
 					// rejection the debug line below names.
@@ -230,22 +171,6 @@ export async function consumeQuery(
 						void accountInfoProbe
 							.then((info) => recordBillingIdentity(info))
 							.catch((error) => debug("consumeQuery: billing identity probe rejected:", error));
-					}
-					if (account && router && !accountProbe) {
-						accountProbe = Promise.allSettled([
-							accountInfoProbe.then((info) => router.recordIdentity(account.profileId, {
-								email: info.email,
-								organization: info.organization,
-								subscriptionType: info.subscriptionType,
-							})),
-							sdkQuery.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET()
-								.then((usage) => router.recordUsage(account.profileId, usage)),
-						]).then((results) => {
-							const labels = ["recordIdentity", "recordUsage"];
-							results.forEach((result, i) => {
-								if (result.status === "rejected") debug(`consumeQuery: account probe ${labels[i]} rejected:`, result.reason);
-							});
-						});
 					}
 				} else if ((message as any).subtype === "model_refusal_fallback") {
 					const originalModel = (message as any).original_model;
@@ -279,30 +204,15 @@ export async function consumeQuery(
 					const resetAt = rateLimitResetFromInfo(info);
 					const resetAtMs = rateLimitResetMs(info);
 					const reason = `${rateLimitType ?? "unknown"} rate limit`;
-					if (account && router) {
-						// Rotation may still recover this request, so hold the rejection
-						// as failure metadata and teach the router the reset time now.
-						// Surfacing (event + toast) happens once in surfaceFailure — only
-						// if the attempt is not replayed on another profile.
-						holdFailure({ kind: "rate-limit", message: reason, rateLimitInfo: info });
-						safeRouterCall("recordRateLimit", () => router.recordRateLimit(account.profileId, info, model.id));
-					} else {
-						// Legacy: notify once and set NO failure state. The SDK's own
-						// fallback-model path may still stream a successful recovery, and
-						// that turn must complete exactly like any other success.
-						const resetsAt = formatResetTimestamp(resetAtMs ?? resetAt);
-						emitRateLimitEvent({
-							model: model.id,
-							provider: model.provider,
-							rateLimitType,
-							reason,
-							resetAt,
-							...(Number.isFinite(resetAtMs) ? { resetAtMs } : {}),
-							source: "claude-bridge",
-							status: "rejected",
-						});
-						safeNotify(`${RATE_LIMIT_TOKEN} Claude ${reason} hit — resets ${resetsAt}`, "warning");
-					}
+					// A rejected event may precede a successful SDK fallback. Report it
+					// without holding a terminal failure until the final result arrives.
+					const resetsAt = formatResetTimestamp(resetAtMs ?? resetAt);
+					emitRateLimitEvent({
+						model: model.id, provider: model.provider, rateLimitType, reason, resetAt,
+						...(Number.isFinite(resetAtMs) ? { resetAtMs } : {}),
+						source: "claude-bridge", status: "rejected",
+					});
+					safeNotify(`${RATE_LIMIT_TOKEN} Claude ${reason} hit — resets ${resetsAt}`, "warning");
 				} else if (info?.status === "allowed_warning") {
 					const warning = formatAllowedRateLimitWarning(info);
 					if (warning) safeNotify(warning, "warning");
@@ -316,12 +226,6 @@ export async function consumeQuery(
 		}
 	}
 
-	if (accountProbe) {
-		await Promise.race([
-			accountProbe,
-			new Promise<void>((resolve) => setTimeout(resolve, 1_500)),
-		]);
-	}
 	debug(`consumeQuery: for-await loop exited, wasAborted=${wasAborted()}, capturedSessionId=${capturedSessionId?.slice(0, 8) ?? "none"}, failure=${failure?.kind ?? "none"}`);
 	return { capturedSessionId, failure };
 }
