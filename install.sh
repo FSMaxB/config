@@ -51,7 +51,7 @@ fi
 
 if [[ ! -e ~/.claude/CLAUDE.md ]]; then
   mkdir -p ~/.claude
-  ln -s ~/config/INSTALL-AGENTS.md ~/.claude/AGENTS.md
+  ln -s ~/config/INSTALL-AGENTS.md ~/.claude/CLAUDE.md
 fi
 if [[ ! -e ~/.claude/skills/tuicr ]]; then
   mkdir -p ~/.claude/skills
