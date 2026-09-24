@@ -1,9 +1,9 @@
 // AGENTS.md discovery and sanitization for forwarding to Claude Code.
 //
 // Pi uses AGENTS.md for long-lived instructions; Claude Code reads the same
-// content under "# CLAUDE.md". We walk up from cwd looking for a context file,
-// fall back to <piUserDir>/AGENTS.md (~/.pi/agent/AGENTS.md unless
-// PI_CODING_AGENT_DIR points elsewhere), and rewrite pi-specific references
+// content under "# CLAUDE.md". We forward the global context file from
+// <piUserDir> (~/.pi/agent/AGENTS.md unless PI_CODING_AGENT_DIR points elsewhere)
+// and the nearest one found walking up from cwd, and rewrite pi-specific references
 // (~/.pi, .pi/, .pi, pi) to their Claude Code equivalents so any paths or
 // references in the file still resolve inside the CC subprocess.
 //
@@ -13,18 +13,19 @@
 // CLAUDE.MD, which we deliberately omit: the Claude Code subprocess already loads
 // CLAUDE.md natively, so forwarding it would apply the same context twice.
 //
-// We forward the NEAREST context file only, while Pi loads one per ancestor directory
-// and concatenates them. That single-layer model predates override support and is kept
-// deliberately: the bridge sanitizes and re-headers whatever it forwards into one
-// "# CLAUDE.md" block, and the subprocess separately loads the repo's own CLAUDE.md, so
-// concatenating every ancestor layer here risks duplicating context rather than
-// completing it. Changing it is a behavior change for every bridge user and belongs in
-// its own change, not in per-directory override parity.
+// Pi loads the global file plus one context file per ancestor directory and
+// concatenates them. We forward two layers, global first: the global file, because
+// the Claude Code subprocess has no user-level AGENTS.md slot (only ~/.claude/CLAUDE.md,
+// and the bridge runs it without filesystem settings anyway), and the NEAREST cwd
+// ancestor file, which was the bridge's historical single layer. Intermediate ancestors
+// are still skipped: the bridge sanitizes and re-headers whatever it forwards into one
+// "# CLAUDE.md" block, so concatenating every layer risks duplicating context rather
+// than completing it.
 //
 // In isolated mode (CLAUDE_BRIDGE_ISOLATED=1), all AGENTS.md discovery is
 // disabled. Embedding hosts provide their instruction surface explicitly.
 
-import { lstatSync, readFileSync, statSync } from "fs";
+import { lstatSync, readFileSync, realpathSync, statSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { isolatedFromEnv, piUserDir } from "./config.js";
 import { debug } from "./debug.js";
@@ -61,11 +62,25 @@ function contextFileInDir(dir: string): string | undefined {
 	return undefined;
 }
 
-export function resolveAgentsMdPath(): string | undefined {
-	if (isolatedFromEnv()) return undefined;
-	const fromCwd = findAgentsMdInParents(process.cwd());
-	if (fromCwd) return fromCwd;
-	return contextFileInDir(piUserDir());
+export function resolveAgentsMdPaths(): string[] {
+	if (isolatedFromEnv()) return [];
+	const paths: string[] = [];
+	const seen = new Set<string>();
+	for (const candidate of [contextFileInDir(piUserDir()), findAgentsMdInParents(process.cwd())]) {
+		if (!candidate) continue;
+		// The global file is often a symlink into a dotfiles repository; when cwd is that
+		// repository the walk-up finds the same file under a second path.
+		let identity = candidate;
+		try {
+			identity = realpathSync(candidate);
+		} catch {
+			// Unresolvable paths are deduplicated by their literal spelling instead.
+		}
+		if (seen.has(identity)) continue;
+		seen.add(identity);
+		paths.push(candidate);
+	}
+	return paths;
 }
 
 export function findAgentsMdInParents(startDir: string): string | undefined {
@@ -81,19 +96,21 @@ export function findAgentsMdInParents(startDir: string): string | undefined {
 }
 
 export function extractAgentsAppend(): string | undefined {
-	const agentsPath = resolveAgentsMdPath();
-	if (!agentsPath) return undefined;
-	try {
-		const content = readFileSync(agentsPath, "utf-8").trim();
-		if (!content) return undefined;
-		const sanitized = sanitizeAgentsContent(content);
-		return sanitized.length > 0 ? `# CLAUDE.md\n\n${sanitized}` : undefined;
-	} catch (error) {
-		// An unreadable AGENTS.md silently drops the user's standing instructions
-		// from every child prompt — degrade as before, but leave a trace.
-		debug(`agents-md: failed to read ${agentsPath}:`, error instanceof Error ? error.message : String(error));
-		return undefined;
+	const sections: string[] = [];
+	for (const agentsPath of resolveAgentsMdPaths()) {
+		try {
+			const content = readFileSync(agentsPath, "utf-8").trim();
+			if (!content) continue;
+			const sanitized = sanitizeAgentsContent(content);
+			if (sanitized.length > 0) sections.push(sanitized);
+		} catch (error) {
+			// An unreadable AGENTS.md silently drops the user's standing instructions
+			// from every child prompt — degrade as before, but leave a trace.
+			debug(`agents-md: failed to read ${agentsPath}:`, error instanceof Error ? error.message : String(error));
+		}
 	}
+	if (sections.length === 0) return undefined;
+	return `# CLAUDE.md\n\n${sections.join("\n\n")}`;
 }
 
 export function sanitizeAgentsContent(content: string): string {
