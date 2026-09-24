@@ -152,7 +152,7 @@ describe("foreign-conversation completion (#1001)", () => {
 		__testSetSdkQueryFactory(() => fakeSdkQuery([
 			{ type: "system", subtype: "init", session_id: "child-session" },
 			{ type: "stream_event", event: { type: "message_start", message: { id: "m1", model: model.id, usage: { input_tokens: 1 } } } },
-			{ type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "call-1", name: "mytool", input: {} } } },
+			{ type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "call-1", name: "mcp__custom-tools__mytool", input: {} } } },
 			{ type: "stream_event", event: { type: "content_block_stop", index: 0 } },
 			{ type: "stream_event", event: { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 5 } } },
 			{ type: "stream_event", event: { type: "message_stop" } },
@@ -164,7 +164,7 @@ describe("foreign-conversation completion (#1001)", () => {
 
 		const events = await collect(streamNormalized(
 			model,
-			{ messages: [userMessage("subagent task")] },
+			{ messages: [userMessage("subagent task")], tools: [{ name: "mytool", description: "", parameters: { type: "object" } }] },
 			{ sessionId: "foreign-unresolved-tool" },
 		));
 		// The pi stream ends at the toolUse boundary; teardown runs after.

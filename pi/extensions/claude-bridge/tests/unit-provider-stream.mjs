@@ -137,6 +137,39 @@ describe("ordinary provider stream", () => {
 		assert.doesNotMatch(diagnostic, /queued steer/);
 	});
 
+	it("keeps Pi-only tool policy on deferred-input continuations", async () => {
+		// arrange
+		const options = [];
+		__testSetSdkQueryFactory((input) => {
+			options.push(input.options);
+			if (options.length === 1) {
+				return {
+					async *[Symbol.asyncIterator]() {
+						ctx().deferredUserMessages.push({ text: "later" });
+						yield { type: "system", subtype: "init", session_id: "first-session" };
+						yield { type: "result", subtype: "success", result: "first" };
+					}, close() {}, async interrupt() {}, async accountInfo() { return {}; },
+				};
+			}
+			return query([{ type: "result", subtype: "success", result: "second" }]);
+		});
+		// act
+		await collect(streamNormalized(model, { ...context, tools: [{ name: "read", description: "", parameters: { type: "object" } }] }, { sessionId: "continued-policy" }));
+		// assert
+		assert.equal(options.length, 2);
+		assert.equal(options[1].resume, "first-session");
+		for (const queryOptions of options) {
+			assert.deepEqual(queryOptions.tools, []);
+			assert.deepEqual(queryOptions.allowedTools, ["mcp__custom-tools__*"]);
+			assert.equal(queryOptions.strictMcpConfig, true);
+			assert.equal(queryOptions.env.ENABLE_CLAUDEAI_MCP_SERVERS, "0");
+			assert.deepEqual(Object.keys(queryOptions.mcpServers), ["custom-tools"]);
+			const denied = await queryOptions.hooks.PreToolUse[0].hooks[0]({ hook_event_name: "PreToolUse", tool_name: "Read", tool_input: {} });
+			assert.equal(denied.hookSpecificOutput.permissionDecision, "deny");
+		}
+		assert.equal(options[1].hooks, options[0].hooks);
+	});
+
 	it("clears transient rebuild flags after a successful query", async () => {
 		// arrange
 		runInRequestLane("clear-flags", () => __testSetBridgeIntegrityState({ sharedSession: {
@@ -213,14 +246,15 @@ describe("ordinary provider stream", () => {
 		__testSetSdkQueryFactory(() => query([
 			{ type: "system", subtype: "init", session_id: "session-tool" },
 			{ type: "stream_event", event: { type: "message_start", message: { id: "m1", model: model.id, usage: { input_tokens: 1 } } } },
-			{ type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "call-1", name: "mytool", input: {} } } },
+			{ type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "call-1", name: "mcp__custom-tools__mytool", input: {} } } },
 			{ type: "stream_event", event: { type: "content_block_stop", index: 0 } },
 			{ type: "stream_event", event: { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 5 } } },
 			{ type: "stream_event", event: { type: "message_stop" } },
 			{ type: "result", subtype: "error_during_execution", errors: ["internal server error"] },
 		]));
 		// act
-		const events = await collect(streamNormalized(model, context, { sessionId: "post-boundary-failure" }));
+		const withTool = { ...context, tools: [{ name: "mytool", description: "", parameters: { type: "object" } }] };
+		const events = await collect(streamNormalized(model, withTool, { sessionId: "post-boundary-failure" }));
 		// assert
 		assert.ok(events.some((event) => event.type === "done" && event.reason === "toolUse"));
 		assert.equal(await waitFor(() => runInRequestLane("post-boundary-failure", () => ctx().activeQuery === null)), true);

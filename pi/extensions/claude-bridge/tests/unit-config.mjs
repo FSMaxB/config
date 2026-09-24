@@ -84,10 +84,10 @@ describe("loadConfig", () => {
 		assert.equal(config.provider?.modelEffortOverrides, undefined);
 	}));
 
-	it("does not allow trusted projects to enable cloud connectors while they remain supported", () => withTempDirs(({ project }) => {
+	it("ignores removed cloud and isolation opt-outs in trusted projects", () => withTempDirs(({ project }) => {
 		// arrange
 		writeFileSync(join(project, ".pi", "claude-bridge.json"), JSON.stringify({ provider: {
-			fastMode: true, enableConnectors: true, connectorWriteMode: "allow",
+			fastMode: true, enableConnectors: true, connectorWriteMode: "allow", strictMcpConfig: false,
 		} }));
 		recordProjectTrust({ cwd: project, isProjectTrusted: () => true });
 		// act
@@ -96,6 +96,7 @@ describe("loadConfig", () => {
 		assert.equal(config.provider?.fastMode, true);
 		assert.equal(config.provider?.enableConnectors, undefined);
 		assert.equal(config.provider?.connectorWriteMode, undefined);
+		assert.equal(config.provider?.strictMcpConfig, undefined);
 	}));
 
 	it("ignores flat keys, manager settings, and removed prompt hooks", () => withTempDirs(({ user, project }) => {
@@ -105,7 +106,7 @@ describe("loadConfig", () => {
 		} } } }));
 		writeFileSync(join(user, "claude-bridge.json"), JSON.stringify({
 			fastMode: true, includeAppendSystemPromptMd: true,
-			provider: { unknownSetting: "ignored" },
+			provider: { unknownSetting: "ignored", strictMcpConfig: false, enableConnectors: true },
 			promptContext: { includeCavemanHook: true },
 		}));
 		// act

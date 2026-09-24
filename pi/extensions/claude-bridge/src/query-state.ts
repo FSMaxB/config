@@ -7,7 +7,6 @@
 
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources";
 import type { AssistantMessage, AssistantMessageEventStream, Model, SimpleStreamOptions, TranscriptContext } from "@earendil-works/pi-ai";
-import { isConnectorTool } from "./connectors.js";
 import type { McpResult } from "./extract-tool-results.js";
 import { currentRequestLaneId } from "./request-lane.js";
 
@@ -168,22 +167,8 @@ export function takeQueuedOrParkedResult(queryCtx: QueryContext, id: string): Mc
 	return undefined;
 }
 
-/** One connector call's audit state for the life of a query. `recorded` means an
- *  entry for it has already been appended (or attempted), so neither a re-yielded
- *  result nor the teardown flush can record it twice. */
-/** Why pi's messages can never carry this call: a claude.ai connector the child
- *  ran itself, or a foreign MCP tool it loaded from filesystem settings. Only a
- *  connector backs the connector audit trail. */
-export type ChildSideCallKind = "connector" | "foreign-mcp";
-
 export interface ChildSideCallState {
 	name: string;
-	kind: ChildSideCallKind;
-	/** The child session that issued it, captured when the call was seen — a
-	 *  continuation query gets its own, and a call is audited against the session
-	 *  that actually made it. */
-	childSessionId?: string;
-	recorded: boolean;
 }
 
 export interface TurnToolCallRecord {
@@ -333,9 +318,7 @@ export class QueryContext {
 	reportedToolResultMismatch = false;
 	deferredUserMessages: DeferredUserMessage[] = [];
 	handledTerminalError = false;
-	// Once visible text/thinking, a complete tool call, or a child-executed
-	// connector/foreign-MCP dispatch reaches Pi, the request must never be
-	// replayed on another account (duplicate side effects). Query-scoped, not per-turn:
+	// Records visible output or an unexpected child-side call. Query-scoped:
 	// resetTurnState must not clear it.
 	committedOutput = false;
 	/** True when this query holds NO claim on the module-level shared session
@@ -354,47 +337,16 @@ export class QueryContext {
 	 *  by schedule/cancelToolUseTurnEnd in assistant-stream.ts. */
 	scheduledToolUseEnd: { stream: unknown; timer: ReturnType<typeof setTimeout> } | null = null;
 
-	// Tool calls the CHILD executes itself (see isChildExecutedTool).
-	// Deliberately NOT in turnToolCalls/turnToolCallIds: those track calls Pi
-	// owes a result for, and Pi owes nothing here. CONNECTORS ONLY — kept so the
-	// child's real result can be recognized when it comes back on the SDK's
-	// `user` message and audited. A child-internal built-in (ToolSearch et al.)
-	// never enters this map: its result needs no recognition and no audit, only
-	// its streamed deltas need skipping (childExecutedStreamIndexes below).
-	/** tool_use id → raw SDK tool name. */
-	childExecutedToolCalls = new Map<string, string>();
-	/**
-	 * Every call the CHILD executed that pi's messages cannot carry — a claude.ai
-	 * connector, or a foreign MCP tool the child loaded itself — keyed by tool_use
-	 * id. Nothing can rebuild these from pi's context, so a history handover is
-	 * refused while the map is non-empty. Connector entries also back the
-	 * connector-call audit trail (see connector-audit.ts).
-	 *
-	 * Query-scoped and deliberately NOT cleared by resetToolTracking: that runs at
-	 * every child message boundary, and a call issued in one child message is only
-	 * reconciled after that message ends. Clearing it there would make an abandoned
-	 * call unrecordable at teardown — which is the one case the trail exists for.
-	 * Fresh-query setup clears it instead, once teardown has flushed it: a reused
-	 * top-level context would otherwise answer for calls an earlier query made.
-	 */
+	/** Unexpected child-side calls are absent from Pi history, so a history
+	 *  handover must not replay them. Query-scoped across message boundaries. */
 	childSideCalls = new Map<string, ChildSideCallState>();
-	/** Claude Code session id for this query, from the SDK's `system` init message.
-	 *  Undefined until it arrives; the audit trail omits the field rather than
-	 *  guessing. */
-	childSessionId: string | undefined;
-	/** Anthropic content-block indexes of the current assistant message that carry
-	 *  a child-executed tool_use. Scoped to one message: cleared at message_start,
-	 *  and an index is released as soon as another block starts there. */
-	childExecutedStreamIndexes = new Set<number>();
 
 	// Usage accounting for a Pi turn that spans SEVERAL child assistant messages.
 	//
 	// Every child message is a separate billed API call, and each reports its own
 	// counters — `message_start`/`message_delta` REPLACE rather than accumulate. A
-	// Pi turn that ends at its first tool call spans one child message, where
-	// replacing is right. A turn containing a child-executed connector call keeps
-	// running across the child's follow-up messages, so replacing would silently
-	// drop everything the earlier ones billed.
+	// Pi turn can span multiple child messages, so replacing the counters
+	// would silently drop what earlier messages billed.
 	//
 	// So: `turnUsageCarry` holds the totals of the child messages already COMPLETE
 	// in this Pi turn, `currentMessageUsage` holds the one in flight, and the Pi
@@ -478,57 +430,16 @@ export class QueryContext {
 		this.resolvedToolResultIds.clear();
 		this.unmatchedToolResultIds.clear();
 		this.reportedToolResultMismatch = false;
-		this.childExecutedToolCalls.clear();
-		this.childExecutedStreamIndexes.clear();
 		this.suppressedStreamIndexes.clear();
 	}
 
-	/** Note a tool_use the child runs itself. `streamIndex` is present only on the
-	 *  streamed path, where later deltas/stops for that block must be skipped —
-	 *  that skip applies to every child-executed call. Result recognition and the
-	 *  connector-call audit apply to CONNECTORS only: a child-internal built-in
-	 *  (ToolSearch et al.) is tool plumbing, not account-data access, so nothing
-	 *  about it belongs in the audit trail and no result needs matching. */
-	noteChildExecutedToolCall(id: string | undefined, rawName: string, streamIndex?: number): void {
-		if (isConnectorTool(rawName)) {
-			// A connector call is an account-visible side effect the child may run
-			// before any Pi-visible event; crossing it permanently forbids account
-			// replay even when the result or a later text delta never arrives.
-			// Child-internal built-ins (ToolSearch et al.) are pure plumbing and
-			// deliberately do NOT commit — an early ToolSearch must not make the
-			// whole turn non-rotatable.
-			this.markOutputCommitted();
-		}
-		if (id && isConnectorTool(rawName)) {
-			this.childExecutedToolCalls.set(id, rawName);
-			// Both emission paths can see the same call (streamed block, then the
-			// SDK's completed copy), so never overwrite an existing audit state —
-			// that would resurrect one already recorded.
-			if (!this.childSideCalls.has(id)) {
-				this.childSideCalls.set(id, {
-					name: rawName,
-					kind: "connector",
-					...(this.childSessionId ? { childSessionId: this.childSessionId } : {}),
-					recorded: false,
-				});
-			}
-		}
-		if (typeof streamIndex === "number") this.childExecutedStreamIndexes.add(streamIndex);
-	}
-
-	/** A foreign MCP tool the child loaded from filesystem settings and ran
-	 *  itself. Pi never sees the call or its result, so it commits the turn the
-	 *  same way a connector does and joins the same map: a rebuild from pi's
-	 *  context would erase an account-visible operation the model could repeat. */
-	noteForeignMcpToolCall(id: string | undefined, rawName: string): void {
+	/** A child-side call absent from Pi history must block an automatic restart.
+	 *  SDK streams may report no tool id; a sentinel preserves the guard. */
+	noteUnexpectedChildCall(id: unknown, rawName: unknown): void {
 		this.markOutputCommitted();
-		if (!id || this.childSideCalls.has(id)) return;
-		this.childSideCalls.set(id, {
-			name: rawName,
-			kind: "foreign-mcp",
-			...(this.childSessionId ? { childSessionId: this.childSessionId } : {}),
-			recorded: false,
-		});
+		const key = typeof id === "string" && id ? id : `<unknown-${this.childSideCalls.size}>`;
+		if (this.childSideCalls.has(key)) return;
+		this.childSideCalls.set(key, { name: typeof rawName === "string" && rawName ? rawName : "<unknown>" });
 	}
 
 	recordToolCall(id: string | undefined, toolName: string, args: Record<string, unknown> = {}): void {

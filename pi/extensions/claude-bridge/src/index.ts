@@ -15,33 +15,9 @@ import { NATIVE_PROVIDER_UNSUPPORTED_MESSAGE, buildNativeProvider, supportsNativ
 import { createToolServer, type BridgedTool } from "./tool-server.js";
 import { resolveGetModels } from "./pi-ai-compat.js";
 import { conversationMessages } from "./transcript.js";
-// Re-exported from the extension entry point ON PURPOSE. Consuming apps
-// regenerate their vendored package.json with a CLOSED exports map
-// ({".": "./bundle/index.js"}), which makes Node reject BOTH a subpath import
-// and a deep path into the package (ERR_PACKAGE_PATH_NOT_EXPORTED) — verified.
-// So the ./connector-inventory entry point alone does not reach them. Naming
-// these here puts them in bundle/index.js's own export list, which is the one
-// path their existing manifest already allows, and incidentally keeps esbuild
-// from tree-shaking helpers index.ts never calls itself.
-export {
-	connectorProxyUrl,
-	connectorServerName,
-	connectorServerNamespace,
-	connectorsListUrl,
-	credentialCandidatePaths,
-	listAccountConnectors,
-	resolveClaudeOAuth,
-	type ClaudeOAuthCredentials,
-	type ConnectorEntry,
-	type ConnectorInventory,
-} from "./connector-inventory.js";
-export { connectorCachePath, connectorCacheScopeKey, readCachedConnectors, scopeKeyFor, writeCachedConnectors } from "./connector-cache.js";
-export { connectorServersSnapshot, primeConnectorServers } from "./connector-runtime.js";
 import { debug, diagDump, makeCliDebugOptions, moduleInstanceId } from "./debug.js";
 import { preflightClaudeExecutable, resolveClaudeExecutable } from "./claude-executable.js";
 import { appendIntegrityEntry, argKeys, deleteSharedSessionLane, extensionApi, getSharedSession, markSessionForRebuild, recordStartedLane, reportToolResultMismatch, safeNotify, safeToolCallSummary, setExtensionApi, setPiUI, setSharedSession, takeStartedLane, type SessionState } from "./bridge-state.js";
-import { connectorsEnabledFor, isChildExecutedTool } from "./connectors.js";
-import { primeConnectorServers } from "./connector-runtime.js";
 import { cancelScheduledSessionPersistence, conversationFingerprint, restoreSharedSessionFromPi, schedulePersistSharedSession, syncSharedSession } from "./session-persistence.js";
 import { STREAM_IDLE_BACKOFF_HINT_MS, activeStreamIdleWatchdogs, buildStreamIdleTimeoutErrorMessage, createStreamIdleWatchdog, formatDurationShort, streamIdleTimeoutMsFromEnv } from "./stream-idle-watchdog.js";
 import { RATE_LIMIT_TOKEN } from "./rate-limit.js";
@@ -62,14 +38,14 @@ export { __testSetSdkQueryFactory } from "./sdk-query.js";
 export { resolveConfiguredEffort } from "./query-options.js";
 export { classifyClaudeExecutableBytes, preflightClaudeExecutable, resolveClaudeExecutable, spawnClaudeCodeWithDiagnostics, wrapClaudeSpawnErrorForSdk, type ClaudeExecutableFileType, type ClaudeExecutablePreflightResult } from "./claude-executable.js";
 export { __testGetBridgeIntegrityState, __testSetBridgeIntegrityState, INTEGRITY_CUSTOM_TYPE, appendIntegrityEntry, reportToolResultMismatch } from "./bridge-state.js";
-export { CONNECTOR_CALL_CUSTOM_TYPE, connectorResultByteSize, flushConnectorCallAudit, recordConnectorCallResult, setConnectorCallAuditSink, type ConnectorCallAuditData, type ConnectorCallAuditSink, type ConnectorCallOutcome } from "./connector-audit.js";
-export { CLAUDE_AI_CONNECTOR_TOOL_PATTERNS, connectorMcpServers, connectorDeclarationsDisabled, CLAUDE_BRIDGE_TOOL_ISOLATION, CONNECTOR_DISCOVERY_TOOLS, CONNECTOR_WRITE_TOOLS, DISALLOWED_BUILTIN_TOOLS, connectorBuiltinAllowlistHook, connectorQueryOptions, connectorWriteDenyHook, connectorWriteModeFor, connectorWriteModeFromEnv, connectorsEnabledFor, connectorsEnabledFromEnv, denyAllToolsHook, isAllowlistedConnectorSessionTool, isChildExecutedTool, isChildInternalTool, isConnectorTool, isConnectorWriteTool, settingSourcesForQuery, toolIsolationForQuery } from "./connectors.js";
+export { CLAUDE_BRIDGE_TOOL_ISOLATION, DISALLOWED_BUILTIN_TOOLS, bridgeOnlyToolHook } from "./tool-isolation.js";
+export { settingSourcesForQuery } from "./query-options.js";
 export { cancelScheduledSessionPersistence, conversationFingerprint, conversationFingerprintsMatch, planIncrementalPromptBatch, restoreSharedSessionFromPi, shouldRestorePersistedBridgeEntry } from "./session-persistence.js";
 export { NATIVE_PROVIDER_UNSUPPORTED_MESSAGE, buildNativeProvider, claudeAuthSourceLabel, supportsNativeProvider } from "./native-provider.js";
 export { DEFAULT_STREAM_IDLE_TIMEOUT_MS, STREAM_IDLE_BACKOFF_HINT_MS, STREAM_IDLE_TIMEOUT_ENV, buildStreamIdleTimeoutErrorMessage, createStreamIdleWatchdog, streamIdleTimeoutMsFromEnv, type StreamIdleTimeoutInfo, type StreamIdleWatchdog, type StreamIdleWatchdogState } from "./stream-idle-watchdog.js";
 export { ALLOWED_RATE_LIMIT_WARNING_UTILIZATION_THRESHOLD, formatAllowedRateLimitWarning, formatResetTimestamp, isUsageLimitMessage, normalizeRateLimitUtilization, resetTimestampMs, uniqueNonEmptyLines } from "./rate-limit.js";
 export { isPiDispatchable, mapToolName } from "./tool-mapping.js";
-export { cancelScheduledToolUseEnd, endToolUseTurn, finalizeToolUseTurnFromMcpInvocation, noteChildExecutedToolResults, processAssistantMessage, processStreamEvent, reapStaleQueuedResults, scheduleToolUseTurnEnd } from "./assistant-stream.js";
+export { cancelScheduledToolUseEnd, endToolUseTurn, finalizeToolUseTurnFromMcpInvocation, processAssistantMessage, processStreamEvent, reapStaleQueuedResults, scheduleToolUseTurnEnd } from "./assistant-stream.js";
 export { classifyClaudeFailure, rateLimitResetFromInfo, rateLimitResetMs, rateLimitTypeFromInfo } from "./claude-failure.js";
 
 // Compat (#2): use factory if available (pi-ai ≥0.66), else fall back to constructor (gsd-pi etc.)
@@ -249,18 +225,6 @@ export function resolveMcpTools(context: TranscriptContext, excludeToolName?: st
 	// removed mid-conversation.
 	for (const tool of getCurrentTools(context.messages)) {
 		if (tool.name === excludeToolName) continue;
-		// Never re-offer a tool the child owns natively. The claude.ai connector
-		// namespace belongs to the child's own MCP servers, so a Pi tool sitting
-		// on it would be advertised a SECOND time under our prefix — two names
-		// for one capability, and the model picking the wrong one gets a real
-		// `Tool... not found` from the dispatcher. It would also
-		// be uncallable in any case: a `tool_use` under that namespace is treated
-		// as child-executed and never handed to Pi (isChildExecutedTool), so
-		// filtering here is what makes the two halves agree end to end.
-		if (isChildExecutedTool(tool.name)) {
-			debug(`resolveMcpTools: not re-offering child-native tool ${tool.name}`);
-			continue;
-		}
 		const sdkName = `${MCP_TOOL_PREFIX}${tool.name}`;
 		mcpTools.push(tool);
 		// Case-insensitive aliases mean two tools differing only by case would
@@ -456,9 +420,6 @@ function applyProviderRegistration(trigger: string): void {
 		return;
 	}
 	debug(`${trigger}: native registration upsert, credentialed=${hasClaudeCredentials()} (module=${moduleInstanceId})`);
-	// The query path reads a synchronous connector snapshot, so prime it
-	// before turn 1 without blocking provider registration on the network.
-	if (hasClaudeCredentials() && connectorsEnabledFor(loadConfig(process.cwd()))) primeConnectorServers();
 	// Claim ordering: stream guard BEFORE registerProvider so a concurrent
 	// subagent can never observe a registered provider without an owner.
 	g[ACTIVE_STREAM_SIMPLE_KEY] = streamClaudeAgentSdk;
@@ -580,7 +541,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 			// and no such tool runs again. The dying query's own chain performs the
 			// restart, once teardown has released the query state.
 			//
-			// Except when the CHILD ran a call pi never sees — a claude.ai connector,
+			// Except when the CHILD ran an unexpected foreign call Pi never sees,
 			// or a foreign MCP tool it loaded from filesystem settings. Those calls are
 			// never mirrored into pi's messages and their results are observed at most,
 			// never recorded, so no rebuild from pi's context can carry them. Handing
@@ -893,7 +854,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 		: promptText;
 	const mcpServers = buildMcpServers(mcpTools, ctx());
 	// Pure SDK query-option assembly — see buildClaudeQueryOptions for the
-	// connector, prompt-append, setting-source, effort, and env rationale.
+	// tool isolation, prompt-append, setting-source, effort, and env rationale.
 	const built = buildClaudeQueryOptions({
 		cwd,
 		requestedModel: model,
@@ -910,7 +871,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 		`model=${model.id} msgs=${conversation.length} tools=${mcpTools.length}`,
 		`resume=${resumeSessionId?.slice(0, 8) ?? "none"} effort=${built.effort ?? "default"}`,
 		`fallback=${built.fallbackModel ?? "none"}`,
-		`appendSys=${built.appendSystemPrompt} promptCtx=${built.promptContextLabels.join(",") || "none"} strictMcp=${built.strictMcpConfigEnabled} fastMode=${providerSettings.fastMode === true} connectors=${built.enableCloudMcp}`,
+		`appendSys=${built.appendSystemPrompt} promptCtx=${built.promptContextLabels.join(",") || "none"} strictMcp=true fastMode=${providerSettings.fastMode === true}`,
 		`claudeExec=${claudeExecutablePreflight ? `${claudeExecutablePreflight.fileType}:${claudeExecutablePreflight.path}` : "sdk-default"}`,
 		`prompt=${promptText.slice(0, 60)}${promptBlocks ? " [+images]" : ""}`);
 

@@ -2,21 +2,21 @@ import { it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { processAssistantMessage, processStreamEvent } from "../src/index.ts";
 import { ctx, resetStack } from "../src/query-state.ts";
-const CONNECTOR_TOOL = "mcp__claude_ai_Slack__slack_read_user_profile";
+const FOREIGN_TOOL = "mcp__foreign__read_user_profile";
 import { model, installFakeStream, streamEvent } from "./lib/tool-stream.mjs";
 import { cancelScheduledToolUseEnd } from "../src/assistant-stream.ts";
 afterEach(() => cancelScheduledToolUseEnd(ctx()));
 
 beforeEach(() => resetStack());
 const childRoutes = [
-	{ name: "connector stream", tool: CONNECTOR_TOOL, id: "toolu_conn", input: { user_id: "U1" }, route: "stream", owned: true },
-	{ name: "ToolSearch stream", tool: "ToolSearch", id: "toolu_ts", input: { query: "select:WebFetch" }, route: "stream", owned: false },
-	{ name: "connector message stop", tool: CONNECTOR_TOOL, id: "toolu_conn", input: {}, route: "stop", owned: true },
-	{ name: "ToolSearch message stop", tool: "ToolSearch", id: "toolu_ts", input: {}, route: "stop", owned: false },
-	{ name: "connector assistant boundary", tool: CONNECTOR_TOOL, id: "toolu_conn", input: { user_id: "U1" }, route: "boundary", owned: true },
-	{ name: "ToolSearch assistant boundary", tool: "ToolSearch", id: "toolu_ts", input: { query: "select:WebFetch" }, route: "boundary", owned: false },
-	{ name: "connector fallback", tool: CONNECTOR_TOOL, id: "toolu_conn", input: { user_id: "U1" }, route: "fallback", owned: true },
-	{ name: "ToolSearch fallback", tool: "ToolSearch", id: "toolu_ts", input: { query: "select:WebFetch" }, route: "fallback", owned: false },
+	{ name: "foreign stream", tool: FOREIGN_TOOL, id: "toolu_foreign", input: {}, route: "stream" },
+	{ name: "ToolSearch stream", tool: "ToolSearch", id: "toolu_ts", input: {}, route: "stream" },
+	{ name: "foreign message stop", tool: FOREIGN_TOOL, id: "toolu_foreign", input: {}, route: "stop" },
+	{ name: "ToolSearch message stop", tool: "ToolSearch", id: "toolu_ts", input: {}, route: "stop" },
+	{ name: "foreign assistant boundary", tool: FOREIGN_TOOL, id: "toolu_foreign", input: {}, route: "boundary" },
+	{ name: "ToolSearch assistant boundary", tool: "ToolSearch", id: "toolu_ts", input: {}, route: "boundary" },
+	{ name: "foreign fallback", tool: FOREIGN_TOOL, id: "toolu_foreign", input: {}, route: "fallback" },
+	{ name: "ToolSearch fallback", tool: "ToolSearch", id: "toolu_ts", input: {}, route: "fallback" },
 ];
 for (const row of childRoutes) it(row.name, () => {
 	resetStack();
@@ -24,16 +24,17 @@ for (const row of childRoutes) it(row.name, () => {
 	c.resetTurnState(model);
 	const events = installFakeStream();
 	const call = { type: "tool_use", id: row.id, name: row.tool, input: row.input };
+	const manifest = new Map([["mcp__custom-tools__read", "read"]]);
 	if (row.route === "stream" || row.route === "stop") {
-		processStreamEvent(streamEvent({ type: "content_block_start", index: 0, content_block: call }), new Map(), model);
+		processStreamEvent(streamEvent({ type: "content_block_start", index: 0, content_block: call }), manifest, model);
 		if (row.route === "stream") {
-			processStreamEvent(streamEvent({ type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify(row.input) } }), new Map(), model);
-			processStreamEvent(streamEvent({ type: "content_block_stop", index: 0 }), new Map(), model);
-		} else processStreamEvent(streamEvent({ type: "message_stop" }), new Map(), model);
+			processStreamEvent(streamEvent({ type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify(row.input) } }), manifest, model);
+			processStreamEvent(streamEvent({ type: "content_block_stop", index: 0 }), manifest, model);
+		} else processStreamEvent(streamEvent({ type: "message_stop" }), manifest, model);
 	} else {
 		c.turnSawStreamEvent = row.route === "boundary";
 		const content = row.route === "fallback" ? [{ type: "text", text: "checking" }, call] : [call];
-		processAssistantMessage({ type: "assistant", message: { content } }, model, new Map());
+		processAssistantMessage({ type: "assistant", message: { content } }, model, manifest);
 	}
 	assert.deepEqual({
 		blocks: c.turnBlocks.map((b) => b.type),
@@ -41,19 +42,18 @@ for (const row of childRoutes) it(row.name, () => {
 		toolIds: c.turnToolCallIds,
 		queued: c.pendingResults.size,
 		streamOpen: c.currentPiStream !== null,
-		ownedCalls: [...c.childExecutedToolCalls],
-		audit: [...c.childSideCalls].map(([id, entry]) => [id, entry.name]),
-	}, { blocks: row.route === "fallback" ? ["text"] : [], toolBoundary: false, toolIds: [], queued: 0, streamOpen: true, ownedCalls: row.owned ? [[row.id, row.tool]] : [], audit: row.owned ? [[row.id, row.tool]] : [] });
-	if (row.route === "stream") assert.deepEqual({ events: events.map((event) => event.type), skipped: c.childExecutedStreamIndexes.has(0) }, { events: ["start"], skipped: true });
+		unexpected: [...c.childSideCalls].map(([id, entry]) => [id, entry.name]),
+	}, { blocks: row.route === "fallback" ? ["text"] : [], toolBoundary: false, toolIds: [], queued: 0, streamOpen: true, unexpected: [[row.id, row.tool]] });
+	if (row.route === "stream") assert.deepEqual({ events: events.map((event) => event.type), skipped: c.suppressedStreamIndexes.has(0) }, { events: ["start"], skipped: true });
 });
 
 const foreignRoutes = [
-	["bare stream", "grep", "stream", false], ["nameless stream", undefined, "stream", false],
-	["foreign stream", "mcp__filesystem__read_file", "stream", true], ["foreign slash stream", "mcp/filesystem/read_file", "stream", true],
-	["foreign boundary", "mcp__filesystem__read_file", "boundary", true], ["foreign fallback", "mcp__filesystem__read_file", "fallback", true],
-	["bare fallback", "bash", "fallback", false],
+	["bare stream", "grep", "stream"], ["nameless stream", undefined, "stream"],
+	["foreign stream", "mcp__filesystem__read_file", "stream"], ["foreign slash stream", "mcp/filesystem/read_file", "stream"],
+	["foreign boundary", "mcp__filesystem__read_file", "boundary"], ["foreign fallback", "mcp__filesystem__read_file", "fallback"],
+	["bare fallback", "bash", "fallback"],
 ];
-for (const [name, toolName, route, committed] of foreignRoutes) it(name, () => {
+for (const [name, toolName, route] of foreignRoutes) it(name, () => {
 	resetStack();
 	const c = ctx();
 	c.resetTurnState(model);
@@ -67,10 +67,10 @@ for (const [name, toolName, route, committed] of foreignRoutes) it(name, () => {
 		c.turnSawStreamEvent = route === "boundary";
 		processAssistantMessage({ type: "assistant", message: { content: [call] } }, model, manifest);
 	}
-	assert.deepEqual([c.turnBlocks.length, c.turnSawToolCall, c.turnToolCallIds, c.committedOutput], [0, false, [], committed]);
+	assert.deepEqual([c.turnBlocks.length, c.turnSawToolCall, c.turnToolCallIds, c.committedOutput], [0, false, [], true]);
 });
 
-it("keeps streaming the answer text into the same Pi message after the connector call", () => {
+it("keeps streaming the answer text into the same Pi message after a foreign call", () => {
 		const c = ctx();
 		c.resetTurnState(model);
 		installFakeStream();
@@ -78,7 +78,7 @@ it("keeps streaming the answer text into the same Pi message after the connector
 		processStreamEvent(streamEvent({
 			type: "content_block_start",
 			index: 0,
-			content_block: { type: "tool_use", id: "toolu_conn", name: CONNECTOR_TOOL, input: {} },
+			content_block: { type: "tool_use", id: "toolu_conn", name: FOREIGN_TOOL, input: {} },
 		}), new Map(), model);
 		processStreamEvent(streamEvent({ type: "content_block_stop", index: 0 }), new Map(), model);
 		// The child's follow-up assistant message reuses index 0 for its text block.
@@ -100,7 +100,7 @@ it("keeps streaming the answer text into the same Pi message after the connector
 		assert.equal(c.turnBlocks[0].text, "Brad Mahaffey", "a stale skip-index must not swallow real text");
 	});
 
-it("still mirrors a Pi tool call alongside a connector call in the same message", () => {
+it("still mirrors a Pi tool call alongside a foreign call in the same message", () => {
 		const c = ctx();
 		c.resetTurnState(model);
 		installFakeStream();
@@ -110,7 +110,7 @@ it("still mirrors a Pi tool call alongside a connector call in the same message"
 			type: "assistant",
 			message: {
 				content: [
-					{ type: "tool_use", id: "toolu_conn", name: CONNECTOR_TOOL, input: {} },
+					{ type: "tool_use", id: "toolu_conn", name: FOREIGN_TOOL, input: {} },
 					{ type: "tool_use", id: "toolu_pi", name: "mcp__custom-tools__read", input: { file_path: "README.md" } },
 				],
 			},
@@ -146,11 +146,7 @@ it("still mirrors a Pi tool coincidentally named like a child built-in", () => {
 		assert.equal(c.turnSawToolCall, true);
 	});
 
-it("mirrors a streamed MCP-resource read under its stream-side spelling (kendex#1007)", () => {
-		// What actually arrives on the stream is the SDK's ALIASED name
-		// (`ReadMcpResourceTool`, not the request-side `ReadMcpResource`), and it
-		// must surface in Pi: the mirror is the resource-read audit surface for
-		// hosts with no view of the child transcript.
+it("rejects an unprovided streamed MCP-resource read", () => {
 		const c = ctx();
 		c.resetTurnState(model);
 		installFakeStream();
@@ -161,13 +157,12 @@ it("mirrors a streamed MCP-resource read under its stream-side spelling (kendex#
 			content_block: { type: "tool_use", id: "toolu_rr", name: "ReadMcpResourceTool", input: {} },
 		}), new Map([["mcp__custom-tools__grep", "grep"]]), model);
 
-		assert.equal(c.turnBlocks.length, 1, "a resource read is a visible Pi tool call");
-		assert.equal(c.turnBlocks[0].name, "ReadMcpResourceTool");
-		assert.equal(c.turnSawToolCall, true);
-		assert.equal(c.childExecutedStreamIndexes.has(0), false, "its deltas must stream, not be skipped");
+		assert.equal(c.turnBlocks.length, 0, "an unprovided resource read is not a Pi tool call");
+		assert.equal(c.turnSawToolCall, false);
+		assert.equal(c.suppressedStreamIndexes.has(0), true);
 	});
 
-it("mirrors an MCP-resource enumeration on the assistant-boundary path too (kendex#1007)", () => {
+it("rejects an unprovided MCP-resource enumeration on the assistant-boundary path", () => {
 		const c = ctx();
 		c.resetTurnState(model);
 		installFakeStream();
@@ -180,7 +175,6 @@ it("mirrors an MCP-resource enumeration on the assistant-boundary path too (kend
 			},
 		}, model, new Map([["mcp__custom-tools__grep", "grep"]]));
 
-		assert.equal(c.turnBlocks.length, 1);
-		assert.equal(c.turnBlocks[0].name, "ListMcpResourcesTool");
-		assert.equal(c.turnSawToolCall, true);
+		assert.equal(c.turnBlocks.length, 0);
+		assert.equal(c.turnSawToolCall, false);
 	});

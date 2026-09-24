@@ -7,10 +7,6 @@
 //    retention boundary.
 // 2. The deferred_user_messages_dropped entry carries counts/sites/lengths
 //    only — never message content.
-// 3. debug() evaluates function args lazily (after the DEBUG early return),
-//    and the per-SDK-message call site in consumeQuery uses that: the payload
-//    must not be built when DEBUG is off, because stream_event arrives once
-//    per streamed token.
 //
 // The DEBUG flag is read once at module load, so the two gating states are
 // exercised in child processes with a controlled environment; the in-process
@@ -28,7 +24,6 @@ import assert from "node:assert/strict";
 delete process.env.CLAUDE_BRIDGE_DEBUG;
 const { DEBUG, diagGuidance, diagLogPath } = await import("../src/debug.ts");
 const { summarizeDroppedUserMessages } = await import("../src/query-state.ts");
-const { consumeQuery } = await import("../src/consume-query.ts");
 
 const pkgRoot = fileURLToPath(new URL("..", import.meta.url));
 let dir;
@@ -132,38 +127,4 @@ describe("deferred_user_messages_dropped entry (VST-15)", () => {
 	});
 });
 
-describe("consumeQuery managed-message debug is lazy (VST-15)", () => {
-	it("does not build the payload when DEBUG is off", async () => {
-		assert.equal(DEBUG, false, "precondition: this test process must run with DEBUG off");
 
-		let payloadTouched = false;
-		const message = {
-			type: "stream_event",
-			subtype: undefined,
-			error: undefined,
-			get event() {
-				payloadTouched = true;
-				return undefined;
-			},
-		};
-		async function* fakeSdkQuery() {
-			yield message;
-		}
-		// Minimal captured context: no turn output, so the loop falls through
-		// right after the managed-message debug call under test.
-		const queryCtx = { turnOutput: null, currentPiStream: null };
-		const result = await consumeQuery(
-			fakeSdkQuery(),
-			queryCtx,
-			new Map(),
-			{ id: "test-model", provider: "test" },
-			{},
-			() => false,
-			() => {},
-			{ profileId: "profile-1", label: "Test account" },
-		);
-
-		assert.equal(payloadTouched, false, "the debug payload must not be evaluated when DEBUG is off");
-		assert.equal(result.failure, undefined);
-	});
-});

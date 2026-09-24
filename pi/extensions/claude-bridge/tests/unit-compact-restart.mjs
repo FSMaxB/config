@@ -303,11 +303,9 @@ describe("compaction while a bridge query waits for a tool result", () => {
 		});
 	});
 
-	// Both kinds of child-side call are invisible to pi and unrecoverable from its
-	// context, so both must refuse the handover.
 	for (const { kind, toolName } of [
-		{ kind: "a claude.ai connector", toolName: "mcp__claude_ai_slack__post_message" },
 		{ kind: "a foreign MCP tool", toolName: "mcp__linear__create_issue" },
+		{ kind: "a bare built-in", toolName: "ToolSearch" },
 	]) {
 		it(`declines the handover when the child ran ${kind} itself`, { timeout: 10_000 }, async () => {
 			await withBridge(async ({ root, calls, firstQuery }) => {
@@ -373,25 +371,25 @@ describe("compaction while a bridge query waits for a tool result", () => {
 		}, closeThrowingQuery);
 	});
 
-	it("hands over a later connector-free turn in the same lane", { timeout: 10_000 }, async () => {
+	it("hands over a later clean turn in the same lane", { timeout: 10_000 }, async () => {
 		await withBridge(async ({ root, calls, queued, firstQuery }) => {
-			// Turn one runs a connector and finishes; its audit belongs to that query.
+			// The previous query's foreign-call guard must not leak into a new query.
 			firstQuery.release();
-			assert.equal(await waitFor(() => ctx().activeQuery === null), true, "the connector turn settled");
+			assert.equal(await waitFor(() => ctx().activeQuery === null), true, "the foreign-call turn settled");
 
 			const second = {};
 			queued.push(() => toolCallQuery(second));
-			await collect(streamNormalized(model, { messages: [user(SUMMARY), user("a turn with no connector")], tools: [tool] }, { cwd: root }));
+			await collect(streamNormalized(model, { messages: [user(SUMMARY), user("a turn with no foreign tool")], tools: [tool] }, { cwd: root }));
 			onPiHistoryReplaced("session_compact");
 
 			// The refused path leaves the callback stream open on the stale query, so
 			// wait for the replacement rather than for this stream to end.
 			streamNormalized(model, toolResultDelivery(), { cwd: root });
 
-			assert.equal(await waitFor(() => calls.length === 3), true, "this turn ran no connector, so the handover happens");
+			assert.equal(await waitFor(() => calls.length === 3), true, "this turn ran no foreign tool, so the handover happens");
 			assert.equal(calls[2].prompt, HISTORY_REPLACED_PROMPT, "on the replacement query");
 			assert.equal(second.closed, true, "and the stale query is stopped");
-		}, (record) => childSideQuery(record, "mcp__claude_ai_slack__post_message"));
+		}, (record) => childSideQuery(record, "mcp__linear__create_issue"));
 	});
 
 	it("ends the turn rather than restarting when the request is already aborted", { timeout: 10_000 }, async () => {

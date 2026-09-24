@@ -7,13 +7,12 @@ import type { McpSdkServerConfigWithInstance, query, EffortLevel, SettingSource 
 import { extractAgentsAppend } from "./agents-md.js";
 import { spawnClaudeCodeWithDiagnostics } from "./claude-executable.js";
 import { normalizeEffortLevel, type Config } from "./config.js";
-import { connectorQueryOptions, connectorWriteModeFor, connectorsEnabledFor, settingSourcesForQuery } from "./connectors.js";
-import { connectorServersSnapshot } from "./connector-runtime.js";
+import { CLAUDE_BRIDGE_TOOL_ISOLATION, bridgeOnlyToolHook } from "./tool-isolation.js";
 import { PROVIDER_ID } from "./convert.js";
 import { makeCliDebugOptions } from "./debug.js";
 import { fallbackModelForPrimaryModel } from "./models.js";
 import { buildPromptContextAppend } from "./prompt-context.js";
-import { extractSkillsBlock } from "./skills.js";
+import { extractSkillsBlock, MCP_SERVER_NAME } from "./skills.js";
 
 // --- Effort level mapping ---
 // Pi reasoning levels → CC SDK effort levels
@@ -58,10 +57,8 @@ export interface BuildClaudeQueryOptionsInput {
 export interface BuiltClaudeQueryOptions {
 	queryOptions: NonNullable<Parameters<typeof query>[0]["options"]>;
 	// Diagnostics-ish bits the caller's debug line reports.
-	enableCloudMcp: boolean;
 	appendSystemPrompt: boolean;
 	promptContextLabels: string[];
-	strictMcpConfigEnabled: boolean;
 	effort?: EffortLevel;
 	fallbackModel?: string;
 }
@@ -69,17 +66,6 @@ export interface BuiltClaudeQueryOptions {
 export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): BuiltClaudeQueryOptions {
 	const { cwd, requestedModel, bridgeConfig, systemPrompt, reasoning, resumeSessionId, mcpServers, claudeExecutable } = input;
 	const providerSettings = bridgeConfig.provider ?? {};
-	// Whether to expose the Claude account's claude.ai cloud MCP connectors
-	// (Gmail/Calendar/Drive). Enabled via env or config; drives setting-sources,
-	// tool isolation, and the ENABLE_CLAUDEAI_MCP_SERVERS child-env gate below.
-	const enableCloudMcp = connectorsEnabledFor(bridgeConfig);
-	// Connector WRITE control: read-only by default (writes denied); the one-shot
-	// approved-write executor sets CLAUDE_BRIDGE_CONNECTOR_WRITE=allow / config.
-	const connectorWriteMode = connectorWriteModeFor(bridgeConfig);
-	// Declare the account's connected connectors explicitly so `alwaysLoad` can
-	// hold startup until they attach — otherwise the turn-1 manifest is built
-	// before the CLI has fetched them.
-	const connectorServers = enableCloudMcp ? connectorServersSnapshot(process.env.CLAUDE_CONFIG_DIR) : {};
 	const appendSystemPrompt = providerSettings.appendSystemPrompt !== false;
 	const agentsAppend = appendSystemPrompt ? extractAgentsAppend() : undefined;
 	const skillsAppend = appendSystemPrompt ? extractSkillsBlock(systemPrompt) : undefined;
@@ -87,16 +73,9 @@ export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): Bu
 	const appendParts = [agentsAppend, skillsAppend, promptContextAppend.text].filter((part): part is string => Boolean(part));
 	const systemPromptAppend = appendParts.length > 0 ? appendParts.join("\n\n") : undefined;
 
-	// MCP auto-loading suppression: with appendSystemPrompt=true (default), the
-	// SDK uses isolation mode and avoids filesystem settings. If users turn that
-	// off, load user/project settings but pass --strict-mcp-config so Claude Code
-	// ignores auto-discovered filesystem MCP servers while Pi owns tool execution.
-	// Connectors mode needs settings resolution ON but restricted to USER scope
-	// only — project/local settings files can smuggle `env`/`apiKeyHelper` from
-	// a hostile checkout. Full rationale on settingSourcesForQuery.
-	const settingSources: SettingSource[] | undefined = settingSourcesForQuery(
-		enableCloudMcp, appendSystemPrompt, providerSettings.settingSources);
-	const strictMcpConfigEnabled = !appendSystemPrompt && providerSettings.strictMcpConfig !== false;
+	// The default prompt mode avoids filesystem settings. When users opt into
+	// settings, strict MCP config still prevents auto-discovered MCP servers.
+	const settingSources = settingSourcesForQuery(appendSystemPrompt, providerSettings.settingSources);
 	// Prefer the model's own thinkingLevelMap when present (pi-ai 0.72+ ships
 	// per-model overrides — e.g. opus-4-7 wants xhigh→xhigh, not xhigh→max).
 	// Fall back to our generic table for older pi-ai or unmapped levels.
@@ -126,18 +105,14 @@ export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): Bu
 	// also autocompact would double-flush the prompt cache and races pi's
 		// threshold with CC's, including CC's anti-thrashing guard.
 	// Manual /compact in CC still works (we never invoke it).
-	// When connectors are enabled, allow claude.ai cloud MCP servers so the
-	// authenticated account's Gmail/Calendar/Drive tools load. Default stays "0".
 	const childEnv = {
 		...process.env,
-		ENABLE_CLAUDEAI_MCP_SERVERS: enableCloudMcp ? "1" : "0",
+		ENABLE_CLAUDEAI_MCP_SERVERS: "0",
 		DISABLE_AUTO_COMPACT: "1",
 	};
 	const queryOptions: NonNullable<Parameters<typeof query>[0]["options"]> = {
 		cwd,
 		model: requestedModel.id,
-		env: childEnv,
-		...connectorQueryOptions(enableCloudMcp, connectorWriteMode),
 		permissionMode: "bypassPermissions",
 		includePartialMessages: true,
 		...(fallbackModel ? { fallbackModel } : {}),
@@ -147,25 +122,28 @@ export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): Bu
 			append: systemPromptAppend ? systemPromptAppend : undefined,
 		},
 		extraArgs,
-		...(strictMcpConfigEnabled ? { strictMcpConfig: true } : {}),
 		...(effort ? { effort } : {}),
 		...(settingSources ? { settingSources } : {}),
-		...(mcpServers || Object.keys(connectorServers).length > 0
-			? { mcpServers: { ...(mcpServers ?? {}), ...connectorServers } as NonNullable<Parameters<typeof query>[0]["options"]>["mcpServers"] }
-			: {}),
 		...(resumeSessionId ? { resume: resumeSessionId } : {}),
 		...(claudeExecutable ? { pathToClaudeCodeExecutable: claudeExecutable } : {}),
 		spawnClaudeCodeProcess: spawnClaudeCodeWithDiagnostics,
 		...makeCliDebugOptions("provider"),
+		...CLAUDE_BRIDGE_TOOL_ISOLATION,
+		strictMcpConfig: true,
+		hooks: { PreToolUse: [{ hooks: [bridgeOnlyToolHook()] }] },
+		mcpServers: mcpServers?.[MCP_SERVER_NAME] ? { [MCP_SERVER_NAME]: mcpServers[MCP_SERVER_NAME] } : {},
+		env: childEnv,
 	};
 
 	return {
 		queryOptions,
-		enableCloudMcp,
 		appendSystemPrompt,
 		promptContextLabels: promptContextAppend.labels,
-		strictMcpConfigEnabled,
 		...(effort ? { effort } : {}),
 		...(fallbackModel ? { fallbackModel } : {}),
 	};
+}
+
+export function settingSourcesForQuery(appendSystemPrompt: boolean, configured?: SettingSource[]): SettingSource[] | undefined {
+	return appendSystemPrompt ? undefined : configured ?? ["user", "project"];
 }
