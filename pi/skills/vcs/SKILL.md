@@ -32,7 +32,7 @@ description: Use before reading VCS status or history, before making changes in 
 - If `jj status` shows changes before you start, run `jj new` first so your work lands in a fresh revision on top of them.
 - Finalize each change with `jj commit <paths> -m "..."`, listing exactly the files you changed. This commits those files from the working-copy revision and leaves everything else in a new working-copy revision directly on top of it.
 - Finish with `jj status` showing no changes from your task in the working copy, whose parent is your completed change.
-- Never change the working-copy parent, move bookmarks, or rebase without asking.
+- `jj new` and `jj commit` on top of the current working copy are fine. Never move existing revisions to a different parent, move bookmarks, or rebase without asking.
 
 ## git
 
