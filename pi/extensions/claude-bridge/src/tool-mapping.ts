@@ -1,4 +1,3 @@
-import { isMcpResourceTool } from "./connectors.js";
 import { MCP_SERVER_NAME, MCP_TOOL_PREFIX } from "./skills.js";
 
 const SDK_TO_PI_TOOL_NAME: Record<string, string> = {
@@ -28,19 +27,16 @@ export function isForeignMcpTool(name: unknown): boolean {
 export function isPiDispatchable(name: unknown, customToolNameToPi?: Map<string, string>): boolean {
 	if (typeof name !== "string" || !name) return false;
 	const normalized = name.toLowerCase();
-	const hasManifest = Boolean(customToolNameToPi?.size);
 	if (customToolNameToPi?.has(name) || customToolNameToPi?.has(normalized)) return true;
 	const bridgedSuffix = bridgedToolSuffix(normalized);
 	if (bridgedSuffix !== undefined) {
-		if (!hasManifest) return true;
 		return customToolNameToPi?.has(`${MCP_TOOL_PREFIX}${bridgedSuffix}`) ?? false;
 	}
 	// A foreign MCP namespace belongs to a child-loaded server, not Pi's bridge.
 	if (isForeignMcpTool(name)) return false;
-	// Resource discovery is deliberately mirrored as Pi's account-access audit.
-	if (isMcpResourceTool(name)) return true;
-	// A populated manifest is authoritative: every other bare name is a naming slip.
-	return !hasManifest;
+	// Only names in Pi's manifest can be dispatched. Even an empty manifest
+	// cannot grant bare built-ins the right to run in Pi.
+	return false;
 }
 
 export function mapToolName(name: string, customToolNameToPi?: Map<string, string>): string {

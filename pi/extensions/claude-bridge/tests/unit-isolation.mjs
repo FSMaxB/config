@@ -279,8 +279,8 @@ describe("loadConfig isolation", () => {
 				const config = loadConfig(project);
 				assert.equal(config.provider?.fastMode, true);
 				assert.equal(config.provider?.pathToClaudeCodeExecutable, "/opt/project/claude");
-				assert.equal(config.provider?.enableConnectors, false);
-				assert.equal(config.provider?.connectorWriteMode, "deny");
+				assert.equal(config.provider?.enableConnectors, undefined);
+				assert.equal(config.provider?.connectorWriteMode, undefined);
 				assert.equal(config.enabled, true);
 			});
 			// Isolated mode reads only the user bridge file.
@@ -288,8 +288,8 @@ describe("loadConfig isolation", () => {
 				const config = loadConfig(project);
 				assert.equal(config.provider?.fastMode, false);
 				assert.equal(config.provider?.pathToClaudeCodeExecutable, "/opt/host/sha-pinned-claude");
-				assert.equal(config.provider?.enableConnectors, false);
-				assert.equal(config.provider?.connectorWriteMode, "deny");
+				assert.equal(config.provider?.enableConnectors, undefined);
+				assert.equal(config.provider?.connectorWriteMode, undefined);
 				assert.equal(config.enabled, true);
 			});
 		});

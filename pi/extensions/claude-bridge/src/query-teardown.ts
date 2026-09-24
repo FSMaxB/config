@@ -3,10 +3,9 @@
 // The two only differ while a reentrant (subagent) context is pushed, which is
 // exactly when a parent query ending abnormally (abort, child process death)
 // teardown must run against the parent state. Using the subagent state skips
-// the parent's drain, audit flush, and activeQuery clear, which leaks handlers.
+// the parent's drain and activeQuery clear, which leaks handlers.
 
 import { reportToolResultMismatch } from "./bridge-state.js";
-import { flushConnectorCallAudit } from "./connector-audit.js";
 import { debug } from "./debug.js";
 import { drainPendingToolCalls, popContextFor, type QueryContext, type ToolCallDrainCause } from "./query-state.js";
 
@@ -43,12 +42,6 @@ export function teardownQuery(
 	const drained = drainPendingToolCalls(queryCtx, cause);
 	if (drained > 0) debug(`provider: query teardown drained ${drained} waiting MCP handler(s) as errors (cause=${cause})`);
 	queryCtx.pendingResults.clear();
-
-	// Same idea for calls the CHILD owned: one whose result never came back
-	// is recorded as unobserved rather than left silent, so an answer in the
-	// transcript is never the only evidence a connector call was made.
-	const unobserved = flushConnectorCallAudit(queryCtx, cause);
-	if (unobserved > 0) debug(`provider: query teardown recorded ${unobserved} connector call(s) with no observed result (cause=${cause})`);
 
 	if (isReentrant) {
 		// Merges deferred messages and restores/repairs the stack. popContextFor

@@ -8,14 +8,6 @@ export type BridgeEffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
 
 const VALID_EFFORT_LEVELS = new Set<BridgeEffortLevel>(["low", "medium", "high", "xhigh", "max"]);
 
-/**
- * Per-session control over claude.ai connector WRITE tools when connectors are
- * enabled. `deny` (default) hides Gmail/Calendar/Drive mutating tools so
- * connector chat sessions are read-only; `allow` exposes them (used only by the
- * one-shot approved-write executor). Reads are always available.
- */
-export type ConnectorWriteMode = "deny" | "allow";
-
 export interface Config {
 	enabled?: boolean;
 	/** Low-level Claude Agent SDK plumbing. Most users won't need these. */
@@ -33,32 +25,7 @@ export interface Config {
 		 * system prompt is appended.
 		 */
 		settingSources?: SettingSource[];
-		strictMcpConfig?: boolean;
 		pathToClaudeCodeExecutable?: string;
-		/**
-		 * Expose the authenticated Claude account's claude.ai cloud MCP
-		 * connectors (Gmail / Google Calendar / Google Drive, etc.) to the model.
-		 * Off by default so Pi owns tool execution and tokens stay lean. Also
-		 * settable via the CLAUDE_BRIDGE_ENABLE_CONNECTORS env var (env OR config
-		 * enables it). Resolved from USER-scope config and env only — a project's
-		 * checked-in settings cannot enable it (see USER_SCOPE_ONLY_PROVIDER_KEYS).
-		 * See the Connectors section of this package's README.
-		 */
-		enableConnectors?: boolean;
-		/**
-		 * When connectors are enabled, whether their WRITE tools
-		 * (create/update/delete/label/etc.) are exposed. Defaults to `deny`
-		 * (read-only), enforced two ways: known write tools are removed from the
-		 * model's context (disallowedTools by exact id), and a PreToolUse hook
-		 * blocks any connector write tool by name prefix at call time (covers
-		 * future write tools). `allow` disables both — intended ONLY for a
-		 * one-shot approved-write executor process. Also settable via
-		 * CLAUDE_BRIDGE_CONNECTOR_WRITE=deny|allow (env wins over config). Any
-		 * value but exact `allow` is treated as `deny`. Ignored when connectors
-		 * are disabled. Like enableConnectors, resolved from USER-scope config
-		 * and env only (see USER_SCOPE_ONLY_PROVIDER_KEYS).
-		 */
-		connectorWriteMode?: ConnectorWriteMode;
 	};
 	/** Extra Pi context forwarded to Claude Code on top of AGENTS.md + skills. */
 	promptContext?: {
@@ -182,13 +149,6 @@ function stringFrom(raw: SettingsRecord, key: string): string | undefined {
 	return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-export function normalizeConnectorWriteMode(value: unknown): ConnectorWriteMode | undefined {
-	if (typeof value !== "string") return undefined;
-	const normalized = value.trim().toLowerCase();
-	if (normalized === "deny" || normalized === "allow") return normalized;
-	return undefined;
-}
-
 export function normalizeEffortLevel(value: unknown): BridgeEffortLevel | undefined {
 	if (typeof value !== "string") return undefined;
 	const normalized = value.trim().toLowerCase();
@@ -225,8 +185,6 @@ function normalizeProviderConfig(provider: Config["provider"] | undefined): Conf
 	const out: Config["provider"] = {
 		...(boolFrom(raw, "appendSystemPrompt") !== undefined ? { appendSystemPrompt: boolFrom(raw, "appendSystemPrompt") } : {}),
 		...(boolFrom(raw, "fastMode") !== undefined ? { fastMode: boolFrom(raw, "fastMode") } : {}),
-		...(boolFrom(raw, "strictMcpConfig") !== undefined ? { strictMcpConfig: boolFrom(raw, "strictMcpConfig") } : {}),
-		...(boolFrom(raw, "enableConnectors") !== undefined ? { enableConnectors: boolFrom(raw, "enableConnectors") } : {}),
 		...(stringFrom(raw, "pathToClaudeCodeExecutable") ? { pathToClaudeCodeExecutable: stringFrom(raw, "pathToClaudeCodeExecutable") } : {}),
 		...(Array.isArray(raw.settingSources) && raw.settingSources.every((source) => source === "user" || source === "project" || source === "local")
 			? { settingSources: raw.settingSources as SettingSource[] } : {}),
@@ -237,9 +195,6 @@ function normalizeProviderConfig(provider: Config["provider"] | undefined): Conf
 	const modelEffortOverrides = normalizeModelEffortOverrides(raw.modelEffortOverrides);
 	if (modelEffortOverrides) out.modelEffortOverrides = modelEffortOverrides;
 	else delete out.modelEffortOverrides;
-	const connectorWriteMode = normalizeConnectorWriteMode(raw.connectorWriteMode);
-	if (connectorWriteMode) out.connectorWriteMode = connectorWriteMode;
-	else delete out.connectorWriteMode;
 	return out;
 }
 
@@ -248,13 +203,9 @@ export function loadConfig(cwd: string): Config {
 	const projectSettings = isolatedFromEnv() ? undefined : projectSettingsPath(cwd);
 	const project = projectSettings && projectSettingsTrusted(projectSettings)
 		? fileConfig(join(dirname(projectSettings), "claude-bridge.json")) : {};
-	// Until connector support is removed, a project must not turn on cloud tools.
-	const projectProvider = { ...project.provider };
-	delete projectProvider.enableConnectors;
-	delete projectProvider.connectorWriteMode;
 	return {
 		enabled: project.enabled ?? user.enabled ?? true,
-		provider: normalizeProviderConfig({ ...user.provider, ...projectProvider }),
+		provider: normalizeProviderConfig({ ...user.provider, ...project.provider }),
 		promptContext: { ...user.promptContext, ...project.promptContext },
 	};
 }
@@ -265,14 +216,11 @@ function fileConfig(path: string): Partial<Config> {
 	const provider = {
 		...(boolFrom(rawProvider, "appendSystemPrompt") !== undefined ? { appendSystemPrompt: boolFrom(rawProvider, "appendSystemPrompt") } : {}),
 		...(boolFrom(rawProvider, "fastMode") !== undefined ? { fastMode: boolFrom(rawProvider, "fastMode") } : {}),
-		...(boolFrom(rawProvider, "strictMcpConfig") !== undefined ? { strictMcpConfig: boolFrom(rawProvider, "strictMcpConfig") } : {}),
-		...(boolFrom(rawProvider, "enableConnectors") !== undefined ? { enableConnectors: boolFrom(rawProvider, "enableConnectors") } : {}),
 		...(stringFrom(rawProvider, "pathToClaudeCodeExecutable") ? { pathToClaudeCodeExecutable: stringFrom(rawProvider, "pathToClaudeCodeExecutable") } : {}),
 		...(Array.isArray(rawProvider.settingSources) && rawProvider.settingSources.every((source) => source === "user" || source === "project" || source === "local")
 			? { settingSources: rawProvider.settingSources as SettingSource[] } : {}),
 		...(Object.hasOwn(rawProvider, "forceEffort") ? { forceEffort: rawProvider.forceEffort } : {}),
 		...(Object.hasOwn(rawProvider, "modelEffortOverrides") ? { modelEffortOverrides: rawProvider.modelEffortOverrides } : {}),
-		...(Object.hasOwn(rawProvider, "connectorWriteMode") ? { connectorWriteMode: rawProvider.connectorWriteMode } : {}),
 	} as Config["provider"];
 	const prompt = asRecord(raw.promptContext) ?? {};
 	const promptContext: Config["promptContext"] = {};

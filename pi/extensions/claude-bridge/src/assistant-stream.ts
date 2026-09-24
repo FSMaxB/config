@@ -1,11 +1,9 @@
 import { calculateCost, type AssistantMessage, type Model } from "@earendil-works/pi-ai";
 import { type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { appendIntegrityEntry, safeNotify } from "./bridge-state.js";
-import { connectorResultByteSize, recordConnectorCallResult } from "./connector-audit.js";
-import { isChildExecutedTool } from "./connectors.js";
 import { debug, diagDump } from "./debug.js";
 import { ctx, failStrandedToolCall, type QueryContext } from "./query-state.js";
-import { isForeignMcpTool, isPiDispatchable, mapToolArgs, mapToolName } from "./tool-mapping.js";
+import { isPiDispatchable, mapToolArgs, mapToolName } from "./tool-mapping.js";
 
 // --- Usage helpers ---
 
@@ -334,19 +332,10 @@ export function processStreamEvent(
 		// or suppressed claim on it. Belt-and-braces against a missed
 		// message_start: without this a stale index could silently swallow a later
 		// text block's deltas.
-		c.childExecutedStreamIndexes.delete(event.index);
 		c.suppressedStreamIndexes.delete(event.index);
-		if (event.content_block?.type === "tool_use" && isChildExecutedTool(event.content_block.name)) {
-			// The child runs this one itself — mirroring it into the Pi stream would
-			// make Pi's agent loop dispatch a tool it does not have. See
-			// isChildExecutedTool.
-			c.noteChildExecutedToolCall(event.content_block.id, event.content_block.name, event.index);
-			debug(`processStreamEvent: child-executed tool ${event.content_block.name} [${event.content_block.id}] — not mirrored as a Pi tool call`);
-			return;
-		}
 		if (event.content_block?.type === "tool_use" && !isPiDispatchable(event.content_block.name, customToolNameToPi)) {
 			c.suppressedStreamIndexes.add(event.index);
-			if (isForeignMcpTool(event.content_block.name)) c.noteForeignMcpToolCall(event.content_block.id, event.content_block.name);
+			c.noteUnexpectedChildCall(event.content_block.id, event.content_block.name);
 			debug(`processStreamEvent: non-dispatchable tool ${event.content_block.name} [${event.content_block.id}] — not mirrored as a Pi tool call`);
 			return;
 		}
@@ -392,12 +381,8 @@ export function processStreamEvent(
 	}
 
 	if (event?.type === "content_block_delta") {
-		// A child-executed tool's argument deltas have no Pi block to land in. Skip
-		// them here rather than letting the lookup below miss, so the "unmatched"
-		// warning keeps meaning "something is wrong". Unlike that stale-event case
-		// this IS a live event for the current message, so it still counts as one.
-		// Suppressed duplicate/dead blocks skip identically.
-		if (c.childExecutedStreamIndexes.has(event.index) || c.suppressedStreamIndexes.has(event.index)) {
+		// Suppressed calls have no Pi block; their deltas are not unmatched.
+		if (c.suppressedStreamIndexes.has(event.index)) {
 			c.turnSawStreamEvent = true;
 			return;
 		}
@@ -429,7 +414,7 @@ export function processStreamEvent(
 	if (event?.type === "content_block_stop") {
 		// Same as the delta case: the block was never mirrored, so there is nothing
 		// to seal and nothing unmatched about it.
-		if (c.childExecutedStreamIndexes.has(event.index) || c.suppressedStreamIndexes.has(event.index)) {
+		if (c.suppressedStreamIndexes.has(event.index)) {
 			c.turnSawStreamEvent = true;
 			return;
 		}
@@ -505,16 +490,8 @@ function appendMissingToolUsesFromAssistant(
 	let sawToolUse = false;
 	for (const block of assistantMsg.content) {
 		if (block.type !== "tool_use") continue;
-		if (isChildExecutedTool(block.name)) {
-			// Not a Pi tool call, so it is NOT a turn boundary either: `sawToolUse`
-			// stays false for it and the caller keeps streaming this Pi message. The
-			// child neither blocks on Pi nor needs a result from it.
-			c.noteChildExecutedToolCall(block.id, block.name);
-			debug(`assistant message: child-executed tool ${block.name} [${block.id}] — not mirrored as a Pi tool call`);
-			continue;
-		}
 		if (!isPiDispatchable(block.name, customToolNameToPi)) {
-			if (isForeignMcpTool(block.name)) c.noteForeignMcpToolCall(block.id, block.name);
+			c.noteUnexpectedChildCall(block.id, block.name);
 			debug(`assistant message: non-dispatchable tool ${block.name} [${block.id}] — not mirrored as a Pi tool call`);
 			continue;
 		}
@@ -561,40 +538,6 @@ function appendMissingToolUsesFromAssistant(
 	// corrupt the very figure message_delta got right.
 	if (assistantMsg.usage && c.turnOutput && c.currentPiStream) updateUsage(c.turnOutput, assistantMsg.usage, model, c);
 	return sawToolUse;
-}
-
-/**
- * Record that a child-executed tool call came back, from the SDK's `user` message
- * carrying the child's own `tool_result` blocks.
- *
- * This is the only place the bridge ever OBSERVES one of these results, and it is
- * deliberately observation-only: the result already reached the model inside the
- * child, which is the conversation of record for a bridge turn, so re-delivering
- * it would double it. What the bridge could not do before this existed was say
- * anything true about these calls at all — the Pi transcript claimed they failed
- * and nothing anywhere claimed otherwise.
- *
- * The payload is NEVER logged or recorded, only its shape: a connector result is
- * live account data (mail, messages, documents) and the bridge's debug log sits
- * outside a host app's redaction boundary.
- *
- * Observing it is also what makes the call auditable: each one appends a session
- * `CustomEntry` (connector-audit.ts) so the Pi session records that the call
- * happened, without a content block Pi's agent loop could try to dispatch.
- */
-export function noteChildExecutedToolResults(message: SDKMessage, c: QueryContext = ctx()): void {
-	if (c.childExecutedToolCalls.size === 0) return;
-	const content = (message as SDKMessage & { message?: { content?: unknown } }).message?.content;
-	if (!Array.isArray(content)) return;
-	for (const block of content) {
-		if (block?.type !== "tool_result") continue;
-		const name = c.childExecutedToolCalls.get(block.tool_use_id);
-		if (!name) continue;
-		const isError = block.is_error === true;
-		const byteSize = connectorResultByteSize(block.content);
-		const audited = recordConnectorCallResult(c, block.tool_use_id, name, isError, byteSize);
-		debug(`child-executed tool result: ${name} [${block.tool_use_id}] isError=${isError} byteSize=${byteSize ?? "unknown"} audited=${audited}`);
-	}
 }
 
 export function processAssistantMessage(message: SDKMessage, model: Model<any>, customToolNameToPi: Map<string, string>, c: QueryContext = ctx()): void {
@@ -663,15 +606,8 @@ export function processAssistantMessage(message: SDKMessage, model: Model<any>, 
 			if (block.thinking) c.currentPiStream?.push({ type: "thinking_delta", contentIndex: idx, delta: block.thinking, partial: c.turnOutput });
 			c.currentPiStream?.push({ type: "thinking_end", contentIndex: idx, content: block.thinking ?? "", partial: c.turnOutput });
 		} else if (block.type === "tool_use") {
-			if (isChildExecutedTool(block.name)) {
-				// Same as the streamed path: the child owns this call, so it never
-				// becomes a Pi tool call and never ends the turn.
-				c.noteChildExecutedToolCall(block.id, block.name);
-				debug(`processAssistantMessage fallback: child-executed tool ${block.name} [${block.id}] — not mirrored as a Pi tool call`);
-				continue;
-			}
 			if (!isPiDispatchable(block.name, customToolNameToPi)) {
-				if (isForeignMcpTool(block.name)) c.noteForeignMcpToolCall(block.id, block.name);
+				c.noteUnexpectedChildCall(block.id, block.name);
 				debug(`processAssistantMessage fallback: non-dispatchable tool ${block.name} [${block.id}] — not mirrored as a Pi tool call`);
 				continue;
 			}

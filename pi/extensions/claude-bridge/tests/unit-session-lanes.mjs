@@ -76,7 +76,7 @@ function toolUseQueryFactory(gates) {
 			async *[Symbol.asyncIterator]() {
 				yield { type: "system", subtype: "init", session_id: `sdk-${label}` };
 				yield { type: "stream_event", event: { type: "message_start", message: { id: `m-${label}`, model: model.id, usage: { input_tokens: 1 } } } };
-				yield { type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: `call-${label}`, name: "mytool", input: {} } } };
+				yield { type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: `call-${label}`, name: "mcp__custom-tools__mytool", input: {} } } };
 				yield { type: "stream_event", event: { type: "content_block_stop", index: 0 } };
 				yield { type: "stream_event", event: { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 5 } } };
 				yield { type: "stream_event", event: { type: "message_stop" } };
@@ -92,6 +92,7 @@ function toolUseQueryFactory(gates) {
 
 function toolLoopContext(label, resultFor = label, text = `${label}-output`) {
 	return {
+		tools: [{ name: "mytool", description: "", parameters: { type: "object" } }],
 		messages: [
 			userMessage(label),
 			{ role: "assistant", content: [{ type: "toolCall", id: `call-${resultFor}`, name: "mytool", arguments: {} }], timestamp: Date.now() },
@@ -401,8 +402,8 @@ describe("provider request session lanes", () => {
 		__testSetSdkQueryFactory(toolUseQueryFactory(gates));
 
 		const [aEvents, bEvents] = await Promise.all([
-			collect(streamNormalized(model, { messages: [userMessage("A")] }, { sessionId: "A" })),
-			collect(streamNormalized(model, { messages: [userMessage("B")] }, { sessionId: "B" })),
+			collect(streamNormalized(model, { messages: [userMessage("A")], tools: [{ name: "mytool", description: "", parameters: { type: "object" } }] }, { sessionId: "A" })),
+			collect(streamNormalized(model, { messages: [userMessage("B")], tools: [{ name: "mytool", description: "", parameters: { type: "object" } }] }, { sessionId: "B" })),
 		]);
 		assert.ok(aEvents.some((event) => event.type === "done" && event.reason === "toolUse"), "A reached its tool turn");
 		assert.ok(bEvents.some((event) => event.type === "done" && event.reason === "toolUse"), "B reached its tool turn");
@@ -444,7 +445,7 @@ describe("provider request session lanes", () => {
 		// A named-lane child with an in-flight tool call, aborted from the PARENT's
 		// async context (an AbortSignal listener runs in the aborter's context).
 		const childAbort = new AbortController();
-		const child = collect(streamNormalized(model, { messages: [userMessage("child")] }, { sessionId: "child", signal: childAbort.signal }));
+		const child = collect(streamNormalized(model, { messages: [userMessage("child")], tools: [{ name: "mytool", description: "", parameters: { type: "object" } }] }, { sessionId: "child", signal: childAbort.signal }));
 		await child;
 		assert.ok(runInRequestLane("child", () => ctx().activeQuery), "child is mid tool call");
 		runInRequestLane("parent", () => childAbort.abort());
@@ -459,7 +460,7 @@ describe("provider request session lanes", () => {
 
 		// A DEFAULT-lane query aborted from a named lane marks the default record, not the named lane.
 		const directAbort = new AbortController();
-		const direct = collect(streamNormalized(model, { messages: [userMessage("direct")] }, { signal: directAbort.signal }));
+		const direct = collect(streamNormalized(model, { messages: [userMessage("direct")], tools: [{ name: "mytool", description: "", parameters: { type: "object" } }] }, { signal: directAbort.signal }));
 		await direct;
 		assert.ok(ctx().activeQuery, "direct-host query is mid tool call");
 		runInRequestLane("parent", () => directAbort.abort());

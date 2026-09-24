@@ -5,7 +5,7 @@
 import { type Model } from "@earendil-works/pi-ai";
 import { type AccountInfo, type query } from "@anthropic-ai/claude-agent-sdk";
 import { classifyClaudeFailure, rateLimitResetFromInfo, rateLimitResetMs, rateLimitTypeFromInfo, type ClaudeFailureKind } from "./claude-failure.js";
-import { ensureTurnStarted, noteChildExecutedToolResults, processAssistantMessage, processStreamEvent, updateTurnOutputModel } from "./assistant-stream.js";
+import { ensureTurnStarted, processAssistantMessage, processStreamEvent, updateTurnOutputModel } from "./assistant-stream.js";
 import { extensionApi, safeNotify } from "./bridge-state.js";
 import { type Config } from "./config.js";
 import { debug } from "./debug.js";
@@ -91,10 +91,8 @@ export async function consumeQuery(
 		if (wasAborted()) break;
 		activeStreamIdleWatchdogs.get(queryCtx)?.noteChunk();
 		if (!queryCtx.turnOutput) continue;
-		// Only RENDERING needs a live Pi stream. Failure metadata and
-		// child-executed tool results must be captured even when a tool-use turn
-		// boundary has nulled the stream — skipping them there dropped terminal
-		// failure classification and audited late connector results "unobserved".
+		// Only rendering needs a live Pi stream; failure metadata may arrive
+		// after a tool-use turn boundary closed it.
 		const streamLive = Boolean(queryCtx.currentPiStream);
 
 		switch (message.type) {
@@ -159,7 +157,6 @@ export async function consumeQuery(
 				if (!streamLive) break;
 				if ((message as any).subtype === "init" && (message as any).session_id) {
 					capturedSessionId = (message as any).session_id;
-					queryCtx.childSessionId = capturedSessionId;
 					noteFastModeDisabledReason(message, bridgeConfig);
 					// Which login this child authenticated as is published for other
 					// extensions. Nothing waits for
@@ -188,12 +185,6 @@ export async function consumeQuery(
 				}
 				break;
 			case "user":
-				// Mostly the SDK echoing the prompt back — nothing to render. The one
-				// thing worth reading is a child-executed tool's real result, which
-				// arrives here and nowhere else — including AFTER a tool-use turn
-				// boundary nulled the stream (noteChildExecutedToolResults is
-				// side-effect-free on the Pi stream).
-				noteChildExecutedToolResults(message, queryCtx);
 				break;
 			case "rate_limit_event": {
 				if (!streamLive) break;

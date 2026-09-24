@@ -166,9 +166,8 @@ export const INTEGRITY_CUSTOM_TYPE = "claude-bridge-integrity";
  *
  * The diag log and a piUI toast both die with the machine or render cycle, so
  * they cannot support analysis from the session alone. A `CustomEntry` persists
- * the record in the same way the
- * connector-call audit does — persisted, never part of built context, never
- * dispatchable by pi's agent loop. Payloads must stay compact metadata (ids,
+ * the record without adding it to built context or dispatching it through
+ * pi's agent loop. Payloads must stay compact metadata (ids,
  * counts, tool names), never tool output.
  *
  * Never throws; returns whether the entry was appended (false outside a pi
