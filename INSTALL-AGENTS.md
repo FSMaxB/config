@@ -7,7 +7,7 @@
 - Write a self-contained plan that a junior developer with no prior knowledge of this codebase could execute without asking questions or exploring on their own.
   - Do not defer decisions to the implementer, if multiple approaches exist, discuss them with me first and then include the chosen approach.
   - When describing concrete code changes, prefer small code examples or pseudo-code over bullet points.
-- When done with planning, launch a crit review of the plan. Wait until I finish the review and address all unresolved comments before submitting the plan for implementation.
+- When done with planning, launch a crit review of the plan. Wait until I finish the review and address all unresolved comments before submitting the plan for implementation. If crit is unavailable, say so and ask me how to approve the plan instead of skipping the review.
 
 ## Exploration
 
