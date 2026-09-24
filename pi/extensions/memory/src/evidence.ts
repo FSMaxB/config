@@ -16,18 +16,23 @@ export function collectEvidence(branch: SessionEntry[], eligible: Set<string>, m
     if (message.role === "toolResult" && message.toolName.startsWith("memory_")) continue;
     const text = typeof message.content === "string" ? message.content : message.content.filter(block => block.type === "text").map(block => block.text).join("\n");
     if (!text.trim() || /<\/?(?:system|developer|skill|memory)[^>]*>/i.test(text)) continue;
-    selected.push({ id: entry.id, role: message.role === "toolResult" && message.isError ? "failed-tool" : message.role, text: redact(text).slice(0, message.role === "toolResult" ? 4096 : 16384) });
+    selected.push({ id: entry.id, role: message.role === "toolResult" && message.isError ? "failed-tool" : message.role, text: truncateUtf8(redact(text), message.role === "toolResult" ? 4096 : 16384) });
   }
   const priority = (item: Evidence) => item.role === "user" ? 0 : item.role === "assistant" ? 1 : 2;
   const chosen = [...selected].reverse().sort((left, right) => priority(left) - priority(right));
-  let size = 0;
+  let size = Buffer.byteLength('{"entries":[]}');
   const retained = new Set(chosen.filter(item => {
-    const bytes = Buffer.byteLength(JSON.stringify(item));
+    const bytes = Buffer.byteLength(JSON.stringify(item))+1;
     if (size + bytes > Math.min(maxBytes, 64 * 1024)) return false;
     size += bytes;
     return true;
   }).map(item => item.id));
   return selected.filter(item => retained.has(item.id));
+}
+
+function truncateUtf8(text: string, bytes: number): string {
+  const buffer = Buffer.from(text);
+  return buffer.length <= bytes ? text : buffer.subarray(0,bytes-4).toString("utf8");
 }
 
 export function redact(text: string): string {

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, existsSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import memory from '../src/index.ts';
@@ -38,6 +38,23 @@ test('disabled session never opens DB or injects context; other tools remain act
   assert.equal(injected, undefined);
   assert.deepEqual(activeTools, ['read']);
   assert.equal(result.content[0].text, 'Memory disabled');
+});
+
+test('global opt-in cannot open an untrusted or ephemeral session store', async () => {
+  // arrange
+  writeFileSync(join(root,'memory.json'),JSON.stringify({enabled:true}));
+  const handlers = new Map(), commands = new Map();
+  const notifications = [];
+  let tools = ['read'];
+  memory({ on:(name,handler)=>handlers.set(name,handler),registerTool:()=>{},registerCommand:(name,options)=>commands.set(name,options),getActiveTools:()=>tools,setActiveTools:names=>{tools=names;} });
+  const context = {cwd:root,isProjectTrusted:()=>false,sessionManager:{getSessionId:()=> 'session',getSessionFile:()=>undefined,getBranch:()=>[]},hasUI:false,ui:{notify:text=>notifications.push(text)}};
+  // act
+  await handlers.get('session_start')({},context);
+  await commands.get('memory').handler('status',context);
+  // assert
+  assert.equal(existsSync(join(root,'memory')),false);
+  assert.deepEqual(tools,['read']);
+  assert.match(notifications.at(-1),/Memory off/);
 });
 
 test.after(() => rmSync(root, { recursive: true, force: true }));

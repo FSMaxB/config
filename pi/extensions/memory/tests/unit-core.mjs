@@ -100,6 +100,50 @@ test('project off fences a claimed worker on a second connection', async () => {
   });
 });
 
+test('new continuing source supersedes older pending snapshot without mixing branches', async () => {
+  // arrange
+  await withRoot(async root => {
+    const project = resolveProject(root);
+    writeProjectActivation(root,project,true);
+    const store = await Store.open(root,project);
+    const file = join(root,'session.jsonl');
+    const first = JSON.stringify({ entries:[{id:'u1',role:'user',text:'old'}] });
+    const second = JSON.stringify({ entries:[{id:'u1',role:'user',text:'old'},{id:'u2',role:'user',text:'new'}] });
+    store.enqueue('session',file,'leaf-one',first);
+    // act
+    store.enqueue('session',file,'leaf-two',second,new Set(['leaf-one','leaf-two']));
+    const database = new DatabaseSync(join(root,'memory',project.hash,'memory.sqlite'));
+    const jobs = database.prepare('SELECT source_id FROM jobs').all();
+    const oldSource = database.prepare("SELECT id FROM sources WHERE leaf_id='leaf-one'").get().id;
+    const newSource = database.prepare("SELECT supersedes FROM sources WHERE leaf_id='leaf-two'").get();
+    // assert
+    assert.equal(jobs.length,1);
+    assert.equal(newSource.supersedes,oldSource);
+    database.close(); store.close();
+  });
+});
+
+test('retention removes stale inferred sources but keeps manual claims and retrieved sources', async () => {
+  // arrange
+  await withRoot(async root => {
+    const project = resolveProject(root);
+    writeProjectActivation(root,project,true);
+    const store = await Store.open(root,project);
+    const manual = store.remember('keep manually');
+    store.enqueue('session',join(root,'session.jsonl'),'leaf',JSON.stringify({entries:[{id:'u',role:'user',text:'old evidence'}]}));
+    const database = new DatabaseSync(join(root,'memory',project.hash,'memory.sqlite'));
+    database.exec("UPDATE sources SET created_at=1; UPDATE jobs SET retry_at=0");
+    const job = store.claim('owner',{maxJobsPerDay:20,maxInputEstimatedTokensPerDay:200000,maxOutputTokensPerDay:40000});
+    store.complete(job,[{text:'old evidence',evidenceEntryIds:['u']}]);
+    // act
+    const expired = store.expireSources();
+    // assert
+    assert.equal(expired,1);
+    assert.deepEqual(store.claims().map(claim=>claim.id),[manual]);
+    database.close(); store.close();
+  });
+});
+
 test('only eligible original text; strict extraction and redaction', () => {
   // arrange
   const branch = [
