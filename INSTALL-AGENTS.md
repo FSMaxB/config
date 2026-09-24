@@ -1,5 +1,6 @@
 ## Planning
 
+- This section applies in plan mode or when I explicitly ask for a plan. Review and analysis requests are not plans; answer them directly without the steps below.
 - If you are explicitly asked to implement a plan, ignore this entire planning section and start implementing.
 - When in doubt (either during exploration or planning), prefer to ask me clarifying questions instead of extensive exploration
 - When asking me questions, use the agent harness's question tool rather than plain text. If the harness has no question tool, ask in plain text.
