@@ -31,7 +31,7 @@ test('disabled session never opens DB or injects context; other tools remain act
   };
   // act
   await handlers.get('session_start')({}, context);
-  const injected = handlers.get('context')({ messages: [] }, context);
+  const injected = handlers.get('before_agent_start')({ prompt: '' }, context);
   const result = await tools.get('memory_search').execute('call', { query: 'secret' }, undefined, undefined, context);
   // assert
   assert.equal(existsSync(join(root, 'memory')), false);
