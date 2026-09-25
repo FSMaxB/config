@@ -122,3 +122,13 @@ test('strict structure and provenance validation rejects invented claims', () =>
   // assert
   assert.throws(() => parseConsolidation(invalid,claims),/reference/);
 });
+
+test('a fenced JSON answer is parsed like a bare one', () => {
+  // arrange
+  const claims = [{ id:'m-claim',text:'Supported',origin:'manual',sourceId:null }];
+  const fenced = '```json\n' + JSON.stringify({ sections:[{heading:'Facts',items:[{text:'Supported',claimIds:['m-claim']}]}] }) + '\n```';
+  // act
+  const sections = parseConsolidation(fenced,claims);
+  // assert
+  assert.equal(sections[0].items[0].text,'Supported');
+});

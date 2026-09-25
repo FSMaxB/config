@@ -1,11 +1,12 @@
 import type { Claim } from "./store.ts";
 import { redact } from "./evidence.ts";
+import { stripCodeFence } from "./model-output.ts";
 
 export interface Section { heading: string; items: { text: string; claimIds: string[] }[] }
 
 export function parseConsolidation(raw: string, claims: Claim[]): Section[] {
   if (Buffer.byteLength(raw) > 24 * 1024) throw new Error("Consolidation output exceeds 24 KiB");
-  const result: unknown = JSON.parse(raw);
+  const result: unknown = JSON.parse(stripCodeFence(raw));
   if (!object(result) || Object.keys(result).join() !== "sections" || !Array.isArray(result.sections) || result.sections.length > 32) throw new Error("Invalid consolidation output");
   const ids = new Set(claims.map(claim => claim.id));
   return result.sections.map((section: unknown) => {
