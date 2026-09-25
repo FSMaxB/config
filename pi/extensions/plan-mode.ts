@@ -52,6 +52,8 @@ const UNGATED_TOOLS = new Set([
   // Safe under plan mode by construction: the subagent extension caps child
   // tools at what plan mode leaves ungated or granted here.
   "subagent",
+  // Creates only the session scratch directory, which the path rules allow in plan mode.
+  "temp_dir",
   ...PLAN_TOOLS,
 ]);
 
@@ -1010,8 +1012,8 @@ function planModeInstructions(): string {
   return [
     "Plan mode is active.",
     "",
-    `- The file tools (${FILE_TOOLS.join(", ")}) check every path against the read/write path rules. Reading anywhere in the repository and in the memory, skill, plan and crit directories works without asking.`,
-    `- Plan mode is read-only by default: writing inside the repository prompts the user for each path. The memory directory and the plans directory (${plansDirectory()}) stay writable.`,
+    `- The file tools (${FILE_TOOLS.join(", ")}) check every path against the read/write path rules. Reading anywhere in the repository and in the memory, skill, plan and crit directories and the session's temp_dir works without asking.`,
+    `- Plan mode is read-only by default: writing inside the repository prompts the user for each path. The memory directory, the plans directory (${plansDirectory()}) and the session's temp_dir stay writable.`,
     "- bash and every other tool that changes things need the user's approval for each call.",
     "- If a call or a path is denied, do not retry it and do not route around it.",
     `- To write a plan, call ${PLAN_PATH} once to get a file path, create the file there with write, and revise it with edit. Call ${SUBMIT_PLAN} with that path when it is ready. Only the user can leave plan mode.`,

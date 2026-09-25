@@ -29,7 +29,7 @@ import {
 } from "./lib/search-tools.ts";
 
 const ACCESS_NOTE =
-  "Paths are checked against the read/write path rules: the repository and the memory, skill, plan and crit directories are allowed by default, anything else prompts the user, and denied paths error.";
+  "Paths are checked against the read/write path rules: the repository and the memory, skill, plan and crit directories and the session's temp_dir are allowed by default, anything else prompts the user, and denied paths error.";
 
 export default function (pi: ExtensionAPI) {
   initPathPermissions(pi);
