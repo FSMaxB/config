@@ -877,6 +877,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 		requestedModel: model,
 		bridgeConfig,
 		systemPrompt: getCurrentSystemPrompt(context.messages),
+		tools: mcpTools,
 		reasoning: options?.reasoning,
 		resumeSessionId,
 		mcpServers,
@@ -888,7 +889,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 		`model=${model.id} msgs=${conversation.length} tools=${mcpTools.length}`,
 		`resume=${resumeSessionId?.slice(0, 8) ?? "none"} effort=${built.effort ?? "default"}`,
 		`fallback=${built.fallbackModel ?? "none"}`,
-		`appendSys=${built.appendSystemPrompt} promptCtx=${built.promptContextLabels.join(",") || "none"} strictMcp=true fastMode=${providerSettings.fastMode === true}`,
+		`sysPrompt=${built.systemPromptMode} appendSys=${built.appendSystemPrompt} promptCtx=${built.promptContextLabels.join(",") || "none"} strictMcp=true fastMode=${providerSettings.fastMode === true}`,
 		`claudeExec=${claudeExecutablePreflight ? `${claudeExecutablePreflight.fileType}:${claudeExecutablePreflight.path}` : "sdk-default"}`,
 		`prompt=${promptText.slice(0, 60)}${promptBlocks ? " [+images]" : ""}`);
 

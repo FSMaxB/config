@@ -2,7 +2,7 @@
 // Extracted from index.ts (pure move): no closures — reads config, env, and
 // the provided context only.
 
-import { type Model } from "@earendil-works/pi-ai";
+import { type Model, type Tool } from "@earendil-works/pi-ai";
 import type { McpSdkServerConfigWithInstance, query, EffortLevel, SettingSource } from "@anthropic-ai/claude-agent-sdk";
 import { extractAgentsAppend } from "./agents-md.js";
 import { spawnClaudeCodeWithDiagnostics } from "./claude-executable.js";
@@ -47,6 +47,8 @@ export interface BuildClaudeQueryOptionsInput {
 	requestedModel: Model<any>;
 	bridgeConfig: Config;
 	systemPrompt?: string;
+	/** Tools the transcript currently offers; decides the system prompt mode. */
+	tools: readonly Tool[];
 	/** Pi reasoning level from the stream options, if any. */
 	reasoning?: string;
 	resumeSessionId: string | null;
@@ -54,9 +56,16 @@ export interface BuildClaudeQueryOptionsInput {
 	claudeExecutable?: string;
 }
 
+/** How the caller's system prompt reaches Claude Code. Pi's agent loop always
+ *  offers tools, so a request without any is a one-shot from another extension
+ *  (memory extraction, compaction summaries) whose own system prompt is the
+ *  whole instruction; the Claude Code preset would replace it. */
+export type SystemPromptMode = "claude-code-preset" | "verbatim";
+
 export interface BuiltClaudeQueryOptions {
 	queryOptions: NonNullable<Parameters<typeof query>[0]["options"]>;
 	// Diagnostics-ish bits the caller's debug line reports.
+	systemPromptMode: SystemPromptMode;
 	appendSystemPrompt: boolean;
 	promptContextLabels: string[];
 	effort?: EffortLevel;
@@ -64,9 +73,10 @@ export interface BuiltClaudeQueryOptions {
 }
 
 export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): BuiltClaudeQueryOptions {
-	const { cwd, requestedModel, bridgeConfig, systemPrompt, reasoning, resumeSessionId, mcpServers, claudeExecutable } = input;
+	const { cwd, requestedModel, bridgeConfig, systemPrompt, tools, reasoning, resumeSessionId, mcpServers, claudeExecutable } = input;
 	const providerSettings = bridgeConfig.provider ?? {};
-	const appendSystemPrompt = providerSettings.appendSystemPrompt !== false;
+	const systemPromptMode = systemPromptModeForQuery(tools, systemPrompt);
+	const appendSystemPrompt = systemPromptMode === "claude-code-preset" && providerSettings.appendSystemPrompt !== false;
 	const agentsAppend = appendSystemPrompt ? extractAgentsAppend() : undefined;
 	const skillsAppend = appendSystemPrompt ? extractSkillsBlock(systemPrompt) : undefined;
 	const promptContextAppend = buildPromptContextAppend(cwd, bridgeConfig.promptContext ?? {});
@@ -117,10 +127,9 @@ export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): Bu
 		includePartialMessages: true,
 		...(fallbackModel ? { fallbackModel } : {}),
 		...(providerSettings.fastMode ? { settings: { fastMode: true } } : {}),
-		systemPrompt: {
-			type: "preset", preset: "claude_code",
-			append: systemPromptAppend ? systemPromptAppend : undefined,
-		},
+		systemPrompt: systemPromptMode === "verbatim" && systemPrompt
+			? systemPrompt
+			: { type: "preset", preset: "claude_code", append: systemPromptAppend ? systemPromptAppend : undefined },
 		extraArgs,
 		...(effort ? { effort } : {}),
 		...(settingSources ? { settingSources } : {}),
@@ -137,11 +146,16 @@ export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): Bu
 
 	return {
 		queryOptions,
+		systemPromptMode,
 		appendSystemPrompt,
 		promptContextLabels: promptContextAppend.labels,
 		...(effort ? { effort } : {}),
 		...(fallbackModel ? { fallbackModel } : {}),
 	};
+}
+
+export function systemPromptModeForQuery(tools: readonly Tool[], systemPrompt: string | undefined): SystemPromptMode {
+	return tools.length === 0 && systemPrompt ? "verbatim" : "claude-code-preset";
 }
 
 export function settingSourcesForQuery(appendSystemPrompt: boolean, configured?: SettingSource[]): SettingSource[] | undefined {
