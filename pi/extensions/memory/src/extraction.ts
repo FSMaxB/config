@@ -1,11 +1,12 @@
 import { redact } from "./evidence.ts";
+import { stripCodeFence } from "./model-output.ts";
 
 export interface ExtractedClaim { text: string; kind: "procedure" | "project_fact" | "preference" | "outcome"; evidenceEntryIds: string[] }
 export interface Extraction { summary: string; claims: ExtractedClaim[] }
 
 export function parseExtraction(raw: string, entryIds: Set<string>): Extraction {
   if (Buffer.byteLength(raw) > 16 * 1024) throw new Error("Extraction output too large");
-  const parsed: unknown = JSON.parse(raw);
+  const parsed: unknown = JSON.parse(stripCodeFence(raw));
   if (!record(parsed) || !keys(parsed, ["summary", "claims"]) || typeof parsed.summary !== "string" || !Array.isArray(parsed.claims) || parsed.claims.length > 256) throw new Error("Invalid extraction response");
   const claims = parsed.claims.map((value: unknown) => {
     if (!record(value) || !keys(value, ["text", "kind", "evidenceEntryIds"]) || typeof value.text !== "string" || !value.text.trim() || !["procedure", "project_fact", "preference", "outcome"].includes(String(value.kind)) || !Array.isArray(value.evidenceEntryIds) || value.evidenceEntryIds.length === 0 || new Set(value.evidenceEntryIds).size !== value.evidenceEntryIds.length || !value.evidenceEntryIds.every(id => typeof id === "string" && entryIds.has(id))) throw new Error("Invalid extraction claim");

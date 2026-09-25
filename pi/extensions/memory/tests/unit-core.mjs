@@ -388,5 +388,6 @@ test('only eligible original text; strict extraction and redaction', () => {
   assert.match(evidence[0].text, /\[redacted\]/);
   assert.equal(output.claims.length, 1);
   assert.throws(() => parseExtraction('{"summary":"","claims":[{"text":"fact","kind":"preference","evidenceEntryIds":["wrong"]}]}', new Set(['one'])));
+  assert.equal(parseExtraction('```json\n{"summary":"fenced","claims":[]}\n```', new Set(['one'])).summary, 'fenced');
   assert.equal(redact('Authorization: Bearer abc'), 'Authorization: Bearer [redacted]');
 });
