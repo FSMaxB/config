@@ -14,6 +14,7 @@ Differences from upstream:
 - The provider reads Pi 0.86+ transcripts: the system prompt and tool set come from the transcript's system messages through pi-ai's replay helpers, and the bridge's cursors count conversation messages only. Pi 0.86 or later is required.
 - Configuration uses only nested `claude-bridge.json` files. The extension manager, account router and cloud connector integrations are removed. SDK tools are restricted to Pi's bridge.
 - The global AGENTS context file from the Pi agent directory is forwarded on every query, ahead of the nearest working-directory file. Upstream forwards only the nearest file and uses the global one as a fallback, so standing instructions vanish inside any repository that has its own `AGENTS.md`.
+- A request that offers no tools gets its own system prompt verbatim instead of the Claude Code preset, with no AGENTS, skills or `APPEND_SYSTEM.md` forwarding. Pi's agent loop always offers tools, so such a request is a one-shot from another extension (memory extraction, compaction summaries) whose prompt is the whole instruction. Upstream sends the preset unconditionally, so a caller's instructions never reach the model.
 - The provider is re-registered on `session_start` only when the Claude credential probe's answer changed since the last registration. Upstream re-registers unconditionally, which restarts Pi's availability refresh and can leave the bridge models missing from the model list for a moment after a new session starts.
 
 ## Install
@@ -75,7 +76,7 @@ Maintainer notes, embedding behavior and test commands are in [DEVELOPMENT.md](D
 
 ## Prompt context
 
-The bridge sends the global AGENTS context file from the Pi agent directory, the nearest one found walking up from the working directory, and Pi's skills list with the prompt. Per directory it checks `AGENTS.override.md`, `AGENTS.md` and `AGENTS.MD`; the global file comes first, and a file reachable under both paths is sent once. Claude Code loads its own CLAUDE.md files. Optional `APPEND_SYSTEM.md` is the only additional forwarded prompt source.
+When the request offers tools, the bridge sends the Claude Code preset system prompt plus the global AGENTS context file from the Pi agent directory, the nearest one found walking up from the working directory, and Pi's skills list. A request without tools, such as a memory-extraction or compaction one-shot from another extension, gets its own system prompt verbatim and none of the appends. Per directory it checks `AGENTS.override.md`, `AGENTS.md` and `AGENTS.MD`; the global file comes first, and a file reachable under both paths is sent once. Claude Code loads its own CLAUDE.md files. Optional `APPEND_SYSTEM.md` is the only additional forwarded prompt source.
 
 ## Session and tool boundaries
 

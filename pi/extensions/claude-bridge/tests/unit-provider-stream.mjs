@@ -170,6 +170,18 @@ describe("ordinary provider stream", () => {
 		assert.equal(options[1].hooks, options[0].hooks);
 	});
 
+	it("forwards a tool-less caller's system prompt verbatim instead of the Claude Code preset", async () => {
+		// arrange
+		const extractionPrompt = "Return ONLY JSON {\"summary\":string,\"claims\":[]}";
+		let queryOptions;
+		__testSetSdkQueryFactory((input) => { queryOptions = input.options; return query([{ type: "result", subtype: "success", result: "{}" }]); });
+		// act
+		await collect(streamNormalized(model, { ...context, systemPrompt: extractionPrompt, tools: [] }, { sessionId: "memory-one-shot", cacheRetention: "none" }));
+		// assert
+		assert.equal(queryOptions.systemPrompt, extractionPrompt);
+		assert.deepEqual(queryOptions.mcpServers, {});
+	});
+
 	it("clears transient rebuild flags after a successful query", async () => {
 		// arrange
 		runInRequestLane("clear-flags", () => __testSetBridgeIntegrityState({ sharedSession: {
