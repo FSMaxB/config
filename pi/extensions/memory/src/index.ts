@@ -122,7 +122,7 @@ export default function memory(pi: ExtensionAPI): void {
       const parsed = parseExtraction(response.content.filter(block => block.type === "text").map(block => block.text).join(""), ids);
       if (token !== generation || !active(context)) return;
       current.store.complete(job, parsed.claims);
-    } catch { if (token === generation && active(context)) current.store.fail(job); }
+    } catch (error) { if (token === generation && active(context)) current.store.fail(job, sanitize(error)); }
     finally { clearInterval(heartbeat); clearTimeout(deadline); if (current.controller === controller) { current.controller = undefined; current.job = undefined; } }
   };
 
@@ -269,7 +269,8 @@ export default function memory(pi: ExtensionAPI): void {
         try {
           const settings = loadConfiguration(getAgentDir(), project);
           const enabled = settings.config.enabled && context.isProjectTrusted() && process.env.PI_SUBAGENT_CHILD !== "1" && !!context.sessionManager.getSessionFile();
-          const counts = enabled && active(context) ? `; ${JSON.stringify(runtime!.store.counts())}; active generation ${runtime!.store.generationId() ?? "none"}` : "";
+          const lastFailure = enabled && active(context) ? runtime!.store.lastFailure() : undefined;
+          const counts = enabled && active(context) ? `; ${JSON.stringify(runtime!.store.counts())}; active generation ${runtime!.store.generationId() ?? "none"}${lastFailure ? `; last extraction failure: ${lastFailure}` : ""}` : "";
           const models = [settings.config.extractionModel,settings.config.consolidationModel];
           const pause = enabled && settings.config.generateMemories && models.some(modelId => !modelId || !configuredModel(context,modelId)) ? "; generation paused: model missing/unavailable" : "";
           notify(`Memory ${enabled ? "on" : "off"} (${settings.origin}); project ${project.root}; extraction ${settings.config.extractionModel ?? "unset"}; consolidation ${settings.config.consolidationModel ?? "unset"}; limits ${JSON.stringify(settings.config.limits)}${counts}${pause}${warning ? `; ${warning}` : ""}`);

@@ -53,7 +53,7 @@ export class Store {
       chmodSync(path, 0o600);
       database.exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; BEGIN IMMEDIATE");
       const version = Number(database.prepare("PRAGMA user_version").get()?.user_version);
-      if (version < 0 || version > 4) throw new Error("Unsupported memory database schema");
+      if (version < 0 || version > 5) throw new Error("Unsupported memory database schema");
       if (version === 0) {
         database.exec(`
           CREATE TABLE state (id INTEGER PRIMARY KEY CHECK(id=1), project_root TEXT NOT NULL, epoch INTEGER NOT NULL DEFAULT 1, revision INTEGER NOT NULL DEFAULT 0, worker_owner TEXT, worker_until INTEGER);
@@ -104,6 +104,10 @@ export class Store {
       if (version < 4) database.exec(`
         CREATE TABLE opt_in_entries (session_id TEXT NOT NULL, entry_id TEXT NOT NULL, epoch INTEGER NOT NULL, PRIMARY KEY(session_id,entry_id,epoch));
         PRAGMA user_version=4;
+      `);
+      if (version < 5) database.exec(`
+        ALTER TABLE jobs ADD COLUMN failure_reason TEXT;
+        PRAGMA user_version=5;
       `);
       database.prepare("INSERT OR IGNORE INTO state(id,project_root) VALUES(1,?)").run(project.root);
       if (database.prepare("SELECT project_root FROM state WHERE id=1").get()?.project_root !== project.root) throw new Error("Memory project identity mismatch");
@@ -341,7 +345,7 @@ export class Store {
           for (const entryId of claim.evidenceEntryIds) this.database.prepare("INSERT INTO claim_support(claim_id,source_id,entry_id) VALUES(?,?,?)").run(id,job.sourceId,entryId);
         }
       }
-      this.database.prepare("UPDATE jobs SET status='done',payload='',owner=NULL,lease_until=NULL,completion_revision=(SELECT revision FROM state WHERE id=1) WHERE id=?").run(job.id);
+      this.database.prepare("UPDATE jobs SET status='done',payload='',owner=NULL,lease_until=NULL,failure_reason=NULL,completion_revision=(SELECT revision FROM state WHERE id=1) WHERE id=?").run(job.id);
       this.database.prepare("UPDATE state SET worker_owner=NULL,worker_until=NULL WHERE id=1 AND worker_owner=?").run(job.owner);
       this.database.exec("UPDATE state SET revision=revision+1 WHERE id=1; COMMIT");
       return true;
@@ -467,17 +471,21 @@ export class Store {
   private suppressTombstonedClaims(): void {
     this.database.exec("DELETE FROM claims WHERE id IN (SELECT c.claim_id FROM claim_support c JOIN source_entries e ON e.source_id=c.source_id AND e.entry_id=c.entry_id JOIN sources s ON s.id=c.source_id JOIN tombstones t ON t.kind='entry' AND (t.fingerprint=e.fingerprint OR t.id=s.session_id || ':' || e.entry_id))");
   }
-  fail(job: Job): void {
+  fail(job: Job, reason: string): void {
     this.database.exec("BEGIN IMMEDIATE");
     try {
       const row = this.database.prepare("SELECT attempts FROM jobs WHERE id=? AND owner=? AND epoch=?").get(job.id,job.owner,job.epoch);
       if (row) {
         const attempts = Number(row.attempts);
-        this.database.prepare("UPDATE jobs SET status=?,payload=CASE WHEN ?>=3 THEN '' ELSE payload END,owner=NULL,lease_until=NULL,retry_at=?,failure_category='invalid-or-provider' WHERE id=?").run(attempts>=3 ? "failed" : "pending", attempts, Date.now()+[60_000,300_000,1_800_000][Math.min(attempts-1,2)],job.id);
+        this.database.prepare("UPDATE jobs SET status=?,payload=CASE WHEN ?>=3 THEN '' ELSE payload END,owner=NULL,lease_until=NULL,retry_at=?,failure_category='invalid-or-provider',failure_reason=? WHERE id=?").run(attempts>=3 ? "failed" : "pending", attempts, Date.now()+[60_000,300_000,1_800_000][Math.min(attempts-1,2)],reason,job.id);
       }
       this.database.prepare("UPDATE state SET worker_owner=NULL,worker_until=NULL WHERE id=1 AND worker_owner=?").run(job.owner);
       this.database.exec("COMMIT");
     } catch (error) { this.database.exec("ROLLBACK"); throw error; }
+  }
+  lastFailure(): string | undefined {
+    const row = this.database.prepare("SELECT failure_reason AS reason FROM jobs WHERE failure_reason IS NOT NULL ORDER BY retry_at DESC LIMIT 1").get();
+    return row ? String(row.reason) : undefined;
   }
   cleanupGenerations(): void {
     const directory = join(this.agentDir,"memory",this.project.hash,"generations");

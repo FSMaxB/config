@@ -178,7 +178,7 @@ test('forgetting one claim does not erase another supported by a different entry
   });
 });
 
-test('failed jobs erase payload and preserve the daily reservation when usage is unknown', async () => {
+test('failed jobs erase payload, keep the last failure reason and preserve the daily reservation when usage is unknown', async () => {
   // arrange
   await withRoot(async root => {
     const project=resolveProject(root);
@@ -191,13 +191,15 @@ test('failed jobs erase payload and preserve the daily reservation when usage is
     for (let attempt=0;attempt<3;attempt++) {
       database.exec('UPDATE jobs SET retry_at=0');
       const job=store.claim(`worker-${attempt}`,limits);
-      store.fail(job);
+      store.fail(job,`Unexpected token 'I' on attempt ${attempt}`);
     }
     // assert
-    const job=database.prepare('SELECT status,payload,attempts FROM jobs').get();
+    const job=database.prepare('SELECT status,payload,attempts,failure_reason FROM jobs').get();
     assert.equal(job.status,'failed');
     assert.equal(job.payload,'');
     assert.equal(Number(job.attempts),3);
+    assert.equal(job.failure_reason,"Unexpected token 'I' on attempt 2");
+    assert.equal(store.lastFailure(),"Unexpected token 'I' on attempt 2");
     assert.equal(Number(database.prepare('SELECT jobs FROM budget_days').get().jobs),3);
     database.close();store.close();
   });
