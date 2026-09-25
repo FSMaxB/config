@@ -29,6 +29,7 @@ import { latestPlanModeEntry, readPersistedDecisions } from "../lib/plan-decisio
 import { captureChildPathPolicy } from "../lib/path-permissions.ts";
 import { serializeChildPathPolicy, CHILD_POLICY_ENV, type ChildPathPolicy } from "../lib/path-permission-snapshot.ts";
 import { registerToolWithGuidelines } from "../lib/register-tool.ts";
+import { sessionTemporaryDirectory, TEMPORARY_DIRECTORY_ENV } from "../lib/session-temporary-directory.ts";
 import { type AgentConfig, discoverAgents, THINKING_LEVELS } from "./agents.ts";
 import { guidanceTable, loadPolicyConfig, resolveSubagentModel, type SubagentModelConfig } from "./model-policy.ts";
 import { planModeAllowedTools, type PersistedPlanDecisions } from "./plan-restrictions.ts";
@@ -106,6 +107,7 @@ export default function (pi: ExtensionAPI) {
         policyConfig: loadPolicyConfig(EXTENSION_DIRECTORY),
         planAllowedTools,
         pathPolicy: await captureChildPathPolicy(),
+        temporaryDirectory: sessionTemporaryDirectory(ctx.sessionManager.getSessionId()),
       };
       const agents = discoverAgents();
 
@@ -445,6 +447,7 @@ interface DispatchContext {
   policyConfig: SubagentModelConfig;
   planAllowedTools: Set<string> | undefined;
   pathPolicy: ChildPathPolicy;
+  temporaryDirectory: string;
 }
 
 interface TaskOverrides {
@@ -697,6 +700,7 @@ function childEnvironment(dispatch: DispatchContext): NodeJS.ProcessEnv {
   delete environment.PI_SUBAGENT_PLAN_ALLOWED_TOOLS;
   if (dispatch.planAllowedTools) environment.PI_SUBAGENT_PLAN_ALLOWED_TOOLS = [...dispatch.planAllowedTools].sort().join(",");
   environment[CHILD_POLICY_ENV] = serializeChildPathPolicy(dispatch.pathPolicy);
+  environment[TEMPORARY_DIRECTORY_ENV] = dispatch.temporaryDirectory;
   return environment;
 }
 
