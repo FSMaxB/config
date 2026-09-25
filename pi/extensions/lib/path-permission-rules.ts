@@ -37,6 +37,7 @@ export interface DefaultAllowedOptions {
   memoryDirectory: string;
   skillRoots: string[];
   agentDirectory: string;
+  temporaryDirectory?: string;
 }
 
 export interface RuleTiers { session: RuleSets; always: RuleSets }
@@ -85,8 +86,8 @@ export function evaluate(resolvedPath: string, mode: AccessMode, layers: { defau
 }
 
 export function defaultAllowed(mode: AccessMode, options: DefaultAllowedOptions): PathSelector[] {
-  const { planMode, repoRoot, memoryDirectory, skillRoots, agentDirectory } = options;
-  const scratch = [tree(memoryDirectory), tree(join(agentDirectory, "plans"))];
+  const { planMode, repoRoot, memoryDirectory, skillRoots, agentDirectory, temporaryDirectory } = options;
+  const scratch = [tree(memoryDirectory), tree(join(agentDirectory, "plans")), ...(temporaryDirectory ? [tree(temporaryDirectory)] : [])];
   if (mode === "read") return [tree(repoRoot), ...scratch, tree(join(homedir(), ".crit")), ...skillRoots.map(tree)];
   return planMode ? scratch : [tree(repoRoot), ...scratch];
 }

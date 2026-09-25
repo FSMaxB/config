@@ -215,6 +215,27 @@ test("default read access includes every trusted root", () => {
   ]);
 });
 
+test("the session temporary directory is readable and writable in every mode", () => {
+  // arrange
+  const options = {
+    repoRoot: "/repo",
+    memoryDirectory: "/memory",
+    skillRoots: [],
+    agentDirectory: "/agent",
+    temporaryDirectory: "/scratch",
+  };
+
+  // act
+  const planningWrite = defaultAllowed("write", { ...options, planMode: true });
+  const normalWrite = defaultAllowed("write", { ...options, planMode: false });
+  const read = defaultAllowed("read", { ...options, planMode: true });
+
+  // assert
+  assert.ok(planningWrite.map(selectorLabel).includes("/scratch/**"));
+  assert.ok(normalWrite.map(selectorLabel).includes("/scratch/**"));
+  assert.ok(read.map(selectorLabel).includes("/scratch/**"));
+});
+
 test("recorded rules take part in evaluation", () => {
   // arrange
   const session = emptyRules();

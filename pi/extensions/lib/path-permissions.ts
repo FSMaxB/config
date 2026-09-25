@@ -13,10 +13,11 @@ import { inheritedRules, parseChildPathPolicy, type ChildPathPolicy } from "./pa
 export const PATH_RULES_ENTRY_TYPE = "path-permissions";
 const RULES_FILE = join(getAgentDir(), "path-permissions.json");
 export const ALLOW_ONCE = "Allow once", ALLOW_SESSION = "Allow in session", ALLOW_ALWAYS = "Allow always", DENY_ONCE = "Deny once", DENY_SESSION = "Deny in session", DENY_ALWAYS = "Deny always";
-interface SharedState { session: RuleSets; planMode: boolean; inherited?: ChildPathPolicy | null; persistSession?: (snapshot: SerializedRules) => void }
+interface SharedState { session: RuleSets; planMode: boolean; temporaryDirectory?: string; inherited?: ChildPathPolicy | null; persistSession?: (snapshot: SerializedRules) => void }
 const globalState = globalThis as { piPathPermissions?: SharedState };
 const state = (globalState.piPathPermissions ??= { session: emptyRules(), planMode: false, inherited: parseChildPathPolicy(process.env.PI_SUBAGENT_PATH_POLICY) });
 export function setPlanModeEnabled(enabled: boolean): void { state.planMode = enabled; }
+export function setSessionTemporaryDirectory(path: string): void { state.temporaryDirectory = path; }
 export function initPathPermissions(pi: ExtensionAPI): void { state.persistSession = (snapshot) => pi.appendEntry(PATH_RULES_ENTRY_TYPE, snapshot); }
 export function restoreSessionPathRules(sessionManager: { getEntries(): readonly unknown[] }): void {
   state.session = parseSession(latestCustomData(sessionManager, PATH_RULES_ENTRY_TYPE));
@@ -79,8 +80,13 @@ async function requestAccess(resolved: string, mode: AccessMode, context: Extens
 async function grantRootFor(path: string): Promise<string> { const stats = await stat(path).catch(() => undefined); return findRepoRoot(stats?.isDirectory() ? path : dirname(path)); }
 async function currentDefaults(mode: AccessMode): Promise<ReturnType<typeof defaultAllowed>> {
   const repoRoot = await resolveThroughSymlinks(findRepoRoot());
-  const [memoryRoot, resolvedSkills, agentDirectory] = await Promise.all([resolveThroughSymlinks(memoryDirectory()), resolvedSkillRoots(repoRoot), resolveThroughSymlinks(getAgentDir())]);
-  return defaultAllowed(mode, { planMode: state.planMode, repoRoot, memoryDirectory: memoryRoot, skillRoots: resolvedSkills, agentDirectory });
+  const [memoryRoot, resolvedSkills, agentDirectory, temporaryDirectory] = await Promise.all([
+    resolveThroughSymlinks(memoryDirectory()),
+    resolvedSkillRoots(repoRoot),
+    resolveThroughSymlinks(getAgentDir()),
+    state.temporaryDirectory === undefined ? undefined : resolveThroughSymlinks(state.temporaryDirectory),
+  ]);
+  return defaultAllowed(mode, { planMode: state.planMode, repoRoot, memoryDirectory: memoryRoot, skillRoots: resolvedSkills, agentDirectory, temporaryDirectory });
 }
 // Project skill roots count only while they resolve inside the repository. Global roots also
 // allow every entry they hold, since skills are commonly symlinked in from elsewhere.
