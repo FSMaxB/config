@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Type } from "typebox";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { loadConfiguration, writeProjectActivation, type EffectiveConfig } from "./config.ts";
 import { resolveProject, type Project } from "./project.ts";
 import { Store, type Job, type ConsolidationTask } from "./store.ts";
@@ -15,6 +15,12 @@ import { collectEvidence, redact } from "./evidence.ts";
 import { parseExtraction } from "./extraction.ts";
 
 const toolNames = ["memory_search", "memory_read"];
+/** Custom message type of the persisted context injection. Persisting it keeps
+ *  Pi's history and every provider's view of the transcript identical: a
+ *  message added only through the `context` hook is invisible to Pi, and the
+ *  claude-bridge replays such a trailing user message as a mid-turn steer
+ *  after every tool call. */
+const injectionCustomType = "memory-injection";
 
 type Runtime = { project: Project; settings: EffectiveConfig; store: Store; activationEpoch: number; sessionId: string; known: Set<string>; eligible: Set<string>; lastRetentionCheck: number; controller?: AbortController; job?: Job; consolidation?: ConsolidationTask; timer?: NodeJS.Timeout };
 
@@ -195,14 +201,18 @@ export default function memory(pi: ExtensionAPI): void {
     try { current.store.enqueue(current.sessionId, context.sessionManager.getSessionFile()!, context.sessionManager.getLeafId() ?? "", JSON.stringify({ entries }),new Set(branch.map(entry => entry.id)),modelId,"normal",current.activationEpoch); }
     catch (error) { warning = sanitize(error); }
   });
-  pi.on("context", (event, context) => {
+  pi.on("context", (_event, context) => {
+    if (!active(context)) configureTools(false);
+  });
+  pi.on("before_agent_start", (_event, context) => {
     const current = active(context);
-    if (!current) { configureTools(false); return; }
-    if (!current.settings.config.useMemories) return;
+    if (!current || !current.settings.config.useMemories) return;
     try {
+      const token = current.store.snapshotToken();
+      if (lastInjectedToken(context.sessionManager.getBranch()) === token) return;
       const text = injection(current.store);
       if (!text || !active(context)) return;
-      return { messages: [...event.messages, { role: "user" as const, content: text, timestamp: Date.now() }] };
+      return { message: { customType: injectionCustomType, content: text, display: false, details: { token } } };
     } catch (error) { warning = sanitize(error); return; }
   });
   pi.registerTool({
@@ -329,6 +339,15 @@ function configuredModel(context: ExtensionContext, modelId: string): ReturnType
   if (!model) return undefined;
   const available = context.modelRegistry.getAvailable?.();
   return !available || available.some(candidate => candidate.provider === provider && candidate.id === id) ? model : undefined;
+}
+function lastInjectedToken(branch: SessionEntry[]): string | undefined {
+  for (let index = branch.length - 1; index >= 0; index--) {
+    const entry = branch[index];
+    if (entry.type !== "custom_message" || entry.customType !== injectionCustomType) continue;
+    const details = entry.details as { token?: unknown } | undefined;
+    return typeof details?.token === "string" ? details.token : undefined;
+  }
+  return undefined;
 }
 function boundedResult<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   return new Promise((resolve,reject) => {

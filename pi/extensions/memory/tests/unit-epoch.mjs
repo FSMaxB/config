@@ -54,7 +54,7 @@ test('shutdown during asynchronous store open cannot resurrect an old runtime', 
     await startup;
     // assert
     assert.deepEqual(activeTools,['read']);
-    assert.equal(hooks.get('context')({messages:[]},context),undefined);
+    assert.equal(hooks.get('before_agent_start')({prompt:''},context),undefined);
   } finally {Store.open=originalOpen;rmSync(root,{recursive:true,force:true});}
 });
 
@@ -75,11 +75,11 @@ test('reset keeps the project enabled and baselines old entries in the same sess
     // act
     await commands.get('memory').handler('reset',context);
     await commands.get('memory').handler('remember After reset',context);
-    const injected=hooks.get('context')({messages:[]},context);
+    const injected=hooks.get('before_agent_start')({prompt:''},context);
     // assert
     assert.match(notices.at(-1),/Remembered m-/);
-    assert.match(injected.messages.at(-1).content,/After reset/);
-    assert.doesNotMatch(injected.messages.at(-1).content,/Before reset/);
+    assert.match(injected.message.content,/After reset/);
+    assert.doesNotMatch(injected.message.content,/Before reset/);
     hooks.get('session_shutdown')({},context);
   } finally {rmSync(root,{recursive:true,force:true});}
 });
@@ -99,13 +99,13 @@ test('fast off/on in another process cannot reuse pre-off eligibility or context
     await hooks.get('session_start')({},context);
     const store=await Store.open(root,project);
     store.remember('old project data');
-    const before=hooks.get('context')({messages:[]},context);
+    const before=hooks.get('before_agent_start')({prompt:''},context);
     // act
     store.transition(false);
     store.transition(true);
-    const after=hooks.get('context')({messages:[]},context);
+    const after=hooks.get('before_agent_start')({prompt:''},context);
     // assert
-    assert.match(before.messages.at(-1).content,/old project data/);
+    assert.match(before.message.content,/old project data/);
     assert.equal(after,undefined);
     hooks.get('session_shutdown')({},context);
     store.close();

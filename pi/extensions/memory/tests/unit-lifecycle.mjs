@@ -59,10 +59,10 @@ test('opt-in lifecycle extracts and consolidates with distinct isolated provider
     database.exec('UPDATE state SET changed_at=0');
     intervals[0]();
     await until(() => database.prepare('SELECT active_generation_id AS id FROM state').get().id !== null);
-    const injected = handlers.get('context')({messages:[]},context);
+    const injected = handlers.get('before_agent_start')({prompt:''},context);
     const searched = await tools.get('memory_search').execute('call',{query:'fixtures'},undefined,undefined,context);
     await commands.get('memory').handler('off',context);
-    const removed = handlers.get('context')({messages:[]},context);
+    const removed = handlers.get('before_agent_start')({prompt:''},context);
     // assert
     assert.equal(Number(database.prepare('SELECT count(*) AS count FROM inference_usage').get().count),2);
     assert.equal(calls.length,2);
@@ -70,7 +70,7 @@ test('opt-in lifecycle extracts and consolidates with distinct isolated provider
     assert.equal(calls[0].input.messages[0].content.includes('old fact'),false);
     assert.ok(calls.every(call=>call.input.tools.length === 0 && call.options.sessionId.startsWith('memory-')));
     assert.notEqual(calls[0].options.sessionId,calls[1].options.sessionId);
-    assert.match(injected.messages.at(-1).content,/Use test fixtures/);
+    assert.match(injected.message.content,/Use test fixtures/);
     assert.match(searched.content[0].text,/fixtures/);
     assert.equal(removed,undefined);
     assert.deepEqual(activeTools,['read']);
