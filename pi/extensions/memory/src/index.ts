@@ -14,7 +14,7 @@ import { hasPersistedEntries } from "./session-file.ts";
 import { collectEvidence, redact } from "./evidence.ts";
 import { parseExtraction } from "./extraction.ts";
 
-const toolNames = ["memory_search", "memory_read"];
+const toolNames = ["memory_search", "memory_read", "memory_remember"];
 /** Custom message type of the persisted context injection. Persisting it keeps
  *  Pi's history and every provider's view of the transcript identical: a
  *  message added only through the `context` hook is invisible to Pi, and the
@@ -235,6 +235,21 @@ export default function memory(pi: ExtensionAPI): void {
       if (!current.settings.config.useMemories) return { content: [{ type: "text" as const, text: "Memory retrieval disabled" }], details: {} };
       try { return { content: [{ type: "text" as const, text: readArtifact(current.store,current.sessionId,id,startLine,maxLines) }], details: {} }; }
       catch { return { content: [{ type: "text" as const, text: "Memory artifacts unavailable" }], details: {} }; }
+    },
+  });
+  pi.registerTool({
+    name: "memory_remember", label: "Remember project fact", description: "Store one self-contained manual claim in project memory; it is injected verbatim into future sessions, so keep it short and only save facts not derivable from the repository.",
+    parameters: Type.Object({ text: Type.String() }),
+    async execute(_id, { text }, _signal, _onUpdate, context) {
+      const current = active(context);
+      if (!current) return { content: [{ type: "text" as const, text: "Memory disabled" }], details: {} };
+      if (!text.trim()) return { content: [{ type: "text" as const, text: "Claim text is empty" }], details: {} };
+      const redacted = redact(text.trim());
+      try {
+        const id = current.store.remember(redacted);
+        try { current.store.cleanupGenerations(); } catch (error) { warning = `Generation cleanup failed: ${sanitize(error)}`; }
+        return { content: [{ type: "text" as const, text: `Remembered ${id}${redacted !== text.trim() ? " (secrets redacted)" : ""}` }], details: { id } };
+      } catch (error) { return { content: [{ type: "text" as const, text: `Memory write failed: ${sanitize(error)}` }], details: {} }; }
     },
   });
   pi.registerCommand("memory", {
