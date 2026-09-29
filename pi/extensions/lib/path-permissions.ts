@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { defaultAllowed, emptyRules, evaluate, exact, glob, parseRules, recordRule, selectorFromKey, selectorKey, selectorLabel, serializeRules, tree, type AccessMode, type PathSelector, type PathRule, type RuleSets, type RuleTier, type SerializedRules, type Verdict } from "./path-permission-rules.ts";
+import { covers, defaultAllowed, emptyRules, evaluate, exact, glob, matchesRule, parseRules, recordRule, selectorFromKey, selectorKey, selectorLabel, serializeRules, tree, type AccessMode, type PathSelector, type PathRule, type RuleSets, type RuleTier, type SerializedRules, type Verdict } from "./path-permission-rules.ts";
 import { expandHome } from "./path-resolution.ts";
 import { readStoredRules, transaction } from "./path-rule-store.ts";
 import { contains, findRepoRoot, isVcsInternal, memoryDirectory, resolveThroughSymlinks } from "./repo.ts";
@@ -39,7 +39,7 @@ export function gatedTool(definition: ToolDefinition<any, any, any>, mode: Acces
   } };
 }
 
-export interface PathAuthorization { operationPath: string; checkedPaths: string[]; mode: AccessMode; context: ExtensionContext; defaults: ReturnType<typeof defaultAllowed>; session: RuleSets; always: RuleSets; }
+export interface PathAuthorization { operationPath: string; checkedPaths: string[]; mode: AccessMode; context: ExtensionContext; defaults: ReturnType<typeof defaultAllowed>; session: RuleSets; always: RuleSets; protected: PathSelector[]; }
 export async function authorizeRoot(target: string, mode: AccessMode, context: ExtensionContext, resolution: PathResolution = PathResolution.Follow): Promise<PathAuthorization> {
   if (state.inherited === null) throw new Error("The inherited child path policy is invalid; path tools are disabled.");
   const anchored = anchorTarget(target, context.cwd);
@@ -47,28 +47,79 @@ export async function authorizeRoot(target: string, mode: AccessMode, context: E
   const operationPath = resolution === PathResolution.PreserveFinalSymlink ? join(await resolveThroughSymlinks(dirname(anchored)), basename(anchored)) : resolved;
   const checkedPaths = [...new Set([resolved, operationPath])];
   for (const path of checkedPaths) assertWritablePath(path, mode);
+  const layers = await effectiveLayers(mode);
+  for (const path of checkedPaths) if (evaluate(path, mode, layers) === "deny") throw deniedError(path, mode);
+  for (const path of checkedPaths) await ensureAllowed(path, mode, context, layers);
+  const { defaults, session, always, protected: protectedSelectors } = layers;
+  return { operationPath, checkedPaths, mode, context, defaults, session, always, protected: protectedSelectors };
+}
+
+export interface ModePolicy { allow: PathSelector[]; deny: PathSelector[]; protected: PathSelector[] }
+export interface EffectivePolicy { read: ModePolicy; write: ModePolicy }
+
+// The merged view per mode, for enforcement outside this process (the bash sandbox).
+export async function currentPolicy(): Promise<EffectivePolicy> {
+  if (state.inherited === null) throw new Error("The inherited child path policy is invalid; the sandbox cannot be configured.");
+  return { read: await modePolicy("read"), write: await modePolicy("write") };
+}
+
+const POST_FAILURE_CHOICES = [ALLOW_SESSION, ALLOW_ALWAYS, DENY_ONCE, DENY_SESSION, DENY_ALWAYS];
+
+// Used by the sandbox after a command was denied: the command already failed, so "allow once" is meaningless.
+export async function grantPathAccess(path: string, mode: AccessMode, context: ExtensionContext): Promise<"allowed" | "denied"> {
+  const resolved = await resolveThroughSymlinks(path);
+  const verdict = async () => evaluate(resolved, mode, await effectiveLayers(mode));
+  const settled = (current: Verdict) => current === "prompt" ? undefined : current === "allow" ? "allowed" : "denied";
+  const immediate = settled(await verdict());
+  if (immediate) return immediate;
+  return await serialize(async () => {
+    const latest = settled(await verdict());
+    if (latest) return latest;
+    const { protected: protectedSelectors } = await effectiveLayers(mode);
+    try { await requestAccess(resolved, mode, context, protectedSelectors, POST_FAILURE_CHOICES); return "allowed"; }
+    catch { return "denied"; }
+  });
+}
+
+async function modePolicy(mode: AccessMode): Promise<ModePolicy> {
+  const { defaults, always, session, protected: protectedSelectors } = await effectiveLayers(mode);
+  const explicitAllow = [...always[mode].allow, ...session[mode].allow].map(selectorFromKey);
+  const deny = [...always[mode].deny, ...session[mode].deny].map(selectorFromKey);
+  const uncovered = protectedSelectors.filter((target) => !explicitAllow.some((grant) => covers(grant, target)));
+  return { allow: [...defaults, ...explicitAllow], deny, protected: uncovered };
+}
+
+async function effectiveLayers(mode: AccessMode): Promise<{ defaults: PathSelector[]; always: RuleSets; session: RuleSets; protected: PathSelector[] }> {
   const always = await readStoredRules(RULES_FILE);
-  const defaults = await currentDefaults(mode);
   const session = mergeInheritedSession(state.session, state.inherited);
   const inheritedDefaults = state.inherited ? (mode === "read" ? state.inherited.readDefaults : state.inherited.writeDefaults) : [];
-  const effectiveDefaults = [...inheritedDefaults, ...defaults];
-  for (const path of checkedPaths) if (evaluate(path, mode, { defaults: effectiveDefaults, always, session }) === "deny") throw deniedError(path, mode);
-  for (const path of checkedPaths) await ensureAllowed(path, mode, context, effectiveDefaults, always, session);
-  return { operationPath, checkedPaths, mode, context, defaults: effectiveDefaults, session, always };
+  const defaults = [...inheritedDefaults, ...(await currentDefaults(mode))];
+  const protectedSelectors = mode === "write" ? await protectedWritePaths() : [];
+  return { defaults, always, session, protected: protectedSelectors };
 }
 
-async function ensureAllowed(path: string, mode: AccessMode, context: ExtensionContext, defaults: ReturnType<typeof defaultAllowed>, always: RuleSets, session: RuleSets): Promise<void> {
-  const verdict = () => evaluate(path, mode, { defaults, always, session });
+// Writable policy the agent could use to disarm the sandbox or the path rules on the next restart.
+async function protectedWritePaths(): Promise<PathSelector[]> {
+  const agentDirectory = getAgentDir();
+  const roots = [join(agentDirectory, "extensions"), join(agentDirectory, "skills"), join(homedir(), ".agents", "skills"), join(homedir(), ".claude", "skills"), join(agentDirectory, "install"), join(agentDirectory, "bin"), join(agentDirectory, "npm")];
+  const resolvedRoots = await Promise.all(roots.map((root) => resolveThroughSymlinks(root)));
+  return [...new Set(resolvedRoots)].map(tree).concat(glob(await resolveThroughSymlinks(agentDirectory), "*.json"));
+}
+
+async function ensureAllowed(path: string, mode: AccessMode, context: ExtensionContext, layers: Awaited<ReturnType<typeof effectiveLayers>>): Promise<void> {
+  const verdict = () => evaluate(path, mode, layers);
   if (verdict() === "deny") throw deniedError(path, mode);
   if (verdict() === "allow") return;
-  await serialize(async () => { if (verdict() === "deny") throw deniedError(path, mode); if (verdict() === "allow") return; await requestAccess(path, mode, context); });
+  await serialize(async () => { if (verdict() === "deny") throw deniedError(path, mode); if (verdict() === "allow") return; await requestAccess(path, mode, context, layers.protected); });
 }
 
-async function requestAccess(resolved: string, mode: AccessMode, context: ExtensionContext): Promise<void> {
+async function requestAccess(resolved: string, mode: AccessMode, context: ExtensionContext, protectedSelectors: PathSelector[] = [], choices: string[] = [ALLOW_ONCE, ALLOW_SESSION, ALLOW_ALWAYS, DENY_ONCE, DENY_SESSION, DENY_ALWAYS]): Promise<void> {
   if (!context.hasUI) throw new Error(`${resolved} is not covered by the ${mode} path rules and there is no interactive UI to ask. Stay inside the repository.`);
-  const selector = tree(await grantRootFor(resolved));
+  // A protected path is granted as its own protected root, so approving one extension file does not open the whole repository.
+  const protectedMatch = protectedSelectors.find((candidate) => matchesRule(resolved, candidate));
+  const selector = protectedMatch ?? tree(await grantRootFor(resolved));
   const label = selectorLabel(selector), verb = mode === "read" ? "Read" : "Write";
-  const choice = await context.ui.select(`${verb} ${resolved}?\n\n  Allowing grants ${mode} access to ${label}\n  Denying blocks ${mode} access to ${label}`, [ALLOW_ONCE, ALLOW_SESSION, ALLOW_ALWAYS, DENY_ONCE, DENY_SESSION, DENY_ALWAYS]);
+  const choice = await context.ui.select(`${verb} ${resolved}?\n\n  Allowing grants ${mode} access to ${label}\n  Denying blocks ${mode} access to ${label}`, choices);
   if (choice === ALLOW_ONCE) return;
   if (choice === ALLOW_SESSION) { await addPathRule({ mode, kind: "allow", tier: "session", selector }); return; }
   if (choice === ALLOW_ALWAYS) { await addPathRule({ mode, kind: "allow", tier: "always", selector }); return; }

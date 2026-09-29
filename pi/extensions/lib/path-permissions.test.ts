@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { resolveThroughSymlinks } from "./path-resolution.ts";
 import {
+  covers,
   defaultAllowed,
   emptyRules,
   evaluate,
@@ -298,4 +299,77 @@ test("a stored tree selector drops a redundant trailing subtree glob", () => {
   // assert
   assert.deepEqual(parsed.read.allow, new Set([selectorKey({ kind: "tree", path: "/agent" })]));
   assert.equal(verdict, "allow");
+});
+
+test("a protected tree inside a default tree prompts", () => {
+  // arrange
+  const layers = { defaults: [tree("/repo")], always: emptyRules(), session: emptyRules(), protected: [tree("/repo/pi/extensions")] };
+
+  // act
+  const protectedVerdict = evaluate("/repo/pi/extensions/foo.ts", "write", layers);
+  const siblingVerdict = evaluate("/repo/README.md", "write", layers);
+
+  // assert
+  assert.equal(protectedVerdict, "prompt");
+  assert.equal(siblingVerdict, "allow");
+});
+
+test("an explicit allow beats protection and a deny beats both", () => {
+  // arrange
+  const allowing = emptyRules();
+  allowing.write.allow.add(selectorKey(tree("/repo/pi/extensions")));
+  const denying = emptyRules();
+  denying.write.deny.add(selectorKey(tree("/repo/pi/extensions")));
+  const protectedSelectors = [tree("/repo/pi/extensions")];
+
+  // act
+  const allowed = evaluate("/repo/pi/extensions/foo.ts", "write", { defaults: [tree("/repo")], always: emptyRules(), session: allowing, protected: protectedSelectors });
+  const denied = evaluate("/repo/pi/extensions/foo.ts", "write", { defaults: [tree("/repo")], always: denying, session: allowing, protected: protectedSelectors });
+
+  // assert
+  assert.equal(allowed, "allow");
+  assert.equal(denied, "deny");
+});
+
+test("evaluation without protected selectors is unchanged", () => {
+  // arrange
+  const layers = { defaults: [tree("/repo")], always: emptyRules(), session: emptyRules() };
+
+  // act
+  const verdict = evaluate("/repo/pi/extensions/foo.ts", "write", layers);
+
+  // assert
+  assert.equal(verdict, "allow");
+});
+
+test("a tree grant covers protected selectors rooted inside it", () => {
+  // arrange
+  const grant = tree("/repo");
+
+  // act
+  const nestedTree = covers(grant, tree("/repo/pi/extensions"));
+  const nestedExact = covers(grant, exact("/repo/pi/extensions/a.ts"));
+  const nestedGlob = covers(grant, glob("/repo/agent", "*.json"));
+  const outside = covers(grant, tree("/elsewhere"));
+
+  // assert
+  assert.equal(nestedTree, true);
+  assert.equal(nestedExact, true);
+  assert.equal(nestedGlob, true);
+  assert.equal(outside, false);
+});
+
+test("an exact grant covers only the equal path and a glob grant covers nothing", () => {
+  // arrange
+  const target = tree("/repo/pi/extensions");
+
+  // act
+  const equal = covers(exact("/repo/pi/extensions"), target);
+  const different = covers(exact("/repo/pi"), target);
+  const globbed = covers(glob("/repo", "**"), target);
+
+  // assert
+  assert.equal(equal, true);
+  assert.equal(different, false);
+  assert.equal(globbed, false);
 });

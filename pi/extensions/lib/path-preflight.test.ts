@@ -183,5 +183,6 @@ function authorizationFor(root: string, session: RuleSets): PathAuthorization {
     defaults: [tree(root)],
     session,
     always: emptyRules(),
+    protected: [],
   };
 }

@@ -78,11 +78,23 @@ export function matchesRule(resolvedPath: string, selector: PathSelector): boole
   return contains(selector.base, resolvedPath) && matchesGlob(relative(selector.base, resolvedPath), selector.pattern);
 }
 
-export function evaluate(resolvedPath: string, mode: AccessMode, layers: { defaults: Iterable<PathSelector>; always: RuleSets; session: RuleSets }): Verdict {
-  const { defaults, always, session } = layers;
+export interface PolicyLayers { defaults: Iterable<PathSelector>; always: RuleSets; session: RuleSets; protected?: Iterable<PathSelector> }
+
+// Explicit grants beat protection, protection beats defaults.
+export function evaluate(resolvedPath: string, mode: AccessMode, layers: PolicyLayers): Verdict {
+  const { defaults, always, session, protected: protectedSelectors = [] } = layers;
   if (matchesAny(resolvedPath, always[mode].deny) || matchesAny(resolvedPath, session[mode].deny)) return "deny";
-  if (matchesAny(resolvedPath, defaults) || matchesAny(resolvedPath, always[mode].allow) || matchesAny(resolvedPath, session[mode].allow)) return "allow";
+  if (matchesAny(resolvedPath, always[mode].allow) || matchesAny(resolvedPath, session[mode].allow)) return "allow";
+  if (matchesAny(resolvedPath, protectedSelectors)) return "prompt";
+  if (matchesAny(resolvedPath, defaults)) return "allow";
   return "prompt";
+}
+
+// A tree or exact grant covers a protected selector rooted inside it. Glob grants never cover.
+export function covers(grant: PathSelector, target: PathSelector): boolean {
+  if (grant.kind === "glob") return false;
+  const targetRoot = target.kind === "glob" ? target.base : target.path;
+  return grant.kind === "tree" ? contains(grant.path, targetRoot) : grant.path === targetRoot;
 }
 
 export function defaultAllowed(mode: AccessMode, options: DefaultAllowedOptions): PathSelector[] {
