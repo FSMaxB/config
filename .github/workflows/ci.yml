@@ -82,7 +82,8 @@ jobs:
       - name: Extension packages
         # Every extension directory with a package.json is picked up
         # automatically; each must define `test` and `typecheck` scripts.
-        # Skipped: test:int / tests/int-*.mjs (need live Claude credentials).
+        # Skipped: test:int / tests/int-*.mjs (need live Claude credentials;
+        # the sandbox job runs sandbox's test:int on its own).
         run: |
           for pkg in pi/extensions/*/package.json; do
             dir=$(dirname "$pkg")
@@ -185,3 +186,22 @@ jobs:
           done
       - name: Verify tuicr-skill matches pinned digests
         run: git diff --exit-code tuicr-skill/
+
+  sandbox:
+    name: sandbox (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-26.04, macos-26]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "22.19.0"
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y bubblewrap socat ripgrep
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Integration test
+        run: cd pi/extensions/sandbox && npm ci && npm run test:int
