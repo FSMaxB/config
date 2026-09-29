@@ -21,8 +21,10 @@ const SANDBOX_NOTE =
 const INSTALL_HINT =
   "Install with: sudo pacman -S bubblewrap socat ripgrep (Arch) or apt install bubblewrap socat ripgrep (Debian/Ubuntu, plus sysctl kernel.apparmor_restrict_unprivileged_userns=0). Set PI_SANDBOX=0 to run without the sandbox.";
 
-// macOS reports violations asynchronously through `log stream`, so they land a moment after the child exits.
-const VIOLATION_SETTLE_MILLISECONDS = 300;
+// macOS reports violations asynchronously through `log stream`, so they land a moment after the child
+// exits, sometimes later than any single fixed wait. Keep polling until the count stops changing.
+const VIOLATION_POLL_MILLISECONDS = 250;
+const VIOLATION_MAX_POLLS = 6;
 const MAX_PATH_PROMPTS_PER_COMMAND = 5;
 
 const SANDBOX_TEMPORARY_DIRECTORY = "/tmp/claude";
@@ -142,8 +144,15 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   }
 
   async function collectViolations(commandId: string) {
-    await new Promise((resolve) => setTimeout(resolve, VIOLATION_SETTLE_MILLISECONDS));
-    return SandboxManager.getSandboxViolationStore().getViolationsForCommand(commandId);
+    const store = SandboxManager.getSandboxViolationStore();
+    let previousCount = -1;
+    for (let poll = 0; poll < VIOLATION_MAX_POLLS; poll += 1) {
+      await new Promise((resolve) => setTimeout(resolve, VIOLATION_POLL_MILLISECONDS));
+      const count = store.getViolationsForCommand(commandId).length;
+      if (count === previousCount) break;
+      previousCount = count;
+    }
+    return store.getViolationsForCommand(commandId);
   }
 
   async function askNetwork({ host, port }: { host: string; port: number | undefined }): Promise<boolean> {
