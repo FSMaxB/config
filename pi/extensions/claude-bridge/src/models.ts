@@ -26,11 +26,8 @@ export const MODEL_IDS_IN_ORDER = [
 	OPUS_5_5_MODEL_ID,
 	OPUS_5_MODEL_ID,
 	FABLE_FALLBACK_MODEL_ID,
-	"claude-opus-4-7",
-	"claude-opus-4-6",
 	SONNET_5_5_MODEL_ID,
 	SONNET_5_MODEL_ID,
-	"claude-sonnet-4-6",
 	"claude-haiku-4-5",
 ];
 
@@ -115,7 +112,7 @@ export function buildModels<T extends { id: string; [key: string]: any }>(piAiMo
 	return MODEL_IDS_IN_ORDER
 		.map((id) => piAiModels.find((m) => m.id === id) ?? FALLBACK_MODELS[id])
 		.filter((m) => m != null)
-		// Forward thinkingLevelMap so per-model overrides (e.g. opus-4-7 mapping
+		// Forward thinkingLevelMap so per-model overrides (e.g. opus-4-8 mapping
 		// xhigh→xhigh instead of xhigh→max) are visible to the effort lookup.
 		.map(({ id, name, reasoning, input, contextWindow, maxTokens, thinkingLevelMap }) => ({
 			id, name, reasoning, input, contextWindow, maxTokens, thinkingLevelMap,

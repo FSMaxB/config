@@ -87,7 +87,7 @@ export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): Bu
 	// settings, strict MCP config still prevents auto-discovered MCP servers.
 	const settingSources = settingSourcesForQuery(appendSystemPrompt, providerSettings.settingSources);
 	// Prefer the model's own thinkingLevelMap when present (pi-ai 0.72+ ships
-	// per-model overrides — e.g. opus-4-7 wants xhigh→xhigh, not xhigh→max).
+	// per-model overrides — e.g. opus-4-8 wants xhigh→xhigh, not xhigh→max).
 	// Fall back to our generic table for older pi-ai or unmapped levels.
 	const requestedEffort = reasoning
 		? ((requestedModel as any).thinkingLevelMap?.[reasoning] as EffortLevel | undefined)

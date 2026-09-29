@@ -102,7 +102,7 @@ describe("model fallback pairing", () => {
 			[SONNET_5_5_MODEL_ID, SONNET_5_MODEL_ID],
 			[FABLE_FALLBACK_MODEL_ID, undefined],
 			[SONNET_5_MODEL_ID, undefined],
-			["claude-sonnet-4-6", undefined],
+			["claude-haiku-4-5", undefined],
 		]) {
 			assert.equal(fallbackModelForPrimaryModel(id), expected, id);
 		}

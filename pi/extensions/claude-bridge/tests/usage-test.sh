@@ -9,7 +9,7 @@
 #
 # Usage: tests/usage-test.sh [model] [turns]
 #   model: claude-haiku-4-5 (default), claude-fable-5-1, claude-opus-5-5, claude-opus-5,
-#          claude-opus-4-8, claude-opus-4-7, claude-opus-4-6, claude-sonnet-5, claude-sonnet-4-6
+#          claude-opus-4-8, claude-sonnet-5-5, claude-sonnet-5
 #   turns: number of conversation turns (default: 10)
 
 source "$(dirname "$0")/lib/bash-setup.sh"
@@ -46,10 +46,7 @@ case "$MODEL" in
   claude-fable-5-1)     CC_MODEL="claude-fable-5-1" ;;
   claude-haiku-4-5)   CC_MODEL="claude-haiku-4-5" ;;
   claude-opus-4-8)    CC_MODEL="claude-opus-4-8" ;;
-  claude-opus-4-7)    CC_MODEL="claude-opus-4-7" ;;
   claude-sonnet-5)    CC_MODEL="claude-sonnet-5" ;;
-  claude-sonnet-4-6)  CC_MODEL="claude-sonnet-4-6" ;;
-  claude-opus-4-6)    CC_MODEL="claude-opus-4-6" ;;
   *)                  CC_MODEL="$MODEL" ;;
 esac
 
