@@ -1,0 +1,22 @@
+{
+  // The ../lib modules import pi packages from here: files outside this directory
+  // cannot resolve its node_modules on their own, hence the paths mapping.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "paths": {
+      "@earendil-works/*": ["./node_modules/@earendil-works/*"],
+      "typebox": ["./node_modules/typebox"]
+    }
+  }
+}
