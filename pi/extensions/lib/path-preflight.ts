@@ -78,7 +78,7 @@ function stripTrailingSeparator(path: string): string {
 }
 
 function evaluatePath(path: string, authorization: PathAuthorization): Verdict {
-  return evaluate(path, authorization.mode, { defaults: authorization.defaults, always: authorization.always, session: authorization.session });
+  return evaluate(path, authorization.mode, { defaults: authorization.defaults, always: authorization.always, session: authorization.session, protected: authorization.protected });
 }
 
 function describeVerdict(verdict: Exclude<Verdict, "allow">): string {
