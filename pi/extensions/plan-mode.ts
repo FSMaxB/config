@@ -38,6 +38,7 @@ import {
 import { newPlanPath, plansDirectory } from "./lib/plan-file.ts";
 import { commitPlanFileForUser } from "./lib/plan-commit.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
+import { isSandboxActive } from "./lib/sandbox-state.ts";
 import { selectWithDefault } from "./lib/select-with-default.ts";
 import { latestCustomData } from "./lib/session-entries.ts";
 import { serialize } from "./lib/ui-queue.ts";
@@ -85,6 +86,8 @@ export default function (pi: ExtensionAPI) {
   const alwaysDenials = new Map<string, string | undefined>();
 
   function isAllowed(toolName: string): boolean {
+    // The sandbox makes bash read-only in plan mode at the OS level; without it bash stays gated per call.
+    if (toolName === "bash" && isSandboxActive()) return true;
     return planToolPermission(
       toolName,
       { sessionGrants, alwaysGrants, sessionDenials: sessionDenials.keys(), alwaysDenials: alwaysDenials.keys() },
