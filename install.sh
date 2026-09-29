@@ -57,7 +57,7 @@ if [[ ! -e ~/.claude/skills/tuicr ]]; then
   mkdir -p ~/.claude/skills
   ln -s ~/config/tuicr-skill ~/.claude/skills/tuicr
 fi
-if [[ ! -e ~/.pi/agent/CLAUDE.md ]]; then
+if [[ ! -e ~/.pi/agent/AGENTS.md ]]; then
   mkdir -p ~/.pi/agent
   ln -s ~/config/INSTALL-AGENTS.md ~/.pi/agent/AGENTS.md
 fi
