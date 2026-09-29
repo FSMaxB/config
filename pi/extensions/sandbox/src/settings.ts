@@ -19,7 +19,13 @@ export interface Settings {
 }
 
 const DEFAULT_ALLOWED_DOMAINS = ["github.com", "api.github.com", "*.githubusercontent.com", "registry.npmjs.org", "crates.io", "static.crates.io", "index.crates.io", "pypi.org", "files.pythonhosted.org"];
-const DEFAULT_TOOLCHAIN_READ = ["~/.cargo", "~/.rustup", "~/.npm", "~/.nvm", "~/.cache", "~/.local/share/pnpm", "~/.bun", "~/.deno", "~/.pyenv", "~/.nix-profile"];
+// Besides toolchains this holds config that git, jj and CFNetwork clients (curl) read on startup;
+// denying it makes them warn or fail even though nothing secret lives there.
+const DEFAULT_TOOLCHAIN_READ = [
+  "~/.cargo", "~/.rustup", "~/.npm", "~/.nvm", "~/.cache", "~/.local/share/pnpm", "~/.bun", "~/.deno", "~/.pyenv", "~/.nix-profile",
+  "~/.gitconfig", "~/.gitignore_global", "~/.config/git", "~/.config/jj",
+  "~/Library/Preferences/.GlobalPreferences*", "~/Library/Preferences/ByHost/.GlobalPreferences*",
+];
 
 // A missing file means defaults; a present but invalid one throws so the sandbox fails closed.
 export async function loadSettings(filePath: string): Promise<Settings> {
