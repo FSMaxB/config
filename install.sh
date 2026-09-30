@@ -85,6 +85,21 @@ if [[ -L ~/.pi/agent/keybindings.json || ! -e ~/.pi/agent/keybindings.json ]]; t
   mkdir -p ~/.pi/agent
   ln -sfnv ~/config/pi/keybindings.json ~/.pi/agent/keybindings.json
 fi
+# pi keeps its npm packages in ~/.pi/agent/npm; linking the manifest and lockfile into the repo
+# pins them, and `pi update --extensions` rewrites the repo files through the links.
+mkdir -p ~/.pi/agent/npm
+for file in package.json package-lock.json; do
+  if [[ -L ~/.pi/agent/npm/${file} || ! -e ~/.pi/agent/npm/${file} ]]; then
+    ln -sfnv ~/config/pi/npm/${file} ~/.pi/agent/npm/${file}
+  fi
+done
+if [[ ! -d ~/.pi/agent/npm/node_modules ]]; then
+  if hash npm 2>/dev/null; then
+    (cd ~/.pi/agent/npm && npm ci) || echo "npm ci failed in ~/.pi/agent/npm"
+  else
+    echo "npm is missing, ~/.pi/agent/npm has no node_modules"
+  fi
+fi
 
 platform_binaries=~/config/binaries/$(uname -s)/$(uname -m)
 for tool in bat crit jj jq rtk starship tuicr zellij; do

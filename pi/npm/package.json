@@ -1,0 +1,8 @@
+{
+  "name": "pi-extensions",
+  "private": true,
+  "dependencies": {
+    "@firstpick/pi-themes-bundle": "^0.1.6",
+    "pi-web-access": "^0.34.0"
+  }
+}
