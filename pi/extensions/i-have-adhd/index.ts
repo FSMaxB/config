@@ -15,6 +15,7 @@ const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 const SKILL_PATH = join(
   EXTENSION_DIR,
   "..",
+  "..",
   "skills",
   "i-have-adhd",
   "SKILL.md",
