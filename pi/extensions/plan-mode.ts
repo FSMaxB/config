@@ -315,6 +315,7 @@ export default function (pi: ExtensionAPI) {
 
   registerToolWithGuidelines(pi, {
     name: PLAN_PATH,
+    namespace: PLANNING_NAMESPACE,
     label: "Plan path",
     description:
       "Return the absolute path a new plan file should be written to, inside the plans directory for this working directory. " +
@@ -368,6 +369,8 @@ export default function (pi: ExtensionAPI) {
 
   registerToolWithGuidelines(pi, {
     name: SUBMIT_PLAN,
+    exposure: "model-only",
+    namespace: PLANNING_NAMESPACE,
     label: "Submit plan",
     description:
       "Submit the plan file at path for the user to approve. Only available in plan mode. " +
@@ -850,6 +853,8 @@ export default function (pi: ExtensionAPI) {
     );
   });
 }
+
+const PLANNING_NAMESPACE = { name: "planning", description: "Create plan paths and submit plans for human approval." };
 
 interface PlanHandoff {
   planPath: string;

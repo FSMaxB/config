@@ -23,6 +23,8 @@ let planSlug: string | undefined;
 export default function (pi: ExtensionAPI) {
   registerToolWithGuidelines(pi, {
     name: "crit_review",
+    exposure: "model-only",
+    namespace: CRIT_NAMESPACE,
     label: "Crit review",
     description:
       "Open a crit review in the browser and block until the user submits it, then return their comments. " +
@@ -117,6 +119,8 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerTool({
     name: "crit_comments",
+    namespace: CRIT_NAMESPACE,
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     label: "Crit comments",
     description:
       "List the review comments crit is holding, review-level ones first. Unresolved only unless all is set. " +
@@ -149,6 +153,7 @@ export default function (pi: ExtensionAPI) {
 
   registerToolWithGuidelines(pi, {
     name: "crit_comment",
+    namespace: CRIT_NAMESPACE,
     label: "Crit comment",
     description:
       "Add comments to the crit review, or reply to existing ones. Always attributed, always written in one atomic batch. " +
@@ -231,6 +236,8 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerTool({
     name: "crit_status",
+    namespace: CRIT_NAMESPACE,
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     label: "Crit status",
     description:
       "Show the current crit session: the review file path, the round, and how many comments are outstanding.",
@@ -242,6 +249,8 @@ export default function (pi: ExtensionAPI) {
     },
   });
 }
+
+const CRIT_NAMESPACE = { name: "crit", description: "Open browser reviews and inspect or contribute review comments." };
 
 interface ReviewParams {
   paths?: string[];

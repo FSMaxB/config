@@ -53,6 +53,8 @@ export default function (pi: ExtensionAPI) {
 
   registerToolWithGuidelines(pi, {
     name: "vcs_info",
+    namespace: VCS_NAMESPACE,
+    annotations: READ_ONLY_ANNOTATIONS,
     label: "VCS info",
     description:
       "Report which version control system backs the current directory, where its root is, and what the current revision is. " +
@@ -122,6 +124,8 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerTool({
     name: "vcs_status",
+    namespace: VCS_NAMESPACE,
+    annotations: READ_ONLY_ANNOTATIONS,
     label: "VCS status",
     description:
       "Show the working copy status: which files were added, modified or deleted since the last commit. " +
@@ -157,6 +161,8 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerTool({
     name: "vcs_branches",
+    namespace: VCS_NAMESPACE,
+    annotations: READ_ONLY_ANNOTATIONS,
     label: "VCS branches",
     description:
       "List branches (git) or bookmarks (jj) with the revision each one points at. " +
@@ -209,6 +215,8 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerTool({
     name: "vcs_log",
+    namespace: VCS_NAMESPACE,
+    annotations: READ_ONLY_ANNOTATIONS,
     label: "VCS log",
     description: `Show commit history. ${REVSET_NOTE} ${PATHS_NOTE} ${CAP_NOTE}`,
     promptSnippet:
@@ -261,6 +269,8 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerTool({
     name: "vcs_show",
+    namespace: VCS_NAMESPACE,
+    annotations: READ_ONLY_ANNOTATIONS,
     label: "VCS show",
     description:
       "Show one revision: its metadata and the diff it introduced. " +
@@ -301,6 +311,8 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerTool({
     name: "vcs_diff",
+    namespace: VCS_NAMESPACE,
+    annotations: READ_ONLY_ANNOTATIONS,
     label: "VCS diff",
     description:
       "Show a diff. With no revisions this is the working copy against the last commit. " +
@@ -351,6 +363,8 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerTool({
     name: "vcs_file",
+    namespace: VCS_NAMESPACE,
+    annotations: READ_ONLY_ANNOTATIONS,
     label: "VCS file",
     description:
       `Print the contents of a file as of a given revision. ${PATHS_NOTE} ${CAP_NOTE} ` +
@@ -388,6 +402,8 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerTool({
     name: "vcs_blame",
+    namespace: VCS_NAMESPACE,
+    annotations: READ_ONLY_ANNOTATIONS,
     label: "VCS blame",
     description:
       `Show which revision last changed each line of a file. ${PATHS_NOTE} ${CAP_NOTE} ` +
@@ -444,6 +460,9 @@ export default function (pi: ExtensionAPI) {
     },
   });
 }
+
+const VCS_NAMESPACE = { name: "vcs", description: "Inspect repository status, history, revisions, and attribution without changing history." };
+const READ_ONLY_ANNOTATIONS = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
 
 async function report(
   pi: ExtensionAPI,

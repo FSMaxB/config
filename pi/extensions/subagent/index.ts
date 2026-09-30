@@ -70,6 +70,7 @@ export default function (pi: ExtensionAPI) {
 
   registerToolWithGuidelines(pi, {
     name: "subagent",
+    exposure: "model-only",
     label: "Subagent",
     description:
       [

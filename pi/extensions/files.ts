@@ -106,6 +106,10 @@ function withNote(
 ): ToolDefinition<any, any, any> {
   return {
     ...definition,
+    namespace: FILE_NAMESPACE,
+    ...(["read", "ls", "find", "grep"].includes(definition.name)
+      ? { annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false } }
+      : {}),
     description: `${definition.description}\n\n${ACCESS_NOTE}`,
     promptGuidelines: [guideline],
   };
@@ -188,6 +192,8 @@ function deleteDefinition(): ToolDefinition<any, any, any> {
     },
   };
 }
+
+const FILE_NAMESPACE = { name: "files", description: "Read, search, and modify files through path permissions." };
 
 const outputParameter = Type.Optional(
   StringEnum(["results", "count"] as const, {
