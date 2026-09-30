@@ -4,19 +4,24 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import { createBashToolDefinition, createLocalBashOperations, getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { BashOperations, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { ALLOW_ALWAYS, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWAYS, DENY_ONCE, DENY_SESSION, currentPolicy, grantPathAccess } from "../../lib/path-permissions.ts";
+import type { BashOperations, BashToolDetails, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
+import { Type } from "typebox";
+import { ALLOW_ALWAYS, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWAYS, DENY_ONCE, DENY_SESSION, currentPolicy, grantPathAccess, isPlanModeEnabled } from "../../lib/path-permissions.ts";
 import { registerToolWithGuidelines } from "../../lib/register-tool.ts";
 import { markSandboxActive } from "../../lib/sandbox-state.ts";
+import { selectWithDefault } from "../../lib/select-with-default.ts";
 import { latestCustomData } from "../../lib/session-entries.ts";
 import { serialize } from "../../lib/ui-queue.ts";
+import { bypassOutcome, bypassPrompt, resolveChoice, type BypassAuthorization, type SessionDecision } from "./bypass.ts";
 import { NETWORK_ENTRY_TYPE, effectiveNetwork, emptyGrants, parseGrants, recordGrant, serializeGrants, type NetworkGrants } from "./network-grants.ts";
 import { filesystemConfig, secretPaths, type PolicyOptions } from "./policy.ts";
 import { loadSettings, updateDomainLists, type Settings } from "./settings.ts";
 import { isSecretPath, pathViolations, type PathViolation } from "./violations.ts";
 
 const SANDBOX_NOTE =
-  "Commands run inside an OS sandbox that enforces the same read/write path rules as the file tools, with no network except allowed hosts. Denied paths are reported in a <sandbox_violations> block and the user is asked to grant them; after a grant the command has to be rerun. Never try to work around a denial.";
+  "Commands run inside an OS sandbox that enforces the same read/write path rules as the file tools, with no network except allowed hosts. Denied paths are reported in a <sandbox_violations> block and the user is asked to grant them; after a grant the command has to be rerun. Never try to work around a denial. " +
+  "Set unsandboxed to true only for a command the sandbox itself breaks (ssh git remotes, programs that ignore proxy variables, listening sockets); the user confirms every unsandboxed command first, and subagents cannot use it.";
 
 const INSTALL_HINT =
   "Install with: sudo pacman -S bubblewrap socat ripgrep (Arch) or apt install bubblewrap socat ripgrep (Debian/Ubuntu, plus sysctl kernel.apparmor_restrict_unprivileged_userns=0). Set PI_SANDBOX=0 to run without the sandbox.";
@@ -33,6 +38,7 @@ const SETTINGS_FILE = join(getAgentDir(), "sandbox.json");
 interface Runtime {
   operations: BashOperations;
   setActiveContext(context: ExtensionContext): void;
+  authorizeBypass(command: string, context: ExtensionContext): Promise<BypassAuthorization>;
   restoreGrants(sessionManager: { getEntries(): readonly unknown[] }): void;
 }
 
@@ -49,18 +55,39 @@ export default function (pi: ExtensionAPI) {
   registerToolWithGuidelines(pi, sandboxedBash(cwd, runtime));
 }
 
-function sandboxedBash(cwd: string, runtime: Runtime): ToolDefinition<any, any, any> {
-  const definition: ToolDefinition<any, any, any> = createBashToolDefinition(cwd, { operations: runtime.operations });
-  return {
-    ...withSandboxNote(definition),
+function sandboxedBash(cwd: string, runtime: Runtime) {
+  const sandboxed = createBashToolDefinition(cwd, { operations: runtime.operations });
+  const unsandboxed = createBashToolDefinition(cwd);
+  const parameters = Type.Object({
+    ...sandboxed.parameters.properties,
+    unsandboxed: Type.Optional(Type.Boolean({ description: "Run outside the sandbox after the user confirms; only for a command the sandbox itself breaks" })),
+  });
+  const definition: ToolDefinition<typeof parameters, BashToolDetails | undefined, BashRenderState> = {
+    ...withSandboxNote(sandboxed),
+    parameters,
     async execute(toolCallId, params, signal, onUpdate, context) {
-      runtime.setActiveContext(context);
-      return await definition.execute(toolCallId, params, signal, onUpdate, context);
+      if (params.unsandboxed !== true) {
+        runtime.setActiveContext(context);
+        return await sandboxed.execute(toolCallId, params, signal, onUpdate, context);
+      }
+      const authorization = await runtime.authorizeBypass(params.command, context);
+      if (authorization.kind === "refuse") throw new Error(authorization.reason);
+      return await unsandboxed.execute(toolCallId, params, signal, onUpdate, context);
+    },
+    renderCall(args, theme, context) {
+      const component = sandboxed.renderCall?.(args, theme, context) ?? new Text("", 0, 0);
+      if (args.unsandboxed === true && component instanceof Text) {
+        component.setText(theme.fg("warning", theme.bold("unsandboxed $ ")) + theme.fg("toolTitle", theme.bold(args.command)));
+      }
+      return component;
     },
   };
+  return definition;
 }
 
-function withSandboxNote(definition: ToolDefinition<any, any, any>): ToolDefinition<any, any, any> {
+type BashRenderState = ReturnType<typeof createBashToolDefinition> extends ToolDefinition<any, any, infer State> ? State : never;
+
+function withSandboxNote<Definition extends ToolDefinition<any, any, any>>(definition: Definition): Definition {
   return { ...definition, description: `${definition.description}\n\n${SANDBOX_NOTE}` };
 }
 
@@ -78,6 +105,8 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   let initialization: Promise<void> | undefined;
   let settings: Settings | undefined;
   let grants: NetworkGrants = emptyGrants();
+  // Deliberately not persisted in the session: a resumed session asks again before bypassing the sandbox.
+  let bypassDecision: SessionDecision | undefined;
 
   const operations: BashOperations = {
     async exec(command, cwd, options) {
@@ -106,6 +135,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   return {
     operations,
     setActiveContext(context) { activeContext = context; },
+    authorizeBypass,
     restoreGrants(sessionManager) {
       grants = parseGrants(latestCustomData(sessionManager, NETWORK_ENTRY_TYPE));
       applyNetwork();
@@ -153,6 +183,15 @@ function createRuntime(pi: ExtensionAPI): Runtime {
       previousCount = count;
     }
     return store.getViolationsForCommand(commandId);
+  }
+
+  async function authorizeBypass(command: string, context: ExtensionContext): Promise<BypassAuthorization> {
+    const outcome = bypassOutcome({ planMode: isPlanModeEnabled(), subagent: Boolean(process.env.PI_SUBAGENT_CHILD), hasUI: context.hasUI, sessionDecision: bypassDecision });
+    if (outcome.kind !== "ask") return outcome;
+    const choice = await serialize(() => selectWithDefault(context.ui, bypassPrompt(command), outcome.choices, outcome.defaultChoice));
+    const { authorization, remember } = resolveChoice(choice);
+    if (remember) bypassDecision = remember;
+    return authorization;
   }
 
   async function askNetwork({ host, port }: { host: string; port: number | undefined }): Promise<boolean> {
