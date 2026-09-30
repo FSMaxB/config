@@ -11,6 +11,7 @@ const FREEFORM_SENTINEL = "✏️  Type custom response...";
 export default function (pi: ExtensionAPI) {
   registerToolWithGuidelines(pi, {
     name: "question",
+    exposure: "model-only",
     label: "Question",
     // The MCP bridge drops descriptions from optional and nested parameters (it does
     // forward the nested structure itself), so the flag defaults only survive in here.

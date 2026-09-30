@@ -51,6 +51,9 @@ export async function toolApiSession({ extensions = [], factories = [], tools, s
 	});
 	await resourceLoader.reload();
 	assert.deepEqual(resourceLoader.getExtensions().errors, []);
+	for (const extension of resourceLoader.getExtensions().extensions) {
+		for (const tool of extension.tools.values()) definitions.set(tool.definition.name, tool.definition);
+	}
 	const sessionManager = SessionManager.inMemory(directory);
 	for (const entry of entries) sessionManager.appendCustomEntry(entry.type, entry.data);
 	const { session } = await createAgentSession({

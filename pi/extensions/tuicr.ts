@@ -39,6 +39,8 @@ let current: Session | undefined;
 export default function (pi: ExtensionAPI) {
   registerToolWithGuidelines(pi, {
     name: "tuicr_open",
+    exposure: "model-only",
+    namespace: TUICR_NAMESPACE,
     label: "Open tuicr",
     description:
       "Open tuicr, the terminal code review TUI, in a new pane of the surrounding multiplexer " +
@@ -117,6 +119,8 @@ export default function (pi: ExtensionAPI) {
 
   registerToolWithGuidelines(pi, {
     name: "tuicr_wait",
+    exposure: "model-only",
+    namespace: TUICR_NAMESPACE,
     label: "Wait for tuicr comments",
     description:
       "Wait for the user to write comments in the open tuicr review and return the new ones. " +
@@ -211,6 +215,7 @@ export default function (pi: ExtensionAPI) {
 
   registerToolWithGuidelines(pi, {
     name: "tuicr_comment",
+    namespace: TUICR_NAMESPACE,
     label: "Add tuicr comment",
     description:
       "Add comments to the current tuicr review session as the agent. Each entry has body (required); " +
@@ -342,6 +347,8 @@ async function resolveSession(
 function markSeen(session: Session, comments: TuicrComment[]): void {
   for (const comment of comments) session.seen.add(comment.id);
 }
+
+const TUICR_NAMESPACE = { name: "tuicr", description: "Run terminal reviews and exchange review feedback." };
 
 async function listSessions(
   pi: ExtensionAPI,
