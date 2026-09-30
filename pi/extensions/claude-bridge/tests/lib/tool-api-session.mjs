@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
@@ -11,8 +11,10 @@ import {
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 
-export async function toolApiSession({ extensions = [], factories = [], tools, settings = {}, entries = [] } = {}) {
-	const directory = await mkdtemp(join(tmpdir(), "pi-tool-api-session-"));
+export async function toolApiSession({ extensions = [], factories = [], tools, customTools, settings = {}, entries = [] } = {}) {
+	const directory = await realpath(await mkdtemp(join(tmpdir(), "pi-tool-api-session-")));
+	const previousCwd = process.cwd();
+	process.chdir(directory);
 	const requests = [];
 	const responses = [];
 	let extensionApi;
@@ -55,10 +57,10 @@ export async function toolApiSession({ extensions = [], factories = [], tools, s
 		for (const tool of extension.tools.values()) definitions.set(tool.definition.name, tool.definition);
 	}
 	const sessionManager = SessionManager.inMemory(directory);
-	for (const entry of entries) sessionManager.appendCustomEntry(entry.type, entry.data);
+	for (const entry of typeof entries === "function" ? entries(directory) : entries) sessionManager.appendCustomEntry(entry.type, entry.data);
 	const { session } = await createAgentSession({
 		cwd: directory, agentDir: process.env.PI_CODING_AGENT_DIR,
-		settingsManager, sessionManager, modelRuntime, resourceLoader, tools,
+		settingsManager, sessionManager, modelRuntime, resourceLoader, tools, customTools,
 		model: { id: "fake", name: "Offline fixture", api: "tool-api-test", provider: "tool-api-test",
 			baseUrl: "http://invalid.test", reasoning: false, input: ["text"],
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 200000, maxTokens: 4096 },
@@ -77,6 +79,7 @@ export async function toolApiSession({ extensions = [], factories = [], tools, s
 		async dispose() {
 			await session.abort();
 			session.dispose();
+			process.chdir(previousCwd);
 			await rm(directory, { recursive: true, force: true });
 		},
 	};

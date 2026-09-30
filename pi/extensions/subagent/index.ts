@@ -99,6 +99,7 @@ export default function (pi: ExtensionAPI) {
               sessionDenials: planEntry.sessionDenials.map((denial) => denial.name),
             },
             await persistedPlanDecisions(),
+            pi.getAllTools(),
           )
         : undefined;
       const dispatch: DispatchContext = {
