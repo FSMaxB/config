@@ -66,6 +66,7 @@ I will handle all rebasing and history rewriting manually.
 - Do not use `err`, `ctx`, `recv` or similar abbreviations. Use full words like `error`, `context` or `receive`.
 - Prefer explicit types (e.g. enum) instead of boolean flags.
 - Use early returns or equivalent where possible to prevent nesting the happy path.
+- Pi only: Run bazel commands or commands that run bazel internally with unsandboxed bash
 
 ### Rust
 
