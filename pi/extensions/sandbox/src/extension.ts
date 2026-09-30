@@ -7,6 +7,7 @@ import { createBashToolDefinition, createLocalBashOperations, getAgentDir } from
 import type { BashOperations, BashToolDetails, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { planModeNotice } from "../../lib/path-permission-rules.ts";
 import { ALLOW_ALWAYS, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWAYS, DENY_ONCE, DENY_SESSION, currentPolicy, grantPathAccess, isPlanModeEnabled } from "../../lib/path-permissions.ts";
 import { registerToolWithGuidelines } from "../../lib/register-tool.ts";
 import { markSandboxActive } from "../../lib/sandbox-state.ts";
@@ -234,9 +235,10 @@ function createRuntime(pi: ExtensionAPI): Runtime {
 
   async function resolveViolation({ mode, path }: PathViolation, secrets: string[], mayPrompt: boolean): Promise<string> {
     if (isSecretPath(path, secrets)) return `${path} is on the sandbox secret list and cannot be granted.`;
-    if (!activeContext?.hasUI) return `${path} is not covered by the ${mode} path rules and there is no interactive UI to ask.`;
-    if (!mayPrompt) return `${path} is not covered by the ${mode} path rules; too many paths were denied to ask about each one.`;
+    const notice = planModeNotice(mode, isPlanModeEnabled());
+    if (!activeContext?.hasUI) return `${path} is not covered by the ${mode} path rules and there is no interactive UI to ask.${notice}`;
+    if (!mayPrompt) return `${path} is not covered by the ${mode} path rules; too many paths were denied to ask about each one.${notice}`;
     const outcome = await grantPathAccess(path, mode, activeContext);
-    return outcome === "allowed" ? `${mode} access to ${path} was granted; rerun the command.` : `${mode} access to ${path} was denied; do not retry it.`;
+    return outcome === "allowed" ? `${mode} access to ${path} was granted; rerun the command.` : `${mode} access to ${path} was denied; do not retry it.${notice}`;
   }
 }

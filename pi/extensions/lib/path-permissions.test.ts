@@ -13,6 +13,7 @@ import {
   glob,
   matchesRule,
   parseRules,
+  planModeNotice,
   recordRule,
   selectorKey,
   selectorLabel,
@@ -190,6 +191,18 @@ test("default write access changes with plan mode", () => {
   // assert
   assert.deepEqual(planning.map(selectorLabel), ["/memory/**", "/agent/plans/**"]);
   assert.deepEqual(normal.map(selectorLabel), ["/repo/**", "/memory/**", "/agent/plans/**"]);
+});
+
+test("a failed write names plan mode only while it is on", () => {
+  // act
+  const planningWrite = planModeNotice("write", true);
+  const planningRead = planModeNotice("read", true);
+  const normalWrite = planModeNotice("write", false);
+
+  // assert
+  assert.match(planningWrite, /Plan mode is on/);
+  assert.equal(planningRead, "");
+  assert.equal(normalWrite, "");
 });
 
 test("default read access includes every trusted root", () => {
