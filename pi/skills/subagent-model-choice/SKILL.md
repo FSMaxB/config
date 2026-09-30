@@ -55,7 +55,7 @@ support is clamped to the nearest one it does.
 
 | Level | Anthropic (`effort`) | OpenAI (`reasoning.effort`) | Google (`thinking_level`) |
 | --- | --- | --- | --- |
-| `off` / `minimal` | Not available on adaptive-thinking models (Opus 5.5, Fable 5.1 always think); clamps up | `none` (Sol, Luna only; Astra rejects it) / `minimal` (GPT-5.x; GPT-6 maps to `low`) | `minimal` (Flash-Lite, some Flash) |
+| `off` / `minimal` | Not available on adaptive-thinking models (Opus 5.5, Fable 5.1 always think); clamps up | `none` (GPT-6 Sol and Luna only; GPT-6.1 Sol and Astra require at least `low`) / `minimal` (supported GPT-5.x models; GPT-6 maps to `low`) | `minimal` (Flash-Lite, some Flash) |
 | `low` | Most efficient; "simpler tasks ... such as subagents" | Tool use, search, execution-oriented coding | `low` |
 | `medium` | Balanced; default on Opus 5.5 | Default for most workloads; agentic coding, research | `medium` (Flash default) |
 | `high` | Default on Fable, Sonnet, older Opus | Hard reasoning, complex debugging | `high` (Pro default) |
@@ -95,8 +95,19 @@ OpenAI publishes model x effort pairings rather than a per-model table.
 | Tier | Model | Suggested pairings |
 | --- | --- | --- |
 | cheap | GPT-6 Luna (`gpt-6-luna`), GPT-5.6 Luna | `low`: fine-grained edits, simple extraction. `medium`: coordinated updates from a clear brief. `xhigh`: cross-app context gathering with clear constraints. |
-| mid | GPT-6 Sol (`gpt-6-sol`), GPT-5.6 Terra | `low`: focused editing, fact-checking. `medium`: everyday coding and research. `xhigh`: thorough verification and careful review of code. |
+| mid | GPT-6.1 Sol (`gpt-6.1-sol`) | Near-Astra performance at lower cost for complex coding, computer use, and professional work. Start at `medium` (default); use `low` for focused tasks, and evaluate `high` / `xhigh` for difficult analysis or review. Reserve `max` for measured gains over `xhigh`. |
 | frontier | GPT-6 Astra (`gpt-6-astra`) | `medium`: ambitious projects needing broad context. `xhigh`: demanding analysis. Does not accept `none`. Uses fewer output tokens per task than earlier models, so per-task cost can be lower than its per-token price suggests. |
+
+GPT-6.1 Sol supports `low`, `medium`, `high`, `xhigh`, and `max`, but not
+`none` or `minimal`: choose at least `thinkingLevel: "low"`. Tool calling
+requires the Responses API; Chat Completions only supports requests without
+tools. Confirm the configured provider uses Responses before dispatching a
+tool-using subagent with this model.
+
+Prefer GPT-6.1 Sol over GPT-6 Sol (`gpt-6-sol`) for new mid-tier dispatches
+when it is configured. Older GPT-6 Sol and GPT-5.6 Terra remain fallbacks if
+the session's provider does not offer GPT-6.1 Sol. Compare Sol 6.1 with Astra
+on the same task before paying for the frontier tier.
 
 ### Google
 
@@ -145,7 +156,7 @@ only sensible "cheap" option, and the session model is the ceiling.
 
 ## Sources
 
-Checked 2026-09-29.
+Checked 2026-09-29; OpenAI sources rechecked 2026-09-30.
 
 - Anthropic, Choosing the right model: https://platform.claude.com/docs/en/about-claude/models/choosing-a-model
 - Anthropic, Models overview (prices, defaults): https://platform.claude.com/docs/en/models/overview
@@ -155,4 +166,5 @@ Checked 2026-09-29.
 - OpenAI, Model selection: https://developers.openai.com/api/docs/guides/model-selection
 - OpenAI, Reasoning (effort table): https://developers.openai.com/api/docs/guides/reasoning
 - OpenAI, Using GPT-6: https://developers.openai.com/api/docs/guides/latest-model
+- OpenAI, GPT-6.1 Sol (supported effort levels and tool calling): https://developers.openai.com/api/docs/models/gpt-6.1-sol
 - Google, Gemini thinking: https://ai.google.dev/gemini-api/docs/thinking
