@@ -24,6 +24,15 @@ export function planModeAllowedTools(
     planToolPermission(tool.name, decisions, new Set(), trusted) === "allow").map(tool => tool.name));
 }
 
+export function effectiveChildTools(
+  requested: string[] | undefined,
+  planAllowed: ReadonlySet<string> | undefined,
+): string[] | undefined {
+  if (planAllowed === undefined) return requested;
+  const candidates = requested ?? [...planAllowed];
+  return [...new Set(candidates.filter(name => planAllowed.has(name)))];
+}
+
 export interface PlanModeSnapshot {
   sessionGrants: string[];
   sessionDenials: string[];

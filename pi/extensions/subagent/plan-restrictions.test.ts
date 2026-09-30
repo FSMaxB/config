@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { planModeAllowedTools } from "./plan-restrictions.ts";
+import { effectiveChildTools, planModeAllowedTools } from "./plan-restrictions.ts";
 import type { ToolPolicyInfo } from "../lib/tool-permission-policy.ts";
 
 test("child permissions share owned read-only trust and deny precedence", () => {
@@ -14,6 +14,30 @@ test("child permissions share owned read-only trust and deny precedence", () => 
   const allowed = planModeAllowedTools(snapshot, { alwaysAllowed: ["vcs_status"], alwaysDenied: [] }, tools);
   // assert
   assert.deepEqual([...allowed], ["read", "crit_comments", "granted"]);
+});
+
+test("plan-mode child selection intersects lists and preserves requested order", () => {
+  // arrange
+  const allowed = new Set(["read", "vcs_info"]);
+  // act
+  const results = [
+    effectiveChildTools(["write", "vcs_info", "read", "read"], allowed),
+    effectiveChildTools(undefined, allowed), effectiveChildTools([], allowed),
+    effectiveChildTools(["write"], allowed), effectiveChildTools(undefined, new Set()),
+  ];
+  // assert
+  assert.deepEqual(results, [["vcs_info", "read"], ["read", "vcs_info"], [], [], []]);
+});
+
+test("outside plan mode child selection leaves configured defaults unchanged", () => {
+  // arrange
+  const requested = ["read", "read", "write"];
+  // act
+  const selected = effectiveChildTools(requested, undefined);
+  // assert
+  assert.equal(selected, requested);
+  assert.equal(effectiveChildTools(undefined, undefined), undefined);
+  assert.deepEqual(effectiveChildTools([], undefined), []);
 });
 
 function tool(name: string, owner: string, exposure: ToolPolicyInfo["exposure"] = "direct"): ToolPolicyInfo {

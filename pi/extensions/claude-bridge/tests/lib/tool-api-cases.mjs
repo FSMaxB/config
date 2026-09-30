@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { it } from "node:test";
+import { it, mock } from "node:test";
+import childProcess from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -87,6 +91,73 @@ it("does not transfer ownership trust to an SDK override of an owned VCS name", 
 		assert.equal(result.isError, true);
 		assert.match(result.content[0].text, /no interactive UI/);
 		assert.equal(executed, false);
+	} finally { await fixture.dispose(); }
+});
+
+it("filters spawn arguments and refuses a child with no plan-allowed tools", async () => {
+	// arrange
+	const extensions = ["files.ts", "plan-mode.ts", "subagent/index.ts"].map(path => fileURLToPath(new URL(`../../../${path}`, import.meta.url)));
+	const spawned = [];
+	const spawnMock = mock.method(childProcess, "spawn", (command, args, options) => {
+		spawned.push({ command, args, options });
+		const child = new EventEmitter();
+		child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = () => {};
+		setImmediate(() => child.emit("close", 0));
+		return child;
+	});
+	syncBuiltinESMExports();
+	const fixture = await toolApiSession({ extensions,
+		entries: [{ type: "plan-mode", data: { enabled: true, sessionGrants: [], sessionDenials: [{ name: "grep" }] } }] });
+	try {
+		// act
+		const result = await fixture.call("subagent", { agent: "explore", task: "fixture" });
+		// assert
+		assert.equal(result.details.results[0].exitCode, 0, result.content[0].text);
+		assert.equal(spawned.length, 1);
+		const { args, options } = spawned[0];
+		assert.equal(args[args.indexOf("--tools") + 1], "read,find,ls");
+		assert.ok(!args.includes("--no-extensions"));
+		assert.equal(options.env.PI_SUBAGENT_PLAN_ALLOWED_TOOLS, "find,ls,read");
+		assert.ok(options.env.PI_SUBAGENT_PATH_POLICY);
+		assert.ok(options.env.PI_SESSION_TEMP_DIR);
+	} finally { await fixture.dispose(); }
+	const blockedFixture = await toolApiSession({ extensions,
+		entries: [{ type: "plan-mode", data: { enabled: true, sessionGrants: [],
+			sessionDenials: ["read", "grep", "find", "ls"].map(name => ({ name })) } }] });
+	try {
+		// arrange
+		spawned.length = 0;
+		// act
+		const result = await blockedFixture.call("subagent", { agent: "explore", task: "fixture" });
+		// assert
+		assert.equal(result.details.results[0].exitCode, 1);
+		assert.match(result.content[0].text, /restricts every tool/);
+		assert.equal(spawned.length, 0);
+	} finally { await blockedFixture.dispose(); spawnMock.mock.restore(); syncBuiltinESMExports(); }
+});
+
+it("registry allowlists exclude deferred tools even after registration and activation", async () => {
+	// arrange
+	const fixture = await toolApiSession({ tools: ["caller_fixture"], factories: [pi => {
+		pi.registerTool({ name: "excluded_fixture", label: "Excluded", description: "Deferred excluded tool",
+			exposure: "deferred", parameters: Type.Object({}),
+			execute: async () => ({ content: [{ type: "text", text: "must not execute" }], details: undefined }) });
+		pi.registerTool({ name: "caller_fixture", label: "Caller", description: "Try excluded tool",
+			parameters: Type.Object({}), async execute(_id, _params, _signal, _update, context) {
+				pi.setActiveTools(["caller_fixture", "excluded_fixture"]);
+				pi.registerTool({ name: "late_fixture", label: "Late", description: "Late deferred tool", exposure: "deferred",
+					parameters: Type.Object({}), execute: async () => ({ content: [], details: undefined }) });
+				const excluded = await context.executeTool("excluded_fixture", {});
+				const late = await context.executeTool("late_fixture", {});
+				return { content: [{ type: "text", text: JSON.stringify({ excluded: excluded.isError, late: late.isError }) }], details: undefined };
+			} });
+	}] });
+	try {
+		// act
+		const result = await fixture.call("caller_fixture");
+		// assert
+		assert.deepEqual(JSON.parse(result.content[0].text), { excluded: true, late: true });
+		assert.deepEqual(fixture.session.getActiveToolNames(), ["caller_fixture"]);
 	} finally { await fixture.dispose(); }
 });
 

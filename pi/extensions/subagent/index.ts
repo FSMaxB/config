@@ -32,7 +32,7 @@ import { registerToolWithGuidelines } from "../lib/register-tool.ts";
 import { sessionTemporaryDirectory, TEMPORARY_DIRECTORY_ENV } from "../lib/session-temporary-directory.ts";
 import { type AgentConfig, discoverAgents, THINKING_LEVELS } from "./agents.ts";
 import { guidanceTable, loadPolicyConfig, resolveSubagentModel, type SubagentModelConfig } from "./model-policy.ts";
-import { planModeAllowedTools, type PersistedPlanDecisions } from "./plan-restrictions.ts";
+import { effectiveChildTools, planModeAllowedTools, type PersistedPlanDecisions } from "./plan-restrictions.ts";
 
 const EXTENSION_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 
@@ -495,7 +495,8 @@ async function runSingleAgent(
   if (thinkingLevel) args.push("--thinking", thinkingLevel);
 
   const planAllowedTools = dispatch.planAllowedTools;
-  if (planAllowedTools && agent.tools && !agent.tools.some((tool) => planAllowedTools.has(tool))) {
+  const effectiveTools = effectiveChildTools(agent.tools, planAllowedTools);
+  if (planAllowedTools !== undefined && effectiveTools?.length === 0) {
     return policyFailure(
       agent,
       task,
@@ -504,7 +505,7 @@ async function runSingleAgent(
       configuration,
     );
   }
-  if (agent.tools && agent.tools.length > 0) args.push("--tools", agent.tools.join(","));
+  if (effectiveTools?.length) args.push("--tools", effectiveTools.join(","));
 
   let temporaryPromptDirectory: string | undefined;
 
