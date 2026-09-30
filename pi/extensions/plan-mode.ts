@@ -41,6 +41,7 @@ import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 import { selectWithDefault } from "./lib/select-with-default.ts";
 import { latestCustomData } from "./lib/session-entries.ts";
 import { serialize } from "./lib/ui-queue.ts";
+import { deniedToolDeclarations } from "./lib/plan-loadout.ts";
 import { planToolPermission, trustedReadOnlyToolNames } from "./lib/tool-permission-policy.ts";
 
 const PLAN_PATH = "plan_path";
@@ -140,6 +141,7 @@ export default function (pi: ExtensionAPI) {
   async function save(): Promise<void> {
     persist();
     await writePersistedDecisions(alwaysGrants, alwaysDenials);
+    syncPlanTools();
   }
 
   function persist(): void {
@@ -171,12 +173,10 @@ export default function (pi: ExtensionAPI) {
   // restored from a snapshot, so a changed extension set can never resurrect stale tools.
   function syncPlanTools(): void {
     const active = pi.getActiveTools();
-    const missing = PLAN_TOOLS.filter((name) => !active.includes(name));
-    if (planMode && missing.length > 0) {
-      pi.setActiveTools([...active, ...missing]);
-    } else if (!planMode && missing.length < PLAN_TOOLS.length) {
-      pi.setActiveTools(active.filter((name) => !PLAN_TOOLS.includes(name)));
-    }
+    const next = planMode
+      ? [...new Set([...active, ...PLAN_TOOLS])]
+      : active.filter((name) => !PLAN_TOOLS.includes(name));
+    pi.setActiveTools(next);
   }
 
   function setPlanMode(enabled: boolean, ctx: ExtensionContext): void {
@@ -318,6 +318,15 @@ export default function (pi: ExtensionAPI) {
   registerToolWithGuidelines(pi, {
     name: PLAN_PATH,
     namespace: PLANNING_NAMESPACE,
+    prepareLoadout(loadout) {
+      if (!planMode) return undefined;
+      return {
+        hiddenDeclarations: deniedToolDeclarations(
+          loadout.declared,
+          new Set([...sessionDenials.keys(), ...alwaysDenials.keys()]),
+        ),
+      };
+    },
     label: "Plan path",
     description:
       "Return the absolute path a new plan file should be written to, inside the plans directory for this working directory. " +

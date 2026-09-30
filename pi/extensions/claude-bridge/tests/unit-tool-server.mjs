@@ -41,6 +41,16 @@ describe("createToolServer", () => {
 		assert.equal(JSON.stringify(response.result.tools[0].inputSchema), JSON.stringify(QUESTION_SCHEMA));
 	});
 
+	it("preserves prepared model-facing descriptions in tools/list", async () => {
+		// arrange
+		const description = "Prepared caller description with current callable tools";
+		const { client } = await connect([{ name: "caller", description, parameters: { type: "object" }, handler: async () => ({ content: [] }) }]);
+		// act
+		const result = await client.listTools();
+		// assert
+		assert.equal(result.tools[0].description, description);
+	});
+
 	it("passes the raw arguments to the handler and returns its result", async () => {
 		// arrange
 		const seen = [];

@@ -11,7 +11,7 @@ import {
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 
-export async function toolApiSession({ extensions = [], factories = [], tools, customTools, settings = {}, entries = [] } = {}) {
+export async function toolApiSession({ extensions = [], factories = [], tools, customTools, settings = {}, entries = [], bindings = {} } = {}) {
 	const directory = await realpath(await mkdtemp(join(tmpdir(), "pi-tool-api-session-")));
 	const previousCwd = process.cwd();
 	process.chdir(directory);
@@ -66,7 +66,7 @@ export async function toolApiSession({ extensions = [], factories = [], tools, c
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 200000, maxTokens: 4096 },
 		thinkingLevel: "off",
 	});
-	await session.bindExtensions({});
+	await session.bindExtensions(bindings);
 	return {
 		session, directory, requests, definitions,
 		get api() { return extensionApi; },
