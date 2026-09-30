@@ -327,6 +327,83 @@ it("returns the same structured VCS contract in a git-only fixture", async () =>
 	} finally { await fixture.dispose(); }
 });
 
+it("reports finalized delegated usage once and flags single/parallel failures", async () => {
+	// arrange
+	let childFails = false;
+	let childTermination;
+	const childUsage = { input: 10, output: 5, cacheRead: 2, cacheWrite: 3, totalTokens: 20,
+		reasoning: 4, cacheWrite1h: 1, cost: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, total: 10 } };
+	const nestedUsage = { input: 2, output: 3, cacheRead: 0, cacheWrite: 0, totalTokens: 5,
+		cost: { input: 0.5, output: 1, cacheRead: 0, cacheWrite: 0, total: 1.5 } };
+	const spawnMock = mock.method(childProcess, "spawn", () => {
+		const child = new EventEmitter();
+		child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = () => {};
+		const failed = childFails;
+		const terminationSignal = childTermination;
+		setImmediate(() => {
+			const toolMessage = { role: "toolResult", toolCallId: "child-nested", toolName: "child_tool",
+				content: [{ type: "text", text: "Recovered tool error" }], isError: true, timestamp: 1, usage: nestedUsage };
+			for (const event of [
+				{ type: "message_update", message: { role: "assistant", usage: childUsage } },
+				{ type: "message_end", message: toolMessage },
+				{ type: "tool_result_end", message: toolMessage },
+				{ type: "tool_execution_end", toolCallId: "child-nested", result: { usage: nestedUsage } },
+				{ type: "turn_end", message: { role: "assistant", usage: childUsage }, toolResults: [toolMessage] },
+				{ type: "agent_end", messages: [toolMessage, { role: "assistant", usage: childUsage }] },
+				{ type: "message_end", message: { role: "assistant", api: "tool-api-test", provider: "tool-api-test", model: "fake",
+					content: [], timestamp: 1, stopReason: "error", errorMessage: "Recovered attempt",
+					usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } } },
+				{ type: "message_end", message: { role: "assistant", api: "tool-api-test", provider: "tool-api-test", model: "fake",
+					content: [{ type: "text", text: "Child complete" }], timestamp: 2, usage: childUsage,
+					stopReason: failed ? "error" : "stop", ...(failed ? { errorMessage: "Fixture child failure" } : {}) } },
+			]) child.stdout.write(`${JSON.stringify(event)}\n`);
+			child.emit("close", terminationSignal ? null : 0, terminationSignal);
+		});
+		return child;
+	});
+	syncBuiltinESMExports();
+	const fixture = await toolApiSession({ extensions: [fileURLToPath(new URL("../../../subagent/index.ts", import.meta.url))] });
+	try {
+		// act
+		const success = await fixture.call("subagent", { agent: "explore", task: "fixture" });
+		const mixed = await fixture.call("subagent", { tasks: [{ agent: "explore", task: "fixture" }, { agent: "unknown", task: "fixture" }] });
+		const invalid = await fixture.call("subagent");
+		const tooMany = await fixture.call("subagent", { tasks: Array.from({ length: 9 }, () => ({ agent: "explore", task: "fixture" })) });
+		childTermination = "SIGKILL";
+		const killed = await fixture.call("subagent", { agent: "explore", task: "fixture" });
+		childTermination = undefined;
+		childFails = true;
+		const failed = await fixture.call("subagent", { agent: "explore", task: "fixture" });
+		// assert
+		assert.equal(success.isError, false);
+		assert.equal(success.usage.input, 12);
+		assert.equal(success.usage.output, 8);
+		assert.equal(success.usage.totalTokens, 25);
+		assert.equal(success.usage.reasoning, 4);
+		assert.equal(success.usage.cacheWrite1h, 1);
+		assert.equal(success.usage.cost.total, 11.5);
+		assert.equal(success.details.results[0].usage.contextTokens, 20);
+		assert.equal(success.details.results[0].usage.cost, 11.5);
+		assert.equal(success.details.results[0].messages.filter(message => message.role === "toolResult").length, 1);
+		assert.equal(mixed.isError, true);
+		assert.equal(mixed.details.results.length, 2);
+		assert.deepEqual(mixed.usage, success.usage);
+		assert.equal(invalid.isError, true);
+		assert.equal(invalid.usage.totalTokens, 0);
+		assert.equal(tooMany.isError, true);
+		assert.equal(tooMany.usage.cost.total, 0);
+		assert.equal(killed.isError, true);
+		assert.match(killed.content[0].text, /terminated by SIGKILL/);
+		assert.equal(killed.usage.totalTokens, 25);
+		assert.equal(failed.isError, true);
+		assert.match(failed.content[0].text, /Fixture child failure/);
+		const finalized = fixture.session.messages.filter(message => message.role === "toolResult" && message.toolName === "subagent");
+		assert.equal(finalized.length, 6);
+		assert.equal(finalized.reduce((sum, message) => sum + (message.usage?.totalTokens ?? 0), 0), 100);
+	} finally { await fixture.dispose(); spawnMock.mock.restore(); syncBuiltinESMExports(); }
+});
+
 it("registers the agreed exposures, namespaces, and trusted read-only hints", async () => {
 	// arrange
 	const fixture = await toolApiSession({ extensions: ["files.ts", "vcs.ts", "question.ts", "plan-mode.ts", "crit.ts", "tuicr.ts", "subagent/index.ts"]
