@@ -18,6 +18,7 @@ interface SharedState { session: RuleSets; planMode: boolean; temporaryDirectory
 const globalState = globalThis as { piPathPermissions?: SharedState };
 const state = (globalState.piPathPermissions ??= { session: emptyRules(), planMode: false, inherited: parseChildPathPolicy(process.env.PI_SUBAGENT_PATH_POLICY) });
 export function setPlanModeEnabled(enabled: boolean): void { state.planMode = enabled; }
+export function isPlanModeEnabled(): boolean { return state.planMode; }
 export function setSessionTemporaryDirectory(path: string): void { state.temporaryDirectory = path; }
 export function initPathPermissions(pi: ExtensionAPI): void { state.persistSession = (snapshot) => pi.appendEntry(PATH_RULES_ENTRY_TYPE, snapshot); }
 export function restoreSessionPathRules(sessionManager: { getEntries(): readonly unknown[] }): void {
