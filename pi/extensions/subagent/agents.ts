@@ -99,7 +99,7 @@ function parseToolList(value: unknown): string[] | undefined {
     .filter((tool): tool is string => typeof tool === "string")
     .map((tool) => tool.trim())
     .filter(Boolean);
-  return tools.length > 0 ? tools : undefined;
+  return tools.length > 0 || (Array.isArray(value) && value.length === 0) ? tools : undefined;
 }
 
 // Lenient like parseToolList: a bad value must not take down the whole agent file.
