@@ -4,16 +4,25 @@
  * inherited: the child just blocks the restricted tools with an
  * explanation instead of prompting anyone.
  *
- * The allowed set mirrors plan-mode.ts: the path-gated read tools plus
- * whatever the user granted, minus explicit denials. The interactive-only
- * entries of plan-mode's ungated set (question and the plan tools) are
- * useless in a headless child and stay out.
- *
- * The only import is a dependency-free constants module, so this module
- * stays runnable in isolation for testing.
+ * The allowed set shares plan-mode's verified local read-only classification
+ * and explicit grants, minus denials. Human/orchestration tools stay out of
+ * headless children even when granted.
  */
 
-import { READ_FILE_TOOLS } from "../lib/file-tools.ts";
+import { planToolPermission, trustedReadOnlyToolNames, type ToolPolicyInfo } from "../lib/tool-permission-policy.ts";
+
+export function planModeAllowedTools(
+  snapshot: PlanModeSnapshot,
+  persisted: PersistedPlanDecisions,
+  tools: readonly ToolPolicyInfo[],
+): Set<string> {
+  const trusted = trustedReadOnlyToolNames(tools);
+  const decisions = {
+    ...snapshot, alwaysGrants: persisted.alwaysAllowed, alwaysDenials: persisted.alwaysDenied,
+  };
+  return new Set(tools.filter(tool => tool.exposure !== "hidden" && tool.exposure !== "model-only" &&
+    planToolPermission(tool.name, decisions, new Set(), trusted) === "allow").map(tool => tool.name));
+}
 
 export interface PlanModeSnapshot {
   sessionGrants: string[];
@@ -23,12 +32,4 @@ export interface PlanModeSnapshot {
 export interface PersistedPlanDecisions {
   alwaysAllowed: string[];
   alwaysDenied: string[];
-}
-
-export function planModeAllowedTools(snapshot: PlanModeSnapshot, persisted: PersistedPlanDecisions): Set<string> {
-  const allowed = new Set([...READ_FILE_TOOLS, ...snapshot.sessionGrants, ...persisted.alwaysAllowed]);
-  for (const name of [...snapshot.sessionDenials, ...persisted.alwaysDenied]) {
-    allowed.delete(name);
-  }
-  return allowed;
 }

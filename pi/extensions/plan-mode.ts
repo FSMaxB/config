@@ -41,6 +41,7 @@ import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 import { selectWithDefault } from "./lib/select-with-default.ts";
 import { latestCustomData } from "./lib/session-entries.ts";
 import { serialize } from "./lib/ui-queue.ts";
+import { planToolPermission, trustedReadOnlyToolNames } from "./lib/tool-permission-policy.ts";
 
 const PLAN_PATH = "plan_path";
 const SUBMIT_PLAN = "submit_plan";
@@ -83,11 +84,12 @@ export default function (pi: ExtensionAPI) {
   const alwaysDenials = new Map<string, string | undefined>();
 
   function isAllowed(toolName: string): boolean {
-    return (
-      UNGATED_TOOLS.has(toolName) ||
-      sessionGrants.has(toolName) ||
-      alwaysGrants.has(toolName)
-    );
+    return planToolPermission(
+      toolName,
+      { sessionGrants, alwaysGrants, sessionDenials: sessionDenials.keys(), alwaysDenials: alwaysDenials.keys() },
+      UNGATED_TOOLS,
+      trustedReadOnlyToolNames(pi.getAllTools()),
+    ) === "allow";
   }
 
   function blockedReason(toolName: string): string | undefined {

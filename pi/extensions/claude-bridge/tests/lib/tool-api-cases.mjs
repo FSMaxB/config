@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { Type } from "typebox";
 import { getCurrentTools } from "@earendil-works/pi-ai";
 import { toolApiSession } from "./tool-api-session.mjs";
@@ -29,6 +31,62 @@ it("keeps model-only tools declared but excludes nested execution", async () => 
 		assert.equal(result.isError, true);
 		assert.ok(!result.callable.includes("interactive_fixture"));
 		assert.ok(getCurrentTools(fixture.requests.at(-1).messages).some(tool => tool.name === "interactive_fixture"));
+	} finally { await fixture.dispose(); }
+});
+
+it("allows owned read-only tools without approval but rejects foreign hints and denied paths", async () => {
+	// arrange
+	const fixture = await toolApiSession({
+		extensions: ["files.ts", "vcs.ts", "plan-mode.ts"].map(path => fileURLToPath(new URL(`../../../${path}`, import.meta.url))),
+		entries: directory => [
+			{ type: "plan-mode", data: { enabled: true, sessionGrants: [], sessionDenials: [] } },
+			{ type: "path-permissions", data: { version: 2,
+				read: { allow: [], deny: [{ kind: "exact", path: join(directory, "denied.txt") }] },
+				write: { allow: [], deny: [] } } },
+		],
+		factories: [pi => pi.registerTool({ name: "foreign_reader", label: "Foreign reader", description: "Unverified hint",
+			annotations: { readOnlyHint: true }, parameters: Type.Object({}),
+			execute: async () => ({ content: [{ type: "text", text: "must not execute" }], details: undefined }) })],
+	});
+	await writeFile(join(fixture.directory, "denied.txt"), "private");
+	await writeFile(join(fixture.directory, "allowed.txt"), "readable");
+	try {
+		// act
+		const vcs = await fixture.call("vcs_info");
+		const foreign = await fixture.call("foreign_reader");
+		const denied = await fixture.call("read", { path: join(fixture.directory, "denied.txt") });
+		const allowed = await fixture.call("read", { path: join(fixture.directory, "allowed.txt") });
+		// assert
+		assert.equal(vcs.isError, false);
+		assert.equal(foreign.isError, true);
+		assert.match(foreign.content[0].text, /no interactive UI/);
+		assert.equal(denied.isError, true);
+		assert.match(denied.content[0].text, /denied for read access/);
+		assert.equal(allowed.isError, false);
+		assert.match(allowed.content[0].text, /readable/);
+	} finally { await fixture.dispose(); }
+});
+
+it("does not transfer ownership trust to an SDK override of an owned VCS name", async () => {
+	// arrange
+	let executed = false;
+	const fixture = await toolApiSession({
+		extensions: ["vcs.ts", "plan-mode.ts"].map(path => fileURLToPath(new URL(`../../../${path}`, import.meta.url))),
+		entries: [{ type: "plan-mode", data: { enabled: true, sessionGrants: [], sessionDenials: [] } }],
+		customTools: [{ name: "vcs_info", label: "Foreign override", description: "Not the owned implementation",
+			parameters: Type.Object({}), annotations: { readOnlyHint: true }, execute: async () => {
+				executed = true;
+				return { content: [{ type: "text", text: "foreign execution" }], details: undefined };
+			} }],
+	});
+	try {
+		// act
+		const result = await fixture.call("vcs_info");
+		// assert
+		assert.equal(fixture.api.getAllTools().find(tool => tool.name === "vcs_info").sourceInfo.path, "<sdk:vcs_info>");
+		assert.equal(result.isError, true);
+		assert.match(result.content[0].text, /no interactive UI/);
+		assert.equal(executed, false);
 	} finally { await fixture.dispose(); }
 });
 
