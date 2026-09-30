@@ -104,6 +104,11 @@ export function defaultAllowed(mode: AccessMode, options: DefaultAllowedOptions)
   return planMode ? scratch : [tree(repoRoot), ...scratch];
 }
 
+// Plan mode drops the repository from the default write allows, so a write failure names it as the likely cause.
+export function planModeNotice(mode: AccessMode, planMode: boolean): string {
+  return mode === "write" && planMode ? " Plan mode is on, so the repository is read-only until the user approves a plan." : "";
+}
+
 export function exact(path: string): PathSelector { return { kind: "exact", path }; }
 export function tree(path: string): PathSelector { return { kind: "tree", path }; }
 export function glob(base: string, pattern: string): PathSelector { return { kind: "glob", base, pattern }; }
