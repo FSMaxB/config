@@ -9,6 +9,8 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Type } from "typebox";
 import { getCurrentTools } from "@earendil-works/pi-ai";
+import { createCodemodeExtension } from "@earendil-works/pi-coding-agent";
+import { resolveMcpTools } from "../../src/index.ts";
 import { toolApiSession } from "./tool-api-session.mjs";
 
 it("keeps model-only tools declared but excludes nested execution", async () => {
@@ -158,6 +160,98 @@ it("registry allowlists exclude deferred tools even after registration and activ
 		// assert
 		assert.deepEqual(JSON.parse(result.content[0].text), { excluded: true, late: true });
 		assert.deepEqual(fixture.session.getActiveToolNames(), ["caller_fixture"]);
+	} finally { await fixture.dispose(); }
+});
+
+it("hides explicit denials while retaining active tools, gates, and codemode loadouts", async () => {
+	// arrange
+	const choices = [];
+	const ui = new Proxy({
+		theme: { fg: (_color, text) => text, bold: text => text },
+		select: async (_title, items) => {
+			const choice = choices.shift();
+			assert.notEqual(choice, undefined, `Unexpected UI prompt: ${_title}`);
+			return typeof choice === "function" ? choice(items) : choice;
+		},
+		input: async () => "test denial",
+	}, { get: (target, property) => target[property] ?? (() => {}) });
+	const fixture = await toolApiSession({
+		extensions: [fileURLToPath(new URL("../../../plan-mode.ts", import.meta.url))],
+		settings: { defaultTools: ["+codemode"] }, bindings: { uiContext: ui, mode: "tui" },
+		entries: [{ type: "plan-mode", data: { enabled: true, sessionGrants: ["caller_fixture", "codemode"],
+			sessionDenials: [{ name: "target_fixture" }, { name: "plan_path" }, { name: "late_fixture" }] } }],
+		factories: [createCodemodeExtension({ mode: "on", inlineBudget: 100000 }), pi => {
+			for (const name of ["target_fixture", "approval_fixture"]) pi.registerTool({
+				name, label: name, description: name, parameters: Type.Object({}),
+				execute: async () => ({ content: [{ type: "text", text: "executed" }], details: undefined }),
+			});
+			pi.registerTool({ name: "caller_fixture", label: "Caller", description: "Nested caller", parameters: Type.Object({}),
+				prepareLoadout: () => ({ descriptions: { caller_fixture: "Prepared caller description" } }),
+				async execute(_id, _params, _signal, _update, context) {
+					const result = await context.executeTool("target_fixture", {});
+					return { content: [{ type: "text", text: JSON.stringify({ isError: result.isError,
+						callable: context.tools.map(tool => tool.name) }) }], details: undefined };
+				} });
+		}],
+	});
+	const declared = () => getCurrentTools(fixture.requests.at(-1).messages).map(tool => tool.name);
+	try {
+		// act
+		const nested = await fixture.call("caller_fixture");
+		const scripted = await fixture.call("codemode", { code:
+			'return { submit: typeof tools.submit_plan, blocked: await tools.target_fixture({}).then(() => "unexpected", error => error.message) };' });
+		fixture.api.setActiveTools(fixture.api.getActiveTools());
+		fixture.api.registerTool({ name: "late_fixture", label: "Late", description: "Late denied tool", parameters: Type.Object({}),
+			execute: async () => ({ content: [], details: undefined }) });
+		await fixture.session.prompt("Inspect declarations.");
+		// assert
+		assert.ok(!declared().includes("target_fixture"));
+		assert.ok(!declared().includes("plan_path"));
+		assert.ok(!declared().includes("late_fixture"));
+		assert.ok(declared().includes("approval_fixture"));
+		assert.ok(declared().includes("codemode"));
+		assert.ok(fixture.api.getActiveTools().includes("target_fixture"));
+		assert.ok(fixture.api.getActiveTools().includes("plan_path"));
+		assert.equal(JSON.parse(nested.content[0].text).isError, true);
+		assert.equal(scripted.isError, false, JSON.stringify(scripted));
+		assert.match(scripted.content.map(block => block.text).join("\n"), /undefined/);
+		assert.match(scripted.content.map(block => block.text).join("\n"), /denied/);
+		assert.ok(JSON.parse(nested.content[0].text).callable.includes("target_fixture"));
+		const bridgeTools = resolveMcpTools(fixture.requests.at(-1)).mcpTools;
+		assert.ok(!bridgeTools.some(tool => tool.name === "target_fixture"));
+		assert.equal(bridgeTools.find(tool => tool.name === "caller_fixture").description, "Prepared caller description");
+		// arrange
+		choices.push(items => items.find(item => item.includes("target_fixture")), "Done");
+		// act
+		await fixture.session.prompt("/plan grants");
+		await fixture.session.prompt("Inspect declarations after removal.");
+		// assert
+		assert.ok(declared().includes("target_fixture"));
+		// arrange
+		choices.push("Deny in session");
+		// act
+		const denied = await fixture.call("approval_fixture");
+		// assert
+		assert.equal(denied.isError, true);
+		assert.ok(!declared().includes("approval_fixture"));
+		// arrange
+		choices.push("Clear all");
+		// act
+		await fixture.session.prompt("/plan grants");
+		await fixture.session.prompt("Inspect declarations after clearing.");
+		// assert
+		assert.ok(declared().includes("approval_fixture"));
+		assert.ok(declared().includes("plan_path"));
+		// act
+		fixture.api.setActiveTools(fixture.api.getActiveTools().filter(name => name !== "target_fixture"));
+		await fixture.session.prompt("/plan");
+		await fixture.session.prompt("Inspect declarations outside plan mode.");
+		// assert
+		assert.ok(!fixture.api.getActiveTools().includes("plan_path"));
+		assert.ok(!fixture.api.getActiveTools().includes("submit_plan"));
+		assert.ok(!fixture.api.getActiveTools().includes("target_fixture"));
+		assert.ok(declared().includes("approval_fixture"));
+		assert.equal(choices.length, 0);
 	} finally { await fixture.dispose(); }
 });
 
