@@ -16,6 +16,7 @@ import { formatJjAnnotate, JJ_ANNOTATE_TEMPLATE } from "./lib/jj-annotate.ts";
 import { pageLines } from "./lib/lines.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 import { detectVcs, type VcsInfo } from "./lib/repo.ts";
+import { limitChangedFiles, vcsResult } from "./lib/vcs-result.ts";
 
 const TIMEOUT = 60_000;
 const DEFAULT_LOG_LIMIT = 20;
@@ -55,6 +56,7 @@ export default function (pi: ExtensionAPI) {
     name: "vcs_info",
     namespace: VCS_NAMESPACE,
     annotations: READ_ONLY_ANNOTATIONS,
+    outputSchema: VCS_OUTPUT_SCHEMA,
     label: "VCS info",
     description:
       "Report which version control system backs the current directory, where its root is, and what the current revision is. " +
@@ -115,10 +117,7 @@ export default function (pi: ExtensionAPI) {
           dirty.trim() ? "Working tree dirty" : "Working tree clean",
         );
       }
-      return {
-        content: [{ type: "text", text: lines.join("\n") }],
-        details: { kind: vcs.kind },
-      };
+      return asResult(vcs, lines.join("\n"), NARROW_HINT);
     },
   });
 
@@ -126,6 +125,7 @@ export default function (pi: ExtensionAPI) {
     name: "vcs_status",
     namespace: VCS_NAMESPACE,
     annotations: READ_ONLY_ANNOTATIONS,
+    outputSchema: VCS_OUTPUT_SCHEMA,
     label: "VCS status",
     description:
       "Show the working copy status: which files were added, modified or deleted since the last commit. " +
@@ -151,10 +151,12 @@ export default function (pi: ExtensionAPI) {
         ["status", "--short", "--branch"],
         signal,
       );
+      const limited = limitChangedFiles(output, limit);
       return asResult(
         vcs,
-        limitChangedFiles(output, limit),
+        limited.output,
         "pass a larger limit only if you need the full list",
+        limited,
       );
     },
   });
@@ -163,6 +165,7 @@ export default function (pi: ExtensionAPI) {
     name: "vcs_branches",
     namespace: VCS_NAMESPACE,
     annotations: READ_ONLY_ANNOTATIONS,
+    outputSchema: VCS_OUTPUT_SCHEMA,
     label: "VCS branches",
     description:
       "List branches (git) or bookmarks (jj) with the revision each one points at. " +
@@ -217,6 +220,7 @@ export default function (pi: ExtensionAPI) {
     name: "vcs_log",
     namespace: VCS_NAMESPACE,
     annotations: READ_ONLY_ANNOTATIONS,
+    outputSchema: VCS_OUTPUT_SCHEMA,
     label: "VCS log",
     description: `Show commit history. ${REVSET_NOTE} ${PATHS_NOTE} ${CAP_NOTE}`,
     promptSnippet:
@@ -271,6 +275,7 @@ export default function (pi: ExtensionAPI) {
     name: "vcs_show",
     namespace: VCS_NAMESPACE,
     annotations: READ_ONLY_ANNOTATIONS,
+    outputSchema: VCS_OUTPUT_SCHEMA,
     label: "VCS show",
     description:
       "Show one revision: its metadata and the diff it introduced. " +
@@ -313,6 +318,7 @@ export default function (pi: ExtensionAPI) {
     name: "vcs_diff",
     namespace: VCS_NAMESPACE,
     annotations: READ_ONLY_ANNOTATIONS,
+    outputSchema: VCS_OUTPUT_SCHEMA,
     label: "VCS diff",
     description:
       "Show a diff. With no revisions this is the working copy against the last commit. " +
@@ -365,6 +371,7 @@ export default function (pi: ExtensionAPI) {
     name: "vcs_file",
     namespace: VCS_NAMESPACE,
     annotations: READ_ONLY_ANNOTATIONS,
+    outputSchema: VCS_OUTPUT_SCHEMA,
     label: "VCS file",
     description:
       `Print the contents of a file as of a given revision. ${PATHS_NOTE} ${CAP_NOTE} ` +
@@ -404,6 +411,7 @@ export default function (pi: ExtensionAPI) {
     name: "vcs_blame",
     namespace: VCS_NAMESPACE,
     annotations: READ_ONLY_ANNOTATIONS,
+    outputSchema: VCS_OUTPUT_SCHEMA,
     label: "VCS blame",
     description:
       `Show which revision last changed each line of a file. ${PATHS_NOTE} ${CAP_NOTE} ` +
@@ -463,6 +471,13 @@ export default function (pi: ExtensionAPI) {
 
 const VCS_NAMESPACE = { name: "vcs", description: "Inspect repository status, history, revisions, and attribution without changing history." };
 const READ_ONLY_ANNOTATIONS = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const VCS_OUTPUT_SCHEMA = Type.Object({
+  kind: StringEnum(["jj", "git", "none"] as const),
+  root: Type.String(),
+  colocated: Type.Boolean(),
+  output: Type.String(),
+  truncated: Type.Boolean(),
+});
 
 async function report(
   pi: ExtensionAPI,
@@ -491,38 +506,6 @@ async function report(
   );
 }
 
-// Only the per-file lines are capped; headers, the jj working copy/parent footer and any
-// hints stay, so a truncated status still says which revision it describes.
-function limitChangedFiles(output: string, limit: number): string {
-  // jj prints "M path", git --short prints " M path" or "?? path".
-  const changeLine = /^[ ACDMRU?!][ ACDMRU?!]? /;
-
-  const kept: string[] = [];
-  let shown = 0;
-  let hidden = 0;
-  let markerAt = 0;
-  for (const line of output.split("\n")) {
-    if (!changeLine.test(line)) {
-      kept.push(line);
-    } else if (shown < limit) {
-      shown++;
-      kept.push(line);
-    } else {
-      if (hidden === 0) markerAt = kept.length;
-      hidden++;
-    }
-  }
-  if (hidden === 0) return output;
-
-  kept.splice(
-    markerAt,
-    0,
-    `[truncated] ... and ${hidden} more changed files not listed ` +
-      `(showing ${shown} of ${shown + hidden}; pass a larger limit to vcs_status to see more)`,
-  );
-  return kept.join("\n");
-}
-
 // Descriptions are baked at tool registration, so this reflects the repository pi was
 // started in; each tool call still re-detects the VCS on its own.
 function revsetNote(kind: VcsInfo["kind"]): string {
@@ -544,15 +527,10 @@ function revsetNote(kind: VcsInfo["kind"]): string {
 }
 
 function missingVcs(root: string): AgentToolResult<unknown> {
-  return {
-    content: [
-      {
-        type: "text",
-        text: `No jj or git repository at or above ${root}, so there is no history to inspect here.`,
-      },
-    ],
-    details: { kind: "none" },
-  };
+  return vcsResult(
+    { kind: "none", root, colocated: false },
+    `No jj or git repository at or above ${root}, so there is no history to inspect here.`,
+  );
 }
 
 function repoRelative(root: string, path: string): string {
@@ -572,13 +550,11 @@ function asResult(
   vcs: VcsInfo,
   output: string,
   hint: string,
+  previous: { truncated: boolean } = { truncated: false },
 ): AgentToolResult<unknown> {
   const trimmed = output.trim();
   if (!trimmed) {
-    return {
-      content: [{ type: "text", text: "(no output)" }],
-      details: { kind: vcs.kind, truncated: false },
-    };
+    return vcsResult(vcs, "(no output)", previous);
   }
 
   const {
@@ -590,10 +566,7 @@ function asResult(
     firstLineExceedsLimit,
   } = truncateHead(trimmed);
   if (!truncated) {
-    return {
-      content: [{ type: "text", text: content }],
-      details: { kind: vcs.kind, truncated: false },
-    };
+    return vcsResult(vcs, content, previous);
   }
 
   // A single overlong line (a minified file, a one-line diff hunk) truncates to nothing, so
@@ -602,10 +575,7 @@ function asResult(
     ? `[truncated] The first line alone exceeds the ${formatSize(maxBytes)} limit, so none of it is shown; ${hint}.`
     : `${content.trimEnd()}\n[truncated] Showing the first ${outputLines} of ${totalLines} lines ` +
       `(${DEFAULT_MAX_LINES} line / ${formatSize(maxBytes)} limit); ${hint}.`;
-  return {
-    content: [{ type: "text", text }],
-    details: { kind: vcs.kind, truncated: true },
-  };
+  return vcsResult(vcs, text, { truncated: true });
 }
 
 // Line paging for whole-file output, which makes the cap above recoverable: a file longer

@@ -6,6 +6,8 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { writeFile } from "node:fs/promises";
+import { promisify } from "node:util";
+import { Check } from "typebox/value";
 import { join } from "node:path";
 import { Type } from "typebox";
 import { getCurrentTools } from "@earendil-works/pi-ai";
@@ -252,6 +254,76 @@ it("hides explicit denials while retaining active tools, gates, and codemode loa
 		assert.ok(!fixture.api.getActiveTools().includes("target_fixture"));
 		assert.ok(declared().includes("approval_fixture"));
 		assert.equal(choices.length, 0);
+	} finally { await fixture.dispose(); }
+});
+
+it("returns schema-valid bounded VCS results for all tools and paging branches", async () => {
+	// arrange
+	const fixture = await toolApiSession({ extensions: [fileURLToPath(new URL("../../../vcs.ts", import.meta.url))] });
+	const execute = promisify(childProcess.execFile);
+	try {
+		// act
+		const missing = await fixture.call("vcs_info");
+		// assert
+		assert.equal(missing.structuredContent.kind, "none");
+		assert.equal(missing.isError, false);
+		assert.ok(Check(fixture.definitions.get("vcs_info").outputSchema, missing.structuredContent));
+		// arrange
+		await execute("jj", ["git", "init", "--colocate", fixture.directory]);
+		await execute("jj", ["-R", fixture.directory, "config", "set", "--repo", "user.name", "Fixture"]);
+		await execute("jj", ["-R", fixture.directory, "config", "set", "--repo", "user.email", "fixture@example.invalid"]);
+		await writeFile(join(fixture.directory, "sample.txt"), Array.from({ length: 2100 }, (_, index) => `line ${index}`).join("\n"));
+		await writeFile(join(fixture.directory, "other.txt"), "second change");
+		const cases = [
+			["vcs_info", {}], ["vcs_status", { limit: 1 }], ["vcs_branches", {}], ["vcs_log", {}],
+			["vcs_show", { revision: "@" }], ["vcs_diff", {}], ["vcs_file", { revision: "@", path: "sample.txt" }],
+			["vcs_blame", { path: "sample.txt", limit: 2 }],
+		];
+		// act
+		const results = [];
+		for (const [name, parameters] of cases) results.push(await fixture.call(name, parameters));
+		const page = await fixture.call("vcs_file", { revision: "@", path: "sample.txt", offset: 2, limit: 2 });
+		await writeFile(join(fixture.directory, "long.txt"), "x".repeat(60000));
+		const long = await fixture.call("vcs_file", { revision: "@", path: "long.txt" });
+		// assert
+		results.forEach((result, index) => {
+			assert.equal(result.isError, false, JSON.stringify(result.content));
+			assert.ok(Check(fixture.definitions.get(cases[index][0]).outputSchema, result.structuredContent));
+			assert.equal(result.structuredContent.output, result.content[0].text);
+			assert.equal(result.structuredContent.kind, "jj");
+			assert.ok(Buffer.byteLength(result.structuredContent.output) < 52000);
+		});
+		assert.equal(results[1].structuredContent.truncated, true);
+		assert.equal(results[6].structuredContent.truncated, true);
+		assert.equal(page.structuredContent.truncated, false);
+		assert.match(page.structuredContent.output, /line 1\nline 2/);
+		assert.equal(long.structuredContent.truncated, true);
+		assert.match(long.structuredContent.output, /first line alone exceeds/);
+	} finally { await fixture.dispose(); }
+});
+
+it("returns the same structured VCS contract in a git-only fixture", async () => {
+	// arrange
+	const fixture = await toolApiSession({ extensions: [fileURLToPath(new URL("../../../vcs.ts", import.meta.url))] });
+	const execute = promisify(childProcess.execFile);
+	try {
+		await execute("git", ["init", fixture.directory]);
+		await writeFile(join(fixture.directory, "sample.txt"), "git fixture");
+		await execute("git", ["-C", fixture.directory, "add", "sample.txt"]);
+		await execute("git", ["-C", fixture.directory, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-m", "Fixture"]);
+		// act
+		const info = await fixture.call("vcs_info");
+		const file = await fixture.call("vcs_file", { revision: "HEAD", path: "sample.txt" });
+		const diff = await fixture.call("vcs_diff");
+		// assert
+		for (const result of [info, file, diff]) {
+			assert.equal(result.isError, false);
+			assert.equal(result.structuredContent.kind, "git");
+			assert.equal(result.structuredContent.colocated, false);
+			assert.equal(result.structuredContent.output, result.content[0].text);
+		}
+		assert.equal(file.structuredContent.output, "git fixture");
+		assert.equal(diff.structuredContent.output, "(no output)");
 	} finally { await fixture.dispose(); }
 });
 

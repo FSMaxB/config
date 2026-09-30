@@ -71,6 +71,14 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
           cache-dependency-path: pi/extensions/*/package-lock.json
+      - name: Install jj v0.45.1
+        # Offline VCS API fixtures need jj; match binaries/download.sh's pin.
+        run: |
+          curl -fsSL -o jj.tar.gz \
+            https://github.com/jj-vcs/jj/releases/download/v0.45.1/jj-v0.45.1-x86_64-unknown-linux-musl.tar.gz
+          echo "f35438350b5d61963aac5dd74ede510b31d6b9690769d1a6268cf058cc825f72  jj.tar.gz" | sha256sum -c -
+          tar -xf jj.tar.gz ./jj
+          sudo install -m 755 jj /usr/local/bin/jj
       - name: Extension packages
         # Every extension directory with a package.json is picked up
         # automatically; each must define `test` and `typecheck` scripts.

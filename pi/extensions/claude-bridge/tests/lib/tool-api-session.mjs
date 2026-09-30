@@ -67,6 +67,10 @@ export async function toolApiSession({ extensions = [], factories = [], tools, c
 		thinkingLevel: "off",
 	});
 	await session.bindExtensions(bindings);
+	const outcomes = new Map();
+	session.subscribe(event => {
+		if (event.type === "tool_execution_end") outcomes.set(event.toolCallId, event.result);
+	});
 	return {
 		session, directory, requests, definitions,
 		get api() { return extensionApi; },
@@ -74,7 +78,8 @@ export async function toolApiSession({ extensions = [], factories = [], tools, c
 			const id = `fixture-${responses.length}-${requests.length}`;
 			responses.push([{ type: "toolCall", id, name, arguments: arguments_ }]);
 			await session.prompt("Run the fixture tool.");
-			return session.messages.find(message => message.role === "toolResult" && message.toolCallId === id);
+			const message = session.messages.find(message => message.role === "toolResult" && message.toolCallId === id);
+			return { ...message, ...outcomes.get(id), isError: message.isError };
 		},
 		async dispose() {
 			await session.abort();
