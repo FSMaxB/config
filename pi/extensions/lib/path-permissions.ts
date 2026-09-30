@@ -10,9 +10,10 @@ import { contains, findRepoRoot, isVcsInternal, memoryDirectory, resolveThroughS
 import { latestCustomData } from "./session-entries.ts";
 import { serialize } from "./ui-queue.ts";
 import { inheritedRules, parseChildPathPolicy, type ChildPathPolicy } from "./path-permission-snapshot.ts";
+import { ALLOW_ALWAYS, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWAYS, DENY_ONCE, DENY_SESSION } from "./permission-choices.ts";
+export { ALLOW_ALWAYS, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWAYS, DENY_ONCE, DENY_SESSION } from "./permission-choices.ts";
 export const PATH_RULES_ENTRY_TYPE = "path-permissions";
 const RULES_FILE = join(getAgentDir(), "path-permissions.json");
-export const ALLOW_ONCE = "Allow once", ALLOW_SESSION = "Allow in session", ALLOW_ALWAYS = "Allow always", DENY_ONCE = "Deny once", DENY_SESSION = "Deny in session", DENY_ALWAYS = "Deny always";
 interface SharedState { session: RuleSets; planMode: boolean; temporaryDirectory?: string; inherited?: ChildPathPolicy | null; persistSession?: (snapshot: SerializedRules) => void }
 const globalState = globalThis as { piPathPermissions?: SharedState };
 const state = (globalState.piPathPermissions ??= { session: emptyRules(), planMode: false, inherited: parseChildPathPolicy(process.env.PI_SUBAGENT_PATH_POLICY) });
