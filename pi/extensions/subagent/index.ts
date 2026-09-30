@@ -18,7 +18,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentToolResult, ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { Api, Message, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
+import type { Api, Message, Model, ModelThinkingLevel, Usage } from "@earendil-works/pi-ai";
 import { clampThinkingLevel, getSupportedThinkingLevels, StringEnum } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
@@ -33,6 +33,7 @@ import { sessionTemporaryDirectory, TEMPORARY_DIRECTORY_ENV } from "../lib/sessi
 import { type AgentConfig, discoverAgents, THINKING_LEVELS } from "./agents.ts";
 import { guidanceTable, loadPolicyConfig, resolveSubagentModel, type SubagentModelConfig } from "./model-policy.ts";
 import { effectiveChildTools, planModeAllowedTools, type PersistedPlanDecisions } from "./plan-restrictions.ts";
+import { emptyUsage, finalizedMessageUsage, isFailedResult, subagentOutcome, sumUsage } from "./results.ts";
 
 const EXTENSION_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 
@@ -127,6 +128,8 @@ export default function (pi: ExtensionAPI) {
             },
           ],
           details: { mode: "single", results: [] },
+          isError: true,
+          usage: emptyUsage(),
         };
       }
 
@@ -140,6 +143,8 @@ export default function (pi: ExtensionAPI) {
               },
             ],
             details: { mode: "parallel", results: [] },
+            isError: true,
+            usage: emptyUsage(),
           };
 
         const allResults: SingleResult[] = new Array(params.tasks.length);
@@ -161,6 +166,7 @@ export default function (pi: ExtensionAPI) {
             messages: [],
             stderr: "",
             usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+            nativeUsage: emptyUsage(),
             model: configuration.model,
             thinkingLevel: configuration.thinkingLevel,
           };
@@ -218,6 +224,7 @@ export default function (pi: ExtensionAPI) {
             },
           ],
           details: { mode: "parallel", results },
+          ...subagentOutcome(results),
         };
       }
 
@@ -240,11 +247,13 @@ export default function (pi: ExtensionAPI) {
         return {
           content: [{ type: "text", text: `Agent ${result.stopReason || "failed"}: ${errorMessage}` }],
           details: { mode: "single", results: [result] },
+          ...subagentOutcome([result]),
         };
       }
       return {
         content: [{ type: "text", text: getFinalOutput(result.messages) || "(no output)" }],
         details: { mode: "single", results: [result] },
+        ...subagentOutcome([result]),
       };
     },
 
@@ -427,6 +436,7 @@ interface SingleResult {
   messages: Message[];
   stderr: string;
   usage: UsageStats;
+  nativeUsage: Usage;
   model?: string;
   thinkingLevel?: ModelThinkingLevel;
   stopReason?: string;
@@ -480,6 +490,7 @@ async function runSingleAgent(
       messages: [],
       stderr: `Unknown agent: "${agentName}". Available agents: ${available}.`,
       usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+      nativeUsage: emptyUsage(),
       model:
         overrides.model ??
         (dispatch.mainModel ? `${dispatch.mainModel.provider}/${dispatch.mainModel.id}` : undefined),
@@ -516,6 +527,7 @@ async function runSingleAgent(
     messages: [],
     stderr: "",
     usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+    nativeUsage: emptyUsage(),
     model,
     thinkingLevel,
   };
@@ -547,6 +559,7 @@ async function runSingleAgent(
         stdio: ["ignore", "pipe", "pipe"],
         env: childEnvironment(dispatch),
       });
+      const completedToolCalls = new Set<string>();
       const processLine = (line: string) => {
         let event: any;
         try {
@@ -555,30 +568,27 @@ async function runSingleAgent(
           return;
         }
 
-        if (event.type === "message_end" && event.message) {
+        if ((event.type === "message_end" || event.type === "tool_result_end") && event.message) {
           const message = event.message as Message;
+          if (message.role === "toolResult" && completedToolCalls.has(message.toolCallId)) return;
+          const usage = finalizedMessageUsage(message, completedToolCalls);
+          if (message.role === "toolResult") completedToolCalls.add(message.toolCallId);
           currentResult.messages.push(message);
-
+          if (usage) {
+            currentResult.nativeUsage = sumUsage([currentResult.nativeUsage, usage]);
+            currentResult.usage.input += usage.input || 0;
+            currentResult.usage.output += usage.output || 0;
+            currentResult.usage.cacheRead += usage.cacheRead || 0;
+            currentResult.usage.cacheWrite += usage.cacheWrite || 0;
+            currentResult.usage.cost += usage.cost?.total || 0;
+          }
           if (message.role === "assistant") {
             currentResult.usage.turns++;
-            const usage = message.usage;
-            if (usage) {
-              currentResult.usage.input += usage.input || 0;
-              currentResult.usage.output += usage.output || 0;
-              currentResult.usage.cacheRead += usage.cacheRead || 0;
-              currentResult.usage.cacheWrite += usage.cacheWrite || 0;
-              currentResult.usage.cost += usage.cost?.total || 0;
-              currentResult.usage.contextTokens = usage.totalTokens || 0;
-            }
+            currentResult.usage.contextTokens = message.usage?.totalTokens || 0;
             if (!currentResult.model && message.model) currentResult.model = message.model;
             if (message.stopReason) currentResult.stopReason = message.stopReason;
-            if (message.errorMessage) currentResult.errorMessage = message.errorMessage;
+            currentResult.errorMessage = message.errorMessage;
           }
-          emitUpdate();
-        }
-
-        if (event.type === "tool_result_end" && event.message) {
-          currentResult.messages.push(event.message as Message);
           emitUpdate();
         }
       };
@@ -590,9 +600,16 @@ async function runSingleAgent(
         currentResult.stderr += data.toString();
       });
 
-      child.on("close", (code) => {
+      child.on("close", (code, terminationSignal) => {
         splitter.flush();
-        resolve(code ?? 0);
+        if (code === null) {
+          currentResult.stderr += terminationSignal
+            ? `Subagent terminated by ${terminationSignal}.`
+            : "Subagent terminated without an exit code.";
+          resolve(1);
+          return;
+        }
+        resolve(code);
       });
 
       child.on("error", (error) => {
@@ -688,6 +705,7 @@ function policyFailure(
     messages: [],
     stderr: message,
     usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+    nativeUsage: emptyUsage(),
     model: configuration?.model,
     thinkingLevel: configuration?.thinkingLevel,
   };
@@ -741,10 +759,6 @@ function getFinalOutput(messages: Message[]): string {
     }
   }
   return "";
-}
-
-function isFailedResult(result: SingleResult): boolean {
-  return result.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "aborted";
 }
 
 function getResultOutput(result: SingleResult): string {
