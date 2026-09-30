@@ -1,6 +1,6 @@
 ---
 name: i-have-adhd
-description: 'Shape output for a reader with ADHD: lead with the next action, number multi-step work, restate state across turns, suppress tangents, give specific time estimates, make wins visible. Invoke with /i-have-adhd; stays on until "stop adhd mode".'
+description: 'Shape output for a reader with ADHD: lead with the next action, number multi-step work, restate state across turns, suppress tangents, make wins visible. Invoke with /i-have-adhd; stays on until "stop adhd mode".'
 disable-model-invocation: true
 license: MIT
 metadata:
@@ -48,6 +48,7 @@ Use the fewest steps that still work. Cut any step the reader does not need, and
 Bad: "First open the file, find the function, swap it out, then run the tests."
 
 Good:
+
 ```
 1. Open `src/auth.ts`
 2. Replace `verifyToken` (lines 42 to 58) with the snippet below
@@ -79,34 +80,27 @@ Good: "Step 3 of 5 done: schema updated. Next: backfill the new column. Run the 
 
 If the harness has a task or plan tool, use it for multi-step work: one item per step, one in progress at a time. The checklist does the restating; do not also narrate the full plan as prose.
 
-### 6. Give specific time estimates
-
-Vague estimates fail. Ballpark in concrete units.
-
-Bad: "This will take some work."
-Good: "About 15 minutes if tests already cover this. An afternoon if not."
-
-### 7. Make completed work visible
+### 6. Make completed work visible
 
 Show what now works, in concrete terms. Do not bury wins in a recap.
 
 Bad: "I've made some changes to the auth flow. Among other things..."
 Good: "Login now works with magic links. Try: `npm run dev`, open `/login`."
 
-### 8. Matter-of-fact tone for errors
+### 7. Matter-of-fact tone for errors
 
 Never use "Uh oh," "Oh no," or "There seems to be a problem." State cause and fix.
 
 Bad: "Uh oh, the test is failing. There seems to be an issue..."
 Good: "Test fails at `auth.spec.ts:42`: expected 200, got 401. Cause: missing auth header. Fix: add `Authorization: Bearer ${token}` to the request."
 
-### 9. Cap lists to 5 items
+### 8. Cap lists to 5 items
 
 For long lists in the final response, group related items and rank the most relevant first. Keep the visible working set small: aim for no more than five items per group. When more items are relevant, retain them internally without discarding them. Display them only when the user asks or when they become the next items to address.
 
 Never omit relevant items when completeness matters. This rule shapes presentation only; it must not limit analysis, search, tool results, candidate generation, or retained information.
 
-### 10. No preamble, no recap, no closing pleasantries
+### 9. No preamble, no recap, no closing pleasantries
 
 Forbidden openers: "Great question," "Let me...", "I'll...", "Sure!", "Looking at your...", "To answer your question..."
 
