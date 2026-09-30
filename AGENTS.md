@@ -32,6 +32,10 @@ The file tools (`read`, `write`, `edit`, `ls`, `find`, `grep`, `delete`) go thro
 
 `pi/skills/` is symlinked to `~/.pi/agent/skills`, pi's global skill root. Each skill is `pi/skills/<name>/SKILL.md`. Skills meant for Claude Code as well go in `<name>-skill/` at the top level and are linked into `~/.claude/skills/` instead (see `tuicr-skill`).
 
+## pi packages
+
+`pi/npm/` holds `package.json` and `package-lock.json` for the npm packages in `settings.json`. `install.sh` symlinks both into `~/.pi/agent/npm` (pi's npm install root, whose own `.gitignore` ignores everything else) and runs `npm ci` there when `node_modules` is missing. `pi update --extensions` runs `npm install <name>@latest` there, which rewrites the repo files through the symlinks (npm writes through them, verified), so review and commit the diff after each update. Git packages have no lockfile: their commit is only recorded in the checkout under `~/.pi/agent/git/`.
+
 ## CI
 
 `.github/workflows/ci.yml` runs 7 independent jobs on push to `main`, on pull requests, on `workflow_dispatch`, and weekly (the weekly run catches upstream breakage that a push wouldn't: dead release URLs, and vim-plug plugins, which have no lockfile):
