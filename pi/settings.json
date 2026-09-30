@@ -7,8 +7,7 @@
   "defaultTools": ["+codemode"],
   "packages": [
     "npm:pi-web-access",
-    "npm:@firstpick/pi-themes-bundle",
-    "https://github.com/ayghri/i-have-adhd"
+    "npm:@firstpick/pi-themes-bundle"
   ],
   "compaction": {
     "enabled": false
