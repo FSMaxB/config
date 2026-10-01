@@ -1,10 +1,12 @@
 {
-  "lastChangelogVersion": "0.99.1",
+  "lastChangelogVersion": "0.99.2",
   "theme": "gruvbox-dark",
   "defaultProvider": "pi-claude",
   "defaultModel": "claude-fable-5-1",
   "defaultThinkingLevel": "high",
-  "defaultTools": ["+codemode"],
+  "defaultTools": [
+    "+codemode"
+  ],
   "packages": [
     "npm:pi-web-access",
     "npm:@firstpick/pi-themes-bundle"
