@@ -4,13 +4,8 @@
   "defaultProvider": "pi-claude",
   "defaultModel": "claude-fable-5-1",
   "defaultThinkingLevel": "high",
-  "defaultTools": [
-    "+codemode"
-  ],
-  "packages": [
-    "npm:pi-web-access",
-    "npm:@firstpick/pi-themes-bundle"
-  ],
+  "defaultTools": ["+codemode"],
+  "packages": ["npm:pi-web-access", "npm:@firstpick/pi-themes-bundle"],
   "compaction": {
     "enabled": false
   },
