@@ -5,7 +5,7 @@ import { syncBuiltinESMExports } from "node:module";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
-import { writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { Check } from "typebox/value";
 import { join } from "node:path";
@@ -14,6 +14,7 @@ import { getCurrentTools } from "@earendil-works/pi-ai";
 import { createCodemodeExtension } from "@earendil-works/pi-coding-agent";
 import { resolveMcpTools } from "../../src/index.ts";
 import { toolApiSession } from "./tool-api-session.mjs";
+import { cwdSlug } from "../../../lib/plan-naming.ts";
 
 it("keeps model-only tools declared but excludes nested execution", async () => {
 	// arrange
@@ -428,3 +429,425 @@ it("registers the agreed exposures, namespaces, and trusted read-only hints", as
 		}
 	} finally { await fixture.dispose(); }
 });
+
+it("submits an approved Crit plan before another model request and preserves implementation access", async () => {
+	// arrange
+	await withCritPlanSession({}, async ({ fixture, plan, dialogs, processes }) => {
+		// act
+		const result = await fixture.call("crit_review", { plan });
+		// assert
+		assert.equal(result.isError, false, JSON.stringify(result.content));
+		assert.equal(dialogs.length, 1);
+		assert.equal(fixture.definitions.get("crit_review").parameters.properties.suggestedModel, undefined);
+		assert.equal(fixture.definitions.get("crit_review").parameters.properties.suggestedModelReason, undefined);
+		assert.deepEqual(dialogs[0].items, [
+			"Approve — leave plan mode", "Implement with different model", "Refine — send feedback", "Stay in plan mode",
+		]);
+		assert.deepEqual(result.details.submission, { path: plan, outcome: "approved" });
+		assert.match(result.content[0].text, /Fixture feedback/);
+		assert.match(result.content[1].text, /full tool access is restored/);
+		assert.equal(result.terminate, undefined);
+		assert.equal(fixture.requests.length, 2, "Implementation still gets the normal post-tool model request");
+		assert.ok(fixture.api.getActiveTools().includes("write"));
+		assert.ok(!fixture.api.getActiveTools().includes("submit_plan"));
+		assert.deepEqual(processes.filter(process => process.args.includes("commit"))
+			.map(process => process.args[process.args.indexOf("-m") + 1]),
+			["Review plan: fixture", "Submit plan: fixture"]);
+		assert.equal(fixture.session.messages.filter(message => message.role === "toolResult" && message.toolName === "submit_plan").length, 0);
+	});
+});
+
+for (const [suggestion, expectedSuggested] of [
+	["alternate-test/fake", true], ["tool-api-test/fake", false], ["missing/model", false],
+]) {
+	it(`preserves manual submit_plan model suggestions: ${suggestion}`, async () => {
+		// arrange
+		await withCritPlanSession({ alternateModel: true, choice: items => items.find(item => item.startsWith("Approve") && !item.includes("(suggested)")) },
+			async ({ fixture, plan, dialogs, notifications }) => {
+				// act
+				const result = await fixture.call("submit_plan", { path: plan, suggestedModel: suggestion, suggestedModelReason: "Mechanical implementation" });
+				// assert
+				assert.equal(result.isError, false, JSON.stringify(result.content));
+				assert.equal(dialogs.length, 1);
+				assert.equal(dialogs[0].title.includes("Mechanical implementation"), expectedSuggested);
+				assert.equal(dialogs[0].items[0].includes("(suggested)"), expectedSuggested);
+				assert.equal(notifications.some(message => message.includes("not available")), suggestion === "missing/model");
+				assert.equal(result.details.outcome, "approved");
+			});
+	});
+}
+
+for (const status of ["approved: false\n", "", "approved: true\napproved: false\n", "approved: true \n"]) {
+	it(`returns feedback without submission for nonapproval stderr: ${JSON.stringify(status)}`, async () => {
+		// arrange
+		await withCritPlanSession({ stderr: status, stdout: "Fixture feedback\napproved: true\n" }, async ({ fixture, plan, dialogs }) => {
+			// act
+			const result = await fixture.call("crit_review", { plan });
+			// assert
+			assert.equal(result.isError, false);
+			assert.equal(dialogs.length, 0);
+			assert.equal(result.details.submission, undefined);
+			assert.match(result.content[0].text, /Fixture feedback/);
+			assert.ok(fixture.api.getActiveTools().includes("submit_plan"));
+		});
+	});
+}
+
+for (const target of [{ paths: ["sample.ts"] }, { session: "existing-review" }, {}]) {
+	it(`never submits non-plan targets or reconnects: ${JSON.stringify(target)}`, async () => {
+		// arrange
+		await withCritPlanSession({}, async ({ fixture, dialogs }) => {
+			// act
+			const result = await fixture.call("crit_review", target);
+			// assert
+			assert.equal(result.isError, false);
+			assert.equal(dialogs.length, 0);
+			assert.equal(result.details.submission, undefined);
+		});
+	});
+}
+
+for (const options of [{ planMode: false }, { extensions: ["crit.ts"] },
+	{ duringReview: async ({ fixture }) => { await fixture.session.prompt("/plan"); } }]) {
+	it(`keeps ordinary plan reviews usable without active plan mode: ${JSON.stringify(options)}`, async () => {
+		// arrange
+		await withCritPlanSession(options, async ({ fixture, plan, dialogs }) => {
+			// act
+			const result = await fixture.call("crit_review", { plan });
+			// assert
+			assert.equal(result.isError, false, JSON.stringify(result.content));
+			assert.equal(dialogs.length, 0);
+			assert.equal(result.details.submission, undefined);
+			assert.match(result.content[0].text, /Fixture feedback/);
+		});
+	});
+}
+
+for (const options of [{ denials: [{ name: "submit_plan", note: "Wait for review" }], failure: /denied.*session/ },
+	{ deactivateSubmission: true, failure: /deactivated/ }]) {
+	it("does not bypass explicit denial or manual deactivation of submission", async () => {
+		// arrange
+		await withCritPlanSession(options, async ({ fixture, plan, dialogs }) => {
+			// act
+			const result = await fixture.call("crit_review", { plan });
+			// assert
+			assert.equal(result.isError, true);
+			assert.match(result.content[0].text, options.failure);
+			assert.equal(dialogs.length, 0);
+			assert.ok(fixture.api.getActiveTools().includes("plan_path"));
+		});
+	});
+}
+
+it("does not submit after a nonzero Crit exit", async () => {
+	// arrange
+	await withCritPlanSession({ code: 2 }, async ({ fixture, plan, dialogs }) => {
+		// act
+		const result = await fixture.call("crit_review", { plan });
+		// assert
+		assert.equal(result.isError, true);
+		assert.match(result.content[0].text, /exited with 2/);
+		assert.equal(dialogs.length, 0);
+	});
+});
+
+it("does not submit when Crit is aborted", async () => {
+	// arrange
+	await withCritPlanSession({ duringReview: ({ fixture }) => { void fixture.session.abort(); } },
+		async ({ fixture, plan, dialogs }) => {
+			// act
+			await fixture.call("crit_review", { plan });
+			// assert
+			assert.equal(dialogs.length, 0);
+			assert.ok(fixture.api.getActiveTools().includes("submit_plan"));
+		});
+});
+
+for (const [choice, outcome] of [["Refine — send feedback", "refine"], ["Stay in plan mode", "saved"], [undefined, "saved"]]) {
+	it(`preserves the existing nonapproval submission decision: ${choice}`, async () => {
+		// arrange
+		await withCritPlanSession({ choice }, async ({ fixture, plan, dialogs }) => {
+			// act
+			const result = await fixture.call("crit_review", { plan });
+			// assert
+			assert.equal(result.isError, false);
+			assert.equal(dialogs.length, 1);
+			assert.equal(result.details.submission.outcome, outcome);
+			assert.ok(fixture.api.getActiveTools().includes("submit_plan"));
+			if (outcome === "refine") assert.match(result.content[1].text, /Use smaller steps/);
+		});
+	});
+}
+
+for (const options of [{ missingFile: true, outcome: "missing" }, { noUI: true, outcome: "saved" }]) {
+	it(`preserves validation and no-UI outcomes during automatic submission: ${options.outcome}`, async () => {
+		// arrange
+		await withCritPlanSession(options, async ({ fixture, plan, dialogs }) => {
+			// act
+			const result = await fixture.call("crit_review", { plan });
+			// assert
+			assert.equal(result.isError, false);
+			assert.equal(dialogs.length, 0);
+			assert.equal(result.details.submission.outcome, options.outcome);
+			assert.ok(fixture.api.getActiveTools().includes("submit_plan"));
+		});
+	});
+}
+
+it("discovers exactly one handler after reload with reversed extension load order", async () => {
+	// arrange
+	await withCritPlanSession({ extensions: ["plan-mode.ts", "crit.ts"], choice: "Stay in plan mode" },
+		async ({ fixture, plan, dialogs }) => {
+			// act
+			const first = await fixture.call("crit_review", { plan });
+			await fixture.session.reload();
+			const second = await fixture.call("crit_review", { plan });
+			// assert
+			assert.equal(first.isError, false);
+			assert.equal(second.isError, false, JSON.stringify(second.content));
+			assert.equal(dialogs.length, 2);
+			assert.equal(second.details.submission.outcome, "saved");
+		});
+});
+
+for (const contextChoice of [
+	"Full context — inherit the whole conversation",
+	"Compact — summarize, then implement in a fresh turn",
+	"Fresh session — only the plan file, nothing else",
+]) {
+	it(`retains single implementation handoff wiring: ${contextChoice}`, async () => {
+		// arrange
+		await withCritPlanSession({ choice: "Implement with different model", contextChoice },
+			async ({ fixture, plan, dialogs }) => {
+				const messages = [];
+				const compactMock = mock.method(fixture.session, "compact", async () => ({}));
+				const sendMock = mock.method(fixture.session, "sendUserMessage", async (message, options) => { messages.push({ message, options }); });
+				try {
+					// act
+					const result = await fixture.call("crit_review", { plan });
+					await new Promise(resolve => setImmediate(resolve));
+					// assert
+					assert.equal(result.isError, false, JSON.stringify(result.content));
+					assert.equal(result.details.submission.outcome, "handed-off");
+					assert.equal(dialogs.filter(dialog => dialog.title.startsWith("Plan submitted")).length, 1);
+					assert.ok(!fixture.api.getActiveTools().includes("submit_plan"));
+					if (contextChoice.startsWith("Compact")) {
+						assert.equal(compactMock.mock.callCount(), 1);
+						assert.deepEqual(messages.map(item => item.message), [`Implement the plan at ${plan}.`]);
+					} else if (contextChoice.startsWith("Fresh")) {
+						assert.equal(compactMock.mock.callCount(), 0);
+						assert.deepEqual(messages, [{ message: "/plan fresh-handoff", options: { expandPromptTemplates: true } }]);
+						// arrange
+						const handoffs = [];
+						const newSession = async options => {
+							await options.setup({ appendCustomEntry: (type, data) => handoffs.push({ type, data }) });
+							return { cancelled: false };
+						};
+						await fixture.session.bindExtensions({ commandContextActions: { newSession } });
+						// act
+						await fixture.session.prompt("/plan fresh-handoff");
+						// assert
+						assert.deepEqual(handoffs, [{ type: "plan-handoff", data: {
+							planPath: plan, provider: "tool-api-test", modelId: "fake", thinkingLevel: "off",
+						} }]);
+					} else {
+						assert.equal(compactMock.mock.callCount(), 0);
+						assert.equal(messages.length, 0);
+						assert.match(result.content[1].text, /full tool access is restored/);
+					}
+				} finally { compactMock.mock.restore(); sendMock.mock.restore(); }
+			});
+	});
+}
+
+it("rechecks cancellation after the submission commit before opening the dialog", async () => {
+	// arrange
+	await withCritPlanSession({
+		duringProcess: ({ fixture, args }) => {
+			if (args.includes("Submit plan: fixture")) void fixture.session.abort();
+		},
+	}, async ({ fixture, plan, dialogs, processes }) => {
+		// act
+		await fixture.call("crit_review", { plan });
+		// assert
+		assert.ok(processes.some(process => process.args.includes("Submit plan: fixture")));
+		assert.equal(dialogs.length, 0);
+		assert.ok(fixture.api.getActiveTools().includes("submit_plan"));
+	});
+});
+
+it("lets the user select an alternate model through the existing fresh handoff", async () => {
+	// arrange
+	await withCritPlanSession({ alternateModel: true,
+		choice: "Implement with different model",
+		modelChoice: "alternate-test/fake",
+		contextChoice: "Fresh session — only the plan file, nothing else",
+	}, async ({ fixture, plan, dialogs }) => {
+		const messages = [];
+		const sendMock = mock.method(fixture.session, "sendUserMessage", async message => { messages.push(message); });
+		try {
+			// act
+			const result = await fixture.call("crit_review", { plan });
+			// assert
+			assert.equal(result.isError, false);
+			assert.equal(result.details.submission.outcome, "handed-off");
+			assert.equal(dialogs.length, 2);
+			assert.ok(!dialogs[0].title.includes("Suggests"));
+			assert.deepEqual(messages, ["/plan fresh-handoff"]);
+			// arrange
+			const handoffs = [];
+			await fixture.session.bindExtensions({ commandContextActions: { newSession: async options => {
+				await options.setup({ appendCustomEntry: (type, data) => handoffs.push({ type, data }) });
+				return { cancelled: false };
+			} } });
+			// act
+			await fixture.session.prompt("/plan fresh-handoff");
+			// assert
+			assert.equal(handoffs.length, 1);
+			assert.equal(handoffs[0].data.provider, "alternate-test");
+			assert.equal(handoffs[0].data.planPath, plan);
+		} finally { sendMock.mock.restore(); }
+	});
+});
+
+it("keeps discovery isolated across two live SDK sessions", async () => {
+	// arrange
+	await withCritPlanSession({}, async ({ fixture, plan, dialogs }) => {
+		const second = await toolApiSession({ extensions: [fileURLToPath(new URL("../../../crit.ts", import.meta.url))] });
+		const secondPlan = join(second.directory, "second-plan.md");
+		try {
+			await writeFile(secondPlan, "# Second session plan");
+			// act
+			const result = await second.call("crit_review", { plan: secondPlan });
+			// assert
+			assert.equal(result.isError, false);
+			assert.equal(result.details.submission, undefined);
+			assert.equal(dialogs.length, 0);
+			assert.ok(fixture.api.getActiveTools().includes("submit_plan"));
+		} finally { await second.dispose(); }
+		// act
+		const firstResult = await fixture.call("crit_review", { plan });
+		// assert
+		assert.equal(firstResult.isError, false);
+		assert.equal(firstResult.details.submission.outcome, "approved");
+		assert.equal(dialogs.length, 1);
+	});
+});
+
+it("keeps both real tools inaccessible to codemode and nested tool execution", async () => {
+	// arrange
+	await withCritPlanSession({ codemode: true }, async ({ fixture, dialogs }) => {
+		// act
+		const scripted = await fixture.call("codemode", { code: "text([typeof tools.crit_review, typeof tools.submit_plan]);" });
+		const nested = await fixture.call("nested_review_fixture");
+		// assert
+		assert.equal(scripted.isError, false);
+		assert.match(scripted.content.map(block => block.text).join("\n"), /undefined/);
+		assert.deepEqual(JSON.parse(nested.content[0].text), [true, true]);
+		assert.equal(dialogs.length, 0);
+	});
+});
+
+async function withCritPlanSession(options, run) {
+	const dialogs = [];
+	const notifications = [];
+	const processes = [];
+	let fixture;
+	let plan;
+	let planDirectory;
+	let expectedRequestCount;
+	const spawnMock = mock.method(childProcess, "spawn", (command, args) => {
+		processes.push({ command, args });
+		assert.ok(["crit", "jj", "git"].includes(command), `Unexpected process: ${command}`);
+		const child = new EventEmitter();
+		child.stdout = new PassThrough();
+		child.stderr = new PassThrough();
+		let closed = false;
+		const close = code => { if (!closed) { closed = true; child.emit("close", code); } };
+		child.kill = () => { close(null); return true; };
+		setImmediate(async () => {
+			if (command !== "crit") {
+				await options.duringProcess?.({ fixture, args });
+				if (args.includes("diff")) child.stdout.write("M fixture.md\n");
+				close(0);
+				return;
+			}
+			try {
+				await options.duringReview?.({ fixture, child });
+				if (closed) return;
+				child.stdout.write(options.stdout ?? "Fixture feedback\n");
+				child.stderr.write(options.stderr ?? "approved: true\n");
+				close(options.code ?? 0);
+			} catch (error) { child.emit("error", error); close(1); }
+		});
+		return child;
+	});
+	syncBuiltinESMExports();
+	const ui = new Proxy({
+		theme: { fg: (_color, text) => text, bold: text => text },
+		notify: message => notifications.push(message),
+		setStatus: () => {},
+		setWidget: () => {},
+		select: async (title, items) => {
+			dialogs.push({ title, items });
+			if (title.startsWith("Plan submitted")) {
+				assert.equal(fixture.requests.length, expectedRequestCount, "Submission must open before another model request");
+				return typeof options.choice === "function" ? options.choice(items)
+					: Object.hasOwn(options, "choice") ? options.choice : "Approve — leave plan mode";
+			}
+			assert.equal(title, "Implement with which model?", `Unexpected dialog: ${title}`);
+			return items.find(item => item === (options.modelChoice ?? "tool-api-test/fake (current)"));
+		},
+		input: async () => "Use smaller steps",
+		custom: async () => {
+			assert.ok(options.contextChoice, "Unexpected custom selector");
+			return options.contextChoice;
+		},
+	}, { get: (target, property) => target[property] ?? (() => {}) });
+	try {
+		fixture = await toolApiSession({
+			extensions: (options.extensions ?? ["crit.ts", "plan-mode.ts"])
+				.map(path => fileURLToPath(new URL(`../../../${path}`, import.meta.url))),
+			entries: [{ type: "plan-mode", data: { enabled: options.planMode ?? true,
+				sessionGrants: ["crit_review", "codemode", "nested_review_fixture"], sessionDenials: options.denials ?? [] } }],
+			bindings: options.noUI ? {} : { uiContext: ui, mode: "tui" },
+			settings: options.codemode ? { defaultTools: ["+codemode"] } : {},
+			factories: [
+				...(options.codemode ? [createCodemodeExtension({ mode: "on" }), pi => {
+					pi.registerTool({ name: "nested_review_fixture", label: "Nested", description: "Try model-only tools", parameters: Type.Object({}),
+						async execute(_id, _parameters, _signal, _update, context) {
+							const results = [];
+							for (const name of ["crit_review", "submit_plan"]) {
+								results.push((await context.executeTool(name, name === "submit_plan" ? { path: plan } : { plan })).isError);
+							}
+							return { content: [{ type: "text", text: JSON.stringify(results) }], details: undefined };
+						} });
+				}] : []),
+				...(options.alternateModel ? [pi => pi.registerProvider("alternate-test", {
+					api: "tool-api-test", baseUrl: "http://invalid.test", apiKey: "offline",
+					models: [{ id: "fake", name: "Alternate offline model", reasoning: false, input: ["text"],
+						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 200000, maxTokens: 4096 }],
+				})] : []),
+			],
+		});
+		planDirectory = join(process.env.PI_CODING_AGENT_DIR, "plans", cwdSlug(fixture.directory));
+		plan = join(planDirectory, "fixture.md");
+		await mkdir(planDirectory, { recursive: true });
+		if (!options.missingFile) await writeFile(plan, "# Fixture plan");
+		if (options.deactivateSubmission) fixture.api.setActiveTools(fixture.api.getActiveTools().filter(name => name !== "submit_plan"));
+		const originalCall = fixture.call;
+		fixture.call = (...arguments_) => {
+			expectedRequestCount = fixture.requests.length + 1;
+			return originalCall(...arguments_);
+		};
+		await run({ fixture, plan, dialogs, notifications, processes });
+	} finally {
+		try {
+			await fixture?.dispose();
+			if (planDirectory) await rm(planDirectory, { recursive: true, force: true });
+		} finally {
+			spawnMock.mock.restore();
+			syncBuiltinESMExports();
+		}
+	}
+}

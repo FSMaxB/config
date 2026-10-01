@@ -5,10 +5,12 @@ import { basename, join } from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { isCritPlanApproved } from "./lib/crit-approval.ts";
 import { execChecked } from "./lib/exec.ts";
 import { createLineSplitter } from "./lib/lines.ts";
 import { commitPlanFileForUser } from "./lib/plan-commit.ts";
 import { isInPlansDirectory } from "./lib/plan-file.ts";
+import { canSubmitReviewedPlan, submitReviewedPlan } from "./lib/plan-submission.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 
 const TIMEOUT = 60_000;
@@ -30,10 +32,12 @@ export default function (pi: ExtensionAPI) {
       "Open a crit review in the browser and block until the user submits it, then return their comments. " +
       "Give at most one target: paths, pr, range, url, html, plan or story. " +
       "With no target this reviews the branch diff. " +
-      "A plan file inside the plans directory is committed there before the review opens.",
+      "A plan file inside the plans directory is committed there before the review opens. " +
+      "An explicitly approved plan review automatically opens the submission decision dialog while plan mode is active.",
     promptSnippet: "Open a crit review and wait for the user's inline comments",
     promptGuidelines: [
       "Do not continue past a crit review until the user submits it, and address every unresolved comment before moving on.",
+      "Approved plan reviews automatically submit the plan; do not call submit_plan again. Crit approval alone does not leave plan mode: the user decides in the submission dialog.",
     ],
     executionMode: "sequential",
     parameters: Type.Object({
@@ -80,15 +84,15 @@ export default function (pi: ExtensionAPI) {
       ),
     }),
 
-    async execute(_toolCallId, params, signal, onUpdate, ctx) {
+    async execute(_toolCallId, params, signal, onUpdate, context) {
       const { args, slug } = reviewArgs(params);
       const { plan } = params;
       if (plan && isInPlansDirectory(plan)) {
-        await commitPlanFileForUser(pi, ctx, plan, "review");
+        await commitPlanFileForUser(pi, context, plan, "review");
       }
       const recent: string[] = [];
 
-      const { output, code } = await streamCrit(args, signal, (line) => {
+      const { output, stderr, code } = await streamCrit(args, signal, (line) => {
         recent.push(line);
         onUpdate?.({
           content: [
@@ -108,11 +112,25 @@ export default function (pi: ExtensionAPI) {
       // Clears the slug for non-plan reviews, so a stale plan slug from an earlier review
       // doesn't leak into crit_comments/crit_comment defaults.
       planSlug = slug;
-      return {
+      const reviewResult = {
         content: [
-          { type: "text", text: output.trim() || "crit produced no output." },
+          { type: "text" as const, text: output.trim() || "crit produced no output." },
         ],
         details: { args, slug },
+      };
+      if (!plan || !isCritPlanApproved(stderr)) return reviewResult;
+      signal?.throwIfAborted();
+      if (!canSubmitReviewedPlan(pi.events, context)) return reviewResult;
+      const submission = await submitReviewedPlan(
+        pi.events,
+        { path: plan },
+        signal,
+        context,
+      );
+      return {
+        ...submission,
+        content: [...reviewResult.content, ...submission.content],
+        details: { ...reviewResult.details, submission: submission.details },
       };
     },
   });
@@ -305,7 +323,7 @@ function streamCrit(
   args: string[],
   signal: AbortSignal | undefined,
   onLine: (line: string) => void,
-): Promise<{ output: string; code: number }> {
+): Promise<{ output: string; stderr: string; code: number }> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
       reject(new Error("The crit review was aborted before it started."));
@@ -314,6 +332,7 @@ function streamCrit(
 
     const child = spawn("crit", args, { stdio: ["ignore", "pipe", "pipe"] });
     const chunks: string[] = [];
+    const stderrChunks: string[] = [];
     const splitter = createLineSplitter(onLine);
 
     const abort = () => child.kill("SIGTERM");
@@ -326,7 +345,10 @@ function streamCrit(
     };
 
     child.stdout.on("data", consume);
-    child.stderr.on("data", consume);
+    child.stderr.on("data", (data: Buffer) => {
+      stderrChunks.push(data.toString());
+      consume(data);
+    });
     child.on("error", (error) => {
       signal?.removeEventListener("abort", abort);
       reject(new Error(`Failed to run crit: ${error.message}`));
@@ -336,7 +358,7 @@ function streamCrit(
       splitter.flush();
       // A signal-killed child (our SIGTERM on abort) closes with a null code, which must not
       // be read as success.
-      resolve({ output: chunks.join(""), code: code ?? 1 });
+      resolve({ output: chunks.join(""), stderr: stderrChunks.join(""), code: code ?? 1 });
     });
   });
 }
