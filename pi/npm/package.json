@@ -3,6 +3,6 @@
   "private": true,
   "dependencies": {
     "@firstpick/pi-themes-bundle": "^0.1.6",
-    "pi-web-access": "^0.34.0"
+    "pi-web-access": "^0.35.0"
   }
 }
