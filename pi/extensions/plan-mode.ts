@@ -37,6 +37,7 @@ import {
 } from "./lib/plan-decisions.ts";
 import { newPlanPath, plansDirectory } from "./lib/plan-file.ts";
 import { commitPlanFileForUser } from "./lib/plan-commit.ts";
+import { registerPlanSubmission, type PlanSubmissionParams, type PlanSubmissionResult } from "./lib/plan-submission.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 import { isSandboxActive } from "./lib/sandbox-state.ts";
 import { selectWithDefault } from "./lib/select-with-default.ts";
@@ -394,8 +395,8 @@ export default function (pi: ExtensionAPI) {
     promptSnippet:
       "Submit the written plan for the user to approve, ending plan mode",
     promptGuidelines: [
-      "Call submit_plan with the plan file path once the file holds the finished plan, rather than describing the plan and waiting for a reply.",
-      "Only the user can leave plan mode, so never assume approval before submit_plan returns it.",
+      "Call submit_plan with the finished plan file path unless crit_review already submitted it automatically after explicit approval. Do not submit the same approved review a second time.",
+      "Only the user can leave plan mode. Rely on the implementation decision returned by submit_plan or by automatic submission inside crit_review, not on Crit approval alone.",
       "Suggest an implementation model via suggestedModel only when a different model is clearly better suited than the current one (for example a cheaper model for a mechanical plan); otherwise omit it.",
     ],
     executionMode: "sequential",
@@ -418,112 +419,8 @@ export default function (pi: ExtensionAPI) {
       ),
     }),
 
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      if (!planMode) {
-        const error = "submit_plan is only available in plan mode.";
-        return {
-          content: [{ type: "text", text: error }],
-          details: { path: null, outcome: "unavailable" },
-        };
-      }
-
-      const { path } = params;
-      const planFile = await stat(path).catch(() => undefined);
-      if (!planFile?.isFile()) {
-        return {
-          content: [{ type: "text", text: `No plan file exists at ${path}. Write it first, then call submit_plan with its path.` }],
-          details: { path: null, outcome: "missing" },
-        };
-      }
-
-      if (!ctx.hasUI) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Plan at ${path} could not be submitted: no interactive UI, so plan mode stays on.`,
-            },
-          ],
-          details: { path, outcome: "saved" },
-        };
-      }
-
-      await commitPlanFileForUser(pi, ctx, path, "submit");
-
-      const { suggestedModel, suggestedModelReason } = params;
-      let suggested = suggestedModel
-        ? findSuggestedModel(suggestedModel, await settledAvailableModels(ctx))
-        : undefined;
-      if (suggestedModel && !suggested) {
-        ctx.ui.notify(
-          `Suggested model "${suggestedModel}" is not available.`,
-          "warning",
-        );
-      }
-      if (
-        suggested &&
-        ctx.model &&
-        suggested.provider === ctx.model.provider &&
-        suggested.id === ctx.model.id
-      ) {
-        // Suggesting the session model leaves nothing to offer.
-        suggested = undefined;
-      }
-
-      const suggestedLabel = suggested
-        ? `${suggested.provider}/${suggested.id}`
-        : undefined;
-      const approveSuggested = suggestedLabel
-        ? `Approve — implement with ${suggestedLabel} (suggested)`
-        : undefined;
-      const reason = suggestedModelReason?.trim();
-      const suggestionNote = suggestedLabel
-        ? `\n\n  Suggests ${suggestedLabel}${reason ? ` — ${reason}` : ""}`
-        : "";
-
-      const choice = await ctx.ui.select(
-        `Plan submitted — what next?\n\n  ${path}${suggestionNote}`,
-        [
-          ...(approveSuggested ? [approveSuggested] : []),
-          suggested ? APPROVE_CURRENT : APPROVE,
-          IMPLEMENT_DIFFERENT,
-          REFINE,
-          "Stay in plan mode",
-        ],
-      );
-
-      if (suggested && choice === approveSuggested) {
-        return await handOffToModel(path, suggested, undefined, ctx);
-      }
-
-      if (choice === APPROVE || choice === APPROVE_CURRENT) {
-        setPlanMode(false, ctx);
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Plan at ${path} approved. Plan mode is off and full tool access is restored.`,
-            },
-          ],
-          details: { path, outcome: "approved" },
-        };
-      }
-
-      if (choice === IMPLEMENT_DIFFERENT) {
-        return await handleImplementDifferent(path, ctx);
-      }
-
-      if (choice === REFINE) {
-        const feedback = (
-          await ctx.ui.input("Feedback on the plan:", "What should change?")
-        )?.trim();
-        return {
-          ...notApproved(path, feedback && `The user asks for: ${feedback}`),
-          details: { path, outcome: "refine" },
-        };
-      }
-
-      return notApproved(path);
+    async execute(_toolCallId, params, signal, _onUpdate, context) {
+      return await submitPlan(params, signal, context);
     },
 
     renderCall(args, theme) {
@@ -565,6 +462,140 @@ export default function (pi: ExtensionAPI) {
       );
     },
   });
+
+  registerPlanSubmission(pi.events, {
+    available(context) {
+      flushPendingToggle(context);
+      return planMode;
+    },
+    async submit(params, signal, context) {
+      signal?.throwIfAborted();
+      flushPendingToggle(context);
+      if (planMode && !pi.getActiveTools().includes(SUBMIT_PLAN)) {
+        throw new Error("submit_plan is deactivated, so the reviewed plan was not submitted.");
+      }
+      return await submitPlan(params, signal, context);
+    },
+  });
+
+  async function submitPlan(
+    params: PlanSubmissionParams,
+    signal: AbortSignal | undefined,
+    context: ExtensionContext,
+  ): Promise<PlanSubmissionResult> {
+    signal?.throwIfAborted();
+    flushPendingToggle(context);
+    if (!planMode) {
+      const error = "submit_plan is only available in plan mode.";
+      return {
+        content: [{ type: "text", text: error }],
+        details: { path: null, outcome: "unavailable" },
+      };
+    }
+
+    const blocked = blockedReason(SUBMIT_PLAN);
+    if (blocked) throw new Error(blocked);
+
+    const { path } = params;
+    const planFile = await stat(path).catch(() => undefined);
+    signal?.throwIfAborted();
+    if (!planFile?.isFile()) {
+      return {
+        content: [{ type: "text", text: `No plan file exists at ${path}. Write it first, then call submit_plan with its path.` }],
+        details: { path: null, outcome: "missing" },
+      };
+    }
+
+    if (!context.hasUI) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Plan at ${path} could not be submitted: no interactive UI, so plan mode stays on.`,
+          },
+        ],
+        details: { path, outcome: "saved" },
+      };
+    }
+
+    await commitPlanFileForUser(pi, context, path, "submit");
+
+    const { suggestedModel, suggestedModelReason } = params;
+    let suggested = suggestedModel
+      ? findSuggestedModel(suggestedModel, await settledAvailableModels(context))
+      : undefined;
+    if (suggestedModel && !suggested) {
+      context.ui.notify(
+        `Suggested model "${suggestedModel}" is not available.`,
+        "warning",
+      );
+    }
+    if (
+      suggested &&
+      context.model &&
+      suggested.provider === context.model.provider &&
+      suggested.id === context.model.id
+    ) {
+      // Suggesting the session model leaves nothing to offer.
+      suggested = undefined;
+    }
+
+    const suggestedLabel = suggested
+      ? `${suggested.provider}/${suggested.id}`
+      : undefined;
+    const approveSuggested = suggestedLabel
+      ? `Approve — implement with ${suggestedLabel} (suggested)`
+      : undefined;
+    const reason = suggestedModelReason?.trim();
+    const suggestionNote = suggestedLabel
+      ? `\n\n  Suggests ${suggestedLabel}${reason ? ` — ${reason}` : ""}`
+      : "";
+
+    signal?.throwIfAborted();
+    const choice = await context.ui.select(
+      `Plan submitted — what next?\n\n  ${path}${suggestionNote}`,
+      [
+        ...(approveSuggested ? [approveSuggested] : []),
+        suggested ? APPROVE_CURRENT : APPROVE,
+        IMPLEMENT_DIFFERENT,
+        REFINE,
+        "Stay in plan mode",
+      ],
+    );
+
+    if (suggested && choice === approveSuggested) {
+      return await handOffToModel(path, suggested, undefined, context);
+    }
+
+    if (choice === APPROVE || choice === APPROVE_CURRENT) {
+      setPlanMode(false, context);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Plan at ${path} approved. Plan mode is off and full tool access is restored.`,
+          },
+        ],
+        details: { path, outcome: "approved" },
+      };
+    }
+
+    if (choice === IMPLEMENT_DIFFERENT) {
+      return await handleImplementDifferent(path, context);
+    }
+
+    if (choice === REFINE) {
+      const feedback = (
+        await context.ui.input("Feedback on the plan:", "What should change?")
+      )?.trim();
+      return {
+        ...notApproved(path, feedback && `The user asks for: ${feedback}`),
+        details: { path, outcome: "refine" },
+      };
+    }
+
+    return notApproved(path);
+  }
 
   async function handleImplementDifferent(
     planPath: string,
@@ -1035,7 +1066,7 @@ function planModeInstructions(): string {
     `- Plan mode is read-only by default: writing inside the repository prompts the user for each path. The memory directory, the plans directory (${plansDirectory()}) and the session's temp_dir stay writable.`,
     "- bash and every other tool that changes things need the user's approval for each call.",
     "- If a call or a path is denied, do not retry it and do not route around it.",
-    `- To write a plan, call ${PLAN_PATH} once to get a file path, create the file there with write, and revise it with edit. Call ${SUBMIT_PLAN} with that path when it is ready. Only the user can leave plan mode.`,
+    `- To write a plan, call ${PLAN_PATH} once to get a file path, create the file there with write, and revise it with edit. An approved crit_review plan automatically opens the submission dialog; do not submit it again. Otherwise call ${SUBMIT_PLAN} with that path when it is ready. Only the user can leave plan mode.`,
   ].join("\n");
 }
 
