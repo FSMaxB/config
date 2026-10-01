@@ -26,5 +26,7 @@
   "modelThinkingLevels": {
     "openai-codex/gpt-6-astra": "medium",
     "lmstudio/qwen/qwen3.8-27b": "medium"
-  }
+  },
+  "autocompleteMaxVisible": 20,
+  "steeringMode": "all"
 }
