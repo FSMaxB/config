@@ -21,7 +21,7 @@
     "showTerminalProgress": true
   },
   "hideThinkingBlock": false,
-  "showCacheMissNotices": false,
+  "showCacheMissNotices": true,
   "showHardwareCursor": false,
   "modelThinkingLevels": {
     "openai-codex/gpt-6-astra": "medium",
