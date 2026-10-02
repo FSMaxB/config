@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 import { glob, tree } from "../../lib/path-permission-rules.ts";
 import type { EffectivePolicy } from "../../lib/path-permissions.ts";
@@ -120,4 +122,17 @@ test("a plan-mode policy without the repository allows no repository write", () 
   // assert
   assert.deepEqual(config.allowWrite, [`${HOME}/.pi/agent/plans`]);
   assert.ok(config.allowRead?.includes(`${HOME}/repo`));
+});
+
+test("the sandbox-runtime package stays readable under a denied home directory", () => {
+  // arrange
+  const effective = policy();
+
+  // act
+  const config = filesystemConfig(effective, options({ platform: "linux" }));
+
+  // assert
+  const runtimeDirectory = config.allowRead?.find((path) => path.endsWith("/node_modules/@anthropic-ai/sandbox-runtime"));
+  assert.ok(runtimeDirectory, "the sandbox-runtime package directory must be read-allowed");
+  assert.ok(existsSync(join(runtimeDirectory, "vendor", "seccomp")), `${runtimeDirectory} must contain the vendored seccomp helper`);
 });

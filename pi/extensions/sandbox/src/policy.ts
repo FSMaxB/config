@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { FilesystemConfig } from "@anthropic-ai/sandbox-runtime";
 import type { EffectivePolicy } from "../../lib/path-permissions.ts";
 import type { PathSelector } from "../../lib/path-permission-rules.ts";
@@ -15,7 +16,7 @@ export function filesystemConfig(policy: EffectivePolicy, options: PolicyOptions
   const secrets = secretPaths(homeDirectory);
   return {
     denyRead: unique([...userRoots(platform), homeDirectory, ...secrets, ...extraDenyRead, ...policy.read.deny.map(selectorPath)]),
-    allowRead: unique([...policy.read.allow.map(selectorPath), ...toolchainRead]),
+    allowRead: unique([...policy.read.allow.map(selectorPath), ...toolchainRead, sandboxRuntimeDirectory()]),
     allowWrite: unique(policy.write.allow.filter((selector) => platform === "darwin" || selector.kind !== "glob").map(selectorPath)),
     denyWrite: unique([...secrets, ...[...policy.write.deny, ...policy.write.protected].map((selector) => writeDenyPath(selector, platform))]),
   };
@@ -27,6 +28,12 @@ export function secretPaths(homeDirectory: string): string[] {
     ".pi/agent/auth.json", ".pi/agent/models.json", ".pi/agent/claude-bridge.json", ".claude/.credentials.json", "Library/Keychains",
   ];
   return relativePaths.map((relativePath) => join(homeDirectory, relativePath));
+}
+
+// On Linux srt execs its vendored apply-seccomp helper from inside the outer bubblewrap namespace, so the
+// package has to stay readable even when it lives under a denied tree such as $HOME.
+function sandboxRuntimeDirectory(): string {
+  return fileURLToPath(new URL("../node_modules/@anthropic-ai/sandbox-runtime", import.meta.url));
 }
 
 function userRoots(platform: PolicyOptions["platform"]): string[] {
