@@ -166,7 +166,9 @@ it("registry allowlists exclude deferred tools even after registration and activ
 	} finally { await fixture.dispose(); }
 });
 
-it("hides explicit denials while retaining active tools, gates, and codemode loadouts", async () => {
+// Declarations stay fixed across denials and mode changes to keep the prompt cache prefix; the
+// model learns about denials from the plan-mode snapshot message instead.
+it("keeps explicit denials declared but blocked and announced in the plan-mode snapshot", async () => {
 	// arrange
 	const choices = [];
 	const ui = new Proxy({
@@ -198,6 +200,12 @@ it("hides explicit denials while retaining active tools, gates, and codemode loa
 		}],
 	});
 	const declared = () => getCurrentTools(fixture.requests.at(-1).messages).map(tool => tool.name);
+	// The request carries the hidden plan-mode snapshot as an ordinary user message.
+	const snapshot = () => fixture.requests.at(-1).messages
+		.filter(message => message.role === "user")
+		.map(message => (typeof message.content === "string" ? message.content : message.content.map(block => block.text ?? "").join("\n")))
+		.findLast(text => text.startsWith("This is the current plan-mode state."));
+	const deniedInSnapshot = name => new RegExp(`^ {2}- ${name}( \\(do this instead: .*\\))?$`, "m").test(snapshot());
 	try {
 		// act
 		const nested = await fixture.call("caller_fixture");
@@ -208,11 +216,13 @@ it("hides explicit denials while retaining active tools, gates, and codemode loa
 			execute: async () => ({ content: [], details: undefined }) });
 		await fixture.session.prompt("Inspect declarations.");
 		// assert
-		assert.ok(!declared().includes("target_fixture"));
-		assert.ok(!declared().includes("plan_path"));
-		assert.ok(!declared().includes("late_fixture"));
-		assert.ok(declared().includes("approval_fixture"));
-		assert.ok(declared().includes("codemode"));
+		for (const name of ["target_fixture", "plan_path", "late_fixture", "approval_fixture", "codemode"]) {
+			assert.ok(declared().includes(name), `${name} must stay declared`);
+		}
+		for (const name of ["target_fixture", "plan_path", "late_fixture"]) {
+			assert.ok(deniedInSnapshot(name), `${name} must be listed as denied in:\n${snapshot()}`);
+		}
+		assert.ok(!deniedInSnapshot("approval_fixture"));
 		assert.ok(fixture.api.getActiveTools().includes("target_fixture"));
 		assert.ok(fixture.api.getActiveTools().includes("plan_path"));
 		assert.equal(JSON.parse(nested.content[0].text).isError, true);
@@ -221,7 +231,7 @@ it("hides explicit denials while retaining active tools, gates, and codemode loa
 		assert.match(scripted.content.map(block => block.text).join("\n"), /denied/);
 		assert.ok(JSON.parse(nested.content[0].text).callable.includes("target_fixture"));
 		const bridgeTools = resolveMcpTools(fixture.requests.at(-1)).mcpTools;
-		assert.ok(!bridgeTools.some(tool => tool.name === "target_fixture"));
+		assert.ok(bridgeTools.some(tool => tool.name === "target_fixture"));
 		assert.equal(bridgeTools.find(tool => tool.name === "caller_fixture").description, "Prepared caller description");
 		// arrange
 		choices.push(items => items.find(item => item.includes("target_fixture")), "Done");
@@ -230,13 +240,16 @@ it("hides explicit denials while retaining active tools, gates, and codemode loa
 		await fixture.session.prompt("Inspect declarations after removal.");
 		// assert
 		assert.ok(declared().includes("target_fixture"));
+		assert.ok(!deniedInSnapshot("target_fixture"));
 		// arrange
 		choices.push("Deny in session");
 		// act
 		const denied = await fixture.call("approval_fixture");
+		await fixture.session.prompt("Inspect declarations after a denial.");
 		// assert
 		assert.equal(denied.isError, true);
-		assert.ok(!declared().includes("approval_fixture"));
+		assert.ok(declared().includes("approval_fixture"));
+		assert.match(snapshot(), /^ {2}- approval_fixture \(do this instead: test denial\)$/m);
 		// arrange
 		choices.push("Clear all");
 		// act
@@ -245,15 +258,19 @@ it("hides explicit denials while retaining active tools, gates, and codemode loa
 		// assert
 		assert.ok(declared().includes("approval_fixture"));
 		assert.ok(declared().includes("plan_path"));
+		assert.doesNotMatch(snapshot(), /denied these tools/);
 		// act
 		fixture.api.setActiveTools(fixture.api.getActiveTools().filter(name => name !== "target_fixture"));
 		await fixture.session.prompt("/plan");
 		await fixture.session.prompt("Inspect declarations outside plan mode.");
+		const rejected = await fixture.call("plan_path", { slug: "fixture" });
 		// assert
-		assert.ok(!fixture.api.getActiveTools().includes("plan_path"));
-		assert.ok(!fixture.api.getActiveTools().includes("submit_plan"));
+		assert.match(snapshot(), /Plan mode is off/);
+		assert.ok(fixture.api.getActiveTools().includes("plan_path"));
+		assert.ok(fixture.api.getActiveTools().includes("submit_plan"));
 		assert.ok(!fixture.api.getActiveTools().includes("target_fixture"));
 		assert.ok(declared().includes("approval_fixture"));
+		assert.match(rejected.content[0].text, /only available in plan mode, which is off/);
 		assert.equal(choices.length, 0);
 	} finally { await fixture.dispose(); }
 });
@@ -445,11 +462,11 @@ it("submits an approved Crit plan before another model request and preserves imp
 		]);
 		assert.deepEqual(result.details.submission, { path: plan, outcome: "approved" });
 		assert.match(result.content[0].text, /Fixture feedback/);
-		assert.match(result.content[1].text, /full tool access is restored/);
+		assert.match(result.content[1].text, /ordinary tool permissions still apply/);
 		assert.equal(result.terminate, undefined);
 		assert.equal(fixture.requests.length, 2, "Implementation still gets the normal post-tool model request");
 		assert.ok(fixture.api.getActiveTools().includes("write"));
-		assert.ok(!fixture.api.getActiveTools().includes("submit_plan"));
+		assert.ok(fixture.api.getActiveTools().includes("submit_plan"), "The tool set stays fixed so the cache prefix survives");
 		assert.deepEqual(processes.filter(process => process.args.includes("commit"))
 			.map(process => process.args[process.args.indexOf("-m") + 1]),
 			["Review plan: fixture", "Submit plan: fixture"]);
@@ -630,7 +647,7 @@ for (const contextChoice of [
 					assert.equal(result.isError, false, JSON.stringify(result.content));
 					assert.equal(result.details.submission.outcome, "handed-off");
 					assert.equal(dialogs.filter(dialog => dialog.title.startsWith("Plan submitted")).length, 1);
-					assert.ok(!fixture.api.getActiveTools().includes("submit_plan"));
+					assert.ok(fixture.api.getActiveTools().includes("submit_plan"));
 					if (contextChoice.startsWith("Compact")) {
 						assert.equal(compactMock.mock.callCount(), 1);
 						assert.deepEqual(messages.map(item => item.message), [`Implement the plan at ${plan}.`]);
@@ -653,7 +670,7 @@ for (const contextChoice of [
 					} else {
 						assert.equal(compactMock.mock.callCount(), 0);
 						assert.equal(messages.length, 0);
-						assert.match(result.content[1].text, /full tool access is restored/);
+						assert.match(result.content[1].text, /ordinary tool permissions still apply/);
 					}
 				} finally { compactMock.mock.restore(); sendMock.mock.restore(); }
 			});
