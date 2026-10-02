@@ -41,22 +41,23 @@ test("the writable directory accepts writes", { skip: !enabled }, async () => {
   const target = join(workDirectory, "ok");
 
   // act
-  const { exitCode } = await runSandboxed(`touch '${target}'`);
+  const { exitCode, output } = await runSandboxed(`touch '${target}'`);
 
   // assert
-  assert.equal(exitCode, 0);
+  assert.equal(exitCode, 0, output);
   assert.ok(existsSync(target));
 });
 
-test("writes outside the writable directory fail", { skip: !enabled }, async () => {
+// Linux masks denied trees with an empty tmpfs, so the write itself succeeds there and only the real
+// filesystem shows that nothing landed; macOS refuses the write outright.
+test("writes outside the writable directory never reach the real filesystem", { skip: !enabled }, async () => {
   // arrange
   const target = join(homedir(), ".sandbox-escape");
 
   // act
-  const { exitCode } = await runSandboxed(`touch '${target}'`);
+  await runSandboxed(`touch '${target}'`);
 
   // assert
-  assert.notEqual(exitCode, 0);
   assert.equal(existsSync(target), false);
 });
 
@@ -68,16 +69,16 @@ test("secrets under the home directory are unreadable", { skip: !enabled }, asyn
   const { exitCode, output } = await runSandboxed(`cat '${target}'`);
 
   // assert
-  assert.notEqual(exitCode, 0);
-  assert.match(output, /permission denied|operation not permitted/i);
+  assert.notEqual(exitCode, 0, output);
+  assert.doesNotMatch(output, /Host secret/);
 });
 
 test("network access is denied without an allowlist entry", { skip: !enabled }, async () => {
   // act
-  const { exitCode } = await runSandboxed("curl -sS --max-time 5 https://example.com");
+  const { exitCode, output } = await runSandboxed("curl -sS --max-time 5 https://example.com");
 
   // assert
-  assert.notEqual(exitCode, 0);
+  assert.notEqual(exitCode, 0, output);
 });
 
 function policyFilesystem() {
