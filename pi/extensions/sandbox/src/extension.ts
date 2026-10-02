@@ -25,7 +25,7 @@ const SANDBOX_NOTE =
   "Set unsandboxed to true only for a command the sandbox itself breaks (ssh git remotes, programs that ignore proxy variables, listening sockets); the user confirms every unsandboxed command first, and subagents cannot use it.";
 
 const INSTALL_HINT =
-  "Install with: sudo pacman -S bubblewrap socat ripgrep (Arch) or apt install bubblewrap socat ripgrep (Debian/Ubuntu, plus sysctl kernel.apparmor_restrict_unprivileged_userns=0). Set PI_SANDBOX=0 to run without the sandbox.";
+  "Install with: sudo pacman -S bubblewrap socat ripgrep (Arch) or apt install bubblewrap socat ripgrep (Debian/Ubuntu, plus sysctl kernel.apparmor_restrict_unprivileged_userns=0 and apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict). Set PI_SANDBOX=0 to run without the sandbox.";
 
 // macOS reports violations asynchronously through `log stream`, so they land a moment after the child
 // exits, sometimes later than any single fixed wait. Keep polling until the count stops changing.
