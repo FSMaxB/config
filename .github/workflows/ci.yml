@@ -202,6 +202,14 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get install -y bubblewrap socat ripgrep
+          # Ubuntu gates unprivileged user namespaces twice: the sysctl blocks creating them, and the
+          # bwrap-userns-restrict AppArmor profile strips capabilities from bwrap's children, which
+          # leaves srt's apply-seccomp helper unable to set up its nested namespace.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          if [ -e /etc/apparmor.d/bwrap-userns-restrict ]; then
+            sudo apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict
+          fi
+          # The same nested user namespace apply-seccomp creates; fails fast with a readable error.
+          bwrap --ro-bind / / --dev /dev --proc /proc --unshare-user --unshare-pid --cap-drop ALL -- unshare --user --map-root-user true
       - name: Integration test
         run: cd pi/extensions/sandbox && npm ci && npm run test:int
