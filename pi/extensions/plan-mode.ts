@@ -34,8 +34,19 @@ import {
   PLAN_MODE_ENTRY_TYPE,
   readPersistedDecisions,
   writePersistedDecisions,
+  type PlanModeEntry,
 } from "./lib/plan-decisions.ts";
 import { newPlanPath, plansDirectory } from "./lib/plan-file.ts";
+import {
+  activateMissingPlanTools,
+  PLAN_PATH,
+  PLAN_TOOLS,
+  PlanModeState,
+  registerPlanModeMessages,
+  SandboxStatus,
+  SUBMIT_PLAN,
+  type PlanModeSnapshot,
+} from "./lib/plan-mode-messages.ts";
 import { commitPlanFileForUser } from "./lib/plan-commit.ts";
 import { registerPlanSubmission, type PlanSubmissionParams, type PlanSubmissionResult } from "./lib/plan-submission.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
@@ -43,12 +54,8 @@ import { isSandboxActive } from "./lib/sandbox-state.ts";
 import { selectWithDefault } from "./lib/select-with-default.ts";
 import { latestCustomData } from "./lib/session-entries.ts";
 import { serialize } from "./lib/ui-queue.ts";
-import { deniedToolDeclarations } from "./lib/plan-loadout.ts";
 import { planToolPermission, trustedReadOnlyToolNames } from "./lib/tool-permission-policy.ts";
 
-const PLAN_PATH = "plan_path";
-const SUBMIT_PLAN = "submit_plan";
-const PLAN_TOOLS = [PLAN_PATH, SUBMIT_PLAN];
 const UNGATED_TOOLS = new Set([
   // File tools are gated per path by lib/path-permissions.ts rather than per call.
   ...FILE_TOOLS,
@@ -85,6 +92,22 @@ export default function (pi: ExtensionAPI) {
   // instead of only saying no.
   const sessionDenials = new Map<string, string | undefined>();
   const alwaysDenials = new Map<string, string | undefined>();
+  const messages = registerPlanModeMessages(pi, {
+    snapshot: currentSnapshot,
+    projection: (context) => context.sessionManager.buildSessionProjection().messages,
+    prepare: flushPendingToggle,
+  });
+
+  function currentSnapshot(): PlanModeSnapshot {
+    // Always denials win over session denials, matching blockedReason.
+    const denials = new Map([...sessionDenials, ...alwaysDenials]);
+    return {
+      mode: planMode ? PlanModeState.Planning : PlanModeState.Execution,
+      plansDirectory: plansDirectory(),
+      sandbox: isSandboxActive() ? SandboxStatus.Active : SandboxStatus.Inactive,
+      denials: [...denials].map(([name, note]) => (note ? { name, note } : { name })),
+    };
+  }
 
   function isAllowed(toolName: string): boolean {
     // The sandbox makes bash read-only in plan mode at the OS level; without it bash stays gated per call.
@@ -115,6 +138,7 @@ export default function (pi: ExtensionAPI) {
   async function record(
     toolName: string,
     decision: Decision,
+    ctx: ExtensionContext,
     note?: string,
   ): Promise<void> {
     for (const store of [
@@ -139,13 +163,13 @@ export default function (pi: ExtensionAPI) {
         alwaysDenials.set(toolName, note);
         break;
     }
-    await save();
+    await save(ctx);
   }
 
-  async function save(): Promise<void> {
+  async function save(ctx: ExtensionContext): Promise<void> {
     persist();
     await writePersistedDecisions(alwaysGrants, alwaysDenials);
-    syncPlanTools();
+    messages.announce(ctx);
   }
 
   function persist(): void {
@@ -173,22 +197,12 @@ export default function (pi: ExtensionAPI) {
     );
   }
 
-  // The plan tools are added and removed as a delta against the live tool list rather than
-  // restored from a snapshot, so a changed extension set can never resurrect stale tools.
-  function syncPlanTools(): void {
-    const active = pi.getActiveTools();
-    const next = planMode
-      ? [...new Set([...active, ...PLAN_TOOLS])]
-      : active.filter((name) => !PLAN_TOOLS.includes(name));
-    pi.setActiveTools(next);
-  }
-
   function setPlanMode(enabled: boolean, ctx: ExtensionContext): void {
     planMode = enabled;
     setPlanModeEnabled(enabled);
-    syncPlanTools();
     refreshIndicators(ctx);
     persist();
+    messages.announce(ctx);
   }
 
   function toggle(ctx: ExtensionContext): void {
@@ -241,13 +255,13 @@ export default function (pi: ExtensionAPI) {
     if (choice === ALLOW_ONCE) return undefined;
     const decision = choice === undefined ? undefined : CHOICE_DECISIONS[choice];
     if (decision === "allow-session" || decision === "allow-always") {
-      await record(event.toolName, decision);
+      await record(event.toolName, decision, ctx);
       return undefined;
     }
 
     // Dismissing the prompt denies the call without stopping to ask for a note.
     const note = choice === undefined ? undefined : await askDenyNote(ctx);
-    if (decision) await record(event.toolName, decision, note);
+    if (decision) await record(event.toolName, decision, ctx, note);
     const cause = decision ? DENIAL_CAUSES[decision] : "the user denied this call";
     return { block: true, reason: deniedReason(event.toolName, cause, note) };
   }
@@ -299,7 +313,7 @@ export default function (pi: ExtensionAPI) {
         ]) {
           store.clear();
         }
-        await save();
+        await save(ctx);
         await clearPathRules();
         ctx.ui.notify("Cleared all plan mode grants, denials and path rules.");
         return;
@@ -309,7 +323,7 @@ export default function (pi: ExtensionAPI) {
       if (!entry) return;
 
       await entry.remove();
-      await save();
+      await save(ctx);
     }
   }
 
@@ -322,19 +336,10 @@ export default function (pi: ExtensionAPI) {
   registerToolWithGuidelines(pi, {
     name: PLAN_PATH,
     namespace: PLANNING_NAMESPACE,
-    prepareLoadout(loadout) {
-      if (!planMode) return undefined;
-      return {
-        hiddenDeclarations: deniedToolDeclarations(
-          loadout.declared,
-          new Set([...sessionDenials.keys(), ...alwaysDenials.keys()]),
-        ),
-      };
-    },
     label: "Plan path",
     description:
       "Return the absolute path a new plan file should be written to, inside the plans directory for this working directory. " +
-      "Only available in plan mode. It creates nothing: write the plan to the returned path with the write tool, revise it with edit, " +
+      "Runs only while plan mode is active; otherwise the call is rejected. It creates nothing: write the plan to the returned path with the write tool, revise it with edit, " +
       "and pass the same path to submit_plan and crit_review.",
     promptSnippet: "Get the path for a new plan file",
     promptGuidelines: [
@@ -346,10 +351,11 @@ export default function (pi: ExtensionAPI) {
       }),
     }),
 
-    async execute(_toolCallId, params): Promise<AgentToolResult<{ path: string | null }>> {
+    async execute(_toolCallId, params, _signal, _onUpdate, context): Promise<AgentToolResult<{ path: string | null }>> {
+      flushPendingToggle(context);
       if (!planMode) {
         return {
-          content: [{ type: "text", text: "plan_path is only available in plan mode." }],
+          content: [{ type: "text", text: "plan_path is only available in plan mode, which is off. Only the user can enable it." }],
           details: { path: null },
         };
       }
@@ -388,12 +394,12 @@ export default function (pi: ExtensionAPI) {
     namespace: PLANNING_NAMESPACE,
     label: "Submit plan",
     description:
-      "Submit the plan file at path for the user to approve. Only available in plan mode. " +
+      "Submit the plan file at path for the user to approve. Runs only while plan mode is active; otherwise the call is rejected. " +
       "Optionally suggest a different model to implement the plan; the user decides whether to use it. " +
-      "Asks the user whether to approve it, request changes, or stay in plan mode. Approval is the only way out of plan mode. " +
+      "Asks the user whether to approve it, request changes, or stay in plan mode. Approval ends plan mode. " +
       "The submitted file is committed into the plans directory's repository (jj, or git as fallback).",
     promptSnippet:
-      "Submit the written plan for the user to approve, ending plan mode",
+      "Submit the written plan for the user to approve; approval ends plan mode",
     promptGuidelines: [
       "Call submit_plan with the finished plan file path unless crit_review already submitted it automatically after explicit approval. Do not submit the same approved review a second time.",
       "Only the user can leave plan mode. Rely on the implementation decision returned by submit_plan or by automatic submission inside crit_review, not on Crit approval alone.",
@@ -486,7 +492,7 @@ export default function (pi: ExtensionAPI) {
     signal?.throwIfAborted();
     flushPendingToggle(context);
     if (!planMode) {
-      const error = "submit_plan is only available in plan mode.";
+      const error = "submit_plan is only available in plan mode, which is off. Only the user can enable it.";
       return {
         content: [{ type: "text", text: error }],
         details: { path: null, outcome: "unavailable" },
@@ -573,7 +579,7 @@ export default function (pi: ExtensionAPI) {
         content: [
           {
             type: "text",
-            text: `Plan at ${path} approved. Plan mode is off and full tool access is restored.`,
+            text: `Plan at ${path} approved. Plan mode is off; ordinary tool permissions still apply.`,
           },
         ],
         details: { path, outcome: "approved" },
@@ -733,7 +739,7 @@ export default function (pi: ExtensionAPI) {
         {
           type: "text",
           text:
-            `Plan at ${planPath} approved. Plan mode is off and full tool access is restored. ` +
+            `Plan at ${planPath} approved. Plan mode is off; ordinary tool permissions still apply. ` +
             `The user picked ${modelName} (thinking level ${pi.getThinkingLevel()}) to implement the plan. Implement it now.`,
         },
       ],
@@ -822,13 +828,6 @@ export default function (pi: ExtensionAPI) {
     return await serialize(() => requestPermission(event, ctx));
   });
 
-  pi.on("before_agent_start", async (event) => {
-    if (!planMode) return;
-    return {
-      systemPrompt: `${event.systemPrompt}\n\n${planModeInstructions()}`,
-    };
-  });
-
   pi.on("agent_start", async () => {
     agentRunning = true;
   });
@@ -839,36 +838,20 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_start", async (event, ctx) => {
-    const { alwaysAllowed, alwaysDenied } = await readPersistedDecisions();
-    for (const toolName of alwaysAllowed) {
-      alwaysGrants.add(toolName);
-    }
-    for (const { name, note } of alwaysDenied) {
-      alwaysDenials.set(name, note);
-    }
-
-    const restored = latestPlanModeEntry(ctx.sessionManager);
-    if (restored) {
-      planMode = restored.enabled;
-      for (const toolName of restored.sessionGrants) {
-        sessionGrants.add(toolName);
-      }
-      for (const { name, note } of restored.sessionDenials) {
-        sessionDenials.set(name, note);
-      }
-    }
+    const restored = await restoreBranchState(ctx);
     const handoff =
       event.reason === "new"
         ? latestPlanHandoff(ctx.sessionManager)
         : undefined;
-    if (pi.getFlag("plan") === true && !handoff) {
+    const flagged = pi.getFlag("plan") === true && !handoff;
+    if (flagged) {
       planMode = true;
     }
-    setPlanModeEnabled(planMode);
-    restoreSessionPathRules(ctx.sessionManager);
-
-    syncPlanTools();
-    refreshIndicators(ctx);
+    // Subagents read the recorded state, so the effective mode has to be on the branch.
+    if (!restored || (flagged && !restored.enabled)) {
+      persist();
+    }
+    applyRestoredState(ctx);
 
     if (!handoff) return;
     // The new runtime's availability snapshot is still being computed while
@@ -897,6 +880,50 @@ export default function (pi: ExtensionAPI) {
       0,
     );
   });
+
+  // The selected branch's recorded mode wins over the startup flag here: navigating is not a restart.
+  pi.on("session_tree", async (_event, ctx) => {
+    await restoreBranchState(ctx);
+    applyRestoredState(ctx);
+  });
+
+  async function restoreBranchState(ctx: ExtensionContext): Promise<PlanModeEntry | undefined> {
+    messages.reset();
+    for (const store of [
+      sessionGrants,
+      alwaysGrants,
+      sessionDenials,
+      alwaysDenials,
+    ]) {
+      store.clear();
+    }
+
+    const { alwaysAllowed, alwaysDenied } = await readPersistedDecisions();
+    for (const toolName of alwaysAllowed) {
+      alwaysGrants.add(toolName);
+    }
+    for (const { name, note } of alwaysDenied) {
+      alwaysDenials.set(name, note);
+    }
+
+    const restored = latestPlanModeEntry(ctx.sessionManager);
+    planMode = restored?.enabled ?? false;
+    for (const toolName of restored?.sessionGrants ?? []) {
+      sessionGrants.add(toolName);
+    }
+    for (const { name, note } of restored?.sessionDenials ?? []) {
+      sessionDenials.set(name, note);
+    }
+    restoreSessionPathRules({ getEntries: () => ctx.sessionManager.getBranch() });
+    return restored;
+  }
+
+  function applyRestoredState(ctx: ExtensionContext): void {
+    setPlanModeEnabled(planMode);
+    // A compatibility migration for loadouts saved without the planning tools, not a mode change.
+    activateMissingPlanTools(pi);
+    refreshIndicators(ctx);
+  }
 }
 
 const PLANNING_NAMESPACE = { name: "planning", description: "Create plan paths and submit plans for human approval." };
@@ -1056,18 +1083,6 @@ function deniedReason(toolName: string, cause: string, note?: string): string {
   return note
     ? `${reason} Do this instead: ${note}`
     : `${reason} State what you need it for so the user can grant access, or call submit_plan if the plan is ready.`;
-}
-
-function planModeInstructions(): string {
-  return [
-    "Plan mode is active.",
-    "",
-    `- The file tools (${FILE_TOOLS.join(", ")}) check every path against the read/write path rules. Reading anywhere in the repository and in the memory, skill, plan and crit directories and the session's temp_dir works without asking.`,
-    `- Plan mode is read-only by default: writing inside the repository prompts the user for each path. The memory directory, the plans directory (${plansDirectory()}) and the session's temp_dir stay writable.`,
-    "- bash and every other tool that changes things need the user's approval for each call.",
-    "- If a call or a path is denied, do not retry it and do not route around it.",
-    `- To write a plan, call ${PLAN_PATH} once to get a file path, create the file there with write, and revise it with edit. An approved crit_review plan automatically opens the submission dialog; do not submit it again. Otherwise call ${SUBMIT_PLAN} with that path when it is ready. Only the user can leave plan mode.`,
-  ].join("\n");
 }
 
 // getAvailable() is a snapshot that an in-flight availability pass has not

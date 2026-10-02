@@ -2,39 +2,11 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { readJsonObject } from "./json.ts";
-import { latestCustomData } from "./session-entries.ts";
+import { denialList, stringList, type Denial } from "./plan-mode-entry.ts";
 
-export const PLAN_MODE_ENTRY_TYPE = "plan-mode";
+export { latestPlanModeEntry, PLAN_MODE_ENTRY_TYPE, type Denial, type PlanModeEntry } from "./plan-mode-entry.ts";
 
 const DECISIONS_FILE = join(getAgentDir(), "plan-mode.json");
-
-export interface Denial {
-  name: string;
-  note?: string;
-}
-
-export interface PlanModeEntry {
-  enabled: boolean;
-  sessionGrants: string[];
-  sessionDenials: Denial[];
-}
-
-// The newest "plan-mode" session entry holds the live plan-mode state. plan-mode.ts reads
-// it to restore session state, and the subagent extension reads it to cap child tools
-// without importing plan-mode.ts.
-export function latestPlanModeEntry(
-  sessionManager: { getEntries(): readonly unknown[] },
-): PlanModeEntry | undefined {
-  const data = latestCustomData(sessionManager, PLAN_MODE_ENTRY_TYPE);
-  if (!data) return undefined;
-
-  const { enabled, sessionGrants, sessionDenials } = data;
-  return {
-    enabled: enabled === true,
-    sessionGrants: stringList(sessionGrants),
-    sessionDenials: denialList(sessionDenials),
-  };
-}
 
 export async function readPersistedDecisions(): Promise<{
   alwaysAllowed: string[];
@@ -58,23 +30,4 @@ export async function writePersistedDecisions(
   });
   const content = { alwaysAllowed: [...allowed].sort(), alwaysDenied };
   await writeFile(DECISIONS_FILE, `${JSON.stringify(content, null, 2)}\n`);
-}
-
-function stringList(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
-    : [];
-}
-
-// Denials used to be bare tool names, and sessions recorded before the note existed still are.
-function denialList(value: unknown): Denial[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item) => {
-    if (typeof item === "string") return [{ name: item }];
-    if (!item || typeof item !== "object") return [];
-
-    const { name, note } = item as { name?: unknown; note?: unknown };
-    if (typeof name !== "string") return [];
-    return [typeof note === "string" ? { name, note } : { name }];
-  });
 }
