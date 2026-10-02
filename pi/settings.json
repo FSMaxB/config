@@ -1,11 +1,16 @@
 {
-  "lastChangelogVersion": "0.99.2",
+  "lastChangelogVersion": "1.0.0",
   "theme": "gruvbox-dark",
   "defaultProvider": "pi-claude",
   "defaultModel": "claude-fable-5-1",
   "defaultThinkingLevel": "high",
-  "defaultTools": ["+codemode"],
-  "packages": ["npm:pi-web-access", "npm:@firstpick/pi-themes-bundle"],
+  "defaultTools": [
+    "+codemode"
+  ],
+  "packages": [
+    "npm:pi-web-access",
+    "npm:@firstpick/pi-themes-bundle"
+  ],
   "compaction": {
     "enabled": false
   },
