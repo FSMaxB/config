@@ -16,6 +16,7 @@ Differences from upstream:
 - The global AGENTS context file from the Pi agent directory is forwarded on every query, ahead of the nearest working-directory file. Upstream forwards only the nearest file and uses the global one as a fallback, so standing instructions vanish inside any repository that has its own `AGENTS.md`.
 - A request that offers no tools gets its own system prompt verbatim instead of the Claude Code preset, with no AGENTS, skills or `APPEND_SYSTEM.md` forwarding. Pi's agent loop always offers tools, so such a request is a one-shot from another extension (memory extraction, compaction summaries) whose prompt is the whole instruction. Upstream sends the preset unconditionally, so a caller's instructions never reach the model.
 - The provider is re-registered on `session_start` only when the Claude credential probe's answer changed since the last registration. Upstream re-registers unconditionally, which restarts Pi's availability refresh and can leave the bridge models missing from the model list for a moment after a new session starts.
+- A Pi warning is shown whenever an existing Claude session is rewritten or replaced (provider switch, compaction, tree navigation, an aborted tool call, ...), naming the reason, because every such rebuild discards the conversation's prompt cache.
 
 ## Install
 

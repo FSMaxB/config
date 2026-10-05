@@ -507,7 +507,7 @@ export function onPiHistoryReplaced(event: string): void {
 		// in place would race that writer, so the replacement takes a new session
 		// id and leaves the old transcript alone. A compaction that kills nothing
 		// has no writer to race and rebuilds in place.
-		markSessionForRebuild({ forceRotate: restarts });
+		markSessionForRebuild(`pi replaced the history (${event})`, { forceRotate: restarts });
 	}
 }
 
@@ -921,13 +921,13 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 		// restart: both mean pi replaced the history after this query started.
 		const restartPending = abortCtx.restartRequest !== null;
 		const replaced = next && (abortCtx.piHistoryReplaced || restartPending)
-			? { ...next, needsRebuild: true, ...(restartPending ? { forceRotate: true } : {}) }
+			? { ...next, needsRebuild: true, rebuildReason: "pi replaced the history while the query ran", ...(restartPending ? { forceRotate: true } : {}) }
 			: next;
 		setSharedSession(replaced && conversationFp ? { conversationFingerprint: conversationFp, ...replaced } : replaced);
 	};
-	const markRebuildForThisQuery = (opts: { forceRotate?: boolean } = {}): void => {
+	const markRebuildForThisQuery = (reason: string, opts: { forceRotate?: boolean } = {}): void => {
 		if (isReentrant || foreignContext) return;
-		markSessionForRebuild(opts);
+		markSessionForRebuild(reason, opts);
 	};
 	//  invariant: a deferred (mid-query) user message may be dropped only
 	// LOUDLY — the cursor already advanced over it on the promise of replay.
@@ -955,7 +955,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 				if (streamIdleTimedOut || wasAborted || options?.signal?.aborted || abortCtx.activeQuery !== sdkQuery) return;
 				streamIdleTimedOut = true;
 				dropDeferredUserMessages("stream-idle-timeout");
-				markRebuildForThisQuery({ forceRotate: true });
+				markRebuildForThisQuery("stream idle timeout", { forceRotate: true });
 				const errorMessage = buildStreamIdleTimeoutErrorMessage(timeoutMs);
 				debug("provider: stream idle timeout", `model=${model.id}`, `timeout=${timeoutMs}`, `idle=${idleMs}`);
 				abortCtx.handledTerminalError = true;
@@ -1047,7 +1047,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 
 			// --- Abort detection in normal completion path ---
 			if (wasAborted || options?.signal?.aborted) {
-				markRebuildForThisQuery({ forceRotate: true });
+				markRebuildForThisQuery("abort", { forceRotate: true });
 				dropDeferredUserMessages("abort-completion");
 				debug(`provider: abort detected, marked sharedSession needsRebuild + forceRotate`);
 				surfaceFailure({ message: "Operation aborted" }, true);
@@ -1073,7 +1073,12 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 				if (failedSessionId) {
 					const cursor = Math.max(conversation.length, abortCtx.latestCursor, activeSession?.cursor ?? 0);
 					debug(`provider: terminal failure, persisting session=${failedSessionId.slice(0, 8)}, cursor=${cursor}, droppedSteers=${droppedSteers.length}`);
-					persistSession({ sessionId: failedSessionId, cursor, cwd, ...(droppedSteers.length > 0 ? { needsRebuild: true } : {}) });
+					persistSession({
+						sessionId: failedSessionId,
+						cursor,
+						cwd,
+						...(droppedSteers.length > 0 ? { needsRebuild: true, rebuildReason: `${droppedSteers.length} queued user message(s) dropped at a terminal failure` } : {}),
+					});
 				}
 				return;
 			}
@@ -1132,7 +1137,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 							// remaining ones certainly did not — the record must rebuild so
 							// they re-import from Pi history.
 							if (dropDeferredUserMessages("continuation-failure", steer).length > 0) {
-								markRebuildForThisQuery();
+								markRebuildForThisQuery("queued user messages dropped after a continuation failure");
 							}
 							break;
 						}
@@ -1153,7 +1158,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 						if (!abortCtx.handledTerminalError) surfaceFailure(continuationFailure);
 						// Apply the same rebuild rule as the failure branch above.
 						if (dropDeferredUserMessages("continuation-error", steer).length > 0) {
-							markRebuildForThisQuery();
+							markRebuildForThisQuery("queued user messages dropped after a continuation error");
 						}
 						break;
 					} finally {
@@ -1176,13 +1181,13 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 			}
 			const suppressDuplicateError = abortCtx.handledTerminalError || streamIdleTimedOut;
 			if (wasAborted || options?.signal?.aborted) {
-				markRebuildForThisQuery({ forceRotate: true });
+				markRebuildForThisQuery("abort", { forceRotate: true });
 			}
 			// a record kept past this error with steers behind its cursor
 			// must rebuild so they re-import from Pi history. (The non-abort
 			// surface path below replaces the record with null, which rebuilds too.)
 			if (dropDeferredUserMessages("query-error").length > 0) {
-				markRebuildForThisQuery();
+				markRebuildForThisQuery("queued user messages dropped after a query error");
 			}
 			if (suppressDuplicateError) {
 				debug("provider: suppressing duplicate query error after terminal handling");
