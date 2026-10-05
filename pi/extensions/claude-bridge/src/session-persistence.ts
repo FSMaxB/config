@@ -619,6 +619,20 @@ export function syncSharedSession(
 		// record's identity — including after a compact/tree-nav that moved it.
 		...(incomingFingerprint ? { conversationFingerprint: incomingFingerprint } : {}),
 	});
+	// Every rebuild of an existing session costs the conversation's prompt cache,
+	// rotated or not, so the user sees why it happened.
+	if (replacedSessionId !== undefined) {
+		const reason = sharedSession?.rebuildReason
+			?? `${priorMessages.length - previousCursor} message(s) Claude Code has not seen`;
+		const replacement = preserveId
+			? "rewritten from Pi history"
+			: `replaced by ${session.sessionId.slice(0, 8)}; the killed Claude Code process may still be writing the old transcript`;
+		safeNotify(
+			`Claude bridge: Claude session ${replacedSessionId.slice(0, 8)} ${replacement} (${reason}). ` +
+			"The prompt cache for this conversation is cold for the next request.",
+			"warning",
+		);
+	}
 	if (replacedSessionId === undefined) {
 		debug(`Case 2: first turn with ${priorMessages.length} prior messages → session ${session.sessionId.slice(0, 8)}, ${session.messages.length} records`);
 	} else if (preserveId) {

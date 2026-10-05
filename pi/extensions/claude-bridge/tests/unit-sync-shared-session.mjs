@@ -9,13 +9,13 @@
  * The foreign-conversation guard tests that exercise REBUILD keep
  * its writes inside a throwaway CLAUDE_CONFIG_DIR (withTempClaudeDir).
  */
-import { afterEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { conversationFingerprint, syncSharedSession } from "../src/session-persistence.js";
-import { __testGetBridgeIntegrityState, setSharedSession } from "../src/bridge-state.js";
+import { __testGetBridgeIntegrityState, __testSetBridgeIntegrityState, setSharedSession } from "../src/bridge-state.js";
 
 const user = (text) => ({ role: "user", content: text });
 const assistant = () => ({ role: "assistant", content: [] });
@@ -40,7 +40,17 @@ const withTempClaudeDir = (fn) => {
 const promptContents = (messages, promptStart) =>
 	messages.slice(promptStart).map((message) => message.content);
 
-afterEach(() => setSharedSession(null));
+let notifications = [];
+
+beforeEach(() => {
+	notifications = [];
+	__testSetBridgeIntegrityState({ ui: { notify: (message, level) => notifications.push({ message, level }) } });
+});
+
+afterEach(() => {
+	setSharedSession(null);
+	__testSetBridgeIntegrityState({ ui: null });
+});
 
 describe("syncSharedSession REUSE path", () => {
 	it("preserves the session and includes every queued follow-up", () => {
@@ -64,6 +74,7 @@ describe("syncSharedSession REUSE path", () => {
 				prompt: followups,
 				record: { sessionId, cursor: 2, cwd: CWD, conversationFingerprint: conversationFingerprint(messages) },
 			}, sessionId);
+			assert.equal(notifications.length, 0, "REUSE never warns");
 		}
 	});
 });
@@ -152,7 +163,7 @@ describe("syncSharedSession foreign-conversation guard (#1001)", () => {
 			try {
 				const fp = conversationFingerprint([user("u1")]);
 				const sessionId = "11111111-1111-4111-8111-111111111111";
-				setSharedSession({ sessionId, cursor: 1, cwd, needsRebuild: true, conversationFingerprint: fp });
+				setSharedSession({ sessionId, cursor: 1, cwd, needsRebuild: true, rebuildReason: "abort with a tool call in flight", conversationFingerprint: fp });
 				const messages = [user("u1"), assistant(), user("u2")];
 
 				const result = syncSharedSession(messages, cwd);
@@ -166,6 +177,69 @@ describe("syncSharedSession foreign-conversation guard (#1001)", () => {
 				assert.equal(record.conversationFingerprint, fp);
 				assert.equal(record.needsRebuild, undefined, "a completed rebuild clears the flag");
 				assert.ok(readdirSync(claudeDir).length > 0, "rebuild writes the session file");
+				assert.equal(notifications.length, 1);
+				assert.equal(notifications[0].level, "warning");
+				assert.match(notifications[0].message, /Claude session 11111111 rewritten from Pi history \(abort with a tool call in flight\)/);
+				assert.equal(record.rebuildReason, undefined, "a completed rebuild clears the reason");
+			} finally {
+				rmSync(cwd, { recursive: true, force: true });
+			}
+		});
+	});
+
+	it("rotates the session id and warns when forceRotate is set", () => {
+		withTempClaudeDir(() => {
+			const cwd = mkdtempSync(join(tmpdir(), "bridge-sync-cwd-"));
+			try {
+				// arrange
+				const fp = conversationFingerprint([user("u1")]);
+				const sessionId = "11111111-1111-4111-8111-111111111111";
+				setSharedSession({
+					sessionId,
+					cursor: 1,
+					cwd,
+					needsRebuild: true,
+					forceRotate: true,
+					rebuildReason: "abort while the Claude Code process was still running",
+					conversationFingerprint: fp,
+				});
+				const messages = [user("u1"), assistant(), user("u2")];
+
+				// act
+				const result = syncSharedSession(messages, cwd);
+
+				// assert
+				assert.notEqual(result.sessionId, sessionId);
+				const record = __testGetBridgeIntegrityState().sharedSession;
+				assert.equal(record.forceRotate, undefined);
+				assert.equal(record.rebuildReason, undefined);
+				assert.equal(notifications.length, 1);
+				assert.match(
+					notifications[0].message,
+					/Claude session 11111111 replaced by [0-9a-f]{8}; the killed Claude Code process may still be writing the old transcript \(abort while the Claude Code process was still running\)/,
+				);
+			} finally {
+				rmSync(cwd, { recursive: true, force: true });
+			}
+		});
+	});
+
+	it("warns with the missed-message count when no reason was recorded", () => {
+		withTempClaudeDir(() => {
+			const cwd = mkdtempSync(join(tmpdir(), "bridge-sync-cwd-"));
+			try {
+				// arrange
+				const fp = conversationFingerprint([user("u1")]);
+				const sessionId = "11111111-1111-4111-8111-111111111111";
+				setSharedSession({ sessionId, cursor: 1, cwd, conversationFingerprint: fp });
+				const messages = [user("u1"), assistant(), user("u2"), assistant(), user("u3")];
+
+				// act
+				syncSharedSession(messages, cwd);
+
+				// assert
+				assert.equal(notifications.length, 1);
+				assert.match(notifications[0].message, /rewritten from Pi history \(3 message\(s\) Claude Code has not seen\)/);
 			} finally {
 				rmSync(cwd, { recursive: true, force: true });
 			}

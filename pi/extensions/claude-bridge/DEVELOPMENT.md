@@ -33,7 +33,7 @@ Pi advertises tools from the current transcript manifest through `src/index.ts::
 
 ## Session persistence
 
-Ordinary queries use the process's Claude credentials and `CLAUDE_CONFIG_DIR` for both child environment and `cc-session-io` session files. A persisted marker with the old `accountProfileId` field is rejected at restore, even if its UUID exists in the ambient account directory; Pi history is imported into a fresh session instead. Ordinary markers still use their Pi session id, cwd and fingerprint guards. A killed child cannot race its orphaned JSONL writer into a replacement because `forceRotate` creates a new session id. `tests/unit-session-marker.mjs`, `tests/unit-transcript-persistence.mjs`, `tests/unit-compact-restart.mjs`.
+Ordinary queries use the process's Claude credentials and `CLAUDE_CONFIG_DIR` for both child environment and `cc-session-io` session files. A persisted marker with the old `accountProfileId` field is rejected at restore, even if its UUID exists in the ambient account directory; Pi history is imported into a fresh session instead. Ordinary markers still use their Pi session id, cwd and fingerprint guards. A killed child cannot race its orphaned JSONL writer into a replacement because `forceRotate` creates a new session id. A rebuild of an existing session notifies the user with the recorded `rebuildReason` (or the missed-message count when nothing was recorded). `tests/unit-session-marker.mjs`, `tests/unit-transcript-persistence.mjs`, `tests/unit-compact-restart.mjs`.
 
 ## Rate limits
 

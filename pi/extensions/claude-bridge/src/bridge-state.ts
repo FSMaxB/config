@@ -39,6 +39,11 @@ export interface SessionState {
 	// no active query kills nothing, so it leaves this unset and rebuilds in
 	// place (preserve UUID, deleteSession + createSession).
 	forceRotate?: boolean;
+	// Why needsRebuild was set, in words the "session replaced" notification can
+	// show when the rebuild happens ("abort with a tool call in flight", "pi
+	// replaced the history (session_compact)", ...). Lives and dies with
+	// needsRebuild: a REBUILD and a completed query both write a fresh record.
+	rebuildReason?: string;
 }
 
 // Claude session state is scoped to Pi's provider `sessionId`. Parent and child
@@ -129,13 +134,14 @@ export function takeStartedLane(sessionManager: object): string | undefined {
 }
 
 /** Force the next syncSharedSession down the REBUILD path (no-op without a
- *  session). `forceRotate` additionally rotates the session UUID — set it when
- *  a concurrent CC writer may still be flushing (abort, idle kill); see the
- *  field docs on SessionState. */
-export function markSessionForRebuild(opts: { forceRotate?: boolean } = {}): void {
+ *  session). `reason` is shown to the user when the rebuild happens.
+ *  `forceRotate` additionally rotates the session UUID; set it only when a
+ *  killed CC child may still be writing its JSONL (see the field docs on
+ *  SessionState). */
+export function markSessionForRebuild(reason: string, opts: { forceRotate?: boolean } = {}): void {
 	const sharedSession = getSharedSession();
 	if (!sharedSession) return;
-	setSharedSession({ ...sharedSession, needsRebuild: true, ...(opts.forceRotate ? { forceRotate: true } : {}) });
+	setSharedSession({ ...sharedSession, needsRebuild: true, rebuildReason: reason, ...(opts.forceRotate ? { forceRotate: true } : {}) });
 }
 
 export function setExtensionApi(next: ExtensionAPI | undefined): void {
@@ -240,7 +246,7 @@ export function reportToolResultMismatch(
 		// its own — marking the PARENT's record needsRebuild/forceRotate here
 		// would flush the parent's prompt cache for a query that never touched
 		// its session.
-		if (!queryCtx.detachedFromSharedSession) markSessionForRebuild(opts);
+		if (!queryCtx.detachedFromSharedSession) markSessionForRebuild(`tool result delivery interrupted during ${reason}`, opts);
 		// A user abort interrupting in-flight tool calls is expected teardown, not
 		// an integrity fault: mark the rebuild but skip the diag dump and toast.
 		if (opts.expectedInterruption) {
