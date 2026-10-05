@@ -7,8 +7,8 @@ import { createBashToolDefinition, createLocalBashOperations, getAgentDir } from
 import type { BashOperations, BashToolDetails, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { planModeNotice } from "../../lib/path-permission-rules.ts";
-import { ALLOW_ALWAYS, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWAYS, DENY_ONCE, DENY_SESSION, currentPolicy, grantPathAccess, isPlanModeEnabled } from "../../lib/path-permissions.ts";
+import { readOnlyRepositoryNotice } from "../../lib/path-permission-rules.ts";
+import { ALLOW_ALWAYS, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWAYS, DENY_ONCE, DENY_SESSION, currentAgentMode, currentPolicy, grantPathAccess } from "../../lib/path-permissions.ts";
 import { registerToolWithGuidelines } from "../../lib/register-tool.ts";
 import { markSandboxActive } from "../../lib/sandbox-state.ts";
 import { selectWithDefault } from "../../lib/select-with-default.ts";
@@ -187,7 +187,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   }
 
   async function authorizeBypass(command: string, context: ExtensionContext): Promise<BypassAuthorization> {
-    const outcome = bypassOutcome({ planMode: isPlanModeEnabled(), subagent: Boolean(process.env.PI_SUBAGENT_CHILD), hasUI: context.hasUI, sessionDecision: bypassDecision });
+    const outcome = bypassOutcome({ agentMode: currentAgentMode(), subagent: Boolean(process.env.PI_SUBAGENT_CHILD), hasUI: context.hasUI, sessionDecision: bypassDecision });
     if (outcome.kind !== "ask") return outcome;
     const choice = await serialize(() => selectWithDefault(context.ui, bypassPrompt(command), outcome.choices, outcome.defaultChoice));
     const { authorization, remember } = resolveChoice(choice);
@@ -235,7 +235,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
 
   async function resolveViolation({ mode, path }: PathViolation, secrets: string[], mayPrompt: boolean): Promise<string> {
     if (isSecretPath(path, secrets)) return `${path} is on the sandbox secret list and cannot be granted.`;
-    const notice = planModeNotice(mode, isPlanModeEnabled());
+    const notice = readOnlyRepositoryNotice(mode, currentAgentMode());
     if (!activeContext?.hasUI) return `${path} is not covered by the ${mode} path rules and there is no interactive UI to ask.${notice}`;
     if (!mayPrompt) return `${path} is not covered by the ${mode} path rules; too many paths were denied to ask about each one.${notice}`;
     const outcome = await grantPathAccess(path, mode, activeContext);

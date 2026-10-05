@@ -11,6 +11,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { AgentMode } from "./lib/agent-mode.ts";
 import { FILE_TOOLS } from "./lib/file-tools.ts";
 import {
   addPathRule,
@@ -26,7 +27,7 @@ import {
   normalizePathSelector,
   removePathRule,
   restoreSessionPathRules,
-  setPlanModeEnabled,
+  setAgentMode,
 } from "./lib/path-permissions.ts";
 import { selectorLabel, type AccessMode, type PathRule, type RuleKind, type RuleTier } from "./lib/path-permission-rules.ts";
 import {
@@ -203,7 +204,7 @@ export default function (pi: ExtensionAPI) {
 
   function setPlanMode(enabled: boolean, ctx: ExtensionContext): void {
     planMode = enabled;
-    setPlanModeEnabled(enabled);
+    setAgentMode(enabled ? AgentMode.Planning : AgentMode.Execution);
     refreshIndicators(ctx);
     persist();
     messages.announce(ctx);
@@ -903,7 +904,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   function applyRestoredState(ctx: ExtensionContext): void {
-    setPlanModeEnabled(planMode);
+    setAgentMode(planMode ? AgentMode.Planning : AgentMode.Execution);
     // A compatibility migration for loadouts saved without the planning tools, not a mode change.
     activateMissingPlanTools(pi);
     refreshIndicators(ctx);

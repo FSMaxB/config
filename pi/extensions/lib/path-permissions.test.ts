@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { AgentMode } from "./agent-mode.ts";
+import { parseChildPathPolicy } from "./path-permission-snapshot.ts";
 import { resolveThroughSymlinks } from "./path-resolution.ts";
 import {
   covers,
@@ -13,7 +15,7 @@ import {
   glob,
   matchesRule,
   parseRules,
-  planModeNotice,
+  readOnlyRepositoryNotice,
   recordRule,
   selectorKey,
   selectorLabel,
@@ -175,7 +177,7 @@ test("evaluation allows every allow layer and prompts without a match", () => {
   assert.equal(unmatchedVerdict, "prompt");
 });
 
-test("default write access changes with plan mode", () => {
+test("default write access excludes the repository in restricted modes", () => {
   // arrange
   const options = {
     repoRoot: "/repo",
@@ -185,30 +187,34 @@ test("default write access changes with plan mode", () => {
   };
 
   // act
-  const planning = defaultAllowed("write", { ...options, planMode: true });
-  const normal = defaultAllowed("write", { ...options, planMode: false });
+  const planning = defaultAllowed("write", { ...options, agentMode: AgentMode.Planning });
+  const exploring = defaultAllowed("write", { ...options, agentMode: AgentMode.Exploring });
+  const normal = defaultAllowed("write", { ...options, agentMode: AgentMode.Execution });
 
   // assert
   assert.deepEqual(planning.map(selectorLabel), ["/memory/**", "/agent/plans/**"]);
+  assert.deepEqual(exploring.map(selectorLabel), ["/memory/**", "/agent/plans/**"]);
   assert.deepEqual(normal.map(selectorLabel), ["/repo/**", "/memory/**", "/agent/plans/**"]);
 });
 
-test("a failed write names plan mode only while it is on", () => {
+test("a failed write names the restricted mode only while it is on", () => {
   // act
-  const planningWrite = planModeNotice("write", true);
-  const planningRead = planModeNotice("read", true);
-  const normalWrite = planModeNotice("write", false);
+  const planningWrite = readOnlyRepositoryNotice("write", AgentMode.Planning);
+  const exploringWrite = readOnlyRepositoryNotice("write", AgentMode.Exploring);
+  const normalWrite = readOnlyRepositoryNotice("write", AgentMode.Execution);
+  const reads = [AgentMode.Planning, AgentMode.Exploring, AgentMode.Execution].map((mode) => readOnlyRepositoryNotice("read", mode));
 
   // assert
   assert.match(planningWrite, /Plan mode is on/);
-  assert.equal(planningRead, "");
+  assert.match(exploringWrite, /Explore mode is on/);
   assert.equal(normalWrite, "");
+  assert.deepEqual(reads, ["", "", ""]);
 });
 
 test("default read access includes every trusted root", () => {
   // arrange
   const options = {
-    planMode: true,
+    agentMode: AgentMode.Planning,
     repoRoot: "/repo",
     memoryDirectory: "/memory",
     skillRoots: ["/skills/one", "/skills/two"],
@@ -240,9 +246,9 @@ test("the session temporary directory is readable and writable in every mode", (
   };
 
   // act
-  const planningWrite = defaultAllowed("write", { ...options, planMode: true });
-  const normalWrite = defaultAllowed("write", { ...options, planMode: false });
-  const read = defaultAllowed("read", { ...options, planMode: true });
+  const planningWrite = defaultAllowed("write", { ...options, agentMode: AgentMode.Planning });
+  const normalWrite = defaultAllowed("write", { ...options, agentMode: AgentMode.Execution });
+  const read = defaultAllowed("read", { ...options, agentMode: AgentMode.Planning });
 
   // assert
   assert.ok(planningWrite.map(selectorLabel).includes("/scratch/**"));
@@ -385,4 +391,19 @@ test("an exact grant covers only the equal path and a glob grant covers nothing"
   assert.equal(equal, true);
   assert.equal(different, false);
   assert.equal(globbed, false);
+});
+
+test("a child path policy keeps the parent's rule store and tolerates parents that predate it", () => {
+  // arrange
+  const policy = { version: 1, session: serializeRules(emptyRules()), readDefaults: [], writeDefaults: [] };
+
+  // act
+  const legacy = parseChildPathPolicy(JSON.stringify(policy));
+  const exploring = parseChildPathPolicy(JSON.stringify({ ...policy, ruleStore: "explore" }));
+  const unknown = parseChildPathPolicy(JSON.stringify({ ...policy, ruleStore: "other" }));
+
+  // assert
+  assert.equal(legacy?.ruleStore, undefined);
+  assert.equal(exploring?.ruleStore, "explore");
+  assert.equal(unknown, null);
 });
