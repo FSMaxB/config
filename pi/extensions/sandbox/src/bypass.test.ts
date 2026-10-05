@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { AgentMode } from "../../lib/agent-mode.ts";
 import { ALLOW_ONCE, ALLOW_SESSION, DENY_ONCE, DENY_SESSION } from "../../lib/permission-choices.ts";
 import { bypassOutcome, bypassPrompt, resolveChoice, type BypassSituation } from "./bypass.ts";
 
-const interactive: BypassSituation = { planMode: false, subagent: false, hasUI: true, sessionDecision: undefined };
+const interactive: BypassSituation = { agentMode: AgentMode.Execution, subagent: false, hasUI: true, sessionDecision: undefined };
 
-test("outside plan mode the prompt preselects allow", () => {
+test("outside the restricted modes the prompt preselects allow", () => {
   // act
   const outcome = bypassOutcome(interactive);
 
@@ -13,13 +14,14 @@ test("outside plan mode the prompt preselects allow", () => {
   assert.deepEqual(outcome, { kind: "ask", choices: [ALLOW_ONCE, ALLOW_SESSION, DENY_ONCE, DENY_SESSION], defaultChoice: ALLOW_ONCE });
 });
 
-test("in plan mode the prompt preselects deny", () => {
+test("in plan and explore mode the prompt preselects deny", () => {
   // act
-  const outcome = bypassOutcome({ ...interactive, planMode: true });
+  const planning = bypassOutcome({ ...interactive, agentMode: AgentMode.Planning });
+  const exploring = bypassOutcome({ ...interactive, agentMode: AgentMode.Exploring });
 
   // assert
-  assert.equal(outcome.kind, "ask");
-  assert.equal(outcome.kind === "ask" && outcome.defaultChoice, DENY_ONCE);
+  assert.equal(planning.kind === "ask" && planning.defaultChoice, DENY_ONCE);
+  assert.equal(exploring.kind === "ask" && exploring.defaultChoice, DENY_ONCE);
 });
 
 test("subagents are refused even with a UI", () => {

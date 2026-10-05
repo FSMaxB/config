@@ -1,9 +1,10 @@
+import { AgentMode, isRestricted } from "../../lib/agent-mode.ts";
 import { ALLOW_ONCE, ALLOW_SESSION, DENY_ONCE, DENY_SESSION } from "../../lib/permission-choices.ts";
 
 export type SessionDecision = "allow" | "deny";
 
 export interface BypassSituation {
-  planMode: boolean;
+  agentMode: AgentMode;
   subagent: boolean;
   hasUI: boolean;
   sessionDecision: SessionDecision | undefined;
@@ -16,13 +17,13 @@ const RETRY_HINT = "Do not retry with unsandboxed; run the command inside the sa
 
 // Subagents run without a UI, and a child that could bypass the sandbox would undo the
 // restrictions its parent inherited, so they are refused before any prompt is attempted.
-export function bypassOutcome({ planMode, subagent, hasUI, sessionDecision }: BypassSituation): BypassOutcome {
+export function bypassOutcome({ agentMode, subagent, hasUI, sessionDecision }: BypassSituation): BypassOutcome {
   if (subagent) return { kind: "refuse", reason: `Subagents cannot run commands outside the sandbox. ${RETRY_HINT}` };
   if (sessionDecision === "allow") return { kind: "run" };
   if (sessionDecision === "deny") return { kind: "refuse", reason: `The user denied unsandboxed commands for this session. ${RETRY_HINT}` };
   if (!hasUI) return { kind: "refuse", reason: `Running outside the sandbox needs the user's confirmation and there is no interactive UI to ask. ${RETRY_HINT}` };
-  // Plan mode is read-only by design, so the preselected answer flips to deny there.
-  return { kind: "ask", choices: [ALLOW_ONCE, ALLOW_SESSION, DENY_ONCE, DENY_SESSION], defaultChoice: planMode ? DENY_ONCE : ALLOW_ONCE };
+  // Plan and explore mode are read-only by design, so the preselected answer flips to deny there.
+  return { kind: "ask", choices: [ALLOW_ONCE, ALLOW_SESSION, DENY_ONCE, DENY_SESSION], defaultChoice: isRestricted(agentMode) ? DENY_ONCE : ALLOW_ONCE };
 }
 
 export function resolveChoice(choice: string | undefined): { authorization: BypassAuthorization; remember: SessionDecision | undefined } {

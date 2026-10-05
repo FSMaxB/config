@@ -3,7 +3,8 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { covers, defaultAllowed, emptyRules, evaluate, exact, glob, matchesRule, parseRules, planModeNotice, recordRule, selectorFromKey, selectorKey, selectorLabel, serializeRules, tree, type AccessMode, type PathSelector, type PathRule, type RuleSets, type RuleTier, type SerializedRules, type Verdict } from "./path-permission-rules.ts";
+import { covers, defaultAllowed, emptyRules, evaluate, exact, glob, matchesRule, parseRules, readOnlyRepositoryNotice, recordRule, selectorFromKey, selectorKey, selectorLabel, serializeRules, tree, type AccessMode, type PathSelector, type PathRule, type RuleSets, type RuleTier, type SerializedRules, type Verdict } from "./path-permission-rules.ts";
+import { AgentMode, PathRuleStore, storeForMode } from "./agent-mode.ts";
 import { expandHome } from "./path-resolution.ts";
 import { readStoredRules, transaction } from "./path-rule-store.ts";
 import { contains, findRepoRoot, isVcsInternal, memoryDirectory, resolveThroughSymlinks } from "./repo.ts";
@@ -12,17 +13,25 @@ import { serialize } from "./ui-queue.ts";
 import { inheritedRules, parseChildPathPolicy, type ChildPathPolicy } from "./path-permission-snapshot.ts";
 import { ALLOW_ALWAYS, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWAYS, DENY_ONCE, DENY_SESSION } from "./permission-choices.ts";
 export { ALLOW_ALWAYS, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWAYS, DENY_ONCE, DENY_SESSION } from "./permission-choices.ts";
-export const PATH_RULES_ENTRY_TYPE = "path-permissions";
-const RULES_FILE = join(getAgentDir(), "path-permissions.json");
-interface SharedState { session: RuleSets; planMode: boolean; temporaryDirectory?: string; inherited?: ChildPathPolicy | null; persistSession?: (snapshot: SerializedRules) => void }
+const RULES_FILES: Record<PathRuleStore, string> = {
+  [PathRuleStore.Shared]: join(getAgentDir(), "path-permissions.json"),
+  [PathRuleStore.Explore]: join(getAgentDir(), "explore-path-permissions.json"),
+};
+const RULES_ENTRY_TYPES: Record<PathRuleStore, string> = {
+  [PathRuleStore.Shared]: "path-permissions",
+  [PathRuleStore.Explore]: "explore-path-permissions",
+};
+interface SharedState { sessions: Record<PathRuleStore, RuleSets>; agentMode: AgentMode; temporaryDirectory?: string; inherited?: ChildPathPolicy | null; persistSession?: (store: PathRuleStore, snapshot: SerializedRules) => void }
 const globalState = globalThis as { piPathPermissions?: SharedState };
-const state = (globalState.piPathPermissions ??= { session: emptyRules(), planMode: false, inherited: parseChildPathPolicy(process.env.PI_SUBAGENT_PATH_POLICY) });
-export function setPlanModeEnabled(enabled: boolean): void { state.planMode = enabled; }
-export function isPlanModeEnabled(): boolean { return state.planMode; }
+const state = (globalState.piPathPermissions ??= { sessions: { [PathRuleStore.Shared]: emptyRules(), [PathRuleStore.Explore]: emptyRules() }, agentMode: AgentMode.Execution, inherited: parseChildPathPolicy(process.env.PI_SUBAGENT_PATH_POLICY) });
+export function setAgentMode(mode: AgentMode): void { state.agentMode = mode; }
+export function currentAgentMode(): AgentMode { return state.agentMode; }
+// A subagent is always in execution mode but must enforce the store its parent was using.
+export function activePathRuleStore(): PathRuleStore { return state.inherited?.ruleStore ?? storeForMode(state.agentMode); }
 export function setSessionTemporaryDirectory(path: string): void { state.temporaryDirectory = path; }
-export function initPathPermissions(pi: ExtensionAPI): void { state.persistSession = (snapshot) => pi.appendEntry(PATH_RULES_ENTRY_TYPE, snapshot); }
+export function initPathPermissions(pi: ExtensionAPI): void { state.persistSession = (store, snapshot) => pi.appendEntry(RULES_ENTRY_TYPES[store], snapshot); }
 export function restoreSessionPathRules(sessionManager: { getEntries(): readonly unknown[] }): void {
-  state.session = parseSession(latestCustomData(sessionManager, PATH_RULES_ENTRY_TYPE));
+  for (const store of Object.values(PathRuleStore)) state.sessions[store] = parseSession(latestCustomData(sessionManager, RULES_ENTRY_TYPES[store]));
 }
 
 export const PathResolution = { Follow: "follow", PreserveFinalSymlink: "preserve-final-symlink" } as const;
@@ -92,8 +101,9 @@ async function modePolicy(mode: AccessMode): Promise<ModePolicy> {
 }
 
 async function effectiveLayers(mode: AccessMode): Promise<{ defaults: PathSelector[]; always: RuleSets; session: RuleSets; protected: PathSelector[] }> {
-  const always = await readStoredRules(RULES_FILE);
-  const session = mergeInheritedSession(state.session, state.inherited);
+  const store = activePathRuleStore();
+  const always = await readStoredRules(RULES_FILES[store]);
+  const session = mergeInheritedSession(state.sessions[store], state.inherited);
   const inheritedDefaults = state.inherited ? (mode === "read" ? state.inherited.readDefaults : state.inherited.writeDefaults) : [];
   const defaults = [...inheritedDefaults, ...(await currentDefaults(mode))];
   const protectedSelectors = mode === "write" ? await protectedWritePaths() : [];
@@ -116,7 +126,7 @@ async function ensureAllowed(path: string, mode: AccessMode, context: ExtensionC
 }
 
 async function requestAccess(resolved: string, mode: AccessMode, context: ExtensionContext, protectedSelectors: PathSelector[] = [], choices: string[] = [ALLOW_ONCE, ALLOW_SESSION, ALLOW_ALWAYS, DENY_ONCE, DENY_SESSION, DENY_ALWAYS]): Promise<void> {
-  if (!context.hasUI) throw new Error(`${resolved} is not covered by the ${mode} path rules and there is no interactive UI to ask. Stay inside the repository.${planModeNotice(mode, state.planMode)}`);
+  if (!context.hasUI) throw new Error(`${resolved} is not covered by the ${mode} path rules and there is no interactive UI to ask. Stay inside the repository.${readOnlyRepositoryNotice(mode, state.agentMode)}`);
   // A protected path is granted as its own protected root, so approving one extension file does not open the whole repository.
   const protectedMatch = protectedSelectors.find((candidate) => matchesRule(resolved, candidate));
   const selector = protectedMatch ?? tree(await grantRootFor(resolved));
@@ -139,7 +149,7 @@ async function currentDefaults(mode: AccessMode): Promise<ReturnType<typeof defa
     resolveThroughSymlinks(getAgentDir()),
     state.temporaryDirectory === undefined ? undefined : resolveThroughSymlinks(state.temporaryDirectory),
   ]);
-  return defaultAllowed(mode, { planMode: state.planMode, repoRoot, memoryDirectory: memoryRoot, skillRoots: resolvedSkills, agentDirectory, temporaryDirectory });
+  return defaultAllowed(mode, { agentMode: state.agentMode, repoRoot, memoryDirectory: memoryRoot, skillRoots: resolvedSkills, agentDirectory, temporaryDirectory });
 }
 // Project skill roots count only while they resolve inside the repository. Global roots also
 // allow every entry they hold, since skills are commonly symlinked in from elsewhere.
@@ -160,25 +170,29 @@ async function resolvedSkillRoots(repoRoot: string): Promise<string[]> {
 }
 function anchorTarget(target: string, cwd: string): string { const expanded = expandHome(target); return isAbsolute(expanded) ? expanded : resolve(cwd, expanded); }
 function assertWritablePath(path: string, mode: AccessMode): void { if (mode === "write" && isVcsInternal(path)) throw new Error(`${path} is inside a version control directory. Reading and searching .git and .jj is fine, but writing to them is not.`); }
-function deniedError(path: string, mode: AccessMode): Error { return new Error(`${path} is denied for ${mode} access by the path rules. Do not retry this path and do not route around it with a different tool.${planModeNotice(mode, state.planMode)}`); }
+function deniedError(path: string, mode: AccessMode): Error { return new Error(`${path} is denied for ${mode} access by the path rules. Do not retry this path and do not route around it with a different tool.${readOnlyRepositoryNotice(mode, state.agentMode)}`); }
 
-export async function removePathRule(rule: PathRule): Promise<void> { const { selector } = rule; if (rule.tier === "session") { state.session[rule.mode][rule.kind].delete(selectorKey(selector)); state.persistSession?.(serializeRules(state.session)); return; } await transaction(RULES_FILE, (always) => { always[rule.mode][rule.kind].delete(selectorKey(selector)); }); }
-export async function addPathRule(rule: PathRule): Promise<void> {
+export async function removePathRule(rule: PathRule, store: PathRuleStore = activePathRuleStore()): Promise<void> {
+  const { selector } = rule;
+  if (rule.tier === "session") { state.sessions[store][rule.mode][rule.kind].delete(selectorKey(selector)); state.persistSession?.(store, serializeRules(state.sessions[store])); return; }
+  await transaction(RULES_FILES[store], (always) => { always[rule.mode][rule.kind].delete(selectorKey(selector)); });
+}
+export async function addPathRule(rule: PathRule, store: PathRuleStore = activePathRuleStore()): Promise<void> {
   const { selector } = rule;
   if (rule.tier === "session") {
-    const always = await readStoredRules(RULES_FILE);
+    const always = await readStoredRules(RULES_FILES[store]);
     const opposite = rule.kind === "allow" ? "deny" : "allow";
     const oppositeKey = selectorKey(selector);
-    if (always[rule.mode][opposite].has(oppositeKey)) await transaction(RULES_FILE, (latest) => { latest[rule.mode][opposite].delete(oppositeKey); });
-    recordRule(rule, { session: state.session, always });
-    state.persistSession?.(serializeRules(state.session));
+    if (always[rule.mode][opposite].has(oppositeKey)) await transaction(RULES_FILES[store], (latest) => { latest[rule.mode][opposite].delete(oppositeKey); });
+    recordRule(rule, { session: state.sessions[store], always });
+    state.persistSession?.(store, serializeRules(state.sessions[store]));
     return;
   }
-  await transaction(RULES_FILE, (always) => { recordRule(rule, { session: emptyRules(), always }); });
+  await transaction(RULES_FILES[store], (always) => { recordRule(rule, { session: emptyRules(), always }); });
 }
-export async function listPathRules(): Promise<PathRule[]> {
-  const always = await readStoredRules(RULES_FILE);
-  const tiers: [RuleTier, RuleSets][] = [["session", state.session], ["always", always]];
+export async function listPathRules(store: PathRuleStore = activePathRuleStore()): Promise<PathRule[]> {
+  const always = await readStoredRules(RULES_FILES[store]);
+  const tiers: [RuleTier, RuleSets][] = [["session", state.sessions[store]], ["always", always]];
   return tiers.flatMap(([tier, sets]) =>
     (["read", "write"] as const).flatMap((mode) =>
       (["allow", "deny"] as const).flatMap((kind) =>
@@ -187,11 +201,16 @@ export async function listPathRules(): Promise<PathRule[]> {
     ),
   );
 }
-export async function clearPathRules(): Promise<void> { state.session = emptyRules(); state.persistSession?.(serializeRules(state.session)); await transaction(RULES_FILE, (always) => { always.read.allow.clear(); always.read.deny.clear(); always.write.allow.clear(); always.write.deny.clear(); }); }
+export async function clearPathRules(store: PathRuleStore = activePathRuleStore()): Promise<void> {
+  state.sessions[store] = emptyRules();
+  state.persistSession?.(store, serializeRules(state.sessions[store]));
+  await transaction(RULES_FILES[store], (always) => { always.read.allow.clear(); always.read.deny.clear(); always.write.allow.clear(); always.write.deny.clear(); });
+}
 
 function parseSession(value: unknown): RuleSets { try { return value && typeof value === "object" ? (parseRules(value) as RuleSets) : emptyRules(); } catch { return emptyRules(); } }
 export async function captureChildPathPolicy(): Promise<ChildPathPolicy> {
-  return { version: 1, session: serializeRules(state.session), readDefaults: await currentDefaults("read"), writeDefaults: await currentDefaults("write") };
+  const ruleStore = activePathRuleStore();
+  return { version: 1, session: serializeRules(state.sessions[ruleStore]), readDefaults: await currentDefaults("read"), writeDefaults: await currentDefaults("write"), ruleStore };
 }
 
 function mergeInheritedSession(session: RuleSets, inherited: ChildPathPolicy | null | undefined): RuleSets {

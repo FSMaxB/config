@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { join, matchesGlob, relative, sep } from "node:path";
+import { AgentMode, isRestricted } from "./agent-mode.ts";
 import { contains } from "./repo.ts";
 
 
@@ -32,7 +33,7 @@ export interface SerializedRules {
 }
 
 export interface DefaultAllowedOptions {
-  planMode: boolean;
+  agentMode: AgentMode;
   repoRoot: string;
   memoryDirectory: string;
   skillRoots: string[];
@@ -98,15 +99,18 @@ export function covers(grant: PathSelector, target: PathSelector): boolean {
 }
 
 export function defaultAllowed(mode: AccessMode, options: DefaultAllowedOptions): PathSelector[] {
-  const { planMode, repoRoot, memoryDirectory, skillRoots, agentDirectory, temporaryDirectory } = options;
+  const { agentMode, repoRoot, memoryDirectory, skillRoots, agentDirectory, temporaryDirectory } = options;
   const scratch = [tree(memoryDirectory), tree(join(agentDirectory, "plans")), ...(temporaryDirectory ? [tree(temporaryDirectory)] : [])];
   if (mode === "read") return [tree(repoRoot), ...scratch, tree(join(homedir(), ".crit")), ...skillRoots.map(tree)];
-  return planMode ? scratch : [tree(repoRoot), ...scratch];
+  return isRestricted(agentMode) ? scratch : [tree(repoRoot), ...scratch];
 }
 
-// Plan mode drops the repository from the default write allows, so a write failure names it as the likely cause.
-export function planModeNotice(mode: AccessMode, planMode: boolean): string {
-  return mode === "write" && planMode ? " Plan mode is on, so the repository is read-only until the user approves a plan." : "";
+// Restricted modes drop the repository from the default write allows, so a write failure names it as the likely cause.
+export function readOnlyRepositoryNotice(mode: AccessMode, agentMode: AgentMode): string {
+  if (mode !== "write") return "";
+  if (agentMode === AgentMode.Planning) return " Plan mode is on, so the repository is read-only until the user approves a plan.";
+  if (agentMode === AgentMode.Exploring) return " Explore mode is on, so the repository is read-only until the user leaves it.";
+  return "";
 }
 
 export function exact(path: string): PathSelector { return { kind: "exact", path }; }
