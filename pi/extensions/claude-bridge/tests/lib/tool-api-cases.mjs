@@ -122,7 +122,7 @@ it("filters spawn arguments and refuses a child with no plan-allowed tools", asy
 		const { args, options } = spawned[0];
 		assert.equal(args[args.indexOf("--tools") + 1], "read,find,ls");
 		assert.ok(!args.includes("--no-extensions"));
-		assert.equal(options.env.PI_SUBAGENT_PLAN_ALLOWED_TOOLS, "find,ls,read");
+		assert.equal(options.env.PI_SUBAGENT_ALLOWED_TOOLS, "find,ls,read");
 		assert.ok(options.env.PI_SUBAGENT_PATH_POLICY);
 		assert.ok(options.env.PI_SESSION_TEMP_DIR);
 	} finally { await fixture.dispose(); }
@@ -139,6 +139,36 @@ it("filters spawn arguments and refuses a child with no plan-allowed tools", asy
 		assert.match(result.content[0].text, /restricts every tool/);
 		assert.equal(spawned.length, 0);
 	} finally { await blockedFixture.dispose(); spawnMock.mock.restore(); syncBuiltinESMExports(); }
+});
+
+it("caps subagent tools by the exploring mode's own decisions", async () => {
+	// arrange
+	const extensions = ["files.ts", "explore-mode.ts", "subagent/index.ts"].map(path => fileURLToPath(new URL(`../../../${path}`, import.meta.url)));
+	const spawned = [];
+	const spawnMock = mock.method(childProcess, "spawn", (command, args, options) => {
+		spawned.push({ command, args, options });
+		const child = new EventEmitter();
+		child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = () => {};
+		setImmediate(() => child.emit("close", 0));
+		return child;
+	});
+	syncBuiltinESMExports();
+	const fixture = await toolApiSession({ extensions,
+		entries: [
+			{ type: "explore-mode", data: { enabled: true, sessionGrants: [], sessionDenials: [{ name: "grep" }] } },
+			{ type: "plan-mode", data: { enabled: false, sessionGrants: [], sessionDenials: [] } },
+		] });
+	try {
+		// act
+		const result = await fixture.call("subagent", { agent: "explore", task: "fixture" });
+		// assert
+		assert.equal(result.details.results[0].exitCode, 0, result.content[0].text);
+		const { args, options } = spawned[0];
+		assert.equal(args[args.indexOf("--tools") + 1], "read,find,ls");
+		assert.equal(options.env.PI_SUBAGENT_ALLOWED_TOOLS, "find,ls,read");
+		assert.equal(options.env.PI_SUBAGENT_RESTRICTING_MODE, "exploring");
+		assert.equal(JSON.parse(options.env.PI_SUBAGENT_PATH_POLICY).ruleStore, "explore");
+	} finally { await fixture.dispose(); spawnMock.mock.restore(); syncBuiltinESMExports(); }
 });
 
 it("registry allowlists exclude deferred tools even after registration and activation", async () => {
@@ -167,8 +197,8 @@ it("registry allowlists exclude deferred tools even after registration and activ
 });
 
 // Declarations stay fixed across denials and mode changes to keep the prompt cache prefix; the
-// model learns about denials from the plan-mode snapshot message instead.
-it("keeps explicit denials declared but blocked and announced in the plan-mode snapshot", async () => {
+// model learns about denials from the agent-mode snapshot message instead.
+it("keeps explicit denials declared but blocked and announced in the agent-mode snapshot", async () => {
 	// arrange
 	const choices = [];
 	const ui = new Proxy({
@@ -200,11 +230,11 @@ it("keeps explicit denials declared but blocked and announced in the plan-mode s
 		}],
 	});
 	const declared = () => getCurrentTools(fixture.requests.at(-1).messages).map(tool => tool.name);
-	// The request carries the hidden plan-mode snapshot as an ordinary user message.
+	// The request carries the hidden agent-mode snapshot as an ordinary user message.
 	const snapshot = () => fixture.requests.at(-1).messages
 		.filter(message => message.role === "user")
 		.map(message => (typeof message.content === "string" ? message.content : message.content.map(block => block.text ?? "").join("\n")))
-		.findLast(text => text.startsWith("This is the current plan-mode state."));
+		.findLast(text => text.startsWith("This is the current agent-mode state."));
 	const deniedInSnapshot = name => new RegExp(`^ {2}- ${name}( \\(do this instead: .*\\))?$`, "m").test(snapshot());
 	try {
 		// act
@@ -265,13 +295,63 @@ it("keeps explicit denials declared but blocked and announced in the plan-mode s
 		await fixture.session.prompt("Inspect declarations outside plan mode.");
 		const rejected = await fixture.call("plan_path", { slug: "fixture" });
 		// assert
-		assert.match(snapshot(), /Plan mode is off/);
+		assert.match(snapshot(), /Plan mode and explore mode are off/);
 		assert.ok(fixture.api.getActiveTools().includes("plan_path"));
 		assert.ok(fixture.api.getActiveTools().includes("submit_plan"));
 		assert.ok(!fixture.api.getActiveTools().includes("target_fixture"));
 		assert.ok(declared().includes("approval_fixture"));
 		assert.match(rejected.content[0].text, /only available in plan mode, which is off/);
 		assert.equal(choices.length, 0);
+	} finally { await fixture.dispose(); }
+});
+
+// Switching modes may only append one snapshot message: declarations and earlier messages are the
+// provider's cache prefix.
+it("switches between explore, plan and normal mode by appending snapshots only", async () => {
+	// arrange
+	const prompts = [];
+	const ui = new Proxy({
+		theme: { fg: (_color, text) => text, bold: text => text },
+		select: async title => { prompts.push(title); return "Deny once"; },
+		input: async () => "",
+	}, { get: (target, property) => target[property] ?? (() => {}) });
+	const fixture = await toolApiSession({
+		extensions: ["explore-mode.ts", "plan-mode.ts"].map(path => fileURLToPath(new URL(`../../../${path}`, import.meta.url))),
+		bindings: { uiContext: ui, mode: "tui" },
+		factories: [pi => pi.registerTool({ name: "approval_fixture", label: "Approval", description: "Needs approval",
+			parameters: Type.Object({}), execute: async () => ({ content: [{ type: "text", text: "executed" }], details: undefined }) })],
+	});
+	const request = () => fixture.requests.at(-1).messages;
+	const declared = () => getCurrentTools(request()).map(tool => tool.name);
+	const snapshots = () => request().filter(message => message.role === "user")
+		.map(message => (typeof message.content === "string" ? message.content : message.content.map(block => block.text ?? "").join("\n")))
+		.filter(text => text.startsWith("This is the current agent-mode state."));
+	try {
+		// act
+		await fixture.session.prompt("Before.");
+		const baseline = { declared: declared(), messages: structuredClone(request()), snapshots: snapshots().length };
+		await fixture.session.prompt("/explore");
+		await fixture.session.prompt("While exploring.");
+		const exploring = { declared: declared(), messages: structuredClone(request()), snapshot: snapshots().at(-1), count: snapshots().length };
+		const denied = await fixture.call("approval_fixture");
+		await fixture.session.prompt("/plan");
+		await fixture.session.prompt("While planning.");
+		const planning = { declared: declared(), snapshot: snapshots().at(-1) };
+		await fixture.session.prompt("/plan");
+		await fixture.session.prompt("After.");
+		const normal = { declared: declared(), snapshot: snapshots().at(-1) };
+		// assert
+		assert.equal(baseline.snapshots, 1);
+		assert.deepEqual(exploring.messages.slice(0, baseline.messages.length), baseline.messages);
+		assert.equal(exploring.count, 2);
+		assert.match(exploring.snapshot, /Explore mode is active/);
+		assert.doesNotMatch(exploring.snapshot, /call plan_path once/);
+		assert.equal(denied.isError, true);
+		assert.match(denied.content[0].text, /Explore mode is active and the user denied this call/);
+		assert.match(prompts[0], /^Explore mode — allow approval_fixture\?/);
+		assert.match(planning.snapshot, /Plan mode is active/);
+		assert.match(normal.snapshot, /Plan mode and explore mode are off/);
+		for (const names of [exploring.declared, planning.declared, normal.declared]) assert.deepEqual(names, baseline.declared);
 	} finally { await fixture.dispose(); }
 });
 

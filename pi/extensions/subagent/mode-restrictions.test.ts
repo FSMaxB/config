@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { effectiveChildTools, planModeAllowedTools } from "./plan-restrictions.ts";
+import { effectiveChildTools, restrictedModeAllowedTools } from "./mode-restrictions.ts";
 import type { ToolPolicyInfo } from "../lib/tool-permission-policy.ts";
 
 test("child permissions share owned read-only trust and deny precedence", () => {
@@ -11,12 +11,12 @@ test("child permissions share owned read-only trust and deny precedence", () => 
     tool("question", "question.ts", "model-only")];
   const snapshot = { sessionGrants: ["granted", "hidden", "question", "absent"], sessionDenials: ["vcs_status"] };
   // act
-  const allowed = planModeAllowedTools(snapshot, { alwaysAllowed: ["vcs_status"], alwaysDenied: [] }, tools);
+  const allowed = restrictedModeAllowedTools(snapshot, { alwaysAllowed: ["vcs_status"], alwaysDenied: [] }, tools);
   // assert
   assert.deepEqual([...allowed], ["read", "crit_comments", "granted"]);
 });
 
-test("plan-mode child selection intersects lists and preserves requested order", () => {
+test("restricted-mode child selection intersects lists and preserves requested order", () => {
   // arrange
   const allowed = new Set(["read", "vcs_info"]);
   // act
@@ -29,7 +29,7 @@ test("plan-mode child selection intersects lists and preserves requested order",
   assert.deepEqual(results, [["vcs_info", "read"], ["read", "vcs_info"], [], [], []]);
 });
 
-test("outside plan mode child selection leaves configured defaults unchanged", () => {
+test("outside the restricted modes child selection leaves configured defaults unchanged", () => {
   // arrange
   const requested = ["read", "read", "write"];
   // act
