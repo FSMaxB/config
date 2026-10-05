@@ -18,7 +18,7 @@ process.env.CLAUDE_BRIDGE_DIAG_PATH = join(scratch, "diag.log");
 process.env.PI_CODING_AGENT_DIR = scratch;
 
 const { ctx, popContext, pushContext, resetStack, stackDepth } = await import("../src/query-state.js");
-const { teardownQuery } = await import("../src/query-teardown.js");
+const { abortRebuildReason, teardownQuery } = await import("../src/query-teardown.js");
 const { __testGetBridgeIntegrityState, __testSetBridgeIntegrityState } = await import("../src/bridge-state.js");
 
 import { describe, it, afterEach, beforeEach } from "node:test";
@@ -183,6 +183,21 @@ describe("teardownQuery shared-record gating (#1001)", () => {
 				reportedMismatch: true,
 				record: expected,
 			}, `detached=${detached}`);
+		}
+	});
+});
+
+describe("abortRebuildReason", () => {
+	it("names why an aborted query must rebuild, and nothing when the abort was clean", () => {
+		const rows = [
+			{ childExit: "still-running", toolCallInFlight: true, droppedQueuedUserMessages: 2, hasSessionId: true, expected: "abort while the Claude Code process was still running" },
+			{ childExit: "exited", toolCallInFlight: true, droppedQueuedUserMessages: 0, hasSessionId: true, expected: "abort with a tool call in flight" },
+			{ childExit: "exited", toolCallInFlight: false, droppedQueuedUserMessages: 3, hasSessionId: true, expected: "abort dropped 3 queued user message(s)" },
+			{ childExit: "exited", toolCallInFlight: false, droppedQueuedUserMessages: 0, hasSessionId: false, expected: "abort before Claude Code reported a session" },
+			{ childExit: "exited", toolCallInFlight: false, droppedQueuedUserMessages: 0, hasSessionId: true, expected: undefined },
+		];
+		for (const { expected, ...settlement } of rows) {
+			assert.equal(abortRebuildReason(settlement), expected, JSON.stringify(settlement));
 		}
 	});
 });

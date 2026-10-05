@@ -8,7 +8,8 @@ import { buildModels } from "./models.js";
 import { MCP_SERVER_NAME, MCP_TOOL_PREFIX } from "./skills.js";
 import { extractAllToolResults as _extractAllToolResults, type McpResult } from "./extract-tool-results.js";
 import { QueryContext, ctx, deleteQueryLane, drainPendingToolCalls, drainStrandedToolCalls, stackDepth, pushContext, summarizeDroppedUserMessages, takeQueuedOrParkedResult, toolCallDrainCause, type DeferredUserMessage, type QueryRestartRequest } from "./query-state.js";
-import { abortSdkQuery, closeSdkQuery, teardownQuery } from "./query-teardown.js";
+import { abortRebuildReason, abortSdkQuery, closeSdkQuery, teardownQuery } from "./query-teardown.js";
+import { abortExitGraceMs, createChildExitTracker } from "./child-exit.js";
 import { loadConfig, recordProjectTrust } from "./config.js";
 import { hasClaudeCredentials } from "./auth-presence.js";
 import { NATIVE_PROVIDER_UNSUPPORTED_MESSAGE, buildNativeProvider, supportsNativeProvider } from "./native-provider.js";
@@ -35,6 +36,7 @@ import { currentRequestLaneId, runInRequestLane } from "./request-lane.js";
 // public surface — unit tests and downstream consumers import these from
 // bundle/index.js.
 export { __testSetSdkQueryFactory } from "./sdk-query.js";
+export { __testSetAbortExitGraceMs, __testSetSpawnClaudeCodeProcess } from "./child-exit.js";
 export { resolveConfiguredEffort } from "./query-options.js";
 export { classifyClaudeExecutableBytes, preflightClaudeExecutable, resolveClaudeExecutable, spawnClaudeCodeWithDiagnostics, wrapClaudeSpawnErrorForSdk, type ClaudeExecutableFileType, type ClaudeExecutablePreflightResult } from "./claude-executable.js";
 export { __testGetBridgeIntegrityState, __testSetBridgeIntegrityState, INTEGRITY_CUSTOM_TYPE, appendIntegrityEntry, reportToolResultMismatch } from "./bridge-state.js";
@@ -870,6 +872,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 		? wrapPromptStream(promptBlocks)
 		: promptText;
 	const mcpServers = buildMcpServers(mcpTools, ctx());
+	const childExits = createChildExitTracker();
 	// Pure SDK query-option assembly — see buildClaudeQueryOptions for the
 	// tool isolation, prompt-append, setting-source, effort, and env rationale.
 	const built = buildClaudeQueryOptions({
@@ -882,6 +885,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 		resumeSessionId,
 		mcpServers,
 		claudeExecutable,
+		spawnClaudeCodeProcess: childExits.spawn,
 	});
 	const { queryOptions } = built;
 
@@ -895,6 +899,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 
 	// 3. Start SDK query and claim it for this context
 	let wasAborted = false;
+	let abortDroppedSteerCount = 0;
 	// The history restart re-entry feeds the callback stream that requested it.
 	let reentryStream = stream;
 	let streamIdleTimedOut = false;
@@ -998,11 +1003,10 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 	const onAbort = () => runInRequestLane(laneId, () => {
 		wasAborted = true;
 		// Prevent stale deferred messages from being replayed by parent on pop
-		dropDeferredUserMessages("abort");
-		reportToolResultMismatch(abortCtx, "abort", cwd, {
-			expectedInterruption: true,
-			forceRotate: true,
-		});
+		abortDroppedSteerCount += dropDeferredUserMessages("abort").length;
+		// Rotation is decided in settleAbortedQuery once the child's exit is known;
+		// this report only records whether a tool call was in flight.
+		reportToolResultMismatch(abortCtx, "abort", cwd, { expectedInterruption: true });
 		const drained = drainPendingToolCalls(abortCtx, "abort");
 		if (drained > 0) debug(`provider: abort drained ${drained} waiting MCP handler(s) as errors`);
 		abortCtx.pendingResults.clear();
@@ -1021,6 +1025,36 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 		abortCtx.currentPiStream?.push({ type: "error", reason: aborted ? "aborted" : "error", error: abortCtx.turnOutput! });
 		abortCtx.currentPiStream?.end();
 		abortCtx.currentPiStream = null;
+	};
+
+	// Both abort endings land here: the generator finishing after close(), or
+	// throwing out of the killed child. The child is waited for first. Once it
+	// has exited nothing can race a write into its JSONL, so a turn interrupted
+	// with no tool call in flight and no queued input dropped keeps its record
+	// exactly like a completed query would: the next turn resumes the same
+	// Claude session, as Claude Code itself does after Esc, and the prompt
+	// cache stays warm. Anything else rebuilds, and only an unconfirmed exit
+	// still rotates the session id. Pi keeps consuming our stream until it
+	// ends, so waiting here cannot overlap with the next prompt.
+	const settleAbortedQuery = async (capturedSessionId: string | undefined, dropSite: string): Promise<void> => {
+		const childExit = await childExits.awaitExit(abortExitGraceMs);
+		const droppedQueuedUserMessages = abortDroppedSteerCount + dropDeferredUserMessages(dropSite).length;
+		const activeSession = getSharedSession();
+		const sessionId = capturedSessionId ?? activeSession?.sessionId;
+		const reason = abortRebuildReason({
+			childExit,
+			toolCallInFlight: abortCtx.reportedToolResultMismatch,
+			droppedQueuedUserMessages,
+			hasSessionId: sessionId !== undefined,
+		});
+		if (reason !== undefined) {
+			markRebuildForThisQuery(reason, { forceRotate: childExit === "still-running" });
+			debug(`provider: abort settled with a rebuild (${reason}), rotate=${childExit === "still-running"}`);
+			return;
+		}
+		const cursor = Math.max(conversation.length, abortCtx.latestCursor, activeSession?.cursor ?? 0);
+		debug(`provider: abort settled cleanly, keeping session=${sessionId!.slice(0, 8)} for resume, cursor=${cursor}`);
+		persistSession({ sessionId: sessionId!, cursor, cwd });
 	};
 
 	// Background consumer runs until the SDK query ends.
@@ -1047,9 +1081,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 
 			// --- Abort detection in normal completion path ---
 			if (wasAborted || options?.signal?.aborted) {
-				markRebuildForThisQuery("abort", { forceRotate: true });
-				dropDeferredUserMessages("abort-completion");
-				debug(`provider: abort detected, marked sharedSession needsRebuild + forceRotate`);
+				await settleAbortedQuery(capturedSessionId, "abort-completion");
 				surfaceFailure({ message: "Operation aborted" }, true);
 				return;
 			}
@@ -1172,7 +1204,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 
 			finalizeCurrentStream(abortCtx.turnOutput?.stopReason, abortCtx);
 		})
-		.catch((error) => {
+		.catch(async (error) => {
 			debug(`provider: query error, model=${model.id}, aborted=${Boolean(options?.signal?.aborted)}, error=`, error);
 			if (abortCtx.restartRequest) {
 				// Killed for the restart: the replacement query surfaces the outcome.
@@ -1181,11 +1213,20 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 			}
 			const suppressDuplicateError = abortCtx.handledTerminalError || streamIdleTimedOut;
 			if (wasAborted || options?.signal?.aborted) {
-				markRebuildForThisQuery("abort", { forceRotate: true });
+				// The generator threw because the child was killed; capturedSessionId is
+				// unknown here, so the record's own id stands in (a resumed query runs
+				// in exactly that session).
+				await settleAbortedQuery(undefined, "query-error");
+				if (suppressDuplicateError) return;
+				surfaceFailure({
+					kind: classifyClaudeFailure(error),
+					message: error instanceof Error ? error.message : String(error),
+				}, true);
+				return;
 			}
-			// a record kept past this error with steers behind its cursor
-			// must rebuild so they re-import from Pi history. (The non-abort
-			// surface path below replaces the record with null, which rebuilds too.)
+			// A record kept past this error with steers behind its cursor must
+			// rebuild so they re-import from Pi history. (The surface path below
+			// replaces the record with null, which rebuilds too.)
 			if (dropDeferredUserMessages("query-error").length > 0) {
 				markRebuildForThisQuery("queued user messages dropped after a query error");
 			}
@@ -1197,8 +1238,8 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 				kind: classifyClaudeFailure(error),
 				message: error instanceof Error ? error.message : String(error),
 			};
-			if (!wasAborted && !options?.signal?.aborted) persistSession(null);
-			surfaceFailure(failure, Boolean(options?.signal?.aborted));
+			persistSession(null);
+			surfaceFailure(failure, false);
 		})
 		.finally(() => {
 			streamIdleWatchdog?.dispose();

@@ -6,6 +6,7 @@
 // the parent's drain and activeQuery clear, which leaks handlers.
 
 import { reportToolResultMismatch } from "./bridge-state.js";
+import { type ChildExitOutcome } from "./child-exit.js";
 import { debug } from "./debug.js";
 import { drainPendingToolCalls, popContextFor, type QueryContext, type ToolCallDrainCause } from "./query-state.js";
 
@@ -51,4 +52,25 @@ export function teardownQuery(
 		queryCtx.activeQuery = null;
 	}
 	return true;
+}
+
+export interface AbortSettlement {
+	childExit: ChildExitOutcome;
+	/** A tool call was waiting, queued or unmatched when the abort hit. */
+	toolCallInFlight: boolean;
+	droppedQueuedUserMessages: number;
+	/** The query or the record knows which Claude session this turn ran in. */
+	hasSessionId: boolean;
+}
+
+/** Why an aborted query's record must rebuild, or undefined when the
+ *  interruption was clean enough to resume the same Claude session next turn.
+ *  The unconfirmed exit is checked first because it is the only reason that
+ *  also rotates the session id. */
+export function abortRebuildReason(settlement: AbortSettlement): string | undefined {
+	if (settlement.childExit === "still-running") return "abort while the Claude Code process was still running";
+	if (settlement.toolCallInFlight) return "abort with a tool call in flight";
+	if (settlement.droppedQueuedUserMessages > 0) return `abort dropped ${settlement.droppedQueuedUserMessages} queued user message(s)`;
+	if (!settlement.hasSessionId) return "abort before Claude Code reported a session";
+	return undefined;
 }

@@ -3,7 +3,7 @@
 // the provided context only.
 
 import { type Model, type Tool } from "@earendil-works/pi-ai";
-import type { McpSdkServerConfigWithInstance, query, EffortLevel, SettingSource } from "@anthropic-ai/claude-agent-sdk";
+import type { McpSdkServerConfigWithInstance, query, EffortLevel, SettingSource, SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 import { extractAgentsAppend } from "./agents-md.js";
 import { spawnClaudeCodeWithDiagnostics } from "./claude-executable.js";
 import { normalizeEffortLevel, type Config } from "./config.js";
@@ -54,6 +54,8 @@ export interface BuildClaudeQueryOptionsInput {
 	resumeSessionId: string | null;
 	mcpServers?: Record<string, McpSdkServerConfigWithInstance>;
 	claudeExecutable?: string;
+	/** Replaces the default spawn so the caller can observe the child; defaults to spawnClaudeCodeWithDiagnostics. */
+	spawnClaudeCodeProcess?: (options: SpawnOptions) => SpawnedProcess;
 }
 
 /** How the caller's system prompt reaches Claude Code. Pi's agent loop always
@@ -73,7 +75,7 @@ export interface BuiltClaudeQueryOptions {
 }
 
 export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): BuiltClaudeQueryOptions {
-	const { cwd, requestedModel, bridgeConfig, systemPrompt, tools, reasoning, resumeSessionId, mcpServers, claudeExecutable } = input;
+	const { cwd, requestedModel, bridgeConfig, systemPrompt, tools, reasoning, resumeSessionId, mcpServers, claudeExecutable, spawnClaudeCodeProcess } = input;
 	const providerSettings = bridgeConfig.provider ?? {};
 	const systemPromptMode = systemPromptModeForQuery(tools, systemPrompt);
 	const appendSystemPrompt = systemPromptMode === "claude-code-preset" && providerSettings.appendSystemPrompt !== false;
@@ -135,7 +137,7 @@ export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): Bu
 		...(settingSources ? { settingSources } : {}),
 		...(resumeSessionId ? { resume: resumeSessionId } : {}),
 		...(claudeExecutable ? { pathToClaudeCodeExecutable: claudeExecutable } : {}),
-		spawnClaudeCodeProcess: spawnClaudeCodeWithDiagnostics,
+		spawnClaudeCodeProcess: spawnClaudeCodeProcess ?? spawnClaudeCodeWithDiagnostics,
 		...makeCliDebugOptions("provider"),
 		...CLAUDE_BRIDGE_TOOL_ISOLATION,
 		strictMcpConfig: true,

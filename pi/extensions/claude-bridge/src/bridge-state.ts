@@ -25,19 +25,21 @@ export interface SessionState {
 	conversationFingerprint?: string;
 	// Force the next syncSharedSession call down the REBUILD path. Set when
 	// pi has mutated its messages array out from under us (compact, tree
-	// navigation) or after an abort left the JSONL in an indeterminate state.
+	// navigation), or when an abort interrupted a tool call, dropped queued
+	// user input, or ended before the killed child exited. An abort that did
+	// none of those keeps the record untouched and the next turn resumes.
 	// REBUILD wipes and rewrites the file to match pi's current history.
 	needsRebuild?: boolean;
-	// Set whenever a CC subprocess was killed and may still be flushing to its
-	// session JSONL: after an abort, whose late "[Request interrupted by user]"
-	// record is the classic case, and at a history replacement (compact, tree
-	// navigation) that stops an ACTIVE query to restart it on pi's new context.
-	// Reusing the same sessionId/path would race that orphan write into our
-	// fresh file and break CC's parent-uuid chain on the next resume. When
-	// this flag is set, REBUILD takes a fresh UUID and skips deleteSession
-	// so the orphan writes land on a dead inode. A compact or tree event with
-	// no active query kills nothing, so it leaves this unset and rebuilds in
-	// place (preserve UUID, deleteSession + createSession).
+	// Set when a killed CC subprocess may still be flushing to its session
+	// JSONL: an abort whose child had not exited within the grace in
+	// child-exit.ts, or a history replacement (compact, tree navigation) that
+	// stops an ACTIVE query to restart it on pi's new context. Reusing the
+	// same sessionId/path would race that orphan write into our fresh file and
+	// break CC's parent-uuid chain on the next resume. When this flag is set,
+	// REBUILD takes a fresh UUID and skips deleteSession so the orphan writes
+	// land on a dead inode. A compact or tree event with no active query kills
+	// nothing, so it leaves this unset and rebuilds in place (preserve UUID,
+	// deleteSession + createSession).
 	forceRotate?: boolean;
 	// Why needsRebuild was set, in words the "session replaced" notification can
 	// show when the rebuild happens ("abort with a tool call in flight", "pi

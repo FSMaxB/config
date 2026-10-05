@@ -17,6 +17,7 @@ Differences from upstream:
 - A request that offers no tools gets its own system prompt verbatim instead of the Claude Code preset, with no AGENTS, skills or `APPEND_SYSTEM.md` forwarding. Pi's agent loop always offers tools, so such a request is a one-shot from another extension (memory extraction, compaction summaries) whose prompt is the whole instruction. Upstream sends the preset unconditionally, so a caller's instructions never reach the model.
 - The provider is re-registered on `session_start` only when the Claude credential probe's answer changed since the last registration. Upstream re-registers unconditionally, which restarts Pi's availability refresh and can leave the bridge models missing from the model list for a moment after a new session starts.
 - A Pi warning is shown whenever an existing Claude session is rewritten or replaced (provider switch, compaction, tree navigation, an aborted tool call, ...), naming the reason, because every such rebuild discards the conversation's prompt cache.
+- A turn aborted with no tool call in flight keeps its Claude session: the bridge waits (up to 3 s) for the killed Claude Code process to exit and resumes the same session on the next turn, so the prompt cache stays warm. Upstream rebuilt and rotated the session after every abort. An abort that interrupted a tool call, dropped queued input, or whose child did not exit in time still rebuilds; only the last case rotates the id.
 
 ## Install
 
