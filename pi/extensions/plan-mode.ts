@@ -47,6 +47,20 @@ import {
   SUBMIT_PLAN,
   type PlanModeSnapshot,
 } from "./lib/plan-mode-messages.ts";
+import {
+  blockedReason,
+  DENIAL_CAUSES,
+  deniedReason,
+  effectiveDenials,
+  Interaction,
+  startupPlanMode,
+  StartupRequest,
+  StateRecording,
+  SubmissionAction,
+  submissionAction,
+  submissionOptions,
+  toolGate,
+} from "./lib/plan-mode-policy.ts";
 import { commitPlanFileForUser } from "./lib/plan-commit.ts";
 import { registerPlanSubmission, type PlanSubmissionParams, type PlanSubmissionResult } from "./lib/plan-submission.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
@@ -54,7 +68,7 @@ import { isSandboxActive } from "./lib/sandbox-state.ts";
 import { selectWithDefault } from "./lib/select-with-default.ts";
 import { latestCustomData } from "./lib/session-entries.ts";
 import { serialize } from "./lib/ui-queue.ts";
-import { planToolPermission, trustedReadOnlyToolNames } from "./lib/tool-permission-policy.ts";
+import { planToolPermission, trustedReadOnlyToolNames, type ToolPermission } from "./lib/tool-permission-policy.ts";
 
 const UNGATED_TOOLS = new Set([
   // File tools are gated per path by lib/path-permissions.ts rather than per call.
@@ -68,10 +82,6 @@ const UNGATED_TOOLS = new Set([
   ...PLAN_TOOLS,
 ]);
 
-const APPROVE = "Approve — leave plan mode";
-const APPROVE_CURRENT = "Approve — implement with current model";
-const IMPLEMENT_DIFFERENT = "Implement with different model";
-const REFINE = "Refine — send feedback";
 const CLEAR_ALL = "Clear all";
 const DONE = "Done";
 const CONTEXT_FULL = "Full context — inherit the whole conversation";
@@ -92,6 +102,7 @@ export default function (pi: ExtensionAPI) {
   // instead of only saying no.
   const sessionDenials = new Map<string, string | undefined>();
   const alwaysDenials = new Map<string, string | undefined>();
+  const denials = { sessionDenials, alwaysDenials };
   const messages = registerPlanModeMessages(pi, {
     snapshot: currentSnapshot,
     projection: (context) => context.sessionManager.buildSessionProjection().messages,
@@ -99,38 +110,31 @@ export default function (pi: ExtensionAPI) {
   });
 
   function currentSnapshot(): PlanModeSnapshot {
-    // Always denials win over session denials, matching blockedReason.
-    const denials = new Map([...sessionDenials, ...alwaysDenials]);
     return {
-      mode: planMode ? PlanModeState.Planning : PlanModeState.Execution,
+      mode: currentMode(),
       plansDirectory: plansDirectory(),
       sandbox: isSandboxActive() ? SandboxStatus.Active : SandboxStatus.Inactive,
-      denials: [...denials].map(([name, note]) => (note ? { name, note } : { name })),
+      denials: effectiveDenials(denials),
     };
   }
 
-  function isAllowed(toolName: string): boolean {
+  function currentMode(): PlanModeState {
+    return planMode ? PlanModeState.Planning : PlanModeState.Execution;
+  }
+
+  function gate(toolName: string, interaction: Interaction) {
+    return toolGate(toolName, { mode: currentMode(), denials, permission: permission(toolName), interaction });
+  }
+
+  function permission(toolName: string): ToolPermission {
     // The sandbox makes bash read-only in plan mode at the OS level; without it bash stays gated per call.
-    if (toolName === "bash" && isSandboxActive()) return true;
+    if (toolName === "bash" && isSandboxActive()) return "allow";
     return planToolPermission(
       toolName,
       { sessionGrants, alwaysGrants, sessionDenials: sessionDenials.keys(), alwaysDenials: alwaysDenials.keys() },
       UNGATED_TOOLS,
       trustedReadOnlyToolNames(pi.getAllTools()),
-    ) === "allow";
-  }
-
-  function blockedReason(toolName: string): string | undefined {
-    const denials = [
-      [alwaysDenials, "deny-always"],
-      [sessionDenials, "deny-session"],
-    ] as const;
-    for (const [store, decision] of denials) {
-      if (store.has(toolName)) {
-        return deniedReason(toolName, DENIAL_CAUSES[decision], store.get(toolName));
-      }
-    }
-    return undefined;
+    );
   }
 
   // The most recent decision wins outright, so a tool never sits in two stores and
@@ -236,9 +240,9 @@ export default function (pi: ExtensionAPI) {
     ctx: ExtensionContext,
   ) {
     // An earlier prompt from the same batch may have decided this tool while we queued.
-    const blocked = blockedReason(event.toolName);
-    if (blocked) return { block: true, reason: blocked };
-    if (isAllowed(event.toolName)) return undefined;
+    const queued = gate(event.toolName, Interaction.Available);
+    if (queued.kind === "block") return { block: true, reason: queued.reason };
+    if (queued.kind === "run") return undefined;
 
     const choice = await ctx.ui.select(
       `Plan mode — allow ${event.toolName}?\n\n  ${summarizeInput(event)}`,
@@ -499,7 +503,7 @@ export default function (pi: ExtensionAPI) {
       };
     }
 
-    const blocked = blockedReason(SUBMIT_PLAN);
+    const blocked = blockedReason(SUBMIT_PLAN, denials);
     if (blocked) throw new Error(blocked);
 
     const { path } = params;
@@ -549,9 +553,6 @@ export default function (pi: ExtensionAPI) {
     const suggestedLabel = suggested
       ? `${suggested.provider}/${suggested.id}`
       : undefined;
-    const approveSuggested = suggestedLabel
-      ? `Approve — implement with ${suggestedLabel} (suggested)`
-      : undefined;
     const reason = suggestedModelReason?.trim();
     const suggestionNote = suggestedLabel
       ? `\n\n  Suggests ${suggestedLabel}${reason ? ` — ${reason}` : ""}`
@@ -560,20 +561,15 @@ export default function (pi: ExtensionAPI) {
     signal?.throwIfAborted();
     const choice = await context.ui.select(
       `Plan submitted — what next?\n\n  ${path}${suggestionNote}`,
-      [
-        ...(approveSuggested ? [approveSuggested] : []),
-        suggested ? APPROVE_CURRENT : APPROVE,
-        IMPLEMENT_DIFFERENT,
-        REFINE,
-        "Stay in plan mode",
-      ],
+      submissionOptions(suggestedLabel),
     );
+    const action = submissionAction(choice, suggestedLabel);
 
-    if (suggested && choice === approveSuggested) {
+    if (suggested && action === SubmissionAction.ApproveSuggested) {
       return await handOffToModel(path, suggested, undefined, context);
     }
 
-    if (choice === APPROVE || choice === APPROVE_CURRENT) {
+    if (action === SubmissionAction.Approve) {
       setPlanMode(false, context);
       return {
         content: [
@@ -586,11 +582,11 @@ export default function (pi: ExtensionAPI) {
       };
     }
 
-    if (choice === IMPLEMENT_DIFFERENT) {
+    if (action === SubmissionAction.ImplementDifferent) {
       return await handleImplementDifferent(path, context);
     }
 
-    if (choice === REFINE) {
+    if (action === SubmissionAction.Refine) {
       const feedback = (
         await context.ui.input("Feedback on the plan:", "What should change?")
       )?.trim();
@@ -810,21 +806,9 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("tool_call", async (event, ctx) => {
     flushPendingToggle(ctx);
-    if (!planMode) return;
-
-    const blocked = blockedReason(event.toolName);
-    if (blocked) return { block: true, reason: blocked };
-    if (isAllowed(event.toolName)) return;
-
-    if (!ctx.hasUI) {
-      return {
-        block: true,
-        reason: deniedReason(
-          event.toolName,
-          "there is no interactive UI to ask for approval",
-        ),
-      };
-    }
+    const outcome = gate(event.toolName, ctx.hasUI ? Interaction.Available : Interaction.Unavailable);
+    if (outcome.kind === "run") return;
+    if (outcome.kind === "block") return { block: true, reason: outcome.reason };
     return await serialize(() => requestPermission(event, ctx));
   });
 
@@ -843,14 +827,14 @@ export default function (pi: ExtensionAPI) {
       event.reason === "new"
         ? latestPlanHandoff(ctx.sessionManager)
         : undefined;
-    const flagged = pi.getFlag("plan") === true && !handoff;
-    if (flagged) {
-      planMode = true;
-    }
-    // Subagents read the recorded state, so the effective mode has to be on the branch.
-    if (!restored || (flagged && !restored.enabled)) {
-      persist();
-    }
+    const request = handoff
+      ? StartupRequest.Handoff
+      : pi.getFlag("plan") === true
+        ? StartupRequest.Plan
+        : StartupRequest.None;
+    const { enabled, recording } = startupPlanMode(restored, request);
+    planMode = enabled;
+    if (recording === StateRecording.Record) persist();
     applyRestoredState(ctx);
 
     if (!handoff) return;
@@ -966,11 +950,6 @@ const CHOICE_DECISIONS: Record<string, Decision | undefined> = {
   [DENY_ALWAYS]: "deny-always",
 };
 
-const DENIAL_CAUSES = {
-  "deny-session": "you denied it for this session",
-  "deny-always": "you denied it for all sessions",
-} satisfies Partial<Record<Decision, string>>;
-
 const OUTCOME_LABELS: Record<string, string | undefined> = {
   approved: "approved",
   refine: "needs changes",
@@ -1074,15 +1053,6 @@ function summarizeInput(event: ToolCallEvent): string {
         ? input.path
         : JSON.stringify(input);
   return detail.length > 200 ? `${detail.slice(0, 197)}...` : detail;
-}
-
-function deniedReason(toolName: string, cause: string, note?: string): string {
-  const reason =
-    `Plan mode is active and ${cause}, so ${toolName} did not run. ` +
-    "Do not retry it.";
-  return note
-    ? `${reason} Do this instead: ${note}`
-    : `${reason} State what you need it for so the user can grant access, or call submit_plan if the plan is ready.`;
 }
 
 // getAvailable() is a snapshot that an in-flight availability pass has not
