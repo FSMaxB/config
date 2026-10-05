@@ -21,7 +21,7 @@ it("verifies tool APIs in an isolated offline Pi process", async () => {
 			["--import", import.meta.resolve("tsx"), "--test", "--test-reporter=tap", "tests/lib/tool-api-cases.mjs"], {
 				cwd: new URL("..", import.meta.url), timeout: 120000, maxBuffer: 4 * 1024 * 1024,
 				env: { ...environment, HOME: home, PI_CODING_AGENT_DIR: agentDir,
-					PI_SUBAGENT_CHILD: "", PI_SUBAGENT_PLAN_ALLOWED_TOOLS: "",
+					PI_SUBAGENT_CHILD: "", PI_SUBAGENT_ALLOWED_TOOLS: "", PI_SUBAGENT_RESTRICTING_MODE: "",
 					CLAUDE_BRIDGE_ISOLATED: "1" },
 			});
 		// assert
@@ -38,7 +38,7 @@ it("verifies tool APIs in an isolated offline Pi process", async () => {
 			["--import", import.meta.resolve("tsx"), "--test", "--test-reporter=tap", "tests/lib/tool-api-child-cases.mjs"], {
 				cwd: new URL("..", import.meta.url), timeout: 120000, maxBuffer: 4 * 1024 * 1024,
 				env: { ...environment, HOME: home, PI_CODING_AGENT_DIR: agentDir,
-					PI_SUBAGENT_CHILD: "1", PI_SUBAGENT_PLAN_ALLOWED_TOOLS: "read,caller_fixture",
+					PI_SUBAGENT_CHILD: "1", PI_SUBAGENT_ALLOWED_TOOLS: "read,caller_fixture", PI_SUBAGENT_RESTRICTING_MODE: "planning",
 					PI_SUBAGENT_PATH_POLICY: JSON.stringify(inherited) },
 			});
 		// assert

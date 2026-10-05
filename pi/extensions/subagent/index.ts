@@ -25,16 +25,16 @@ import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { shortenPath } from "../lib/format.ts";
 import { createLineSplitter } from "../lib/lines.ts";
-import { AgentMode, MODE_IDENTITIES } from "../lib/agent-mode.ts";
+import { isRestricted, MODE_IDENTITIES, type RestrictedMode } from "../lib/agent-mode.ts";
 import { readPersistedDecisions } from "../lib/mode-decisions.ts";
-import { latestModeEntry } from "../lib/mode-entry.ts";
+import { activeRestrictedMode } from "../lib/mode-entry.ts";
 import { captureChildPathPolicy } from "../lib/path-permissions.ts";
 import { serializeChildPathPolicy, CHILD_POLICY_ENV, type ChildPathPolicy } from "../lib/path-permission-snapshot.ts";
 import { registerToolWithGuidelines } from "../lib/register-tool.ts";
 import { sessionTemporaryDirectory, TEMPORARY_DIRECTORY_ENV } from "../lib/session-temporary-directory.ts";
 import { type AgentConfig, discoverAgents, THINKING_LEVELS } from "./agents.ts";
 import { guidanceTable, loadPolicyConfig, resolveSubagentModel, type SubagentModelConfig } from "./model-policy.ts";
-import { effectiveChildTools, planModeAllowedTools, type PersistedPlanDecisions } from "./plan-restrictions.ts";
+import { effectiveChildTools, restrictedModeAllowedTools, type PersistedModeDecisions } from "./mode-restrictions.ts";
 import { emptyUsage, finalizedMessageUsage, isFailedResult, subagentOutcome, sumUsage } from "./results.ts";
 
 const EXTENSION_DIRECTORY = dirname(fileURLToPath(import.meta.url));
@@ -94,23 +94,26 @@ export default function (pi: ExtensionAPI) {
     parameters: SubagentParams,
 
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
-      const planEntry = latestModeEntry(ctx.sessionManager, MODE_IDENTITIES.planning.entryType);
-      const planAllowedTools = planEntry?.enabled
-        ? planModeAllowedTools(
-            {
-              sessionGrants: planEntry.sessionGrants,
-              sessionDenials: planEntry.sessionDenials.map((denial) => denial.name),
-            },
-            await persistedPlanDecisions(),
-            pi.getAllTools(),
-          )
+      const active = activeRestrictedMode(ctx.sessionManager);
+      const restriction = isRestricted(active.mode) && active.entry
+        ? {
+            mode: active.mode,
+            allowedTools: restrictedModeAllowedTools(
+              {
+                sessionGrants: active.entry.sessionGrants,
+                sessionDenials: active.entry.sessionDenials.map((denial) => denial.name),
+              },
+              await persistedModeDecisions(active.mode),
+              pi.getAllTools(),
+            ),
+          }
         : undefined;
       const dispatch: DispatchContext = {
         mainModel: ctx.model,
         thinkingLevel: ctx.thinkingLevel,
         availableModels: ctx.modelRegistry.getAvailable(),
         policyConfig: loadPolicyConfig(EXTENSION_DIRECTORY),
-        planAllowedTools,
+        restriction,
         pathPolicy: await captureChildPathPolicy(),
         temporaryDirectory: sessionTemporaryDirectory(ctx.sessionManager.getSessionId()),
       };
@@ -459,7 +462,7 @@ interface DispatchContext {
   thinkingLevel?: ThinkingLevel;
   availableModels: Model<Api>[];
   policyConfig: SubagentModelConfig;
-  planAllowedTools: Set<string> | undefined;
+  restriction: { mode: RestrictedMode; allowedTools: Set<string> } | undefined;
   pathPolicy: ChildPathPolicy;
   temporaryDirectory: string;
 }
@@ -507,14 +510,14 @@ async function runSingleAgent(
   if (model) args.push("--model", model);
   if (thinkingLevel) args.push("--thinking", thinkingLevel);
 
-  const planAllowedTools = dispatch.planAllowedTools;
-  const effectiveTools = effectiveChildTools(agent.tools, planAllowedTools);
-  if (planAllowedTools !== undefined && effectiveTools?.length === 0) {
+  const { restriction } = dispatch;
+  const effectiveTools = effectiveChildTools(agent.tools, restriction?.allowedTools);
+  if (restriction && effectiveTools?.length === 0) {
     return policyFailure(
       agent,
       task,
-      `Plan mode restricts every tool of agent "${agent.name}", so dispatching it would be pointless. ` +
-        `Tools currently allowed for subagents: ${[...planAllowedTools].sort().join(", ")}.`,
+      `${MODE_IDENTITIES[restriction.mode].label} restricts every tool of agent "${agent.name}", so dispatching it would be pointless. ` +
+        `Tools currently allowed for subagents: ${[...restriction.allowedTools].sort().join(", ")}.`,
       configuration,
     );
   }
@@ -720,8 +723,12 @@ type TaskConfiguration = {
 
 function childEnvironment(dispatch: DispatchContext): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = { ...process.env, PI_SUBAGENT_CHILD: "1" };
-  delete environment.PI_SUBAGENT_PLAN_ALLOWED_TOOLS;
-  if (dispatch.planAllowedTools) environment.PI_SUBAGENT_PLAN_ALLOWED_TOOLS = [...dispatch.planAllowedTools].sort().join(",");
+  delete environment.PI_SUBAGENT_ALLOWED_TOOLS;
+  delete environment.PI_SUBAGENT_RESTRICTING_MODE;
+  if (dispatch.restriction) {
+    environment.PI_SUBAGENT_ALLOWED_TOOLS = [...dispatch.restriction.allowedTools].sort().join(",");
+    environment.PI_SUBAGENT_RESTRICTING_MODE = dispatch.restriction.mode;
+  }
   environment[CHILD_POLICY_ENV] = serializeChildPathPolicy(dispatch.pathPolicy);
   environment[TEMPORARY_DIRECTORY_ENV] = dispatch.temporaryDirectory;
   return environment;
@@ -990,9 +997,11 @@ function formatTokens(count: number): string {
 }
 
 function registerChildRestrictions(pi: ExtensionAPI): void {
-  const allowedList = process.env.PI_SUBAGENT_PLAN_ALLOWED_TOOLS;
+  const allowedList = process.env.PI_SUBAGENT_ALLOWED_TOOLS;
   if (allowedList === undefined) return;
 
+  const restrictingMode = Object.values(MODE_IDENTITIES).find(({ mode }) => mode === process.env.PI_SUBAGENT_RESTRICTING_MODE);
+  const modeName = restrictingMode?.label.toLowerCase() ?? "a restricted mode";
   const allowedTools = new Set(allowedList.split(",").filter(Boolean));
   pi.on("tool_call", async (event) => {
     if (allowedTools.has(event.toolName)) return;
@@ -1001,13 +1010,13 @@ function registerChildRestrictions(pi: ExtensionAPI): void {
     return {
       block: true,
       reason:
-        `${event.toolName} is unavailable: the dispatching session is in plan mode, which restricts subagents to read-only tools. ` +
+        `${event.toolName} is unavailable: the dispatching session is in ${modeName}, which restricts subagents to read-only tools. ` +
         `Do not retry it. Tools you can use: ${usableTools.sort().join(", ")}.`,
     };
   });
 }
 
-async function persistedPlanDecisions(): Promise<PersistedPlanDecisions> {
-  const { alwaysAllowed, alwaysDenied } = await readPersistedDecisions(AgentMode.Planning);
+async function persistedModeDecisions(mode: RestrictedMode): Promise<PersistedModeDecisions> {
+  const { alwaysAllowed, alwaysDenied } = await readPersistedDecisions(mode);
   return { alwaysAllowed, alwaysDenied: alwaysDenied.map((denial) => denial.name) };
 }
