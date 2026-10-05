@@ -1,43 +1,42 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { AgentMode, MODE_IDENTITIES } from "./agent-mode.ts";
 import { FILE_TOOLS } from "./file-tools.ts";
+import { PLAN_PATH, SUBMIT_PLAN } from "./plan-tools.ts";
 
-export const PLAN_PATH = "plan_path";
-export const SUBMIT_PLAN = "submit_plan";
-export const PLAN_TOOLS = [PLAN_PATH, SUBMIT_PLAN];
-export const PLAN_MODE_MESSAGE_TYPE = "plan-mode-state";
+export const MODE_MESSAGE_TYPE = "agent-mode-state";
+// Sessions saved before explore mode recorded their snapshots under this type.
+const LEGACY_MODE_MESSAGE_TYPE = "plan-mode-state";
 
-export const PlanModeState = { Planning: "planning", Execution: "execution" } as const;
-export type PlanModeState = (typeof PlanModeState)[keyof typeof PlanModeState];
 export const SandboxStatus = { Active: "active", Inactive: "inactive" } as const;
 export type SandboxStatus = (typeof SandboxStatus)[keyof typeof SandboxStatus];
 
-export interface PlanModeSnapshot {
-  mode: PlanModeState;
+export interface ModeSnapshot {
+  mode: AgentMode;
   plansDirectory: string;
   sandbox: SandboxStatus;
   denials: readonly { name: string; note?: string }[];
 }
 
-export interface PlanModeMessages {
+export interface ModeMessages {
   announce(context: ExtensionContext): void;
   reset(): void;
 }
 
-// The system prompt and tool declarations stay fixed so toggling plan mode keeps the provider's
+// The system prompt and tool declarations stay fixed so switching modes keeps the provider's
 // cache prefix; the mode reaches the model as appended snapshot messages instead, and a request
 // that lost the latest snapshot (compaction, context edits) gets it re-appended at the end.
-export function registerPlanModeMessages(
+export function registerModeMessages(
   pi: Pick<ExtensionAPI, "on" | "sendMessage">,
   dependencies: {
-    snapshot(): PlanModeSnapshot;
+    snapshot(): ModeSnapshot;
     projection(context: ExtensionContext): readonly unknown[];
     prepare(context: ExtensionContext): void;
   },
-): PlanModeMessages {
+): ModeMessages {
   const { snapshot, projection, prepare } = dependencies;
-  const delivery = createPlanModeDelivery((content) =>
+  const delivery = createModeDelivery((content) =>
     pi.sendMessage(
-      { customType: PLAN_MODE_MESSAGE_TYPE, content, display: false },
+      { customType: MODE_MESSAGE_TYPE, content, display: false },
       { triggerTurn: false },
     ),
   );
@@ -46,7 +45,7 @@ export function registerPlanModeMessages(
     prepare(context);
     const content = delivery.initialMessage(renderSnapshot(snapshot()), projection(context));
     if (content === undefined) return undefined;
-    return { message: { customType: PLAN_MODE_MESSAGE_TYPE, content, display: false } };
+    return { message: { customType: MODE_MESSAGE_TYPE, content, display: false } };
   });
 
   pi.on("context", async (event, context) => {
@@ -60,44 +59,41 @@ export function registerPlanModeMessages(
   };
 }
 
-// Sessions saved while plan mode was off may restore a loadout without the planning tools.
-// Only missing ones are appended, so unrelated tools keep their order.
-export function activateMissingPlanTools(pi: Pick<ExtensionAPI, "getActiveTools" | "setActiveTools">): void {
-  const active = pi.getActiveTools();
-  const missing = PLAN_TOOLS.filter((name) => !active.includes(name));
-  if (missing.length > 0) pi.setActiveTools([...active, ...missing]);
-}
-
-export function renderSnapshot({ mode, plansDirectory, sandbox, denials }: PlanModeSnapshot): string {
-  const header = "This is the current plan-mode state. It supersedes all earlier plan-mode state messages.";
-  if (mode === PlanModeState.Execution) {
+export function renderSnapshot({ mode, plansDirectory, sandbox, denials }: ModeSnapshot): string {
+  const header = "This is the current agent-mode state. It supersedes all earlier agent-mode and plan-mode state messages.";
+  if (mode === AgentMode.Execution) {
     return [
       header,
       "",
-      "Plan mode is off. The planning restrictions and instructions from earlier plan-mode state messages no longer apply.",
+      "Plan mode and explore mode are off. The restrictions and instructions from earlier mode state messages no longer apply.",
       `${PLAN_PATH} and ${SUBMIT_PLAN} reject every call until the user enables plan mode again; do not call them.`,
       "The ordinary sandbox and path permissions still apply.",
     ].join("\n");
   }
 
+  const { label } = MODE_IDENTITIES[mode];
+  const planning = mode === AgentMode.Planning;
+  const pathRules = planning ? "the read/write path rules" : "explore mode's own read/write path rules";
   return [
     header,
     "",
-    "Plan mode is active.",
+    planning ? "Plan mode is active." : "Explore mode is active. It exists for exploring the codebase before anything is implemented.",
     "",
-    `- The file tools (${FILE_TOOLS.join(", ")}) check every path against the read/write path rules. Reading anywhere in the repository and in the memory, skill, plan and crit directories and the session's temp_dir works without asking.`,
-    `- Plan mode is read-only by default: writing inside the repository prompts the user for each path. The memory directory, the plans directory (${plansDirectory}) and the session's temp_dir stay writable.`,
+    `- The file tools (${FILE_TOOLS.join(", ")}) check every path against ${pathRules}. Reading anywhere in the repository and in the memory, skill, plan and crit directories and the session's temp_dir works without asking.`,
+    `- ${label} is read-only by default: writing inside the repository prompts the user for each path. The memory directory, the plans directory (${plansDirectory}) and the session's temp_dir stay writable.`,
     sandbox === SandboxStatus.Active
-      ? "- bash runs in the sandbox, which enforces the same path rules at the OS level, so it needs no separate plan-mode approval per call. A bash call with unsandboxed: true still needs the user's confirmation."
+      ? "- bash runs in the sandbox, which enforces the same path rules at the OS level, so it needs no separate approval per call. A bash call with unsandboxed: true still needs the user's confirmation."
       : "- bash needs the user's approval for each call.",
-    "- Other tools run without asking when they are read-only, exempt from plan-mode approval, or granted by the user; every other tool asks the user before each call.",
+    "- Other tools run without asking when they are read-only, exempt from approval in this mode, or granted by the user; every other tool asks the user before each call.",
     ...denialLines(denials),
     "- If a call or a path is denied, do not retry it and do not route around it.",
-    `- To write a plan, call ${PLAN_PATH} once to get a file path, create the file there with write, and revise it with edit. An approved crit_review plan automatically opens the submission dialog; do not submit it again. Otherwise call ${SUBMIT_PLAN} with that path when it is ready. Only the user can leave plan mode.`,
+    planning
+      ? `- To write a plan, call ${PLAN_PATH} once to get a file path, create the file there with write, and revise it with edit. An approved crit_review plan automatically opens the submission dialog; do not submit it again. Otherwise call ${SUBMIT_PLAN} with that path when it is ready. Only the user can leave plan mode.`
+      : `- ${PLAN_PATH} and ${SUBMIT_PLAN} reject every call in explore mode; do not call them. There is nothing to submit: when the exploration is done, report what you found and stop. Only the user can leave explore mode.`,
   ].join("\n");
 }
 
-function denialLines(denials: PlanModeSnapshot["denials"]): string[] {
+function denialLines(denials: ModeSnapshot["denials"]): string[] {
   if (denials.length === 0) return [];
   const sorted = [...denials].sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
   return [
@@ -106,7 +102,7 @@ function denialLines(denials: PlanModeSnapshot["denials"]): string[] {
   ];
 }
 
-export function createPlanModeDelivery(send: (content: string) => void) {
+export function createModeDelivery(send: (content: string) => void) {
   // Content handed to sendMessage that the session may not show yet: while the agent streams,
   // Pi holds custom messages until the tool results of the current turn are in.
   let queued: string | undefined;
@@ -152,7 +148,7 @@ export function createPlanModeDelivery(send: (content: string) => void) {
 
 export function latestSnapshotContent(messages: readonly unknown[]): string | undefined {
   const latest = (messages as readonly { role?: unknown; customType?: unknown; content?: unknown }[]).findLast(
-    (message) => message.role === "custom" && message.customType === PLAN_MODE_MESSAGE_TYPE,
+    (message) => message.role === "custom" && (message.customType === MODE_MESSAGE_TYPE || message.customType === LEGACY_MODE_MESSAGE_TYPE),
   );
   return latest === undefined ? undefined : normalizedContent(latest.content);
 }
@@ -167,5 +163,5 @@ function normalizedContent(content: unknown): string {
 }
 
 function snapshotMessage(content: string) {
-  return { role: "custom", customType: PLAN_MODE_MESSAGE_TYPE, content, display: false, timestamp: Date.now() };
+  return { role: "custom", customType: MODE_MESSAGE_TYPE, content, display: false, timestamp: Date.now() };
 }

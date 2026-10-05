@@ -6,85 +6,20 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionContext,
-  Theme,
-  ToolCallEvent,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { AgentMode } from "./lib/agent-mode.ts";
-import { FILE_TOOLS } from "./lib/file-tools.ts";
-import {
-  addPathRule,
-  ALLOW_ALWAYS,
-  ALLOW_ONCE,
-  ALLOW_SESSION,
-  clearPathRules,
-  DENY_ALWAYS,
-  DENY_ONCE,
-  DENY_SESSION,
-  initPathPermissions,
-  listPathRules,
-  normalizePathSelector,
-  removePathRule,
-  restoreSessionPathRules,
-  setAgentMode,
-} from "./lib/path-permissions.ts";
-import { selectorLabel, type AccessMode, type PathRule, type RuleKind, type RuleTier } from "./lib/path-permission-rules.ts";
-import {
-  latestPlanModeEntry,
-  PLAN_MODE_ENTRY_TYPE,
-  readPersistedDecisions,
-  writePersistedDecisions,
-  type PlanModeEntry,
-} from "./lib/plan-decisions.ts";
-import { newPlanPath, plansDirectory } from "./lib/plan-file.ts";
-import {
-  activateMissingPlanTools,
-  PLAN_PATH,
-  PLAN_TOOLS,
-  PlanModeState,
-  registerPlanModeMessages,
-  SandboxStatus,
-  SUBMIT_PLAN,
-  type PlanModeSnapshot,
-} from "./lib/plan-mode-messages.ts";
-import {
-  blockedReason,
-  DENIAL_CAUSES,
-  deniedReason,
-  effectiveDenials,
-  Interaction,
-  startupPlanMode,
-  StartupRequest,
-  StateRecording,
-  SubmissionAction,
-  submissionAction,
-  submissionOptions,
-  toolGate,
-} from "./lib/plan-mode-policy.ts";
+import { MODE_IDENTITIES } from "./lib/agent-mode.ts";
+import { newPlanPath } from "./lib/plan-file.ts";
+import { activateMissingPlanTools, PLAN_PATH, SUBMIT_PLAN } from "./lib/plan-tools.ts";
+import { SubmissionAction, submissionAction, submissionOptions } from "./lib/plan-mode-policy.ts";
 import { commitPlanFileForUser } from "./lib/plan-commit.ts";
 import { registerPlanSubmission, type PlanSubmissionParams, type PlanSubmissionResult } from "./lib/plan-submission.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
-import { isSandboxActive } from "./lib/sandbox-state.ts";
+import { registerRestrictedMode } from "./lib/restricted-mode.ts";
 import { selectWithDefault } from "./lib/select-with-default.ts";
 import { latestCustomData } from "./lib/session-entries.ts";
-import { serialize } from "./lib/ui-queue.ts";
-import { planToolPermission, trustedReadOnlyToolNames, type ToolPermission } from "./lib/tool-permission-policy.ts";
 
-const UNGATED_TOOLS = new Set([
-  // File tools are gated per path by lib/path-permissions.ts rather than per call.
-  ...FILE_TOOLS,
-  "question",
-  // Safe under plan mode by construction: the subagent extension caps child
-  // tools at what plan mode leaves ungated or granted here.
-  "subagent",
-  // Creates only the session scratch directory, which the path rules allow in plan mode.
-  "temp_dir",
-  ...PLAN_TOOLS,
-]);
-
-const CLEAR_ALL = "Clear all";
-const DONE = "Done";
 const CONTEXT_FULL = "Full context — inherit the whole conversation";
 const CONTEXT_COMPACT = "Compact — summarize, then implement in a fresh turn";
 const CONTEXT_FRESH = "Fresh session — only the plan file, nothing else";
@@ -92,245 +27,12 @@ const FRESH_HANDOFF_ARGUMENT = "fresh-handoff";
 const PLAN_HANDOFF_ENTRY_TYPE = "plan-handoff";
 
 export default function (pi: ExtensionAPI) {
-  initPathPermissions(pi);
-  let planMode = false;
-  let agentRunning = false;
-  let pendingToggle: boolean | undefined;
   let pendingFreshHandoff: PlanHandoff | undefined;
-  const sessionGrants = new Set<string>();
-  const alwaysGrants = new Set<string>();
-  // Denials carry the note the user left, so a repeat block can keep repeating the guidance
-  // instead of only saying no.
-  const sessionDenials = new Map<string, string | undefined>();
-  const alwaysDenials = new Map<string, string | undefined>();
-  const denials = { sessionDenials, alwaysDenials };
-  const messages = registerPlanModeMessages(pi, {
-    snapshot: currentSnapshot,
-    projection: (context) => context.sessionManager.buildSessionProjection().messages,
-    prepare: flushPendingToggle,
+  const plan = registerRestrictedMode(pi, {
+    identity: MODE_IDENTITIES.planning,
+    // A fresh handoff session exists to implement an approved plan, so --plan does not apply to it.
+    requestedAtStartup: (event, context) => !(event.reason === "new" && latestPlanHandoff(context.sessionManager)),
   });
-
-  function currentSnapshot(): PlanModeSnapshot {
-    return {
-      mode: currentMode(),
-      plansDirectory: plansDirectory(),
-      sandbox: isSandboxActive() ? SandboxStatus.Active : SandboxStatus.Inactive,
-      denials: effectiveDenials(denials),
-    };
-  }
-
-  function currentMode(): PlanModeState {
-    return planMode ? PlanModeState.Planning : PlanModeState.Execution;
-  }
-
-  function gate(toolName: string, interaction: Interaction) {
-    return toolGate(toolName, { mode: currentMode(), denials, permission: permission(toolName), interaction });
-  }
-
-  function permission(toolName: string): ToolPermission {
-    // The sandbox makes bash read-only in plan mode at the OS level; without it bash stays gated per call.
-    if (toolName === "bash" && isSandboxActive()) return "allow";
-    return planToolPermission(
-      toolName,
-      { sessionGrants, alwaysGrants, sessionDenials: sessionDenials.keys(), alwaysDenials: alwaysDenials.keys() },
-      UNGATED_TOOLS,
-      trustedReadOnlyToolNames(pi.getAllTools()),
-    );
-  }
-
-  // The most recent decision wins outright, so a tool never sits in two stores and
-  // a narrow grant can always override an earlier "always" denial.
-  async function record(
-    toolName: string,
-    decision: Decision,
-    ctx: ExtensionContext,
-    note?: string,
-  ): Promise<void> {
-    for (const store of [
-      sessionGrants,
-      alwaysGrants,
-      sessionDenials,
-      alwaysDenials,
-    ]) {
-      store.delete(toolName);
-    }
-    switch (decision) {
-      case "allow-session":
-        sessionGrants.add(toolName);
-        break;
-      case "allow-always":
-        alwaysGrants.add(toolName);
-        break;
-      case "deny-session":
-        sessionDenials.set(toolName, note);
-        break;
-      case "deny-always":
-        alwaysDenials.set(toolName, note);
-        break;
-    }
-    await save(ctx);
-  }
-
-  async function save(ctx: ExtensionContext): Promise<void> {
-    persist();
-    await writePersistedDecisions(alwaysGrants, alwaysDenials);
-    messages.announce(ctx);
-  }
-
-  function persist(): void {
-    pi.appendEntry(PLAN_MODE_ENTRY_TYPE, {
-      enabled: planMode,
-      sessionGrants: [...sessionGrants],
-      sessionDenials: [...sessionDenials].map(([name, note]) => ({
-        name,
-        note,
-      })),
-    });
-  }
-
-  function refreshIndicators(ctx: ExtensionContext): void {
-    const pendingChange =
-      pendingToggle !== undefined && pendingToggle !== planMode;
-    ctx.ui.setStatus(
-      "plan-mode",
-      planMode ? ctx.ui.theme.fg("warning", "⏸ plan") : undefined,
-    );
-    ctx.ui.setWidget(
-      "plan-mode",
-      planBanner(ctx.ui.theme, planMode, pendingChange),
-      { placement: "aboveEditor" },
-    );
-  }
-
-  function setPlanMode(enabled: boolean, ctx: ExtensionContext): void {
-    planMode = enabled;
-    setAgentMode(enabled ? AgentMode.Planning : AgentMode.Execution);
-    refreshIndicators(ctx);
-    persist();
-    messages.announce(ctx);
-  }
-
-  function toggle(ctx: ExtensionContext): void {
-    if (agentRunning) {
-      pendingToggle = !(pendingToggle ?? planMode);
-      refreshIndicators(ctx);
-      ctx.ui.notify(
-        `Plan mode will be ${pendingToggle ? "enabled" : "disabled"} at the next tool call.`,
-      );
-      return;
-    }
-    setPlanMode(!planMode, ctx);
-    ctx.ui.notify(planMode ? "Plan mode enabled." : "Plan mode disabled.");
-  }
-
-  function flushPendingToggle(ctx: ExtensionContext): void {
-    if (pendingToggle === undefined) return;
-
-    const enabled = pendingToggle;
-    pendingToggle = undefined;
-    if (enabled === planMode) {
-      refreshIndicators(ctx);
-      return;
-    }
-    setPlanMode(enabled, ctx);
-    ctx.ui.notify(planMode ? "Plan mode enabled." : "Plan mode disabled.");
-  }
-
-  async function requestPermission(
-    event: ToolCallEvent,
-    ctx: ExtensionContext,
-  ) {
-    // An earlier prompt from the same batch may have decided this tool while we queued.
-    const queued = gate(event.toolName, Interaction.Available);
-    if (queued.kind === "block") return { block: true, reason: queued.reason };
-    if (queued.kind === "run") return undefined;
-
-    const choice = await ctx.ui.select(
-      `Plan mode — allow ${event.toolName}?\n\n  ${summarizeInput(event)}`,
-      [
-        ALLOW_ONCE,
-        ALLOW_SESSION,
-        ALLOW_ALWAYS,
-        DENY_ONCE,
-        DENY_SESSION,
-        DENY_ALWAYS,
-      ],
-    );
-
-    if (choice === ALLOW_ONCE) return undefined;
-    const decision = choice === undefined ? undefined : CHOICE_DECISIONS[choice];
-    if (decision === "allow-session" || decision === "allow-always") {
-      await record(event.toolName, decision, ctx);
-      return undefined;
-    }
-
-    // Dismissing the prompt denies the call without stopping to ask for a note.
-    const note = choice === undefined ? undefined : await askDenyNote(ctx);
-    if (decision) await record(event.toolName, decision, ctx, note);
-    const cause = decision ? DENIAL_CAUSES[decision] : "the user denied this call";
-    return { block: true, reason: deniedReason(event.toolName, cause, note) };
-  }
-
-  async function askDenyNote(
-    ctx: ExtensionContext,
-  ): Promise<string | undefined> {
-    const note = await ctx.ui.input(
-      "What should the agent do instead?",
-      "Optional — leave empty to just deny",
-    );
-    return note?.trim() || undefined;
-  }
-
-  async function manageDecisions(ctx: ExtensionContext): Promise<void> {
-    if (!ctx.hasUI) {
-      ctx.ui.notify(
-        "Managing plan mode decisions needs an interactive UI.",
-        "error",
-      );
-      return;
-    }
-
-    while (true) {
-      const entries = listDecisions(
-        sessionGrants,
-        alwaysGrants,
-        sessionDenials,
-        alwaysDenials,
-        await listPathRules(),
-      );
-      if (entries.length === 0) {
-        ctx.ui.notify("No plan mode grants, denials or path rules recorded.");
-        return;
-      }
-
-      const labels = entries.map(({ label }) => label);
-      const choice = await ctx.ui.select(
-        "Plan mode decisions — pick one to remove",
-        [...labels, CLEAR_ALL, DONE],
-      );
-
-      if (choice === CLEAR_ALL) {
-        for (const store of [
-          sessionGrants,
-          alwaysGrants,
-          sessionDenials,
-          alwaysDenials,
-        ]) {
-          store.clear();
-        }
-        await save(ctx);
-        await clearPathRules();
-        ctx.ui.notify("Cleared all plan mode grants, denials and path rules.");
-        return;
-      }
-
-      const entry = entries[labels.indexOf(choice ?? "")];
-      if (!entry) return;
-
-      await entry.remove();
-      await save(ctx);
-    }
-  }
 
   pi.registerFlag("plan", {
     description: "Start in plan mode (tools that change things need approval)",
@@ -357,8 +59,8 @@ export default function (pi: ExtensionAPI) {
     }),
 
     async execute(_toolCallId, params, _signal, _onUpdate, context): Promise<AgentToolResult<{ path: string | null }>> {
-      flushPendingToggle(context);
-      if (!planMode) {
+      plan.flushPendingToggle(context);
+      if (!plan.isActive()) {
         return {
           content: [{ type: "text", text: "plan_path is only available in plan mode, which is off. Only the user can enable it." }],
           details: { path: null },
@@ -476,13 +178,13 @@ export default function (pi: ExtensionAPI) {
 
   registerPlanSubmission(pi.events, {
     available(context) {
-      flushPendingToggle(context);
-      return planMode;
+      plan.flushPendingToggle(context);
+      return plan.isActive();
     },
     async submit(params, signal, context) {
       signal?.throwIfAborted();
-      flushPendingToggle(context);
-      if (planMode && !pi.getActiveTools().includes(SUBMIT_PLAN)) {
+      plan.flushPendingToggle(context);
+      if (plan.isActive() && !pi.getActiveTools().includes(SUBMIT_PLAN)) {
         throw new Error("submit_plan is deactivated, so the reviewed plan was not submitted.");
       }
       return await submitPlan(params, signal, context);
@@ -495,8 +197,8 @@ export default function (pi: ExtensionAPI) {
     context: ExtensionContext,
   ): Promise<PlanSubmissionResult> {
     signal?.throwIfAborted();
-    flushPendingToggle(context);
-    if (!planMode) {
+    plan.flushPendingToggle(context);
+    if (!plan.isActive()) {
       const error = "submit_plan is only available in plan mode, which is off. Only the user can enable it.";
       return {
         content: [{ type: "text", text: error }],
@@ -504,7 +206,7 @@ export default function (pi: ExtensionAPI) {
       };
     }
 
-    const blocked = blockedReason(SUBMIT_PLAN, denials);
+    const blocked = plan.blockedReason(SUBMIT_PLAN);
     if (blocked) throw new Error(blocked);
 
     const { path } = params;
@@ -571,7 +273,7 @@ export default function (pi: ExtensionAPI) {
     }
 
     if (action === SubmissionAction.Approve) {
-      setPlanMode(false, context);
+      plan.leave(context);
       return {
         content: [
           {
@@ -673,7 +375,7 @@ export default function (pi: ExtensionAPI) {
         modelId: selectedModel.id,
         thinkingLevel: level ?? pi.getThinkingLevel(),
       };
-      setPlanMode(false, ctx);
+      plan.leave(ctx);
       // newSession only exists on the command context, so the switch is dispatched
       // as a command; prompt() executes extension commands immediately even while
       // the agent is streaming, and the resulting teardown aborts this turn after
@@ -706,7 +408,7 @@ export default function (pi: ExtensionAPI) {
     // clamped level stands.
     if (level !== undefined) pi.setThinkingLevel(level);
 
-    setPlanMode(false, ctx);
+    plan.leave(ctx);
 
     if (compactFirst) {
       // Compaction aborts the run this tool call belongs to, so the kickoff has
@@ -747,27 +449,10 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("plan", {
     description:
       "Toggle plan mode, review decisions with `grants`, or add a path rule with `allow <glob>` / `deny <glob>`",
-    getArgumentCompletions: (prefix) => {
-      const completions = ["grants", "allow", "deny"]
-        .filter((value) => value.startsWith(prefix))
-        .map((value) => ({ value, label: value }));
-      return completions.length > 0 ? completions : null;
-    },
+    getArgumentCompletions: plan.completions,
     handler: async (args, ctx) => {
       const argument = args.trim();
-      if (!argument) {
-        toggle(ctx);
-        return;
-      }
-      if (argument === "grants") {
-        await manageDecisions(ctx);
-        return;
-      }
-      const [subcommand, ...rest] = argument.split(/\s+/);
-      if (subcommand === "allow" || subcommand === "deny") {
-        await addPathRuleInteractively(subcommand, rest.join(" "), ctx);
-        return;
-      }
+      if (await plan.handleCommand(argument, ctx)) return;
       if (argument === FRESH_HANDOFF_ARGUMENT) {
         await startFreshHandoffSession(ctx);
         return;
@@ -805,39 +490,13 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
-  pi.on("tool_call", async (event, ctx) => {
-    flushPendingToggle(ctx);
-    const outcome = gate(event.toolName, ctx.hasUI ? Interaction.Available : Interaction.Unavailable);
-    if (outcome.kind === "run") return;
-    if (outcome.kind === "block") return { block: true, reason: outcome.reason };
-    return await serialize(() => requestPermission(event, ctx));
-  });
-
-  pi.on("agent_start", async () => {
-    agentRunning = true;
-  });
-
-  pi.on("agent_end", async (_event, ctx) => {
-    agentRunning = false;
-    flushPendingToggle(ctx);
-  });
-
   pi.on("session_start", async (event, ctx) => {
-    const restored = await restoreBranchState(ctx);
+    // A compatibility migration for loadouts saved without the planning tools, not a mode change.
+    activateMissingPlanTools(pi);
     const handoff =
       event.reason === "new"
         ? latestPlanHandoff(ctx.sessionManager)
         : undefined;
-    const request = handoff
-      ? StartupRequest.Handoff
-      : pi.getFlag("plan") === true
-        ? StartupRequest.Plan
-        : StartupRequest.None;
-    const { enabled, recording } = startupPlanMode(restored, request);
-    planMode = enabled;
-    if (recording === StateRecording.Record) persist();
-    applyRestoredState(ctx);
-
     if (!handoff) return;
     // The new runtime's availability snapshot is still being computed while
     // session_start runs (an extension's provider is registered synchronously,
@@ -866,49 +525,9 @@ export default function (pi: ExtensionAPI) {
     );
   });
 
-  // The selected branch's recorded mode wins over the startup flag here: navigating is not a restart.
-  pi.on("session_tree", async (_event, ctx) => {
-    await restoreBranchState(ctx);
-    applyRestoredState(ctx);
-  });
-
-  async function restoreBranchState(ctx: ExtensionContext): Promise<PlanModeEntry | undefined> {
-    messages.reset();
-    for (const store of [
-      sessionGrants,
-      alwaysGrants,
-      sessionDenials,
-      alwaysDenials,
-    ]) {
-      store.clear();
-    }
-
-    const { alwaysAllowed, alwaysDenied } = await readPersistedDecisions();
-    for (const toolName of alwaysAllowed) {
-      alwaysGrants.add(toolName);
-    }
-    for (const { name, note } of alwaysDenied) {
-      alwaysDenials.set(name, note);
-    }
-
-    const restored = latestPlanModeEntry(ctx.sessionManager);
-    planMode = restored?.enabled ?? false;
-    for (const toolName of restored?.sessionGrants ?? []) {
-      sessionGrants.add(toolName);
-    }
-    for (const { name, note } of restored?.sessionDenials ?? []) {
-      sessionDenials.set(name, note);
-    }
-    restoreSessionPathRules({ getEntries: () => ctx.sessionManager.getBranch() });
-    return restored;
-  }
-
-  function applyRestoredState(ctx: ExtensionContext): void {
-    setAgentMode(planMode ? AgentMode.Planning : AgentMode.Execution);
-    // A compatibility migration for loadouts saved without the planning tools, not a mode change.
+  pi.on("session_tree", async () => {
     activateMissingPlanTools(pi);
-    refreshIndicators(ctx);
-  }
+  });
 }
 
 const PLANNING_NAMESPACE = { name: "planning", description: "Create plan paths and submit plans for human approval." };
@@ -938,123 +557,11 @@ function latestPlanHandoff(
   return { planPath, provider, modelId, thinkingLevel };
 }
 
-type Decision =
-  | "allow-session"
-  | "allow-always"
-  | "deny-session"
-  | "deny-always";
-
-const CHOICE_DECISIONS: Record<string, Decision | undefined> = {
-  [ALLOW_SESSION]: "allow-session",
-  [ALLOW_ALWAYS]: "allow-always",
-  [DENY_SESSION]: "deny-session",
-  [DENY_ALWAYS]: "deny-always",
-};
-
 const OUTCOME_LABELS: Record<string, string | undefined> = {
   approved: "approved",
   refine: "needs changes",
   "handed-off": "handed off",
 };
-
-interface DecisionEntry {
-  label: string;
-  remove: () => void | Promise<void>;
-}
-
-function planBanner(
-  theme: Theme,
-  planMode: boolean,
-  pendingChange: boolean,
-): string[] | undefined {
-  if (!planMode) {
-    return pendingChange
-      ? [theme.fg("dim", "⏸ plan mode starts at the next tool call")]
-      : undefined;
-  }
-
-  const label = theme.fg("warning", theme.bold("⏸ PLAN MODE"));
-  const hint = pendingChange
-    ? " — ending at the next tool call"
-    : " — read-only tools run freely, everything else asks. /plan to exit";
-  return [label + theme.fg("dim", hint)];
-}
-
-function listDecisions(
-  sessionGrants: Set<string>,
-  alwaysGrants: Set<string>,
-  sessionDenials: Map<string, string | undefined>,
-  alwaysDenials: Map<string, string | undefined>,
-  pathRules: PathRule[],
-): DecisionEntry[] {
-  const grants: [Set<string>, string][] = [
-    [sessionGrants, "allow (session)"],
-    [alwaysGrants, "allow (always)"],
-  ];
-  const denials: [Map<string, string | undefined>, string][] = [
-    [sessionDenials, "deny (session)"],
-    [alwaysDenials, "deny (always)"],
-  ];
-
-  return [
-    ...grants.flatMap(([store, scope]) =>
-      [...store].sort().map((toolName) => ({
-        label: `${toolName} — ${scope}`,
-        remove: () => void store.delete(toolName),
-      })),
-    ),
-    ...denials.flatMap(([store, scope]) =>
-      [...store.keys()].sort().map((toolName) => {
-        const note = store.get(toolName);
-        return {
-          label: note
-            ? `${toolName} — ${scope}: ${note}`
-            : `${toolName} — ${scope}`,
-          remove: () => void store.delete(toolName),
-        };
-      }),
-    ),
-    ...pathRules.map((rule) => ({
-      label: `${rule.mode} ${rule.kind} ${selectorLabel(rule.selector)} — path (${rule.tier})`,
-      remove: () => removePathRule(rule),
-    })),
-  ];
-}
-
-async function addPathRuleInteractively(
-  kind: RuleKind,
-  pattern: string,
-  ctx: ExtensionCommandContext,
-): Promise<void> {
-  if (!pattern) {
-    ctx.ui.notify(`Usage: /plan ${kind} <path-or-glob>`, "error");
-    return;
-  }
-  if (!ctx.hasUI) {
-    ctx.ui.notify("Adding path rules needs an interactive UI.", "error");
-    return;
-  }
-  const modeChoice = await ctx.ui.select(`${kind} ${pattern} for which access?`, ["read", "write", "read and write"]);
-  if (modeChoice === undefined) return;
-  const tierChoice = await ctx.ui.select("For how long?", ["This session", "Always"]);
-  if (tierChoice === undefined) return;
-  const tier: RuleTier = tierChoice === "Always" ? "always" : "session";
-  const selector = await normalizePathSelector(pattern, ctx.cwd);
-  const modes: AccessMode[] = modeChoice === "read and write" ? ["read", "write"] : [modeChoice as AccessMode];
-  for (const mode of modes) await addPathRule({ mode, kind, tier, selector });
-  ctx.ui.notify(`Path rule added: ${kind} ${modes.join("+")} ${selectorLabel(selector)} (${tier}).`);
-}
-
-function summarizeInput(event: ToolCallEvent): string {
-  const input = event.input as Record<string, unknown>;
-  const detail =
-    typeof input.command === "string"
-      ? input.command
-      : typeof input.path === "string"
-        ? input.path
-        : JSON.stringify(input);
-  return detail.length > 200 ? `${detail.slice(0, 197)}...` : detail;
-}
 
 // getAvailable() is a snapshot that an in-flight availability pass has not
 // necessarily updated yet (extension providers registered on this session's
