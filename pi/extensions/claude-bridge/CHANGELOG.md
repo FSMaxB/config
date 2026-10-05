@@ -4,6 +4,7 @@
 
 ### Unreleased (local fork)
 
+- Removed Claude Opus 5 (`claude-opus-5`) from the `pi-claude` model list; Opus 5.5 supersedes it. Saved selections and model-effort override keys for `claude-opus-5` no longer resolve; switch to `claude-opus-5-5`.
 - The global AGENTS context file in the Pi agent directory (`~/.pi/agent/AGENTS.md` or its override) is now forwarded on every query, ahead of the nearest working-directory file, instead of only when no working-directory ancestor has one. Claude Code has no user-level `AGENTS.md` slot and the bridge runs it without filesystem settings, so this was the only path for standing instructions and it silently dropped them inside any repository with its own `AGENTS.md`. A global file that is a symlink into the current repository is sent once.
 - Removed the extension-manager configuration channel and flat bridge keys. Only nested user and trusted-project `claude-bridge.json` files are read; translate surviving settings manually. `/pi-claude` now shows status only, and optional prompt-hook scraping is gone.
 - Removed multi-account routing, host `/usage` probes, rotation and profile-scoped resume. Old markers with `accountProfileId` rebuild from Pi history rather than resuming under the ambient login; ordinary billing identity and rate-limit events remain.
