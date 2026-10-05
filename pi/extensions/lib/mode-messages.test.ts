@@ -1,16 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { AgentMode } from "./agent-mode.ts";
 import {
-  activateMissingPlanTools,
-  createPlanModeDelivery,
+  createModeDelivery,
   latestSnapshotContent,
-  PlanModeState,
   renderSnapshot,
   SandboxStatus,
-  type PlanModeSnapshot,
-} from "./plan-mode-messages.ts";
+  type ModeSnapshot,
+} from "./mode-messages.ts";
 
-const HEADER = "This is the current plan-mode state. It supersedes all earlier plan-mode state messages.";
+const HEADER = "This is the current agent-mode state. It supersedes all earlier agent-mode and plan-mode state messages.";
 
 test("the planning snapshot carries the workflow, plans directory and denials with their notes", () => {
   // arrange
@@ -32,6 +31,25 @@ test("the planning snapshot carries the workflow, plans directory and denials wi
   assert.match(content, / {2}- bash\n {2}- web_search \(do this instead: Use the docs in the repository\)/);
 });
 
+test("the exploring snapshot has no plan workflow and tells the model to report instead", () => {
+  // arrange
+  const state = snapshot({ mode: AgentMode.Exploring, denials: [{ name: "bash" }] });
+
+  // act
+  const content = renderSnapshot(state);
+
+  // assert
+  assert.ok(content.startsWith(`${HEADER}\n`));
+  assert.match(content, /Explore mode is active\./);
+  assert.match(content, /explore mode's own read\/write path rules/);
+  assert.match(content, /Explore mode is read-only by default/);
+  assert.match(content, /plan_path and submit_plan reject every call in explore mode; do not call them\./);
+  assert.match(content, /report what you found and stop\. Only the user can leave explore mode\./);
+  assert.match(content, / {2}- bash/);
+  assert.doesNotMatch(content, /call plan_path once/);
+  assert.doesNotMatch(content, /Plan mode is active/);
+});
+
 test("bash wording follows the sandbox status", () => {
   // arrange
   const sandboxed = snapshot({ sandbox: SandboxStatus.Active });
@@ -48,17 +66,17 @@ test("bash wording follows the sandbox status", () => {
   assert.match(withoutSandbox, /bash needs the user's approval for each call/);
 });
 
-test("the execution snapshot revokes planning instructions and ignores plan-only inputs", () => {
+test("the execution snapshot revokes both modes' instructions and ignores mode-only inputs", () => {
   // arrange
-  const plain = snapshot({ mode: PlanModeState.Execution });
-  const withDenials = snapshot({ mode: PlanModeState.Execution, denials: [{ name: "bash", note: "No" }], sandbox: SandboxStatus.Active });
+  const plain = snapshot({ mode: AgentMode.Execution });
+  const withDenials = snapshot({ mode: AgentMode.Execution, denials: [{ name: "bash", note: "No" }], sandbox: SandboxStatus.Active });
 
   // act
   const content = renderSnapshot(plain);
 
   // assert
   assert.ok(content.startsWith(`${HEADER}\n`));
-  assert.match(content, /Plan mode is off\. The planning restrictions and instructions from earlier plan-mode state messages no longer apply\./);
+  assert.match(content, /Plan mode and explore mode are off\. The restrictions and instructions from earlier mode state messages no longer apply\./);
   assert.match(content, /plan_path and submit_plan reject every call until the user enables plan mode again/);
   assert.match(content, /ordinary sandbox and path permissions still apply/);
   assert.equal(renderSnapshot(withDenials), content);
@@ -82,9 +100,9 @@ test("the latest snapshot is found by type, with array content normalized", () =
   // arrange
   const messages = [
     stateMessage("old"),
-    { role: "custom", customType: "plan-mode-state", content: [{ type: "text", text: "latest" }, { type: "image", data: "" }] },
+    { role: "custom", customType: "agent-mode-state", content: [{ type: "text", text: "latest" }, { type: "image", data: "" }] },
     { role: "custom", customType: "other", content: "unrelated" },
-    { role: "user", content: "plan-mode-state" },
+    { role: "user", content: "agent-mode-state" },
   ];
 
   // act
@@ -96,10 +114,25 @@ test("the latest snapshot is found by type, with array content normalized", () =
   assert.equal(none, undefined);
 });
 
+test("a snapshot recorded under the legacy plan-mode type still counts as the latest", () => {
+  // arrange
+  const sent: string[] = [];
+  const delivery = createModeDelivery((content) => sent.push(content));
+  const legacy = { role: "custom", customType: "plan-mode-state", content: "on", display: false, timestamp: 0 };
+
+  // act
+  const latest = latestSnapshotContent([stateMessage("old"), legacy]);
+  delivery.announce("on", [legacy]);
+
+  // assert
+  assert.equal(latest, "on");
+  assert.deepEqual(sent, []);
+});
+
 test("an announcement is skipped when the session already shows the content", () => {
   // arrange
   const sent: string[] = [];
-  const delivery = createPlanModeDelivery((content) => sent.push(content));
+  const delivery = createModeDelivery((content) => sent.push(content));
 
   // act
   delivery.announce("on", [stateMessage("on")]);
@@ -111,7 +144,7 @@ test("an announcement is skipped when the session already shows the content", ()
 test("queued transitions are all sent in order and identical queued content is suppressed", () => {
   // arrange
   const sent: string[] = [];
-  const delivery = createPlanModeDelivery((content) => sent.push(content));
+  const delivery = createModeDelivery((content) => sent.push(content));
   const visible = [stateMessage("off")];
 
   // act
@@ -126,7 +159,7 @@ test("queued transitions are all sent in order and identical queued content is s
 
 test("the initial message is returned only when the session lacks the current content", () => {
   // arrange
-  const delivery = createPlanModeDelivery(() => assert.fail("initialMessage must not send"));
+  const delivery = createModeDelivery(() => assert.fail("initialMessage must not send"));
 
   // act
   const missing = delivery.initialMessage("on", []);
@@ -142,7 +175,7 @@ test("the initial message is returned only when the session lacks the current co
 test("a request that keeps the current snapshot is left untouched", () => {
   // arrange
   const sent: string[] = [];
-  const delivery = createPlanModeDelivery((content) => sent.push(content));
+  const delivery = createModeDelivery((content) => sent.push(content));
   const messages = [stateMessage("on"), { role: "user", content: "hello" }];
 
   // act
@@ -156,7 +189,7 @@ test("a request that keeps the current snapshot is left untouched", () => {
 test("a request that lost the snapshot gets it appended and one durable copy is queued", () => {
   // arrange
   const sent: string[] = [];
-  const delivery = createPlanModeDelivery((content) => sent.push(content));
+  const delivery = createModeDelivery((content) => sent.push(content));
   const compacted = [{ role: "compactionSummary", summary: "Plan mode is active." }, { role: "user", content: "next" }];
   const original = structuredClone(compacted);
 
@@ -174,7 +207,7 @@ test("a request that lost the snapshot gets it appended and one durable copy is 
 
 test("an obsolete snapshot in the request is superseded rather than removed", () => {
   // arrange
-  const delivery = createPlanModeDelivery(() => undefined);
+  const delivery = createModeDelivery(() => undefined);
   const messages = [stateMessage("on"), { role: "user", content: "next" }];
 
   // act
@@ -188,7 +221,7 @@ test("an obsolete snapshot in the request is superseded rather than removed", ()
 test("a second compaction restores the same content again once the durable copy was seen", () => {
   // arrange
   const sent: string[] = [];
-  const delivery = createPlanModeDelivery((content) => sent.push(content));
+  const delivery = createModeDelivery((content) => sent.push(content));
   delivery.requestMessages([], "on", []);
   delivery.requestMessages([stateMessage("on")], "on", [stateMessage("on")]);
 
@@ -203,7 +236,7 @@ test("a second compaction restores the same content again once the durable copy 
 test("no durable copy is queued when only the request lost a snapshot the session still shows", () => {
   // arrange
   const sent: string[] = [];
-  const delivery = createPlanModeDelivery((content) => sent.push(content));
+  const delivery = createModeDelivery((content) => sent.push(content));
 
   // act
   const result = delivery.requestMessages([], "on", [stateMessage("on")]);
@@ -216,7 +249,7 @@ test("no durable copy is queued when only the request lost a snapshot the sessio
 test("reset forgets queued content so a new branch is compared on its own", () => {
   // arrange
   const sent: string[] = [];
-  const delivery = createPlanModeDelivery((content) => sent.push(content));
+  const delivery = createModeDelivery((content) => sent.push(content));
   delivery.announce("on", []);
 
   // act
@@ -227,29 +260,9 @@ test("reset forgets queued content so a new branch is compared on its own", () =
   assert.deepEqual(sent, ["on", "on"]);
 });
 
-test("the migration appends only missing planning tools and keeps unrelated order", () => {
-  // arrange
-  const calls: string[][] = [];
-  let active = ["write", "plan_path", "read"];
-  const pi = {
-    getActiveTools: () => active,
-    setActiveTools: (names: string[]) => {
-      calls.push(names);
-      active = names;
-    },
-  };
-
-  // act
-  activateMissingPlanTools(pi);
-  activateMissingPlanTools(pi);
-
-  // assert
-  assert.deepEqual(calls, [["write", "plan_path", "read", "submit_plan"]]);
-});
-
-function snapshot(overrides: Partial<PlanModeSnapshot> = {}): PlanModeSnapshot {
+function snapshot(overrides: Partial<ModeSnapshot> = {}): ModeSnapshot {
   return {
-    mode: PlanModeState.Planning,
+    mode: AgentMode.Planning,
     plansDirectory: "/agent/plans/repository",
     sandbox: SandboxStatus.Inactive,
     denials: [],
@@ -258,5 +271,5 @@ function snapshot(overrides: Partial<PlanModeSnapshot> = {}): PlanModeSnapshot {
 }
 
 function stateMessage(content: string) {
-  return { role: "custom", customType: "plan-mode-state", content, display: false, timestamp: 0 };
+  return { role: "custom", customType: "agent-mode-state", content, display: false, timestamp: 0 };
 }

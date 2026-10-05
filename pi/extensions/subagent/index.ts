@@ -25,7 +25,9 @@ import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { shortenPath } from "../lib/format.ts";
 import { createLineSplitter } from "../lib/lines.ts";
-import { latestPlanModeEntry, readPersistedDecisions } from "../lib/plan-decisions.ts";
+import { AgentMode, MODE_IDENTITIES } from "../lib/agent-mode.ts";
+import { readPersistedDecisions } from "../lib/mode-decisions.ts";
+import { latestModeEntry } from "../lib/mode-entry.ts";
 import { captureChildPathPolicy } from "../lib/path-permissions.ts";
 import { serializeChildPathPolicy, CHILD_POLICY_ENV, type ChildPathPolicy } from "../lib/path-permission-snapshot.ts";
 import { registerToolWithGuidelines } from "../lib/register-tool.ts";
@@ -92,7 +94,7 @@ export default function (pi: ExtensionAPI) {
     parameters: SubagentParams,
 
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
-      const planEntry = latestPlanModeEntry(ctx.sessionManager);
+      const planEntry = latestModeEntry(ctx.sessionManager, MODE_IDENTITIES.planning.entryType);
       const planAllowedTools = planEntry?.enabled
         ? planModeAllowedTools(
             {
@@ -1006,6 +1008,6 @@ function registerChildRestrictions(pi: ExtensionAPI): void {
 }
 
 async function persistedPlanDecisions(): Promise<PersistedPlanDecisions> {
-  const { alwaysAllowed, alwaysDenied } = await readPersistedDecisions();
+  const { alwaysAllowed, alwaysDenied } = await readPersistedDecisions(AgentMode.Planning);
   return { alwaysAllowed, alwaysDenied: alwaysDenied.map((denial) => denial.name) };
 }
