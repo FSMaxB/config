@@ -27,7 +27,7 @@ export const MODE_IDENTITIES: Record<RestrictedMode, ModeIdentity> = {
     entryType: "plan-mode",
     decisionsFileName: "plan-mode.json",
     pathRuleStore: PathRuleStore.Shared,
-    statusIcon: "⏸",
+    statusIcon: "📝",
   },
   [AgentMode.Exploring]: {
     mode: AgentMode.Exploring,
