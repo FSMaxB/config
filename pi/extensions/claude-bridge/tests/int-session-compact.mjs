@@ -72,7 +72,7 @@ try {
 	}
 	const postEventLog = fullLog.slice(compactIdx);
 
-	// Capture both the path and the rebuild flavor (preserved | rotated-post-abort | first).
+	// Capture both the path and the rebuild flavor (preserved | rotated | first).
 	const syncResults = [...postEventLog.matchAll(/syncResult: path=(reuse|rebuild|clean-start)(?: sessionId=\S+ priors=\d+ (\S+))?/g)]
 		.map((m) => ({ path: m[1], flavor: m[2] }));
 	console.log(`sync_results=${JSON.stringify(syncResults)}`);
@@ -94,7 +94,7 @@ try {
 
 	// Compact has no concurrent CC writer, so the rebuild should preserve
 	// the sessionId and wipe the JSONL in place (preserveId branch). If we
-	// see "rotated-post-abort" here, the needsRebuild → preserveId logic
+	// see "rotated" here, the needsRebuild → preserveId logic
 	// got re-conflated and we're leaking orphan JSONLs into ~/.claude/projects/
 	// on every compact.
 	if (first.path === "rebuild" && first.flavor !== "preserved") {

@@ -91,7 +91,7 @@ try {
     if (!lower4.includes(word)) finish(1, `missing_word=${word}\nTurn 4: ${text4}`);
   }
 
-  // Turn 5: Abort mid-stream — session should be invalidated, next turn should recover
+  // Turn 5: Abort mid-stream — the session must survive and be resumed next turn
   console.log("turn=5\nAbort mid-stream (session recovery)...");
   await send({ type: "prompt", message: "Write a detailed 500-word essay about the history of timekeeping." });
   // Set up idle listener before abort so we don't miss agent_end
@@ -112,26 +112,23 @@ try {
     if (!lower6.includes(word)) finish(1, `missing_word=${word}\nTurn 6: ${text6}`);
   }
 
-  // sessionId stability: sessionId should stay stable across normal
-  // rebuilds (Case 2 → Case 4 → Case 3). It's allowed to rotate exactly
-  // once per abort: the post-abort rebuild takes a fresh UUID on purpose,
-  // to avoid a race with the killed CC subprocess's late interrupt-cleanup
-  // writes (which would otherwise append an orphan record at the same
-  // path and break the parent-uuid chain for the next resume).
-  //
-  // This test exercises one abort (Turn 5), so we expect exactly 2 unique
-  // sessionIds: pre-abort and post-abort.
+  // sessionId stability: the id stays stable across normal rebuilds (Case 2 →
+  // Case 4 → Case 3) and across the Turn 5 abort: no tool call was in flight,
+  // so the bridge waits for the killed child to exit and resumes the same
+  // session on Turn 6 (prompt cache warm). A rotation only happens when the
+  // child's exit could not be confirmed within the grace.
   const debugLog = readFileSync(DEBUG_LOG, "utf8");
   const sessionIds = new Set();
-  const rotatedPostAbort = [];
+  const rotated = [];
   for (const match of debugLog.matchAll(/syncResult: path=(reuse|rebuild) sessionId=([a-f0-9-]+)(?: priors=\d+ (\S+))?/g)) {
     sessionIds.add(match[2]);
-    if (match[3] === "rotated-post-abort") rotatedPostAbort.push(match[2]);
+    if (match[3] === "rotated") rotated.push(match[2]);
   }
   if (sessionIds.size === 0) finish(1, "FAIL: no syncResult markers found in debug log");
-  if (sessionIds.size !== 2) finish(1, `FAIL: expected exactly 2 distinct sessionIds (one pre-abort, one post-abort rotation), got ${sessionIds.size}: ${[...sessionIds].join(", ")}`);
-  if (rotatedPostAbort.length !== 1) finish(1, `FAIL: expected exactly 1 post-abort rotation, got ${rotatedPostAbort.length}`);
-  console.log(`session_ids=${sessionIds.size}\nExpected a distinct session after abort.`);
+  if (sessionIds.size !== 1) finish(1, `FAIL: expected exactly 1 sessionId (the abort must not rotate), got ${sessionIds.size}: ${[...sessionIds].join(", ")}`);
+  if (rotated.length !== 0) finish(1, `FAIL: expected no rotation, got ${rotated.length}`);
+  if (!debugLog.includes("provider: abort settled cleanly")) finish(1, "FAIL: the Turn 5 abort did not settle cleanly");
+  console.log(`session_ids=${sessionIds.size}\nThe abort kept the session.`);
 
   finish(0, "PASS");
 } catch (e) {
