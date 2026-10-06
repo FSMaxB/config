@@ -77,6 +77,8 @@ I will handle all rebasing and history rewriting manually.
 - Prefer specifying types to the right of the `=`. E.g. `.collect::<Vec<_>>()` instead of `let foo: Vec<_> = ....collect();`
 - Put constants in the smallest scope possible (e.g. function scope if only used in that function)
 - Prefer `let Some(...) = foo else { /* early exit / continue */ }` to nesting code in `if let Some` (same for other enums than Option).
+- Avoid `let mut` wherever possible as long as the alternative isn't significantly more complex.
+- Prefer iterator or stream combinator style over loops mutating a variable
 
 ## Instruction loading (for harnesses without native support, e.g. OpenCode)
 
