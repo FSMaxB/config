@@ -67,7 +67,12 @@ export default function (pi: ExtensionAPI) {
     };
   });
 
-  const agentListing = discoverAgents()
+  pi.on("session_start", (_event, context) => {
+    const { skipped } = discoverAgents();
+    if (context.hasUI && skipped.length > 0) context.ui.notify(skipped.join("\n"), "warning");
+  });
+
+  const agentListing = discoverAgents().agents
     .map(({ name, description }) => `${name} (${description})`)
     .join(", ");
 
@@ -117,7 +122,7 @@ export default function (pi: ExtensionAPI) {
         pathPolicy: await captureChildPathPolicy(),
         temporaryDirectory: sessionTemporaryDirectory(ctx.sessionManager.getSessionId()),
       };
-      const agents = discoverAgents();
+      const agents = discoverAgents().agents;
 
       const hasTasks = (params.tasks?.length ?? 0) > 0;
       const hasSingle = Boolean(params.agent && params.task);
