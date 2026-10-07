@@ -10,6 +10,8 @@ import {
   contextMessages,
   latestMarkerIsActive,
 } from "./context-compat";
+import { loadPolicyConfig } from "../subagent/model-policy.ts";
+import { isOffByDefaultModel } from "./model-defaults.ts";
 
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 const SKILL_PATH = join(
@@ -115,6 +117,7 @@ export default function iHaveAdhdExtension(pi: ExtensionAPI) {
   const rules = loadRules();
   const alwaysOnFlag = join(getAgentDir(), ".i-have-adhd-always");
   const config = loadConfig();
+  const policyConfig = loadPolicyConfig(join(EXTENSION_DIR, "..", "subagent"));
   let enabled = false;
 
   const updateStatus = (ctx: ExtensionContext): void => {
@@ -161,10 +164,11 @@ export default function iHaveAdhdExtension(pi: ExtensionAPI) {
 
   const restoreState = (ctx: ExtensionContext): void => {
     const savedState = getSavedState(ctx);
+    const configuredDefault =
+      config.alwaysOn === true || existsSync(alwaysOnFlag);
     const enabledByDefault =
       pi.getFlag("adhd") === true ||
-      config.alwaysOn === true ||
-      existsSync(alwaysOnFlag);
+      (configuredDefault && !isOffByDefaultModel(ctx.model, policyConfig));
 
     enabled = savedState ?? enabledByDefault;
     updateStatus(ctx);
