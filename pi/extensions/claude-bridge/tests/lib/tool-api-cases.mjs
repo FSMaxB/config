@@ -511,7 +511,7 @@ it("registers the agreed exposures, namespaces, and trusted read-only hints", as
 		const definitions = [...fixture.definitions.values()];
 		const modelOnly = definitions.filter(tool => tool.exposure === "model-only").map(tool => tool.name).sort();
 		// assert
-		assert.deepEqual(modelOnly, ["crit_review", "question", "subagent", "submit_plan", "tuicr_open", "tuicr_wait"]);
+		assert.deepEqual(modelOnly, ["crit_review", "crit_story_prepare", "question", "subagent", "submit_plan", "tuicr_open", "tuicr_wait"]);
 		for (const tool of definitions) {
 			const expectedNamespace = tool.name.startsWith("vcs_") ? "vcs"
 				: tool.name.startsWith("crit_") ? "crit"
