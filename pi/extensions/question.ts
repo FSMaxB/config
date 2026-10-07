@@ -5,6 +5,7 @@ import type {
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
+import { selectWithDefault } from "./lib/select-with-default.ts";
 
 const FREEFORM_SENTINEL = "✏️  Type custom response...";
 
@@ -250,7 +251,10 @@ async function askSingle(
   );
   if (allowFreeform) displays.push(FREEFORM_SENTINEL);
 
-  const picked = await ui.select(prompt, displays);
+  // selectWithDefault windows long option lists (the question tool can pass
+  // more options than fit on screen) and keeps today's start-at-first behavior
+  // via displays[0]; SelectList truncates labels to the terminal width.
+  const picked = await selectWithDefault(ui, prompt, displays, displays[0]);
   if (isCancelled(picked)) return { kind: "cancelled" };
   if (picked === FREEFORM_SENTINEL) return askFreeform(ui, prompt);
 
