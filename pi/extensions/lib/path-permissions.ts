@@ -25,7 +25,8 @@ interface SharedState { sessions: Record<PathRuleStore, RuleSets>; agentMode: Ag
 const globalState = globalThis as { piPathPermissions?: SharedState };
 const state = (globalState.piPathPermissions ??= { sessions: { [PathRuleStore.Shared]: emptyRules(), [PathRuleStore.Explore]: emptyRules() }, agentMode: AgentMode.Execution, inherited: parseChildPathPolicy(process.env.PI_SUBAGENT_PATH_POLICY) });
 export function setAgentMode(mode: AgentMode): void { state.agentMode = mode; }
-export function currentAgentMode(): AgentMode { return state.agentMode; }
+// A subagent runs in execution mode but must apply the defaults and notices of the mode it was dispatched from.
+export function currentAgentMode(): AgentMode { return state.inherited?.agentMode ?? state.agentMode; }
 // A subagent is always in execution mode but must enforce the store its parent was using.
 export function activePathRuleStore(): PathRuleStore { return state.inherited?.ruleStore ?? storeForMode(state.agentMode); }
 export function setSessionTemporaryDirectory(path: string): void { state.temporaryDirectory = path; }
@@ -126,7 +127,7 @@ async function ensureAllowed(path: string, mode: AccessMode, context: ExtensionC
 }
 
 async function requestAccess(resolved: string, mode: AccessMode, context: ExtensionContext, protectedSelectors: PathSelector[] = [], choices: string[] = [ALLOW_ONCE, ALLOW_SESSION, ALLOW_ALWAYS, DENY_ONCE, DENY_SESSION, DENY_ALWAYS]): Promise<void> {
-  if (!context.hasUI) throw new Error(`${resolved} is not covered by the ${mode} path rules and there is no interactive UI to ask. Stay inside the repository.${readOnlyRepositoryNotice(mode, state.agentMode)}`);
+  if (!context.hasUI) throw new Error(`${resolved} is not covered by the ${mode} path rules and there is no interactive UI to ask. Stay inside the repository.${readOnlyRepositoryNotice(mode, currentAgentMode())}`);
   // A protected path is granted as its own protected root, so approving one extension file does not open the whole repository.
   const protectedMatch = protectedSelectors.find((candidate) => matchesRule(resolved, candidate));
   const selector = protectedMatch ?? tree(await grantRootFor(resolved));
@@ -152,7 +153,7 @@ async function currentDefaults(mode: AccessMode): Promise<ReturnType<typeof defa
     resolveThroughSymlinks(getAgentDir()),
     state.temporaryDirectory === undefined ? undefined : resolveThroughSymlinks(state.temporaryDirectory),
   ]);
-  return defaultAllowed(mode, { agentMode: state.agentMode, repoRoot, memoryDirectory: memoryRoot, skillRoots: resolvedSkills, agentDirectory, temporaryDirectory });
+  return defaultAllowed(mode, { agentMode: currentAgentMode(), repoRoot, memoryDirectory: memoryRoot, skillRoots: resolvedSkills, agentDirectory, temporaryDirectory });
 }
 // Project skill roots count only while they resolve inside the repository. Global roots also
 // allow every entry they hold, since skills are commonly symlinked in from elsewhere.
@@ -173,7 +174,7 @@ async function resolvedSkillRoots(repoRoot: string): Promise<string[]> {
 }
 function anchorTarget(target: string, cwd: string): string { const expanded = expandHome(target); return isAbsolute(expanded) ? expanded : resolve(cwd, expanded); }
 function assertWritablePath(path: string, mode: AccessMode): void { if (mode === "write" && isVcsInternal(path)) throw new Error(`${path} is inside a version control directory. Reading and searching .git and .jj is fine, but writing to them is not.`); }
-function deniedError(path: string, mode: AccessMode): Error { return new Error(`${path} is denied for ${mode} access by the path rules. Do not retry this path and do not route around it with a different tool.${readOnlyRepositoryNotice(mode, state.agentMode)}`); }
+function deniedError(path: string, mode: AccessMode): Error { return new Error(`${path} is denied for ${mode} access by the path rules. Do not retry this path and do not route around it with a different tool.${readOnlyRepositoryNotice(mode, currentAgentMode())}`); }
 
 export async function removePathRule(rule: PathRule, store: PathRuleStore = activePathRuleStore()): Promise<void> {
   const { selector } = rule;
@@ -213,7 +214,7 @@ export async function clearPathRules(store: PathRuleStore = activePathRuleStore(
 function parseSession(value: unknown): RuleSets { try { return value && typeof value === "object" ? (parseRules(value) as RuleSets) : emptyRules(); } catch { return emptyRules(); } }
 export async function captureChildPathPolicy(): Promise<ChildPathPolicy> {
   const ruleStore = activePathRuleStore();
-  return { version: 1, session: serializeRules(state.sessions[ruleStore]), readDefaults: await currentDefaults("read"), writeDefaults: await currentDefaults("write"), ruleStore };
+  return { version: 1, session: serializeRules(state.sessions[ruleStore]), readDefaults: await currentDefaults("read"), writeDefaults: await currentDefaults("write"), ruleStore, agentMode: currentAgentMode() };
 }
 
 function mergeInheritedSession(session: RuleSets, inherited: ChildPathPolicy | null | undefined): RuleSets {
