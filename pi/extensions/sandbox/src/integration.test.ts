@@ -6,7 +6,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
-import { tree } from "../../lib/path-permission-rules.ts";
+import { exact, glob, tree, type PathSelector } from "../../lib/path-permission-rules.ts";
 import { filesystemConfig } from "./policy.ts";
 
 const enabled = process.env.SANDBOX_INTEGRATION === "1";
@@ -23,6 +23,8 @@ before(async () => {
   await mkdir(workDirectory);
   await mkdir(join(fakeHome, ".ssh"), { recursive: true });
   await writeFile(join(fakeHome, ".ssh", "config"), "Host secret\n");
+  await writeFile(join(fakeHome, ".netrc"), "machine secret\n");
+  await writeFile(join(fakeHome, "notes.txt"), "visible notes\n");
   await SandboxManager.initialize(
     { network: { allowedDomains: [], deniedDomains: [] }, filesystem: policyFilesystem(), allowPty: false },
     async () => false,
@@ -81,17 +83,56 @@ test("network access is denied without an allowlist entry", { skip: !enabled }, 
   assert.notEqual(exitCode, 0, output);
 });
 
-function policyFilesystem() {
+test("a grant of the secret directory itself does not expose it", { skip: !enabled }, async () => {
+  // arrange
+  const filesystem = policyFilesystem([exact(join(fakeHome, ".ssh"))]);
+
+  // act
+  const { exitCode, output } = await runSandboxed(`cat '${join(fakeHome, ".ssh", "config")}'`, filesystem);
+
+  // assert
+  assert.notEqual(exitCode, 0, output);
+  assert.doesNotMatch(output, /Host secret/);
+});
+
+test("a glob grant above a secret does not expose it", { skip: !enabled }, async () => {
+  // arrange
+  const filesystem = policyFilesystem([glob(fakeHome, "*"), glob(fakeHome, ".*")]);
+
+  // act
+  const netrc = await runSandboxed(`cat '${join(fakeHome, ".netrc")}'`, filesystem);
+  const sshConfig = await runSandboxed(`cat '${join(fakeHome, ".ssh", "config")}'`, filesystem);
+
+  // assert
+  assert.notEqual(netrc.exitCode, 0, netrc.output);
+  assert.doesNotMatch(netrc.output, /machine secret/);
+  assert.notEqual(sshConfig.exitCode, 0, sshConfig.output);
+  assert.doesNotMatch(sshConfig.output, /Host secret/);
+});
+
+test("a glob grant that cannot reach a secret still works", { skip: !enabled }, async () => {
+  // arrange
+  const filesystem = policyFilesystem([glob(fakeHome, "*.txt")]);
+
+  // act
+  const { exitCode, output } = await runSandboxed(`cat '${join(fakeHome, "notes.txt")}'`, filesystem);
+
+  // assert
+  assert.equal(exitCode, 0, output);
+  assert.match(output, /visible notes/);
+});
+
+function policyFilesystem(extraReadAllow: PathSelector[] = []) {
   const policy = {
-    read: { allow: [tree(workDirectory)], deny: [], protected: [] },
+    read: { allow: [tree(workDirectory), ...extraReadAllow], deny: [], protected: [] },
     write: { allow: [tree(workDirectory)], deny: [], protected: [] },
   };
   return filesystemConfig(policy, { platform: process.platform as "darwin" | "linux", homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [] });
 }
 
-async function runSandboxed(command: string): Promise<{ exitCode: number | null; output: string }> {
+async function runSandboxed(command: string, filesystem = policyFilesystem()): Promise<{ exitCode: number | null; output: string }> {
   const commandId = `${Date.now()}-${Math.random()}`;
-  const wrapped = await SandboxManager.wrapWithSandbox(command, undefined, { filesystem: policyFilesystem() }, undefined, { commandId, commandText: command });
+  const wrapped = await SandboxManager.wrapWithSandbox(command, undefined, { filesystem }, undefined, { commandId, commandText: command });
   try {
     return await new Promise((resolve, reject) => {
       const child = spawn(wrapped, { shell: true, cwd: workDirectory });
