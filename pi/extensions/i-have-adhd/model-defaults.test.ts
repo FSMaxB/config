@@ -56,6 +56,22 @@ test("Luna models are off by default", () => {
   assert.deepEqual(results, [true, true]);
 });
 
+test("Mistral models are off by default, other models on the Mistral provider are not", () => {
+  // arrange
+  const models = [
+    createModel("mistral", "mistral-large-latest"),
+    createModel("mistral", "devstral-2"),
+    createModel("mistral", "magistral-medium-latest"),
+    createModel("mistral", "glm-5.2"),
+  ];
+
+  // act
+  const results = models.map((model) => isOffByDefaultModel(model, config));
+
+  // assert
+  assert.deepEqual(results, [true, true, true, false]);
+});
+
 test("larger cloud models keep the configured default", () => {
   // arrange
   const models = [
