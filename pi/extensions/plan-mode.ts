@@ -502,7 +502,7 @@ export default function (pi: ExtensionAPI) {
     // session_start runs (an extension's provider is registered synchronously,
     // but its auth check lands in a later async pass), so getAvailable() may not
     // list the handoff model yet. find() reads the registered providers directly;
-    // setModel does its own live auth check, so availability is still enforced.
+    // setModel still refuses a provider without configured auth.
     const model = ctx.modelRegistry.find(handoff.provider, handoff.modelId);
     if (!model || !(await pi.setModel(model))) {
       ctx.ui.notify(
