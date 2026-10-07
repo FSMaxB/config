@@ -11,7 +11,7 @@ import { Check } from "typebox/value";
 import { join } from "node:path";
 import { Type } from "typebox";
 import { getCurrentTools } from "@earendil-works/pi-ai";
-import { createCodemodeExtension } from "@earendil-works/pi-coding-agent";
+import { createCodemodeExtension, initTheme } from "@earendil-works/pi-coding-agent";
 import { resolveMcpTools } from "../../src/index.ts";
 import { toolApiSession } from "./tool-api-session.mjs";
 import { cwdSlug } from "../../../lib/plan-naming.ts";
@@ -802,8 +802,9 @@ it("lets the user select an alternate model through the existing fresh handoff",
 			// assert
 			assert.equal(result.isError, false);
 			assert.equal(result.details.submission.outcome, "handed-off");
-			assert.equal(dialogs.length, 2);
+			assert.equal(dialogs.length, 3);
 			assert.ok(!dialogs[0].title.includes("Suggests"));
+			assert.deepEqual(dialogs[1].items, ["tool-api-test/fake (current)", "alternate-test/fake"]);
 			assert.deepEqual(messages, ["/plan fresh-handoff"]);
 			// arrange
 			const handoffs = [];
@@ -901,18 +902,25 @@ async function withCritPlanSession(options, run) {
 		setWidget: () => {},
 		select: async (title, items) => {
 			dialogs.push({ title, items });
-			if (title.startsWith("Plan submitted")) {
-				assert.equal(fixture.requests.length, expectedRequestCount, "Submission must open before another model request");
-				return typeof options.choice === "function" ? options.choice(items)
-					: Object.hasOwn(options, "choice") ? options.choice : "Approve — leave plan mode";
-			}
-			assert.equal(title, "Implement with which model?", `Unexpected dialog: ${title}`);
-			return items.find(item => item === (options.modelChoice ?? "tool-api-test/fake (current)"));
+			assert.ok(title.startsWith("Plan submitted"), `Unexpected dialog: ${title}`);
+			assert.equal(fixture.requests.length, expectedRequestCount, "Submission must open before another model request");
+			return typeof options.choice === "function" ? options.choice(items)
+				: Object.hasOwn(options, "choice") ? options.choice : "Approve — leave plan mode";
 		},
 		input: async () => "Use smaller steps",
-		custom: async () => {
-			assert.ok(options.contextChoice, "Unexpected custom selector");
-			return options.contextChoice;
+		// selectWithDefault builds its selector inside ui.custom, so build it here to read the title
+		// (the first rendered line inside the border) and the options it offers.
+		custom: async factory => {
+			initTheme();
+			const selector = factory({ terminal: { rows: 40 } }, ui.theme, { matches: () => false }, () => {});
+			const title = selector.render(80).map(line => line.trim()).find(line => line && !line.startsWith("─"));
+			const { options: items } = selector;
+			dialogs.push({ title, items });
+			const choice = title === "Implement with which model?"
+				? options.modelChoice ?? "tool-api-test/fake (current)"
+				: options.contextChoice;
+			assert.ok(choice, `Unexpected custom selector: ${title}`);
+			return items.find(item => item === choice);
 		},
 	}, { get: (target, property) => target[property] ?? (() => {}) });
 	try {
