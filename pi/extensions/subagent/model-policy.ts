@@ -127,7 +127,7 @@ function candidateModels(
   );
 }
 
-function isLocalModel(model: Model<Api>, config: SubagentModelConfig): boolean {
+export function isLocalModel(model: Model<Api>, config: SubagentModelConfig): boolean {
   if (config.localProviders?.includes(model.provider)) return true;
   try {
     const host = new URL(model.baseUrl).hostname;
