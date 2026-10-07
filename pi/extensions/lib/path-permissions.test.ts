@@ -422,3 +422,32 @@ test("a child path policy keeps the parent's agent mode and rejects unknown mode
   assert.equal(planning?.agentMode, "planning");
   assert.equal(unknown, null);
 });
+
+test("a child path policy with malformed rules is rejected", () => {
+  // arrange
+  const policy = { version: 1, session: serializeRules(emptyRules()), readDefaults: [], writeDefaults: [] };
+
+  // act
+  const bogusSelector = parseChildPathPolicy(JSON.stringify({ ...policy,
+    session: { version: 2, read: { allow: [{ kind: "bogus", path: "/x" }], deny: [] }, write: { allow: [], deny: [] } } }));
+  const emptySession = parseChildPathPolicy(JSON.stringify({ ...policy, session: {} }));
+  const relativeDefault = parseChildPathPolicy(JSON.stringify({ ...policy, readDefaults: [{ kind: "tree", path: "relative/dir" }] }));
+  const globWithoutPattern = parseChildPathPolicy(JSON.stringify({ ...policy, writeDefaults: [{ kind: "glob", base: "/x" }] }));
+
+  // assert
+  assert.equal(bogusSelector, null);
+  assert.equal(emptySession, null);
+  assert.equal(relativeDefault, null);
+  assert.equal(globWithoutPattern, null);
+});
+
+test("a child path policy with absolute selectors parses", () => {
+  // arrange
+  const policy = { version: 1, session: serializeRules(emptyRules()), readDefaults: [{ kind: "tree", path: "/abs" }], writeDefaults: [] };
+
+  // act
+  const parsed = parseChildPathPolicy(JSON.stringify(policy));
+
+  // assert
+  assert.equal(parsed?.readDefaults[0]?.path, "/abs");
+});
