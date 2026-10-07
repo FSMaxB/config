@@ -12,5 +12,6 @@ Differences from upstream:
 
 - Loaded from this repo (`install.sh` symlinks it into `~/.pi/agent/extensions/`) instead of as the `https://github.com/ayghri/i-have-adhd` package in `settings.json`. The package entry is removed so the extension is not registered twice.
 - `extensions/i-have-adhd.ts` is `index.ts` here and reads the skill from `../../skills/i-have-adhd/SKILL.md`.
-- The config-based defaults (`alwaysOn` in `i-have-adhd.json`, the `.i-have-adhd-always` file) are skipped when the session starts on a local model, a Haiku model or a GPT Luna model. `--adhd` and a saved session state still win, and `/i-have-adhd on` works as usual. Local is decided by `isLocalModel` from `../subagent/model-policy.ts`.
+- Settings live in Pi's main `settings.json` under `iHaveAdhd` instead of `i-have-adhd.json`, and the `.i-have-adhd-always` flag file and the `hideStatus` setting are gone. The only setting is `iHaveAdhd.alwaysOn`.
+- `iHaveAdhd.alwaysOn` is skipped when the session starts on a local model, a Haiku model or a GPT Luna model. `--adhd` and a saved session state still win, and `/i-have-adhd on` works as usual. Local is decided by `isLocalModel` from `../subagent/model-policy.ts`.
 - Only the Pi parts are kept. The hooks, plugin manifests for other agents, evals and translations are not copied.

@@ -1,8 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  getAgentDir,
   type ExtensionAPI,
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
@@ -12,6 +11,7 @@ import {
 } from "./context-compat";
 import { loadPolicyConfig } from "../subagent/model-policy.ts";
 import { isOffByDefaultModel } from "./model-defaults.ts";
+import { isAlwaysOn } from "./settings.ts";
 
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 const SKILL_PATH = join(
@@ -36,20 +36,6 @@ const DISABLED_NOTICE =
 type AdhdModeState = {
   enabled: boolean;
 };
-
-type AdhdConfig = {
-  alwaysOn?: boolean;
-};
-
-function loadConfig(): AdhdConfig {
-  try {
-    return JSON.parse(
-      readFileSync(join(getAgentDir(), "i-have-adhd.json"), "utf8"),
-    );
-  } catch {
-    return {};
-  }
-}
 
 function stripFrontmatter(content: string): string {
   return content
@@ -114,8 +100,6 @@ function rulesAreInContext(ctx: ExtensionContext): boolean {
 
 export default function iHaveAdhdExtension(pi: ExtensionAPI) {
   const rules = loadRules();
-  const alwaysOnFlag = join(getAgentDir(), ".i-have-adhd-always");
-  const config = loadConfig();
   const policyConfig = loadPolicyConfig(join(EXTENSION_DIR, "..", "subagent"));
   let enabled = false;
 
@@ -163,11 +147,10 @@ export default function iHaveAdhdExtension(pi: ExtensionAPI) {
 
   const restoreState = (ctx: ExtensionContext): void => {
     const savedState = getSavedState(ctx);
-    const configuredDefault =
-      config.alwaysOn === true || existsSync(alwaysOnFlag);
     const enabledByDefault =
       pi.getFlag("adhd") === true ||
-      (configuredDefault && !isOffByDefaultModel(ctx.model, policyConfig));
+      (isAlwaysOn(pi.getSettings()) &&
+        !isOffByDefaultModel(ctx.model, policyConfig));
 
     enabled = savedState ?? enabledByDefault;
     updateStatus(ctx);
