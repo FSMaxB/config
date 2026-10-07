@@ -39,7 +39,6 @@ type AdhdModeState = {
 
 type AdhdConfig = {
   alwaysOn?: boolean;
-  hideStatus?: boolean;
 };
 
 function loadConfig(): AdhdConfig {
@@ -121,7 +120,7 @@ export default function iHaveAdhdExtension(pi: ExtensionAPI) {
   let enabled = false;
 
   const updateStatus = (ctx: ExtensionContext): void => {
-    if (!enabled || config.hideStatus) {
+    if (!enabled) {
       ctx.ui.setStatus(STATUS_KEY, undefined);
       return;
     }
