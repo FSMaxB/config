@@ -25,6 +25,8 @@ const DEFAULT_AUTHOR = "pi";
 let planSlug: string | undefined;
 
 export default function (pi: ExtensionAPI) {
+  pi.on("session_start", () => { planSlug = undefined; });
+
   registerToolWithGuidelines(pi, {
     name: "crit_review",
     exposure: "model-only",
