@@ -9,7 +9,15 @@ import {
   contextMessages,
   latestMarkerIsActive,
 } from "./context-compat";
-import { loadPolicyConfig } from "../subagent/model-policy.ts";
+import {
+  loadPolicyConfig,
+  type SubagentModelConfig,
+} from "../subagent/model-policy.ts";
+import {
+  ContextChange,
+  requiredContextChange,
+  sessionIsEmpty,
+} from "./context-sync.ts";
 import { isOffByDefaultModel } from "./model-defaults.ts";
 import { isAlwaysOn } from "./settings.ts";
 
@@ -116,45 +124,36 @@ export default function iHaveAdhdExtension(pi: ExtensionAPI) {
 
   /**
    * Keep the conversation in sync with the current mode, the way the Claude Code
-   * SessionStart hook does: inject the ruleset once, never per request.
+   * SessionStart hook does: inject the ruleset once, never per request. An empty
+   * session is left alone: `before_agent_start` injects with the first prompt, so
+   * the model selected until then still decides the default.
    */
   const syncContext = (ctx: ExtensionContext): void => {
-    const injected = rulesAreInContext(ctx);
+    if (isEmpty(ctx)) return;
 
-    if (enabled && !injected) {
-      pi.sendMessage(
-        {
-          customType: RULES_MESSAGE_TYPE,
-          content: `${RULES_HEADER}\n\n${rules}`,
-          display: false,
-        },
-        { triggerTurn: false },
-      );
-      return;
-    }
+    const message = contextMessage(
+      requiredContextChange(enabled, rulesAreInContext(ctx)),
+      rules,
+    );
+    if (message === undefined) return;
 
-    if (!enabled && injected) {
-      pi.sendMessage(
-        {
-          customType: DISABLED_MESSAGE_TYPE,
-          content: DISABLED_NOTICE,
-          display: false,
-        },
-        { triggerTurn: false },
-      );
-    }
+    pi.sendMessage(message, { triggerTurn: false });
   };
 
   const restoreState = (ctx: ExtensionContext): void => {
-    const savedState = getSavedState(ctx);
-    const enabledByDefault =
-      pi.getFlag("adhd") === true ||
-      (isAlwaysOn(pi.getSettings()) &&
-        !isOffByDefaultModel(ctx.model, policyConfig));
-
-    enabled = savedState ?? enabledByDefault;
+    enabled = resolveEnabled(pi, policyConfig, ctx, ctx.model);
     updateStatus(ctx);
     syncContext(ctx);
+  };
+
+  const followModel = (
+    ctx: ExtensionContext,
+    model: ExtensionContext["model"],
+  ): void => {
+    if (!isEmpty(ctx)) return;
+
+    enabled = resolveEnabled(pi, policyConfig, ctx, model);
+    updateStatus(ctx);
   };
 
   const setEnabled = (nextEnabled: boolean, ctx: ExtensionContext): void => {
@@ -224,4 +223,51 @@ export default function iHaveAdhdExtension(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => restoreState(ctx));
   pi.on("session_tree", async (_event, ctx) => restoreState(ctx));
   pi.on("session_compact", async (_event, ctx) => syncContext(ctx));
+  pi.on("model_select", async (event, ctx) => followModel(ctx, event.model));
+  pi.on("before_agent_start", async (_event, ctx) => {
+    followModel(ctx, ctx.model);
+
+    const message = contextMessage(
+      requiredContextChange(enabled, rulesAreInContext(ctx)),
+      rules,
+    );
+    return message === undefined ? undefined : { message };
+  });
+}
+
+function isEmpty(ctx: ExtensionContext): boolean {
+  return sessionIsEmpty(ctx.sessionManager.getBranch());
+}
+
+function resolveEnabled(
+  pi: ExtensionAPI,
+  policyConfig: SubagentModelConfig,
+  ctx: ExtensionContext,
+  model: ExtensionContext["model"],
+): boolean {
+  return (
+    getSavedState(ctx) ??
+    (pi.getFlag("adhd") === true ||
+      (isAlwaysOn(pi.getSettings()) &&
+        !isOffByDefaultModel(model, policyConfig)))
+  );
+}
+
+function contextMessage(change: ContextChange, rules: string) {
+  switch (change) {
+    case ContextChange.InjectRules:
+      return {
+        customType: RULES_MESSAGE_TYPE,
+        content: `${RULES_HEADER}\n\n${rules}`,
+        display: false,
+      };
+    case ContextChange.DisableRules:
+      return {
+        customType: DISABLED_MESSAGE_TYPE,
+        content: DISABLED_NOTICE,
+        display: false,
+      };
+    case ContextChange.None:
+      return undefined;
+  }
 }
