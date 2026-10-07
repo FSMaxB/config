@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
-import { glob, tree } from "../../lib/path-permission-rules.ts";
+import { exact, glob, tree } from "../../lib/path-permission-rules.ts";
 import type { EffectivePolicy } from "../../lib/path-permissions.ts";
 import { filesystemConfig, secretPaths, type PolicyOptions } from "./policy.ts";
 
@@ -60,6 +60,65 @@ test("secrets stay denied even when a grant allows the whole home directory", ()
     assert.ok(config.denyRead.includes(secret), `${secret} must be denied for reads`);
     assert.ok(config.denyWrite.includes(secret), `${secret} must be denied for writes`);
   }
+});
+
+test("grants at or under a secret are dropped from the sandbox allows", () => {
+  // arrange
+  const effective = policy({
+    read: { allow: [exact(`${HOME}/.ssh`), tree(`${HOME}/.ssh/keys`), exact(`${HOME}/.netrc`)] },
+    write: { allow: [tree(`${HOME}/.ssh`)] },
+  });
+
+  // act
+  const config = filesystemConfig(effective, options());
+
+  // assert
+  assert.ok(!config.allowRead?.includes(`${HOME}/.ssh`));
+  assert.ok(!config.allowRead?.includes(`${HOME}/.ssh/keys`));
+  assert.ok(!config.allowRead?.includes(`${HOME}/.netrc`));
+  assert.ok(!config.allowWrite?.includes(`${HOME}/.ssh`));
+});
+
+test("glob grants that can reach a secret are dropped", () => {
+  // arrange
+  const patterns = ["*", ".*", ".s*/*", "*/id_rsa", ".config/*", "**/*.txt"];
+  const effective = policy({ read: { allow: patterns.map((pattern) => glob(HOME, pattern)) } });
+
+  // act
+  const config = filesystemConfig(effective, options());
+
+  // assert
+  for (const pattern of patterns) {
+    assert.ok(!config.allowRead?.includes(`${HOME}/${pattern}`), `${HOME}/${pattern} must be dropped`);
+  }
+});
+
+test("grants that cannot reach a secret survive", () => {
+  // arrange
+  const effective = policy({
+    read: { allow: [tree(HOME), glob(HOME, "*.txt"), glob(`${HOME}/notes`, "*.md"), glob(HOME, "Documents/*")] },
+  });
+
+  // act
+  const config = filesystemConfig(effective, options({ toolchainRead: [`${HOME}/.cargo`] }));
+
+  // assert
+  assert.ok(config.allowRead?.includes(HOME));
+  assert.ok(config.allowRead?.includes(`${HOME}/*.txt`));
+  assert.ok(config.allowRead?.includes(`${HOME}/notes/*.md`));
+  assert.ok(config.allowRead?.includes(`${HOME}/Documents/*`));
+  assert.ok(config.allowRead?.includes(`${HOME}/.cargo`));
+});
+
+test("toolchain paths inside a secret are dropped", () => {
+  // arrange
+  const effective = policy();
+
+  // act
+  const config = filesystemConfig(effective, options({ toolchainRead: [`${HOME}/.ssh`] }));
+
+  // assert
+  assert.ok(!config.allowRead?.includes(`${HOME}/.ssh`));
 });
 
 test("protected and denied selectors land in denyWrite", () => {
