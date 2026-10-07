@@ -312,9 +312,9 @@ export default function (pi: ExtensionAPI) {
 
   async function handleImplementDifferent(
     planPath: string,
-    ctx: ExtensionContext,
+    context: ExtensionContext,
   ): Promise<AgentToolResult<{ path: string; outcome: PlanSubmissionOutcome }>> {
-    const models = await settledAvailableModels(ctx);
+    const models = await settledAvailableModels(context);
     if (models.length === 0) {
       return notApproved(
         planPath,
@@ -322,8 +322,8 @@ export default function (pi: ExtensionAPI) {
       );
     }
 
-    const currentModelLabel = ctx.model
-      ? `${ctx.model.provider}/${ctx.model.id}`
+    const currentModelLabel = context.model
+      ? `${context.model.provider}/${context.model.id}`
       : undefined;
     const modelOptions = models.map((model) => {
       const label = `${model.provider}/${model.id}`;
@@ -335,7 +335,7 @@ export default function (pi: ExtensionAPI) {
       modelOptions.find((option) => option.endsWith("(current)")) ??
       modelOptions[0];
     const modelChoice = await selectWithDefault(
-      ctx.ui,
+      context.ui,
       "Implement with which model?",
       modelOptions,
       currentOption,
@@ -353,7 +353,7 @@ export default function (pi: ExtensionAPI) {
         candidate === currentLevel ? `${candidate} (current)` : candidate,
       );
       const levelChoice = await selectWithDefault(
-        ctx.ui,
+        context.ui,
         "Thinking level",
         levelOptions,
         levelOptions[supportedLevels.indexOf(level)],
@@ -363,18 +363,18 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
-    return await handOffToModel(planPath, selectedModel, level, ctx);
+    return await handOffToModel(planPath, selectedModel, level, context);
   }
 
   async function handOffToModel(
     planPath: string,
     selectedModel: Model<Api>,
     level: ModelThinkingLevel | undefined,
-    ctx: ExtensionContext,
+    context: ExtensionContext,
   ): Promise<AgentToolResult<{ path: string; outcome: PlanSubmissionOutcome }>> {
     const modelName = `${selectedModel.provider}/${selectedModel.id}`;
     const choice = await selectWithDefault(
-      ctx.ui,
+      context.ui,
       `How should ${modelName} start?\n\n` +
         "  Full context keeps the whole conversation, plan text included.\n" +
         "  Compact aborts this turn, summarizes, and implements from the summary plus the plan file.\n" +
@@ -390,7 +390,7 @@ export default function (pi: ExtensionAPI) {
         modelId: selectedModel.id,
         thinkingLevel: level ?? pi.getThinkingLevel(),
       };
-      plan.leave(ctx);
+      plan.leave(context);
       // newSession only exists on the command context, so the switch is dispatched
       // as a command; prompt() executes extension commands immediately even while
       // the agent is streaming, and the resulting teardown aborts this turn after
@@ -412,7 +412,7 @@ export default function (pi: ExtensionAPI) {
     const compactFirst = choice === CONTEXT_COMPACT;
 
     if (!(await pi.setModel(selectedModel))) {
-      ctx.ui.notify(`No API key for ${selectedModel.provider}.`, "error");
+      context.ui.notify(`No API key for ${selectedModel.provider}.`, "error");
       return notApproved(
         planPath,
         `No API key is configured for ${selectedModel.provider}.`,
@@ -423,17 +423,17 @@ export default function (pi: ExtensionAPI) {
     // clamped level stands.
     if (level !== undefined) pi.setThinkingLevel(level);
 
-    plan.leave(ctx);
+    plan.leave(context);
 
     if (compactFirst) {
       // Compaction aborts the run this tool call belongs to, so the kickoff has
       // to come from the completion callback instead of this tool result.
       const kickoff = () =>
         pi.sendUserMessage(`Implement the plan at ${planPath}.`);
-      ctx.compact({
+      context.compact({
         onComplete: kickoff,
         onError: (error) => {
-          ctx.ui.notify(`Compaction failed: ${error.message}`, "error");
+          context.ui.notify(`Compaction failed: ${error.message}`, "error");
           kickoff();
         },
       });
@@ -465,14 +465,14 @@ export default function (pi: ExtensionAPI) {
     description:
       "Toggle plan mode, review decisions with `grants`, or add a path rule with `allow <glob>` / `deny <glob>`",
     getArgumentCompletions: plan.completions,
-    handler: async (args, ctx) => {
+    handler: async (args, context) => {
       const argument = args.trim();
-      if (await plan.handleCommand(argument, ctx)) return;
+      if (await plan.handleCommand(argument, context)) return;
       if (argument === FRESH_HANDOFF_ARGUMENT) {
-        await startFreshHandoffSession(ctx);
+        await startFreshHandoffSession(context);
         return;
       }
-      ctx.ui.notify(
+      context.ui.notify(
         `Unknown argument "${argument}". Use /plan to toggle, /plan grants to review, or /plan allow|deny <glob> to add a path rule.`,
         "error",
       );
@@ -480,17 +480,17 @@ export default function (pi: ExtensionAPI) {
   });
 
   async function startFreshHandoffSession(
-    ctx: ExtensionCommandContext,
+    context: ExtensionCommandContext,
   ): Promise<void> {
     const handoff = pendingFreshHandoff;
     pendingFreshHandoff = undefined;
     if (!handoff) {
-      ctx.ui.notify("No fresh-session handoff is pending.", "error");
+      context.ui.notify("No fresh-session handoff is pending.", "error");
       return;
     }
 
-    const { cancelled } = await ctx.newSession({
-      parentSession: ctx.sessionManager.getSessionFile(),
+    const { cancelled } = await context.newSession({
+      parentSession: context.sessionManager.getSessionFile(),
       // setup runs before session_start fires in the new runtime, so the new
       // plan-mode instance finds this entry when it initializes.
       setup: async (sessionManager) => {
@@ -498,19 +498,19 @@ export default function (pi: ExtensionAPI) {
       },
     });
     if (cancelled) {
-      ctx.ui.notify(
+      context.ui.notify(
         "Fresh session was cancelled — still in the current session. Ask the agent to implement the plan here instead.",
         "warning",
       );
     }
   }
 
-  pi.on("session_start", async (event, ctx) => {
+  pi.on("session_start", async (event, context) => {
     // A compatibility migration for loadouts saved without the planning tools, not a mode change.
     activateMissingPlanTools(pi);
     const handoff =
       event.reason === "new"
-        ? latestPlanHandoff(ctx.sessionManager)
+        ? latestPlanHandoff(context.sessionManager)
         : undefined;
     if (!handoff) return;
     // The new runtime's availability snapshot is still being computed while
@@ -518,9 +518,9 @@ export default function (pi: ExtensionAPI) {
     // but its auth check lands in a later async pass), so getAvailable() may not
     // list the handoff model yet. find() reads the registered providers directly;
     // setModel still refuses a provider without configured auth.
-    const model = ctx.modelRegistry.find(handoff.provider, handoff.modelId);
+    const model = context.modelRegistry.find(handoff.provider, handoff.modelId);
     if (!model || !(await pi.setModel(model))) {
-      ctx.ui.notify(
+      context.ui.notify(
         `Plan handoff: ${handoff.provider}/${handoff.modelId} is not available. ` +
           `Pick a model, then ask it to implement the plan at ${handoff.planPath}.`,
         "error",
@@ -583,9 +583,9 @@ const OUTCOME_LABELS: Record<string, string | undefined> = {
 // start land in a later async pass). Refreshing first is pi's documented way to
 // settle the snapshot before a synchronous read; a failed refresh just leaves
 // the snapshot as it was.
-async function settledAvailableModels(ctx: ExtensionContext): Promise<Model<Api>[]> {
-  await ctx.modelRegistry.refresh({ allowNetwork: false }).catch(() => undefined);
-  return ctx.modelRegistry.getAvailable();
+async function settledAvailableModels(context: ExtensionContext): Promise<Model<Api>[]> {
+  await context.modelRegistry.refresh({ allowNetwork: false }).catch(() => undefined);
+  return context.modelRegistry.getAvailable();
 }
 
 function findSuggestedModel(

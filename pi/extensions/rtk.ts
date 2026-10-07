@@ -69,7 +69,7 @@ export default async function (pi: ExtensionAPI) {
     }
   }
 
-  pi.on("tool_call", async (event, ctx) => {
+  pi.on("tool_call", async (event, context) => {
     try {
       if (!isBashToolCallEvent(event)) return;
 
@@ -80,7 +80,7 @@ export default async function (pi: ExtensionAPI) {
       if (process.env.RTK_DISABLED === "1") return;
 
       // Delegate to RTK.
-      const rewritten = await rewriteCommand(pi, command, ctx.signal);
+      const rewritten = await rewriteCommand(pi, command, context.signal);
       if (!rewritten || rewritten === command) return;
       // `rtk read` is byte-identical to cat, and its --max-lines mode (what `head -N` becomes)
       // collapses function bodies to `{ }` skeletons, so the model would see code that is not there.
