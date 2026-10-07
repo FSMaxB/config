@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
+import { SandboxManager, type FilesystemConfig } from "@anthropic-ai/sandbox-runtime";
 import { createBashToolDefinition, createLocalBashOperations, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { BashOperations, BashToolDetails, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
@@ -18,7 +18,7 @@ import { bypassOutcome, bypassPrompt, resolveChoice, type BypassAuthorization, t
 import { NETWORK_ENTRY_TYPE, effectiveNetwork, emptyGrants, parseGrants, recordGrant, serializeGrants, type NetworkGrants } from "./network-grants.ts";
 import { filesystemConfig, secretPaths, type PolicyOptions } from "./policy.ts";
 import { loadSettings, updateDomainLists, type Settings } from "./settings.ts";
-import { isSecretPath, pathViolations, type PathViolation } from "./violations.ts";
+import { discardedWrites, isSecretPath, pathViolations, type PathViolation } from "./violations.ts";
 
 const SANDBOX_NOTE =
   "Commands run inside an OS sandbox that enforces the same read/write path rules as the file tools, with no network except allowed hosts. Denied paths are reported in a <sandbox_violations> block and the user is asked to grant them; after a grant the command has to be rerun. Never try to work around a denial. " +
@@ -121,7 +121,12 @@ function createRuntime(pi: ExtensionAPI): Runtime {
       try {
         const wrapped = await SandboxManager.wrapWithSandbox(command, undefined, { filesystem }, options.signal, { commandId, commandText: command });
         const result = await stock.exec(wrapped, cwd, options);
-        if (result.exitCode === 0) return result;
+        if (result.exitCode === 0 && process.platform !== "linux") return result;
+        if (result.exitCode === 0) {
+          const report = discardedWritesReport(await readViolationsAfterOneWait(commandId), filesystem);
+          if (report) options.onData(Buffer.from(report));
+          return result;
+        }
         const violations = await collectViolations(commandId);
         if (violations.length === 0) return result;
         options.onData(Buffer.from(SandboxManager.annotateStderrWithSandboxFailures(commandId, "")));
@@ -172,6 +177,13 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     const config = SandboxManager.getConfig();
     if (!config || !settings) return;
     SandboxManager.updateConfig({ ...config, network: { ...config.network, ...effectiveNetwork(settings, grants) } });
+  }
+
+  // The discarded-write report is best effort and runs on every successful Linux command, so it pays one
+  // poll interval instead of waiting for the count to settle like a failed command does.
+  async function readViolationsAfterOneWait(commandId: string) {
+    await new Promise((resolve) => setTimeout(resolve, VIOLATION_POLL_MILLISECONDS));
+    return SandboxManager.getSandboxViolationStore().getViolationsForCommand(commandId);
   }
 
   async function collectViolations(commandId: string) {
@@ -241,4 +253,11 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     const outcome = await grantPathAccess(path, mode, activeContext);
     return outcome === "allowed" ? `${mode} access to ${path} was granted; rerun the command.` : `${mode} access to ${path} was denied; do not retry it.${notice}`;
   }
+}
+
+function discardedWritesReport(violations: { line: string }[], filesystem: FilesystemConfig): string {
+  const discarded = discardedWrites(pathViolations(violations.map(({ line }) => line)), filesystem);
+  if (discarded.length === 0) return "";
+  const lines = discarded.map(({ path }) => `${path} is not covered by the write path rules; the write was discarded and nothing reached the real filesystem.`);
+  return `\n<sandbox_violations>\n${lines.join("\n")}${readOnlyRepositoryNotice("write", currentAgentMode())}\n</sandbox_violations>\n`;
 }

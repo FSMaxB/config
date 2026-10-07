@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isSecretPath, pathViolations } from "./violations.ts";
+import { discardedWrites, isSecretPath, pathViolations } from "./violations.ts";
 
 test("macOS read and write violations parse", () => {
   // arrange
@@ -58,6 +58,33 @@ test("duplicate violations collapse and paths with spaces survive", () => {
 
   // assert
   assert.deepEqual(violations, [{ mode: "write", path: "/Users/max/Library/Application Support/x" }]);
+});
+
+test("a write inside a read-denied tree and outside every write allow is a discarded write", () => {
+  // arrange
+  const filesystem = { denyRead: ["/home", "/home/max"], allowWrite: ["/home/max/repo"] };
+
+  // act
+  const reported = discardedWrites([{ mode: "write", path: "/home/max/notes.txt" }], filesystem);
+
+  // assert
+  assert.deepEqual(reported, [{ mode: "write", path: "/home/max/notes.txt" }]);
+});
+
+test("writes outside the read-denied tree, inside a write allow, and reads are not discarded writes", () => {
+  // arrange
+  const filesystem = { denyRead: ["/home", "/home/max"], allowWrite: ["/home/max/repo"] };
+
+  // act
+  const reported = discardedWrites([
+    { mode: "write", path: "/home/max/repo/a" },
+    { mode: "write", path: "/dev/null" },
+    { mode: "write", path: "/tmp/claude/x" },
+    { mode: "read", path: "/home/max/x" },
+  ], filesystem);
+
+  // assert
+  assert.deepEqual(reported, []);
 });
 
 test("a secret path matches itself and nested paths only", () => {
