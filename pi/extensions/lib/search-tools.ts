@@ -247,7 +247,7 @@ export function createFindExecute(
     const fd = locateBinary("fd", ["fdfind"]);
     const searchPath = resolvePath(searchDir || ".", cwd);
     const countOnly = output === "count";
-    const effectiveLimit = limit ?? DEFAULT_LIMIT;
+    const effectiveLimit = Math.max(1, limit ?? DEFAULT_LIMIT);
 
     const args = ["--glob", "--color=never", "--hidden"];
     if (!insideGitRepository(searchPath)) args.push("--no-require-git");
