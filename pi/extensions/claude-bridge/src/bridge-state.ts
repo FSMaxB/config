@@ -70,7 +70,7 @@ function sharedSessionLaneStore(): SharedSessionLaneStoreV1 {
 	return store;
 }
 
-export let extensionApi: ExtensionAPI | undefined;
+let extensionApi: ExtensionAPI | undefined;
 export let piUI: ExtensionUIContext | undefined;
 
 export function getSharedSession(): SessionState | null {
@@ -148,6 +148,13 @@ export function markSessionForRebuild(reason: string, opts: { forceRotate?: bool
 
 export function setExtensionApi(next: ExtensionAPI | undefined): void {
 	extensionApi = next;
+}
+
+// Other modules read the API through this getter, not an imported binding: under
+// Pi's extension loader an imported `let` kept the first factory's API after a new
+// session re-ran the factory, so every call went to an invalidated API.
+export function getExtensionApi(): ExtensionAPI | undefined {
+	return extensionApi;
 }
 
 export function setPiUI(next: ExtensionUIContext | undefined): void {
