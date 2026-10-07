@@ -8,6 +8,7 @@ import { after, before, test } from "node:test";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import { exact, glob, tree, type PathSelector } from "../../lib/path-permission-rules.ts";
 import { filesystemConfig } from "./policy.ts";
+import { discardedWrites, pathViolations } from "./violations.ts";
 
 const enabled = process.env.SANDBOX_INTEGRATION === "1";
 
@@ -122,6 +123,27 @@ test("a glob grant that cannot reach a secret still works", { skip: !enabled }, 
   assert.match(output, /visible notes/);
 });
 
+// Linux masks the read-denied home directory with a writable tmpfs, so the write exits 0 and vanishes; the
+// violation monitor still records it, which is what the discarded-writes report in extension.ts reads.
+test("Linux reports a write that the read-deny tmpfs discarded", { skip: !enabled || process.platform !== "linux" }, async () => {
+  // arrange
+  const target = join(fakeHome, "discarded");
+
+  // act
+  const { exitCode, commandId } = await runSandboxed(`touch '${target}'`);
+
+  // assert
+  assert.equal(exitCode, 0);
+  const store = SandboxManager.getSandboxViolationStore();
+  let violations = store.getViolationsForCommand(commandId);
+  for (let poll = 0; poll < 6 && violations.length === 0; poll += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    violations = store.getViolationsForCommand(commandId);
+  }
+  const discarded = discardedWrites(pathViolations(violations.map(({ line }) => line)), policyFilesystem());
+  assert.ok(discarded.some((violation) => violation.mode === "write" && violation.path === target), `the monitor must record the tmpfs write: ${JSON.stringify(discarded)}`);
+});
+
 function policyFilesystem(extraReadAllow: PathSelector[] = []) {
   const policy = {
     read: { allow: [tree(workDirectory), ...extraReadAllow], deny: [], protected: [] },
@@ -130,7 +152,7 @@ function policyFilesystem(extraReadAllow: PathSelector[] = []) {
   return filesystemConfig(policy, { platform: process.platform as "darwin" | "linux", homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [] });
 }
 
-async function runSandboxed(command: string, filesystem = policyFilesystem()): Promise<{ exitCode: number | null; output: string }> {
+async function runSandboxed(command: string, filesystem = policyFilesystem()): Promise<{ exitCode: number | null; output: string; commandId: string }> {
   const commandId = `${Date.now()}-${Math.random()}`;
   const wrapped = await SandboxManager.wrapWithSandbox(command, undefined, { filesystem }, undefined, { commandId, commandText: command });
   try {
@@ -140,7 +162,7 @@ async function runSandboxed(command: string, filesystem = policyFilesystem()): P
       child.stdout.on("data", (chunk) => { output += chunk; });
       child.stderr.on("data", (chunk) => { output += chunk; });
       child.on("error", reject);
-      child.on("close", (exitCode) => resolve({ exitCode, output }));
+      child.on("close", (exitCode) => resolve({ exitCode, output, commandId }));
     });
   } finally {
     SandboxManager.cleanupAfterCommand();
