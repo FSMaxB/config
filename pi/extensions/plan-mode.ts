@@ -321,9 +321,16 @@ export default function (pi: ExtensionAPI) {
       const label = `${model.provider}/${model.id}`;
       return label === currentModelLabel ? `${label} (current)` : label;
     });
-    const modelChoice = await ctx.ui.select(
+    // The list can exceed the screen, so use the scrolling selector and open it
+    // preselected on the current model instead of index 0.
+    const currentOption =
+      modelOptions.find((option) => option.endsWith("(current)")) ??
+      modelOptions[0];
+    const modelChoice = await selectWithDefault(
+      ctx.ui,
       "Implement with which model?",
       modelOptions,
+      currentOption,
     );
     if (modelChoice === undefined) return notApproved(planPath);
     const selectedModel = models[modelOptions.indexOf(modelChoice)];
