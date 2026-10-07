@@ -192,7 +192,8 @@ export async function addPathRule(rule: PathRule, store: PathRuleStore = activeP
     state.persistSession?.(store, serializeRules(state.sessions[store]));
     return;
   }
-  await transaction(RULES_FILES[store], (always) => { recordRule(rule, { session: emptyRules(), always }); });
+  const changed = await transaction(RULES_FILES[store], (always) => recordRule(rule, { session: state.sessions[store], always }));
+  if (changed.has("session")) state.persistSession?.(store, serializeRules(state.sessions[store]));
 }
 export async function listPathRules(store: PathRuleStore = activePathRuleStore()): Promise<PathRule[]> {
   const always = await readStoredRules(RULES_FILES[store]);
