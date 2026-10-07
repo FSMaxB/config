@@ -14,10 +14,10 @@ import type {
   BashToolCallEvent,
   ExtensionAPI,
   ToolCallEvent,
-} from "@earendil-works/pi-coding-agent"
+} from "@earendil-works/pi-coding-agent";
 
-const REWRITE_TIMEOUT_MS = 2_000
-const MIN_SUPPORTED_RTK_MINOR = 23
+const REWRITE_TIMEOUT_MS = 2_000;
+const MIN_SUPPORTED_RTK_MINOR = 23;
 
 // Local reimplementation of the package's `isToolCallEventType("bash", event)` type
 // guard. That helper is a value export, so importing it pulls in the whole
@@ -26,70 +26,70 @@ const MIN_SUPPORTED_RTK_MINOR = 23
 // below are type-only imports and are erased at compile time, so they carry none
 // of that cost. See #2753.
 function isBashToolCallEvent(event: ToolCallEvent): event is BashToolCallEvent {
-  return event.toolName === "bash"
+  return event.toolName === "bash";
 }
 
 // Parse "X.Y.Z" semver, return [major, minor, patch] or null.
 function parseSemver(raw: string): [number, number, number] | null {
-  const m = raw.trim().match(/(\d+)\.(\d+)\.(\d+)/)
-  if (!m) return null
-  return [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10)]
+  const match = raw.trim().match(/(\d+)\.(\d+)\.(\d+)/);
+  if (!match) return null;
+  return [parseInt(match[1], 10), parseInt(match[2], 10), parseInt(match[3], 10)];
 }
 
 // Calls `rtk rewrite`; returns the rewritten command or null (pass through).
 async function rewriteCommand(
   pi: ExtensionAPI,
-  cmd: string,
+  command: string,
   signal?: AbortSignal
 ): Promise<string | null> {
-  const result = await pi.exec("rtk", ["rewrite", cmd], {
+  const result = await pi.exec("rtk", ["rewrite", command], {
     timeout: REWRITE_TIMEOUT_MS,
     signal,
-  })
-  if (result.killed) return null
-  if (result.code !== 0 && result.code !== 3) return null
-  return result.stdout.trim() || null
+  });
+  if (result.killed) return null;
+  if (result.code !== 0 && result.code !== 3) return null;
+  return result.stdout.trim() || null;
 }
 
 export default async function (pi: ExtensionAPI) {
   // Probe rtk version at load time; disables extension if missing or too old.
-  const ver = await pi.exec("rtk", ["--version"], { timeout: REWRITE_TIMEOUT_MS })
-  if (ver.code !== 0) {
-    console.warn("[rtk] rtk binary not found in PATH — extension disabled")
-    return
+  const version = await pi.exec("rtk", ["--version"], { timeout: REWRITE_TIMEOUT_MS });
+  if (version.code !== 0) {
+    console.warn("[rtk] rtk binary not found in PATH — extension disabled");
+    return;
   }
 
   // Warn and bail if rtk predates 0.23.0 (when `rtk rewrite` was introduced).
-  const parsed = parseSemver(ver.stdout.replace(/^rtk\s+/, ""))
+  const parsed = parseSemver(version.stdout.replace(/^rtk\s+/, ""));
   if (parsed) {
-    const [major, minor] = parsed
+    const [major, minor] = parsed;
     if (major === 0 && minor < MIN_SUPPORTED_RTK_MINOR) {
-      console.warn(`[rtk] rtk ${ver.stdout.trim()} is too old (need >= 0.23.0) — extension disabled`)
-      return
+      console.warn(`[rtk] rtk ${version.stdout.trim()} is too old (need >= 0.23.0) — extension disabled`);
+      return;
     }
   }
 
   pi.on("tool_call", async (event, ctx) => {
     try {
-      if (!isBashToolCallEvent(event)) return
+      if (!isBashToolCallEvent(event)) return;
 
-      const cmd = event.input.command
-      if (typeof cmd !== "string" || cmd.trim() === "") return
+      const command = event.input.command;
+      if (typeof command !== "string" || command.trim() === "") return;
 
-      if (cmd.startsWith("rtk ")) return
-      if (process.env.RTK_DISABLED === "1") return
+      if (command.startsWith("rtk ")) return;
+      if (process.env.RTK_DISABLED === "1") return;
 
       // Delegate to RTK.
-      const rewritten = await rewriteCommand(pi, cmd, ctx.signal)
-      if (!rewritten || rewritten === cmd) return
+      const rewritten = await rewriteCommand(pi, command, ctx.signal);
+      if (!rewritten || rewritten === command) return;
       // `rtk read` is byte-identical to cat, and its --max-lines mode (what `head -N` becomes)
       // collapses function bodies to `{ }` skeletons, so the model would see code that is not there.
-      if (rewritten.includes("rtk read ")) return
-      event.input.command = rewritten
-    } catch (err) {
+      if (rewritten.includes("rtk read ")) return;
+      event.input.command = rewritten;
+    } catch (error) {
       // Fail open: never block execution on an unexpected error.
-      console.warn("[rtk] unexpected error in tool_call handler; passing through command", err)
-      return
+      console.warn("[rtk] unexpected error in tool_call handler; passing through command", error);
+      return;
     }
-  })
+  });
 }
