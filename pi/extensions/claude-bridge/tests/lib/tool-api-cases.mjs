@@ -691,6 +691,20 @@ for (const options of [{ missingFile: true, outcome: "missing" }, { noUI: true, 
 	});
 }
 
+it("refuses to submit a plan file outside the plans directory", async () => {
+	// arrange
+	await withCritPlanSession({}, async ({ fixture, dialogs, processes }) => {
+		const outside = join(fixture.directory, "outside.md");
+		await writeFile(outside, "# Not a plan");
+		// act
+		const result = await fixture.call("submit_plan", { path: outside });
+		// assert
+		assert.equal(result.details.outcome, "outside-plans-directory");
+		assert.equal(dialogs.length, 0);
+		assert.equal(processes.length, 0);
+	});
+});
+
 it("discovers exactly one handler after reload with reversed extension load order", async () => {
 	// arrange
 	await withCritPlanSession({ extensions: ["plan-mode.ts", "crit.ts"], choice: "Stay in plan mode" },

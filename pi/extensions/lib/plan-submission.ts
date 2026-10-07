@@ -67,4 +67,13 @@ export interface PlanSubmissionParams {
   suggestedModelReason?: string;
 }
 
-export type PlanSubmissionResult = AgentToolResult<{ path: string | null; outcome: string }>;
+export type PlanSubmissionOutcome =
+  | "unavailable"
+  | "missing"
+  | "outside-plans-directory"
+  | "saved"
+  | "approved"
+  | "refine"
+  | "handed-off";
+
+export type PlanSubmissionResult = AgentToolResult<{ path: string | null; outcome: PlanSubmissionOutcome }>;

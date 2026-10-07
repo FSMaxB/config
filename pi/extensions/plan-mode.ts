@@ -10,11 +10,11 @@ import type {
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { MODE_IDENTITIES } from "./lib/agent-mode.ts";
-import { newPlanPath } from "./lib/plan-file.ts";
+import { isInPlansDirectory, newPlanPath, plansDirectory } from "./lib/plan-file.ts";
 import { activateMissingPlanTools, PLAN_PATH, SUBMIT_PLAN } from "./lib/plan-tools.ts";
 import { SubmissionAction, submissionAction, submissionOptions } from "./lib/plan-mode-policy.ts";
 import { commitPlanFileForUser } from "./lib/plan-commit.ts";
-import { registerPlanSubmission, type PlanSubmissionParams, type PlanSubmissionResult } from "./lib/plan-submission.ts";
+import { registerPlanSubmission, type PlanSubmissionOutcome, type PlanSubmissionParams, type PlanSubmissionResult } from "./lib/plan-submission.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 import { registerRestrictedMode } from "./lib/restricted-mode.ts";
 import { selectWithDefault } from "./lib/select-with-default.ts";
@@ -162,7 +162,9 @@ export default function (pi: ExtensionAPI) {
         const reason =
           details?.outcome === "missing"
             ? "plan file not found"
-            : "only available in plan mode";
+            : details?.outcome === "outside-plans-directory"
+              ? "not in the plans directory"
+              : "only available in plan mode";
         return new Text(theme.fg("error", `✗ ${reason}`), 0, 0);
       }
       const label = OUTCOME_LABELS[details.outcome] ?? "submitted";
@@ -210,6 +212,12 @@ export default function (pi: ExtensionAPI) {
     if (blocked) throw new Error(blocked);
 
     const { path } = params;
+    if (!isInPlansDirectory(path)) {
+      return {
+        content: [{ type: "text", text: `${path} is outside the plans directory (${plansDirectory()}). Call plan_path for a plan file path, write the plan there, then call submit_plan with that path.` }],
+        details: { path: null, outcome: "outside-plans-directory" },
+      };
+    }
     const planFile = await stat(path).catch(() => undefined);
     signal?.throwIfAborted();
     if (!planFile?.isFile()) {
@@ -305,7 +313,7 @@ export default function (pi: ExtensionAPI) {
   async function handleImplementDifferent(
     planPath: string,
     ctx: ExtensionContext,
-  ): Promise<AgentToolResult<{ path: string; outcome: string }>> {
+  ): Promise<AgentToolResult<{ path: string; outcome: PlanSubmissionOutcome }>> {
     const models = await settledAvailableModels(ctx);
     if (models.length === 0) {
       return notApproved(
@@ -363,7 +371,7 @@ export default function (pi: ExtensionAPI) {
     selectedModel: Model<Api>,
     level: ModelThinkingLevel | undefined,
     ctx: ExtensionContext,
-  ): Promise<AgentToolResult<{ path: string; outcome: string }>> {
+  ): Promise<AgentToolResult<{ path: string; outcome: PlanSubmissionOutcome }>> {
     const modelName = `${selectedModel.provider}/${selectedModel.id}`;
     const choice = await selectWithDefault(
       ctx.ui,
@@ -597,7 +605,7 @@ function findSuggestedModel(
 function notApproved(
   planPath: string,
   reason?: string,
-): AgentToolResult<{ path: string; outcome: string }> {
+): AgentToolResult<{ path: string; outcome: PlanSubmissionOutcome }> {
   const text = reason
     ? `Plan at ${planPath} not approved. Still in plan mode. ${reason}`
     : `Plan at ${planPath} not approved. Still in plan mode.`;
