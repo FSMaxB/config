@@ -407,3 +407,18 @@ test("a child path policy keeps the parent's rule store and tolerates parents th
   assert.equal(exploring?.ruleStore, "explore");
   assert.equal(unknown, null);
 });
+
+test("a child path policy keeps the parent's agent mode and rejects unknown modes", () => {
+  // arrange
+  const policy = { version: 1, session: serializeRules(emptyRules()), readDefaults: [], writeDefaults: [] };
+
+  // act
+  const legacy = parseChildPathPolicy(JSON.stringify(policy));
+  const planning = parseChildPathPolicy(JSON.stringify({ ...policy, agentMode: "planning" }));
+  const unknown = parseChildPathPolicy(JSON.stringify({ ...policy, agentMode: "other" }));
+
+  // assert
+  assert.equal(legacy?.agentMode, undefined);
+  assert.equal(planning?.agentMode, "planning");
+  assert.equal(unknown, null);
+});
