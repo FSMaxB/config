@@ -11,17 +11,20 @@ function updateUsage(output: AssistantMessage, usage: Record<string, number | un
 	// Anthropic reports per-message counters and RE-reports them as the message
 	// grows, so the in-flight message's figures replace, never accumulate. What
 	// accumulates is every child message already finished in this Pi turn — see
-	// `turnUsageCarry` in query-state.ts for why a turn can span several.
+	// `turnUsageCarry` in query-state.ts for why a turn can span several. A
+	// message already billed by an earlier Pi turn contributes only its increase
+	// (`billedMessageUsage` in query-state.ts).
 	const current = c.currentMessageUsage;
 	const carry = c.turnUsageCarry;
 	if (usage.input_tokens != null) current.input = usage.input_tokens;
 	if (usage.output_tokens != null) current.output = usage.output_tokens;
 	if (usage.cache_read_input_tokens != null) current.cacheRead = usage.cache_read_input_tokens;
 	if (usage.cache_creation_input_tokens != null) current.cacheWrite = usage.cache_creation_input_tokens;
-	output.usage.input = carry.input + current.input;
-	output.usage.output = carry.output + current.output;
-	output.usage.cacheRead = carry.cacheRead + current.cacheRead;
-	output.usage.cacheWrite = carry.cacheWrite + current.cacheWrite;
+	const unbilled = c.unbilledCurrentMessageUsage();
+	output.usage.input = carry.input + unbilled.input;
+	output.usage.output = carry.output + unbilled.output;
+	output.usage.cacheRead = carry.cacheRead + unbilled.cacheRead;
+	output.usage.cacheWrite = carry.cacheWrite + unbilled.cacheWrite;
 	output.usage.totalTokens = output.usage.input + output.usage.output + output.usage.cacheRead + output.usage.cacheWrite;
 	calculateCost(model, output.usage);
 	const promptTokens = output.usage.input + output.usage.cacheRead + output.usage.cacheWrite;
@@ -59,6 +62,7 @@ export function finalizeCurrentStream(stopReason?: string, c: QueryContext = ctx
 	debug(`provider: finalizeCurrentStream called, stopReason=${stopReason}, turnOutput=${JSON.stringify({stopReason: c.turnOutput.stopReason, error: c.turnOutput.errorMessage})}`);
 	if (!c.turnStarted) ensureTurnStarted(c);
 	const reason = stopReason === "length" ? "length" : "stop";
+	c.markCurrentMessageBilled();
 	c.currentPiStream.push({ type: "done", reason, message: c.turnOutput });
 	c.currentPiStream.end();
 	c.currentPiStream = null;
@@ -110,6 +114,7 @@ export function endToolUseTurn(c: QueryContext): void {
 		if (block?.type === "toolCall" && typeof block.id === "string") c.forwardedToolCallIds.add(block.id);
 	}
 	c.turnOutput.stopReason = "toolUse";
+	c.markCurrentMessageBilled();
 	c.currentPiStream.push({ type: "done", reason: "toolUse", message: c.turnOutput });
 	c.currentPiStream.end();
 	c.currentPiStream = null;
