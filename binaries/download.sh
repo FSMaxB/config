@@ -11,7 +11,7 @@ ZELLIJ_BASE_URL="https://github.com/zellij-org/zellij/releases/download/v${ZELLI
 BAT_VERSION="0.26.1"
 BAT_BASE_URL="https://github.com/sharkdp/bat/releases/download/v${BAT_VERSION}"
 
-JJ_VERSION="0.45.1"
+JJ_VERSION="0.46.0"
 JJ_BASE_URL="https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}"
 
 JQ_VERSION="1.8.2"
@@ -21,7 +21,7 @@ TUICR_VERSION="0.27.0"
 TUICR_BASE_URL="https://github.com/agavra/tuicr/releases/download/v${TUICR_VERSION}"
 TUICR_RAW_URL="https://raw.githubusercontent.com/agavra/tuicr/v${TUICR_VERSION}/skills/tuicr"
 
-CRIT_VERSION="0.21.1"
+CRIT_VERSION="0.22.0"
 CRIT_BASE_URL="https://github.com/tomasz-tomczyk/crit/releases/download/v${CRIT_VERSION}"
 
 RTK_VERSION="0.51.0"
@@ -40,7 +40,7 @@ function download_platform() {
 			CRIT_NAME="linux-arm64"
 			RTK_NAME="aarch64-unknown-linux-gnu"
 			BAT_SHA256="6369242c584065f195fb20cb36fbd7cb63ae690605bbe89868a7596b596c2c23"
-			JJ_SHA256="7349a43dd5a20dbc998b10114daa0ee63d2ab863fb822c7eb6b0ebca5903cc69"
+			JJ_SHA256="80e28f7501c11e50e0ca06cd6a1fa1d982cff9cc59bfe4411a9d36aa501d867e"
 			TUICR_SHA256="d0707f491cc8cdf0930fc1466029341d804a0105dd0b674f8dca33afb8366490"
 			;;
 		Linux/x86_64)
@@ -49,7 +49,7 @@ function download_platform() {
 			CRIT_NAME="linux-amd64"
 			RTK_NAME="x86_64-unknown-linux-musl"
 			BAT_SHA256="0dcd8ac79732c0d5b136f11f4ee00e581440e16a44eab5b3105b611bbf2cf191"
-			JJ_SHA256="f35438350b5d61963aac5dd74ede510b31d6b9690769d1a6268cf058cc825f72"
+			JJ_SHA256="fce0271158e665ceb82dc66c5eb95b1728649094e9133074f3b5baece345fc08"
 			TUICR_SHA256="f673ff709af2501c111216c95745395ae2bfedf3daa3d039539f9614a6ddb4e4"
 			;;
 		Darwin/arm64)
@@ -58,7 +58,7 @@ function download_platform() {
 			CRIT_NAME="darwin-arm64"
 			RTK_NAME="aarch64-apple-darwin"
 			BAT_SHA256="e30beff26779c9bf60bb541e1d79046250cb74378f2757f8eb250afddb19e114"
-			JJ_SHA256="51ba42e3d0682616f6eb015045bfe45289b396f03511f9897f645ce8e9272743"
+			JJ_SHA256="43daa37ce0f9716cdf6fb65a29cbcae74a3160aef048cf3cb3d166d41cb4ab58"
 			TUICR_SHA256="170b2e5290435faaf663c9498b1385493df7c336646b74c9336388844e028dcf"
 			;;
 		*)
