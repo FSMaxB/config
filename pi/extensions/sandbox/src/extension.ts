@@ -15,6 +15,7 @@ import { selectWithDefault } from "../../lib/select-with-default.ts";
 import { latestCustomData } from "../../lib/session-entries.ts";
 import { serialize } from "../../lib/ui-queue.ts";
 import { bypassOutcome, bypassPrompt, resolveChoice, type BypassAuthorization, type SessionDecision } from "./bypass.ts";
+import { credentialEnvVars } from "./credentials.ts";
 import { NETWORK_ENTRY_TYPE, effectiveNetwork, emptyGrants, parseGrants, recordGrant, serializeGrants, type NetworkGrants } from "./network-grants.ts";
 import { filesystemConfig, secretPaths, type PolicyOptions } from "./policy.ts";
 import { loadSettings, updateDomainLists, type Settings } from "./settings.ts";
@@ -161,6 +162,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
       {
         network: { ...effectiveNetwork(settings, grants), allowUnixSockets: settings.allowUnixSockets, allowLocalBinding: settings.allowLocalBinding },
         filesystem: filesystemConfig(await currentPolicy(), policyOptions()),
+        credentials: { envVars: credentialEnvVars() },
         allowPty: false,
       },
       askNetwork,
