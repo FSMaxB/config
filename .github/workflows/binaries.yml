@@ -1,0 +1,40 @@
+name: binaries
+
+on:
+  push:
+    branches: [main]
+    paths: &paths
+      - "binaries/download.sh"
+      - "tuicr-skill/**"
+      - ".github/workflows/binaries.yml"
+  pull_request:
+    paths: *paths
+  workflow_dispatch:
+  schedule:
+    # Weekly, to catch upstream breakage that a push wouldn't: dead release
+    # URLs.
+    - cron: "0 6 * * 1"
+
+jobs:
+  downloads:
+    name: downloads (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-26.04, ubuntu-26.04-arm, macos-26]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Download binaries for this platform
+        # Unauthenticated curl against github.com release assets isn't
+        # API-rate-limited, so no token is needed. Checksums are verified by
+        # the script itself.
+        run: binaries/download.sh
+      - name: Smoke test
+        run: |
+          set -eu
+          DIR="binaries/$(uname -s)/$(uname -m)"
+          for tool in bat crit jj jq rtk starship tuicr zellij; do
+            "$DIR/$tool" --version
+          done
+      - name: Verify tuicr-skill matches pinned digests
+        run: git diff --exit-code tuicr-skill/
