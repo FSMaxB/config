@@ -28,5 +28,8 @@
     "lmstudio/qwen/qwen3.8-27b": "medium"
   },
   "autocompleteMaxVisible": 20,
-  "steeringMode": "all"
+  "steeringMode": "all",
+  "iHaveAdhd": {
+    "alwaysOn": true
+  }
 }
