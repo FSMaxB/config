@@ -35,8 +35,11 @@ export function resolveChoice(choice: string | undefined): { authorization: Bypa
   };
 }
 
+// The tail matters more than the head here: an unexpected suffix on a long command is where a payload hides.
 export function bypassPrompt(command: string): string {
-  const MAX_COMMAND_LENGTH = 200;
-  const shown = command.length > MAX_COMMAND_LENGTH ? `${command.slice(0, MAX_COMMAND_LENGTH - 3)}...` : command;
+  const HEAD = 120, TAIL = 120;
+  const shown = command.length > HEAD + TAIL + 32
+    ? `${command.slice(0, HEAD)}\n  …[${command.length - HEAD - TAIL} characters omitted]…\n  ${command.slice(-TAIL)}`
+    : command;
   return `Sandbox: run this command outside the sandbox?\n\n  ${shown}`;
 }
