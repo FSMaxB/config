@@ -1,8 +1,10 @@
 import { homedir } from "node:os";
+import { sep } from "node:path";
 
 export function shortenPath(path: string): string {
   const home = homedir();
-  return path.startsWith(home) ? `~${path.slice(home.length)}` : path;
+  if (path !== home && !path.startsWith(`${home}${sep}`)) return path;
+  return `~${path.slice(home.length)}`;
 }
 
 // Allowlist filter for text that leaves the terminal (session names, desktop

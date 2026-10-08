@@ -98,6 +98,7 @@ export function createGrepExecute(
     if (ignoreCase) args.push("--ignore-case");
     if (literal) args.push("--fixed-strings");
     if (glob) args.push("--glob", glob);
+    if (!insideGitRepository(searchPath)) args.push("--no-require-git");
     args.push("--", pattern, searchPath);
 
     let matchCount = 0;
@@ -246,7 +247,7 @@ export function createFindExecute(
     const fd = locateBinary("fd", ["fdfind"]);
     const searchPath = resolvePath(searchDir || ".", cwd);
     const countOnly = output === "count";
-    const effectiveLimit = limit ?? DEFAULT_LIMIT;
+    const effectiveLimit = Math.max(1, limit ?? DEFAULT_LIMIT);
 
     const args = ["--glob", "--color=never", "--hidden"];
     if (!insideGitRepository(searchPath)) args.push("--no-require-git");

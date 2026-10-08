@@ -4,10 +4,15 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 const binaryCache = new Map<string, string>();
+const missingSince = new Map<string, number>();
 
 export function locateBinary(name: string, fallbackNames: string[] = []): string {
+  // Short enough that a binary installed mid-session is picked up without a restart.
+  const MISSING_RETRY_MILLISECONDS = 60_000;
   const cached = binaryCache.get(name);
   if (cached) return cached;
+  const missing = missingSince.get(name);
+  if (missing !== undefined && Date.now() - missing < MISSING_RETRY_MILLISECONDS) throw notAvailable(name);
 
   // pi's own tool downloader puts binaries here, so prefer it before the PATH.
   const downloaded = join(homedir(), ".pi", "agent", "bin", name);
@@ -22,9 +27,12 @@ export function locateBinary(name: string, fallbackNames: string[] = []): string
       return candidate;
     }
   }
-  throw new Error(
-    `${name} is not available. Install it or run a pi built-in ${name} tool once so pi downloads it.`,
-  );
+  missingSince.set(name, Date.now());
+  throw notAvailable(name);
+}
+
+function notAvailable(name: string): Error {
+  return new Error(`${name} is not available. Install it or run a pi built-in ${name} tool once so pi downloads it.`);
 }
 
 // fd and rg only honor .gitignore inside a git repository unless told otherwise. The tools pass
