@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { it, mock } from "node:test";
 import childProcess from "node:child_process";
-import { syncBuiltinESMExports } from "node:module";
+import { registerHooks, syncBuiltinESMExports } from "node:module";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { Check } from "typebox/value";
 import { join } from "node:path";
@@ -15,6 +16,21 @@ import { createCodemodeExtension, initTheme } from "@earendil-works/pi-coding-ag
 import { resolveMcpTools } from "../../src/index.ts";
 import { toolApiSession } from "./tool-api-session.mjs";
 import { cwdSlug } from "../../../lib/plan-naming.ts";
+
+// The lib modules sit outside this package, so plain Node neither resolves their `@earendil-works/*`
+// imports (pi aliases those through its own loader, which a direct import bypasses) nor loads them as
+// ESM, which the ESM-only pi packages require. Alias the one runtime import to this package's copy
+// and load the lib files as ESM.
+const piCodingAgentEntry = import.meta.resolve("@earendil-works/pi-coding-agent");
+const libDirectory = new URL("../../../lib/", import.meta.url).href;
+registerHooks({
+	resolve(specifier, context, nextResolve) {
+		if (specifier === "@earendil-works/pi-coding-agent") return { url: piCodingAgentEntry, shortCircuit: true };
+		const resolved = nextResolve(specifier, context);
+		if (resolved.url.startsWith(libDirectory) && resolved.url.endsWith(".ts")) return { ...resolved, format: "module" };
+		return resolved;
+	},
+});
 
 it("keeps model-only tools declared but excludes nested execution", async () => {
 	// arrange
@@ -703,6 +719,27 @@ it("refuses to submit a plan file outside the plans directory", async () => {
 		assert.equal(dialogs.length, 0);
 		assert.equal(processes.length, 0);
 	});
+});
+
+it("an always allow replaces a session deny for the same path", async () => {
+	// arrange
+	const { addPathRule, initPathPermissions, listPathRules, removePathRule } = await import("../../../lib/path-permissions.ts");
+	// The rule state is shared through globalThis, so an earlier test's disposed session leaves a
+	// stale persistSession behind; point it at a no-op so this test's session-tier rule does not
+	// append to a session that no longer exists.
+	initPathPermissions({ appendEntry() {} });
+	const selector = { kind: "tree", path: join(tmpdir(), "always-replaces-session") };
+	await addPathRule({ mode: "read", kind: "deny", tier: "session", selector });
+	try {
+		// act
+		await addPathRule({ mode: "read", kind: "allow", tier: "always", selector });
+		// assert
+		const rules = await listPathRules();
+		assert.ok(!rules.some(rule => rule.kind === "deny" && rule.selector.path === selector.path));
+		assert.ok(rules.some(rule => rule.kind === "allow" && rule.tier === "always" && rule.selector.path === selector.path));
+	} finally {
+		await removePathRule({ mode: "read", kind: "allow", tier: "always", selector });
+	}
 });
 
 it("discovers exactly one handler after reload with reversed extension load order", async () => {

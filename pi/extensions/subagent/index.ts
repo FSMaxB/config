@@ -1017,6 +1017,6 @@ function registerChildRestrictions(pi: ExtensionAPI): void {
 }
 
 async function persistedModeDecisions(mode: RestrictedMode): Promise<PersistedModeDecisions> {
-  const { alwaysAllowed, alwaysDenied } = await readPersistedDecisions(mode);
+  const { alwaysAllowed, alwaysDenied } = await readPersistedDecisions(mode).catch(() => ({ alwaysAllowed: [], alwaysDenied: [] }));
   return { alwaysAllowed, alwaysDenied: alwaysDenied.map((denial) => denial.name) };
 }

@@ -336,7 +336,9 @@ class Engine {
   private async save(mode: RestrictedMode, context: ExtensionContext): Promise<void> {
     this.persist(mode);
     const { alwaysGrants, alwaysDenials } = this.decisions[mode];
-    await writePersistedDecisions(mode, alwaysGrants, alwaysDenials);
+    await writePersistedDecisions(mode, alwaysGrants, alwaysDenials).catch((error: Error) => {
+      context.ui.notify(`${MODE_IDENTITIES[mode].label} decision applies to this session only, it was not saved: ${error.message}`, "error");
+    });
     this.messages.announce(context);
   }
 
@@ -380,7 +382,10 @@ class Engine {
         store.clear();
       }
 
-      const { alwaysAllowed, alwaysDenied } = await readPersistedDecisions(mode);
+      const { alwaysAllowed, alwaysDenied } = await readPersistedDecisions(mode).catch((error: Error) => {
+        context.ui.notify(`${error.message} ${MODE_IDENTITIES[mode].label} decisions saved with "always" were not loaded.`, "warning");
+        return { alwaysAllowed: [], alwaysDenied: [] };
+      });
       for (const toolName of alwaysAllowed) stores.alwaysGrants.add(toolName);
       for (const { name, note } of alwaysDenied) stores.alwaysDenials.set(name, note);
 
