@@ -333,9 +333,11 @@ export class QueryContext {
 	/** Armed grace timer for ending a tool_use turn whose terminal stream events
 	 *  (message_delta/message_stop) never arrive. The normal path ends the turn at
 	 *  message_stop, AFTER message_delta delivered the real output-token count;
-	 *  this is the deadlock backstop for streams that go silent instead. Managed
-	 *  by schedule/cancelToolUseTurnEnd in assistant-stream.ts. */
-	scheduledToolUseEnd: { stream: unknown; timer: ReturnType<typeof setTimeout> } | null = null;
+	 *  this is the deadlock backstop for streams that go SILENT instead: every
+	 *  stream event restarts it (see postponeToolUseTurnEnd in
+	 *  assistant-stream.ts), which is why it remembers its action. Managed by
+	 *  schedule/cancelToolUseTurnEnd in assistant-stream.ts. */
+	scheduledToolUseEnd: { stream: unknown; timer: ReturnType<typeof setTimeout>; action: () => void; source: string } | null = null;
 
 	/** Unexpected child-side calls are absent from Pi history, so a history
 	 *  handover must not replay them. Query-scoped across message boundaries. */
