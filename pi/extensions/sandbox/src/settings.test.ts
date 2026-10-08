@@ -60,9 +60,10 @@ test("an invalid settings file throws", async () => {
     const malformedPath = join(directory, "malformed.json");
     await writeFile(malformedPath, "{");
 
-    // act
-    const wrongShape = loadSettings(filePath);
-    const malformed = loadSettings(malformedPath);
+    // act: thunks, because a second load started up front would reject while the first
+    // is still awaited, and node:test fails the test on that unhandled rejection.
+    const wrongShape = () => loadSettings(filePath);
+    const malformed = () => loadSettings(malformedPath);
 
     // assert
     await assert.rejects(wrongShape, /network\.allowedDomains must be an array of strings/);
