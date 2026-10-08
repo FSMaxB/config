@@ -9,6 +9,9 @@ export const OPUS_5_5_MODEL_ID = "claude-opus-5-5";
 export const SONNET_5_5_MODEL_ID = "claude-sonnet-5-5";
 // Sonnet 5 is both a selectable model and the safety-fallback target for Sonnet 5.5.
 export const SONNET_5_MODEL_ID = "claude-sonnet-5";
+export const HAIKU_5_5_MODEL_ID = "claude-haiku-5-5";
+// Haiku 4.5 is both a selectable model and the safety-fallback target for Haiku 5.5.
+export const HAIKU_4_5_MODEL_ID = "claude-haiku-4-5";
 
 export function fallbackModelForPrimaryModel(modelId: string): string | undefined {
 	if (modelId === FABLE_MODEL_ID || modelId === OPUS_5_5_MODEL_ID) {
@@ -16,6 +19,9 @@ export function fallbackModelForPrimaryModel(modelId: string): string | undefine
 	}
 	if (modelId === SONNET_5_5_MODEL_ID) {
 		return SONNET_5_MODEL_ID;
+	}
+	if (modelId === HAIKU_5_5_MODEL_ID) {
+		return HAIKU_4_5_MODEL_ID;
 	}
 	return undefined;
 }
@@ -26,7 +32,8 @@ export const MODEL_IDS_IN_ORDER = [
 	FABLE_FALLBACK_MODEL_ID,
 	SONNET_5_5_MODEL_ID,
 	SONNET_5_MODEL_ID,
-	"claude-haiku-4-5",
+	HAIKU_5_5_MODEL_ID,
+	HAIKU_4_5_MODEL_ID,
 ];
 
 type BridgeModelMetadata = {
@@ -84,6 +91,23 @@ const FALLBACK_MODELS: Record<string, BridgeModelMetadata> = {
 		input: ["text", "image"],
 		contextWindow: 1000000,
 		maxTokens: 128000,
+	},
+	[HAIKU_5_5_MODEL_ID]: {
+		id: HAIKU_5_5_MODEL_ID,
+		name: "Claude Haiku 5.5",
+		reasoning: true,
+		thinkingLevelMap: { xhigh: "xhigh", max: "max" },
+		input: ["text", "image"],
+		contextWindow: 1000000,
+		maxTokens: 128000,
+	},
+	[HAIKU_4_5_MODEL_ID]: {
+		id: HAIKU_4_5_MODEL_ID,
+		name: "Claude Haiku 4.5",
+		reasoning: true,
+		input: ["text", "image"],
+		contextWindow: 200000,
+		maxTokens: 64000,
 	},
 };
 

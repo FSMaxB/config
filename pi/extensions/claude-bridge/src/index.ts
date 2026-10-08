@@ -18,7 +18,7 @@ import { resolveGetModels } from "./pi-ai-compat.js";
 import { conversationMessages } from "./transcript.js";
 import { debug, diagDump, makeCliDebugOptions, moduleInstanceId } from "./debug.js";
 import { preflightClaudeExecutable, resolveClaudeExecutable } from "./claude-executable.js";
-import { appendIntegrityEntry, argKeys, deleteSharedSessionLane, extensionApi, getSharedSession, markSessionForRebuild, recordStartedLane, reportToolResultMismatch, safeNotify, safeToolCallSummary, setExtensionApi, setPiUI, setSharedSession, takeStartedLane, type SessionState } from "./bridge-state.js";
+import { appendIntegrityEntry, argKeys, deleteSharedSessionLane, getExtensionApi, getSharedSession, markSessionForRebuild, recordStartedLane, reportToolResultMismatch, safeNotify, safeToolCallSummary, setExtensionApi, setPiUI, setSharedSession, takeStartedLane, type SessionState } from "./bridge-state.js";
 import { cancelScheduledSessionPersistence, conversationFingerprint, restoreSharedSessionFromPi, schedulePersistSharedSession, syncSharedSession } from "./session-persistence.js";
 import { STREAM_IDLE_BACKOFF_HINT_MS, activeStreamIdleWatchdogs, buildStreamIdleTimeoutErrorMessage, createStreamIdleWatchdog, formatDurationShort, streamIdleTimeoutMsFromEnv } from "./stream-idle-watchdog.js";
 import { RATE_LIMIT_TOKEN } from "./rate-limit.js";
@@ -361,10 +361,10 @@ function claimPrimaryInstance(): boolean {
 
 // Release both process-global tokens this instance owns. Called on
 // session_shutdown (incl. /reload) so the freshly loaded instance starts clean.
-// NOTE: this does NOT unregister the provider — pi's provider registry is
-// process-lifetime state that survives module reload; the next loaded instance
-// simply upserts its own provider object over ours (registerNativeProvider is
-// replace-by-id), and logout-hiding is the provider's own auth check.
+// NOTE: this does NOT unregister the provider. Each session runtime has its own
+// model registry, and the next factory call registers into the new one
+// (registerNativeProvider is replace-by-id); logout-hiding is the provider's own
+// auth check.
 function releaseProviderTokens(event: string): void {
 	const g = globalThis as Record<symbol, any>;
 	// Billing identity is request-lane state. The shutdown handler removes its
@@ -411,12 +411,12 @@ function releaseProviderTokens(event: string): void {
 let nativeProviderInstance: unknown;
 let notifiedNativeUnsupported = false;
 // Credential-probe answer at the last upsert that reached pi.registerProvider;
-// undefined until the first one. A re-upsert is only worth its refresh when
-// this changes.
+// undefined until the first one into the current runtime's registry. A re-upsert
+// is only worth its refresh when this changes.
 let lastRegisteredCredentialed: boolean | undefined;
 
 function applyProviderRegistration(trigger: string): void {
-	const pi = extensionApi;
+	const pi = getExtensionApi();
 	if (!pi) { debug(`${trigger}: applyProviderRegistration skipped — no extensionApi`); return; }
 	const g = globalThis as Record<symbol, any>;
 	const isPrimary = claimPrimaryInstance();
@@ -789,6 +789,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 	// would make it look like it ran child-side calls it never ran.
 	ctx().childSideCalls.clear();
 	ctx().forwardedToolCallIds.clear();
+	ctx().billedMessageUsage.clear();
 	ctx().deadToolCallIds.clear();
 	ctx().callbackGeneration = 0;
 	ctx().deferredUserMessages = [];
@@ -1312,6 +1313,10 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 
 export default function (pi: ExtensionAPI) {
 	setExtensionApi(pi);
+	// Pi re-runs the factory for every new session runtime, but this module stays
+	// cached, so the last upsert went to the previous runtime's model registry.
+	// The new registry starts without the provider and must always get it.
+	lastRegisteredCredentialed = undefined;
 	// Disable non-essential Claude Code traffic (update checks, MCP registry, telemetry)
 	process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1";
 

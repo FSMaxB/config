@@ -124,6 +124,28 @@ describe("provider registration upsert policy", () => {
 		});
 	});
 
+	it("registers into a new session runtime when the cached module's factory runs again", async () => {
+		await withIsolatedEnv(async () => {
+			// arrange
+			const claudeBridge = await freshBridge();
+			const firstHandlers = new Map();
+			claudeBridge(makeFakePi(firstHandlers, []));
+			const first = makeCtx("s1");
+			firstHandlers.get("session_start")({ reason: "startup" }, first);
+			firstHandlers.get("session_shutdown")({ reason: "new" }, first);
+			const secondHandlers = new Map();
+			const secondRegistrations = [];
+
+			// act
+			claudeBridge(makeFakePi(secondHandlers, secondRegistrations));
+
+			// assert
+			assert.equal(secondRegistrations.length, 1, "the new runtime's registry gets the provider");
+
+			secondHandlers.get("session_shutdown")({ reason: "quit" }, makeCtx("s2"));
+		});
+	});
+
 	it("re-upserts the same provider object when the credential probe flips, then settles again", { skip: onDarwin && "darwin keychain fallback makes the probe always true" }, async () => {
 		await withIsolatedEnv(async () => {
 			const claudeBridge = await freshBridge();
