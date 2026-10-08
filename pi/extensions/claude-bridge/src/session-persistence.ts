@@ -3,7 +3,7 @@ import { createSession, deleteSession, openSession, repairToolPairing } from "cc
 import { createHash } from "crypto";
 import { realpathSync, statSync } from "fs";
 import { resolve as pathResolve } from "path";
-import { extensionApi, getSharedSession, reportSyntheticToolResultRepair, safeNotify, setSharedSession, type SessionState } from "./bridge-state.js";
+import { getExtensionApi, getSharedSession, reportSyntheticToolResultRepair, safeNotify, setSharedSession, type SessionState } from "./bridge-state.js";
 import { displayPath } from "./config.js";
 import { convertPiMessages } from "./convert.js";
 import { DEBUG, DEBUG_LOG_PATH, debug, diagDump } from "./debug.js";
@@ -255,7 +255,7 @@ export function __testCancelAllScheduledSessionPersistence(): void {
 
 export function schedulePersistSharedSession(ctxLike?: { sessionManager?: unknown }): void {
 	const sharedSession = getSharedSession();
-	if (!extensionApi || !sharedSession || !ctxLike?.sessionManager) return;
+	if (!getExtensionApi() || !sharedSession || !ctxLike?.sessionManager) return;
 	// Extension contexts become guarded/stale as soon as shutdown or replacement
 	// starts. Capture the plain SessionManager reference now and cancel the timer
 	// on shutdown rather than dereferencing the ctx proxy from the next tick.
@@ -277,7 +277,7 @@ export function schedulePersistSharedSession(ctxLike?: { sessionManager?: unknow
 				piSessionId: typeof (sessionManager as any)?.getSessionId === "function" ? (sessionManager as any).getSessionId() : undefined,
 				updatedAt: new Date().toISOString(),
 			};
-			extensionApi?.appendEntry(BRIDGE_SESSION_CUSTOM_TYPE, data);
+			getExtensionApi()?.appendEntry(BRIDGE_SESSION_CUSTOM_TYPE, data);
 			debug(`persistSharedSession: saved ${data.sessionId.slice(0, 8)}, cursor=${data.cursor}`);
 		} catch (error) {
 			// A failed persist means the next startup restores a stale (or no)

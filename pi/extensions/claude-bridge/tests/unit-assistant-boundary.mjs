@@ -2,7 +2,7 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { processAssistantMessage, processStreamEvent } from "../src/index.ts";
 import { ctx, resetStack } from "../src/query-state.ts";
-import { model, installFakeStream } from "./lib/tool-stream.mjs";
+import { model, installFakeStream, streamEvent } from "./lib/tool-stream.mjs";
 import { cancelScheduledToolUseEnd } from "../src/assistant-stream.ts";
 afterEach(() => cancelScheduledToolUseEnd(ctx()));
 describe("assistant tool-use boundary fallback", () => {
@@ -120,6 +120,61 @@ describe("assistant tool-use boundary fallback", () => {
 		assert.equal(events.at(-2).type, "done");
 		assert.equal(events.at(-2).reason, "toolUse");
 		assert.equal(events.at(-1).type, "stream_end");
+	});
+
+	it("keeps the tool-use turn open while the stream keeps delivering events", (t) => {
+		// arrange
+		t.mock.timers.enable({ apis: ["setTimeout"] });
+		const c = ctx();
+		c.resetTurnState(model);
+		const events = installFakeStream();
+		c.turnSawStreamEvent = true;
+		const tools = new Map([["mcp__custom-tools__read", "read"]]);
+		processAssistantMessage({
+			type: "assistant",
+			message: { content: [{ type: "tool_use", id: "toolu_first", name: "mcp__custom-tools__read", input: { file_path: "a.md" } }] },
+		}, model, tools);
+
+		// act
+		t.mock.timers.tick(1000);
+		processStreamEvent(streamEvent({ type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "toolu_second", name: "mcp__custom-tools__read", input: {} } }), tools, model);
+		t.mock.timers.tick(1000);
+		processStreamEvent(streamEvent({ type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: "{\"file_path\":\"b.md\"}" } }), tools, model);
+		t.mock.timers.tick(1000);
+		processStreamEvent(streamEvent({ type: "content_block_stop", index: 1 }), tools, model);
+		processStreamEvent(streamEvent({ type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 300 } }), tools, model);
+		processStreamEvent(streamEvent({ type: "message_stop" }), tools, model);
+
+		// assert
+		const doneEvents = events.filter((event) => event.type === "done");
+		assert.equal(doneEvents.length, 1, "one pi turn for the whole batch");
+		assert.deepEqual(doneEvents[0].message.content.map((block) => block.id), ["toolu_first", "toolu_second"]);
+		assert.equal(doneEvents[0].message.content[1].arguments.path, "b.md", "the second call ships complete, not pruned");
+		assert.equal(doneEvents[0].message.usage.output, 300, "message_delta usage reaches the delivered message");
+	});
+
+	it("force-ends the tool-use turn after a full grace period of silence", (t) => {
+		// arrange
+		t.mock.timers.enable({ apis: ["setTimeout"] });
+		const c = ctx();
+		c.resetTurnState(model);
+		installFakeStream();
+		c.turnSawStreamEvent = true;
+		processAssistantMessage({
+			type: "assistant",
+			message: { content: [{ type: "tool_use", id: "toolu_only", name: "mcp__custom-tools__bash", input: { command: "echo hi" } }] },
+		}, model, new Map([["mcp__custom-tools__bash", "bash"]]));
+
+		// act
+		t.mock.timers.tick(1000);
+		processStreamEvent(streamEvent({ type: "content_block_stop", index: 9 }), new Map(), model);
+		t.mock.timers.tick(1499);
+		const liveBeforeGraceElapsed = c.currentPiStream !== null;
+		t.mock.timers.tick(1);
+
+		// assert
+		assert.equal(liveBeforeGraceElapsed, true, "an unmatched event still counts as activity");
+		assert.equal(c.currentPiStream, null, "silence for the full grace period ends the turn");
 	});
 
 	it("records assistant tool-use ids even after the stream already ended", () => {

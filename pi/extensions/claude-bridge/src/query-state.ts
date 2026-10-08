@@ -333,9 +333,11 @@ export class QueryContext {
 	/** Armed grace timer for ending a tool_use turn whose terminal stream events
 	 *  (message_delta/message_stop) never arrive. The normal path ends the turn at
 	 *  message_stop, AFTER message_delta delivered the real output-token count;
-	 *  this is the deadlock backstop for streams that go silent instead. Managed
-	 *  by schedule/cancelToolUseTurnEnd in assistant-stream.ts. */
-	scheduledToolUseEnd: { stream: unknown; timer: ReturnType<typeof setTimeout> } | null = null;
+	 *  this is the deadlock backstop for streams that go SILENT instead: every
+	 *  stream event restarts it (see postponeToolUseTurnEnd in
+	 *  assistant-stream.ts), which is why it remembers its action. Managed by
+	 *  schedule/cancelToolUseTurnEnd in assistant-stream.ts. */
+	scheduledToolUseEnd: { stream: unknown; timer: ReturnType<typeof setTimeout>; action: () => void; source: string } | null = null;
 
 	/** Unexpected child-side calls are absent from Pi history, so a history
 	 *  handover must not replay them. Query-scoped across message boundaries. */
@@ -354,6 +356,12 @@ export class QueryContext {
 	// too — each call bills its own.
 	turnUsageCarry = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 	currentMessageUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+	/** Counters of every child message already counted into a Pi turn's usage,
+	 *  by Anthropic message id. A grace-ended turn leaves the rest of its child
+	 *  message to later Pi turns (pruned calls replay one per turn), and every
+	 *  copy re-reports the message's full counters; each Pi turn bills only what
+	 *  no earlier one did. Query-scoped: deliberately NOT reset per turn. */
+	billedMessageUsage = new Map<string, UsageCounters>();
 	/** Anthropic id of the child message `currentMessageUsage` describes. */
 	currentMessageId: string | undefined;
 
@@ -375,12 +383,29 @@ export class QueryContext {
 	beginChildMessage(messageId?: unknown): void {
 		const id = typeof messageId === "string" && messageId.length > 0 ? messageId : undefined;
 		if (id !== undefined && id === this.currentMessageId) return; // same message
-		this.turnUsageCarry.input += this.currentMessageUsage.input;
-		this.turnUsageCarry.output += this.currentMessageUsage.output;
-		this.turnUsageCarry.cacheRead += this.currentMessageUsage.cacheRead;
-		this.turnUsageCarry.cacheWrite += this.currentMessageUsage.cacheWrite;
+		const unbilled = this.unbilledCurrentMessageUsage();
+		this.turnUsageCarry.input += unbilled.input;
+		this.turnUsageCarry.output += unbilled.output;
+		this.turnUsageCarry.cacheRead += unbilled.cacheRead;
+		this.turnUsageCarry.cacheWrite += unbilled.cacheWrite;
+		this.markCurrentMessageBilled();
 		this.currentMessageUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 		this.currentMessageId = id;
+	}
+
+	/** What the in-flight child message has billed beyond earlier Pi turns. A
+	 *  message without an id cannot be recognised again, so it bills in full. */
+	unbilledCurrentMessageUsage(): UsageCounters {
+		const billed = this.currentMessageId === undefined ? undefined : this.billedMessageUsage.get(this.currentMessageId);
+		return unbilledUsage(this.currentMessageUsage, billed);
+	}
+
+	/** Record the in-flight child message's counters as billed: when it is banked
+	 *  into the turn total, and when its Pi turn is delivered. */
+	markCurrentMessageBilled(): void {
+		const id = this.currentMessageId;
+		if (id === undefined) return;
+		this.billedMessageUsage.set(id, maxUsage(this.billedMessageUsage.get(id), this.currentMessageUsage));
 	}
 
 	// Per-turn (reset together)
@@ -622,6 +647,28 @@ export class QueryContext {
 			unmatchedResultCount: unmatchedResultIds.length,
 		};
 	}
+}
+
+type UsageCounters = { input: number; output: number; cacheRead: number; cacheWrite: number };
+
+function unbilledUsage(current: UsageCounters, billed: UsageCounters | undefined): UsageCounters {
+	if (!billed) return { ...current };
+	return {
+		input: Math.max(0, current.input - billed.input),
+		output: Math.max(0, current.output - billed.output),
+		cacheRead: Math.max(0, current.cacheRead - billed.cacheRead),
+		cacheWrite: Math.max(0, current.cacheWrite - billed.cacheWrite),
+	};
+}
+
+function maxUsage(billed: UsageCounters | undefined, current: UsageCounters): UsageCounters {
+	if (!billed) return { ...current };
+	return {
+		input: Math.max(billed.input, current.input),
+		output: Math.max(billed.output, current.output),
+		cacheRead: Math.max(billed.cacheRead, current.cacheRead),
+		cacheWrite: Math.max(billed.cacheWrite, current.cacheWrite),
+	};
 }
 
 interface QueryLaneState {
