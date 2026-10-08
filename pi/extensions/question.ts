@@ -64,15 +64,15 @@ export default function (pi: ExtensionAPI) {
       ),
     }),
 
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params, signal, _onUpdate, context) {
       const {
         question,
-        context,
+        context: contextText,
         options: rawOptions = [],
         allowFreeform = true,
         allowMultiple = false,
       } = params;
-      const normalizedContext = context?.trim() || undefined;
+      const normalizedContext = contextText?.trim() || undefined;
       const options = rawOptions
         .map(coerceOption)
         .filter((option): option is QuestionOption => option !== null);
@@ -107,7 +107,7 @@ export default function (pi: ExtensionAPI) {
 
       const prompt = buildPrompt(question, normalizedContext);
 
-      if (!ctx.hasUI) {
+      if (!context.hasUI) {
         const optionText =
           options.length > 0
             ? `\n\nOptions:\n${formatOptionList(options)}`
@@ -122,10 +122,10 @@ export default function (pi: ExtensionAPI) {
 
       const outcome =
         options.length === 0
-          ? await askFreeform(ctx.ui, prompt)
+          ? await askFreeform(context.ui, prompt)
           : allowMultiple
-            ? await askMultiple(ctx.ui, prompt, options, allowFreeform)
-            : await askSingle(ctx.ui, prompt, options, allowFreeform);
+            ? await askMultiple(context.ui, prompt, options, allowFreeform)
+            : await askSingle(context.ui, prompt, options, allowFreeform);
 
       if (outcome.kind === "cancelled")
         return cancelled("User cancelled the question");

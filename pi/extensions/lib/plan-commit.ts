@@ -31,7 +31,7 @@ export type CommitReason = "submit" | "review";
 // failures surface as a UI warning and never change the tool result.
 export async function commitPlanFileForUser(
   pi: ExtensionAPI,
-  ctx: ExtensionContext,
+  context: ExtensionContext,
   planFile: string,
   reason: CommitReason,
 ): Promise<void> {
@@ -42,7 +42,7 @@ export async function commitPlanFileForUser(
     await commitPlanFile(execute, planFile, reason);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    ctx.ui.notify(`Plan file not committed: ${message}`, "warning");
+    context.ui.notify(`Plan file not committed: ${message}`, "warning");
   }
 }
 

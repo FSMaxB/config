@@ -52,12 +52,12 @@ export default function (pi: ExtensionAPI) {
     return;
   }
 
-  pi.on("before_agent_start", (event, ctx) => {
+  pi.on("before_agent_start", (event, context) => {
     if (!event.systemPromptOptions.selectedTools?.includes("subagent")) return;
 
     const guidance = guidanceTable({
-      mainModel: ctx.model,
-      availableModels: ctx.modelRegistry.getAvailable(),
+      mainModel: context.model,
+      availableModels: context.modelRegistry.getAvailable(),
       config: loadPolicyConfig(EXTENSION_DIRECTORY),
     });
     if (!guidance) return;
@@ -93,8 +93,8 @@ export default function (pi: ExtensionAPI) {
     ],
     parameters: SubagentParams,
 
-    async execute(_toolCallId, params, signal, onUpdate, ctx) {
-      const active = activeRestrictedMode(ctx.sessionManager);
+    async execute(_toolCallId, params, signal, onUpdate, context) {
+      const active = activeRestrictedMode(context.sessionManager);
       const restriction = isRestricted(active.mode) && active.entry
         ? {
             mode: active.mode,
@@ -109,13 +109,13 @@ export default function (pi: ExtensionAPI) {
           }
         : undefined;
       const dispatch: DispatchContext = {
-        mainModel: ctx.model,
-        thinkingLevel: ctx.thinkingLevel,
-        availableModels: ctx.modelRegistry.getAvailable(),
+        mainModel: context.model,
+        thinkingLevel: context.thinkingLevel,
+        availableModels: context.modelRegistry.getAvailable(),
         policyConfig: loadPolicyConfig(EXTENSION_DIRECTORY),
         restriction,
         pathPolicy: await captureChildPathPolicy(),
-        temporaryDirectory: sessionTemporaryDirectory(ctx.sessionManager.getSessionId()),
+        temporaryDirectory: sessionTemporaryDirectory(context.sessionManager.getSessionId()),
       };
       const agents = discoverAgents();
 
@@ -192,7 +192,7 @@ export default function (pi: ExtensionAPI) {
 
         const results = await mapWithConcurrencyLimit(params.tasks, MAX_CONCURRENCY, async (taskItem, index) => {
           const result = await runSingleAgent(
-            ctx.cwd,
+            context.cwd,
             dispatch,
             agents,
             taskItem.agent,
@@ -236,7 +236,7 @@ export default function (pi: ExtensionAPI) {
       const { agent: agentName, task } = params;
       if (!agentName || !task) throw new Error("Unreachable: exactly one mode is set");
       const result = await runSingleAgent(
-        ctx.cwd,
+        context.cwd,
         dispatch,
         agents,
         agentName,
