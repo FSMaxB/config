@@ -28,18 +28,38 @@ test("a model served from localhost is off by default", () => {
   assert.equal(result, true);
 });
 
-test("Haiku models are off by default on every provider", () => {
+test("Haiku models before 5.5 are off by default on every provider", () => {
   // arrange
   const models = [
     createModel("anthropic", "claude-haiku-4-5"),
     createModel("claude-bridge", "claude-haiku-4-5"),
+    createModel("anthropic", "claude-haiku-4-5-20251001"),
+    createModel("openrouter", "anthropic/claude-haiku-4.5"),
+    createModel("anthropic", "claude-3-5-haiku-20241022"),
   ];
 
   // act
   const results = models.map((model) => isOffByDefaultModel(model, config));
 
   // assert
-  assert.deepEqual(results, [true, true]);
+  assert.deepEqual(results, [true, true, true, true, true]);
+});
+
+test("Haiku 5.5 and later keep the configured default", () => {
+  // arrange
+  const models = [
+    createModel("anthropic", "claude-haiku-5-5"),
+    createModel("claude-bridge", "claude-haiku-5-5"),
+    createModel("openrouter", "anthropic/claude-haiku-5.5"),
+    createModel("anthropic", "claude-haiku-6-20270101"),
+    createModel("anthropic", "claude-haiku-5-10"),
+  ];
+
+  // act
+  const results = models.map((model) => isOffByDefaultModel(model, config));
+
+  // assert
+  assert.deepEqual(results, [false, false, false, false, false]);
 });
 
 test("Luna models are off by default", () => {
