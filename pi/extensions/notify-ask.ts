@@ -11,8 +11,9 @@ export default function (pi: ExtensionAPI) {
     notifyUser(pi, "Waiting for your input", event.title);
   });
 
-  pi.on("agent_settled", async (_event, context) => {
-    if (!context.isIdle()) return;
+  // An abort means the user just pressed Escape, so they are already looking at the terminal.
+  pi.on("agent_settled", async (event, context) => {
+    if (event.aborted || !context.isIdle()) return;
     notifyUser(pi, "Ready for input");
   });
 
