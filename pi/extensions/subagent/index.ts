@@ -23,7 +23,7 @@ import { clampThinkingLevel, getSupportedThinkingLevels, StringEnum } from "@ear
 import { type ExtensionAPI, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { shortenPath } from "../lib/format.ts";
+import { formatDuration, shortenPath } from "../lib/format.ts";
 import { createLineSplitter } from "../lib/lines.ts";
 import { isRestricted, MODE_IDENTITIES, type RestrictedMode } from "../lib/agent-mode.ts";
 import { readPersistedDecisions } from "../lib/mode-decisions.ts";
@@ -67,7 +67,12 @@ export default function (pi: ExtensionAPI) {
     };
   });
 
-  const agentListing = discoverAgents()
+  pi.on("session_start", (_event, context) => {
+    const { skipped } = discoverAgents();
+    if (context.hasUI && skipped.length > 0) context.ui.notify(skipped.join("\n"), "warning");
+  });
+
+  const agentListing = discoverAgents().agents
     .map(({ name, description }) => `${name} (${description})`)
     .join(", ");
 
@@ -117,7 +122,7 @@ export default function (pi: ExtensionAPI) {
         pathPolicy: await captureChildPathPolicy(),
         temporaryDirectory: sessionTemporaryDirectory(context.sessionManager.getSessionId()),
       };
-      const agents = discoverAgents();
+      const agents = discoverAgents().agents;
 
       const hasTasks = (params.tasks?.length ?? 0) > 0;
       const hasSingle = Boolean(params.agent && params.task);
@@ -287,7 +292,8 @@ export default function (pi: ExtensionAPI) {
       return new Text(text, 0, 0);
     },
 
-    renderResult(result, { expanded }, theme, _context) {
+    renderResult(result, { expanded }, theme, context) {
+      const { durationMs } = context;
       const details = result.details as SubagentDetails | undefined;
       if (!details || details.results.length === 0) {
         const text = result.content[0];
@@ -308,7 +314,7 @@ export default function (pi: ExtensionAPI) {
         if (expanded) {
           const container = new Container();
           const errorLine = isError && single.errorMessage ? `\n${theme.fg("error", `Error: ${single.errorMessage}`)}` : "";
-          renderTaskSection(container, text + errorLine, single, theme, markdownTheme);
+          renderTaskSection(container, text + errorLine, single, theme, markdownTheme, durationMs);
           return container;
         }
 
@@ -319,8 +325,8 @@ export default function (pi: ExtensionAPI) {
           text += `\n${renderCollapsedItems(displayItems, COLLAPSED_ITEM_COUNT, expanded, theme)}`;
           if (displayItems.length > COLLAPSED_ITEM_COUNT) text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
         }
-        const usageText = formatUsageStats(single.usage);
-        if (usageText) text += `\n${theme.fg("dim", usageText)}`;
+        const footer = formatRunFooter(formatUsageStats(single.usage), durationMs);
+        if (footer) text += `\n${theme.fg("dim", footer)}`;
         return new Text(text, 0, 0);
       }
 
@@ -358,10 +364,10 @@ export default function (pi: ExtensionAPI) {
           renderTaskSection(container, header, item, theme, markdownTheme);
         }
 
-        const usageText = formatUsageStats(aggregateUsage(details.results));
-        if (usageText) {
+        const footer = formatRunFooter(formatUsageStats(aggregateUsage(details.results)), durationMs);
+        if (footer) {
           container.addChild(new Spacer(1));
-          container.addChild(new Text(theme.fg("dim", `Total: ${usageText}`), 0, 0));
+          container.addChild(new Text(theme.fg("dim", `Total: ${footer}`), 0, 0));
         }
         return container;
       }
@@ -384,8 +390,8 @@ export default function (pi: ExtensionAPI) {
         else text += `\n${renderCollapsedItems(displayItems, 5, expanded, theme)}`;
       }
       if (!isRunning) {
-        const usageText = formatUsageStats(aggregateUsage(details.results));
-        if (usageText) text += `\n\n${theme.fg("dim", `Total: ${usageText}`)}`;
+        const footer = formatRunFooter(formatUsageStats(aggregateUsage(details.results)), durationMs);
+        if (footer) text += `\n\n${theme.fg("dim", `Total: ${footer}`)}`;
       }
       if (!expanded) text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
       return new Text(text, 0, 0);
@@ -917,6 +923,7 @@ function renderTaskSection(
   item: SingleResult,
   theme: { fg: (color: any, text: string) => string },
   markdownTheme: ReturnType<typeof getMarkdownTheme>,
+  durationMs?: number,
 ): void {
   const displayItems = getDisplayItems(item.messages);
   const finalOutput = getFinalOutput(item.messages);
@@ -941,8 +948,8 @@ function renderTaskSection(
     container.addChild(new Markdown(finalOutput.trim(), 0, 0, markdownTheme));
   }
 
-  const usageText = formatUsageStats(item.usage);
-  if (usageText) container.addChild(new Text(theme.fg("dim", usageText), 0, 0));
+  const footer = formatRunFooter(formatUsageStats(item.usage), durationMs);
+  if (footer) container.addChild(new Text(theme.fg("dim", footer), 0, 0));
 }
 
 function aggregateUsage(results: SingleResult[]) {
@@ -987,6 +994,12 @@ function formatUsageStats(usage: {
     parts.push(`ctx:${formatTokens(usage.contextTokens)}`);
   }
   return parts.join(" ");
+}
+
+// One dim footer line per result: usage stats, then the recorded run time once the tool has finished.
+function formatRunFooter(usageText: string, durationMs: number | undefined): string {
+  const parts = [usageText, durationMs === undefined ? "" : `took ${formatDuration(durationMs)}`].filter(Boolean);
+  return parts.join(" · ");
 }
 
 function formatTokens(count: number): string {
