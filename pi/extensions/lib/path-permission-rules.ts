@@ -98,6 +98,11 @@ export function covers(grant: PathSelector, target: PathSelector): boolean {
   return grant.kind === "tree" ? contains(grant.path, targetRoot) : grant.path === targetRoot;
 }
 
+// Protected selectors a grant would swallow, so the prompt can warn about them.
+export function coveredProtectedSelectors(grant: PathSelector, protectedSelectors: Iterable<PathSelector>): PathSelector[] {
+  return [...protectedSelectors].filter((target) => covers(grant, target));
+}
+
 export function defaultAllowed(mode: AccessMode, options: DefaultAllowedOptions): PathSelector[] {
   const { agentMode, repoRoot, memoryDirectory, skillRoots, agentDirectory, temporaryDirectory } = options;
   const scratch = [tree(memoryDirectory), tree(join(agentDirectory, "plans")), ...(temporaryDirectory ? [tree(temporaryDirectory)] : [])];
