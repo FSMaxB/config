@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { processAssistantMessage, processStreamEvent } from "../src/index.ts";
 import { ctx, resetStack } from "../src/query-state.ts";
 import { model, installFakeStream, streamEvent } from "./lib/tool-stream.mjs";
-import { cancelScheduledToolUseEnd } from "../src/assistant-stream.ts";
+import { cancelScheduledToolUseEnd, endToolUseTurn } from "../src/assistant-stream.ts";
 afterEach(() => cancelScheduledToolUseEnd(ctx()));
 describe("usage across a Pi turn that spans several child messages", () => {
 	beforeEach(() => resetStack());
@@ -139,5 +139,79 @@ describe("usage across a Pi turn that spans several child messages", () => {
 
 		assert.equal(c.turnOutput.usage.input, 4, "a new Pi message does not inherit the old turn's total");
 		assert.equal(c.turnOutput.usage.output, 2);
+	});
+});
+
+describe("usage of a child message split across Pi turns", () => {
+	beforeEach(() => resetStack());
+
+	const tools = new Map([["mcp__custom-tools__read", "read"]]);
+	const splitUsage = { input_tokens: 32, output_tokens: 2, cache_read_input_tokens: 44241, cache_creation_input_tokens: 817 };
+
+	function deliverFirstTurn(c) {
+		c.resetTurnState(model);
+		installFakeStream();
+		processStreamEvent(streamEvent({ type: "message_start", message: { id: "msg_split", model: model.id, usage: splitUsage } }), tools, model);
+		endToolUseTurn(c);
+	}
+
+	it("bills nothing again for a replayed turn of an already billed message", () => {
+		// arrange
+		const c = ctx();
+		deliverFirstTurn(c);
+		c.resetTurnState(model);
+		const events = installFakeStream();
+
+		// act
+		processAssistantMessage({
+			type: "assistant",
+			message: { id: "msg_split", content: [{ type: "tool_use", id: "toolu_replayed", name: "mcp__custom-tools__read", input: { file_path: "a.md" } }], usage: splitUsage },
+		}, model, tools);
+
+		// assert
+		const done = events.find((event) => event.type === "done");
+		assert.deepEqual(
+			{ input: done.message.usage.input, output: done.message.usage.output, cacheRead: done.message.usage.cacheRead, cacheWrite: done.message.usage.cacheWrite, total: done.message.usage.totalTokens },
+			{ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		);
+	});
+
+	it("bills output that arrives after the first turn was delivered", () => {
+		// arrange
+		const c = ctx();
+		deliverFirstTurn(c);
+		c.resetTurnState(model);
+		installFakeStream();
+
+		// act
+		processStreamEvent(streamEvent({ type: "message_start", message: { id: "msg_split", model: model.id, usage: splitUsage } }), tools, model);
+		processStreamEvent(streamEvent({ type: "message_delta", delta: {}, usage: { output_tokens: 950 } }), tools, model);
+
+		// assert
+		assert.deepEqual(
+			{ input: c.turnOutput.usage.input, output: c.turnOutput.usage.output, cacheRead: c.turnOutput.usage.cacheRead, cacheWrite: c.turnOutput.usage.cacheWrite },
+			{ input: 0, output: 948, cacheRead: 0, cacheWrite: 0 },
+		);
+	});
+
+	it("does not bank an already billed message into the next message's turn", () => {
+		// arrange
+		const c = ctx();
+		deliverFirstTurn(c);
+		c.resetTurnState(model);
+		installFakeStream();
+
+		// act
+		processStreamEvent(streamEvent({ type: "message_start", message: { id: "msg_split", model: model.id, usage: splitUsage } }), tools, model);
+		processStreamEvent(streamEvent({
+			type: "message_start",
+			message: { id: "msg_next", model: model.id, usage: { input_tokens: 32, output_tokens: 2, cache_read_input_tokens: 45058, cache_creation_input_tokens: 18970 } },
+		}), tools, model);
+
+		// assert
+		assert.deepEqual(
+			{ input: c.turnOutput.usage.input, output: c.turnOutput.usage.output, cacheRead: c.turnOutput.usage.cacheRead, cacheWrite: c.turnOutput.usage.cacheWrite },
+			{ input: 32, output: 2, cacheRead: 45058, cacheWrite: 18970 },
+		);
 	});
 });

@@ -789,6 +789,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 	// would make it look like it ran child-side calls it never ran.
 	ctx().childSideCalls.clear();
 	ctx().forwardedToolCallIds.clear();
+	ctx().billedMessageUsage.clear();
 	ctx().deadToolCallIds.clear();
 	ctx().callbackGeneration = 0;
 	ctx().deferredUserMessages = [];
