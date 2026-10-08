@@ -79,7 +79,10 @@ export function finalizeCurrentStream(stopReason?: string, c: QueryContext = ctx
 // for a stream whose terminal events never arrive (pi's steer draining
 // produces one): pi cannot execute tools before the stream ends, and the MCP
 // handler cannot resolve before pi executes, so a stream that has gone silent
-// must be ended by force — TOOL_USE_END_GRACE_MS later instead of immediately.
+// must be ended by force. It fires only after TOOL_USE_END_GRACE_MS WITHOUT
+// ANY stream event: a model that streams a long tool batch keeps emitting
+// events past the first handler invocation, and ending the turn then prunes the
+// calls that are still streaming and splits the batch across pi turns.
 
 const TOOL_USE_END_GRACE_MS = 1500;
 
@@ -119,24 +122,17 @@ export function cancelScheduledToolUseEnd(c: QueryContext): void {
 }
 
 /**
- * Arm the grace timer that force-ends the current tool_use turn if the stream's
- * terminal events never arrive. First arming per stream wins; message_stop (or
- * resetTurnState) disarms it. `action` runs only if the SAME stream is still
- * current when the grace elapses — a turn that ended normally makes it a no-op.
+ * Arm the grace timer that force-ends the current tool_use turn if the stream
+ * goes silent. First arming per stream wins; every stream event postpones it
+ * (postponeToolUseTurnEnd); message_stop (or resetTurnState) disarms it.
+ * `action` runs only if the SAME stream is still current when the grace
+ * elapses — a turn that ended normally makes it a no-op.
  */
 export function scheduleToolUseTurnEnd(c: QueryContext, action: () => void, source: string): void {
 	if (!c.currentPiStream || !c.turnOutput) return;
 	if (c.scheduledToolUseEnd?.stream === c.currentPiStream) return;
 	cancelScheduledToolUseEnd(c);
-	const stream = c.currentPiStream;
-	const timer = setTimeout(() => {
-		if (c.currentPiStream !== stream) return;
-		debug(`scheduleToolUseTurnEnd: no terminal stream event within ${TOOL_USE_END_GRACE_MS}ms (${source}) — force-ending tool_use turn`);
-		c.scheduledToolUseEnd = null;
-		action();
-	}, TOOL_USE_END_GRACE_MS);
-	timer.unref?.();
-	c.scheduledToolUseEnd = { stream, timer };
+	c.scheduledToolUseEnd = armToolUseTurnEnd(c, c.currentPiStream, action, source);
 }
 
 /**
@@ -305,6 +301,11 @@ export function processStreamEvent(
 	if (!c.currentPiStream || !c.turnOutput) return;
 	const event = (message as SDKMessage & { event: any }).event;
 	if (event?.type === "ping") return;
+	// Any event proves the stream is alive, matched or not (the completed-message
+	// yield strips block indexes, so later content_block_stop events show up as
+	// unmatched): the grace timer exists for streams that go silent, not for slow
+	// ones. Pings are excluded so a keep-alive can never hold a dead turn open.
+	postponeToolUseTurnEnd(c);
 	if (event?.type === "message_stop" && !c.turnSawToolCall) {
 		debug("processStreamEvent: ignoring bare message_stop with no streamed content/tool call");
 		return;
@@ -465,6 +466,26 @@ export function processStreamEvent(
 	if (event?.type !== "message_stop" && event?.type !== "ping") {
 		debug("processStreamEvent: unhandled event type", event?.type);
 	}
+}
+
+/** Restart an armed grace period for the CURRENT stream. Called on every stream
+ *  event, so the timer only fires after TOOL_USE_END_GRACE_MS of silence. */
+export function postponeToolUseTurnEnd(c: QueryContext): void {
+	const scheduled = c.scheduledToolUseEnd;
+	if (!scheduled || scheduled.stream !== c.currentPiStream) return;
+	clearTimeout(scheduled.timer);
+	c.scheduledToolUseEnd = armToolUseTurnEnd(c, scheduled.stream, scheduled.action, scheduled.source);
+}
+
+function armToolUseTurnEnd(c: QueryContext, stream: unknown, action: () => void, source: string): NonNullable<QueryContext["scheduledToolUseEnd"]> {
+	const timer = setTimeout(() => {
+		if (c.currentPiStream !== stream) return;
+		debug(`scheduleToolUseTurnEnd: no stream event for ${TOOL_USE_END_GRACE_MS}ms (${source}) — force-ending tool_use turn`);
+		c.scheduledToolUseEnd = null;
+		action();
+	}, TOOL_USE_END_GRACE_MS);
+	timer.unref?.();
+	return { stream, timer, action, source };
 }
 
 // The SDK always yields `assistant` messages (completed content blocks) after streaming.
