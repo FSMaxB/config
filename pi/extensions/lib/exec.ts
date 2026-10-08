@@ -15,6 +15,7 @@ export async function execChecked(
   const { stdout, stderr, code, killed } = await pi.exec(command, args, options);
   const invocation = `${command} ${args.join(" ")}`;
 
+  if (options.signal?.aborted) throw new Error(`${invocation} was aborted.`);
   if (killed)
     throw new Error(`${invocation} timed out after ${options.timeout / 1000}s.`);
   if (code !== 0)
