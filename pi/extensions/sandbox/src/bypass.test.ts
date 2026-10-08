@@ -80,6 +80,16 @@ test("the prompt shortens long commands", () => {
 
   // assert
   assert.ok(prompt.startsWith("Sandbox: run this command outside the sandbox?"));
-  assert.ok(prompt.endsWith("..."));
-  assert.ok(prompt.length < command.length);
+  assert.match(prompt, /\[60 characters omitted\]/);
+});
+
+test("the prompt shows the end of a long command", () => {
+  // arrange
+  const command = `${"x".repeat(300)}-tail-marker-xyz`;
+
+  // act
+  const prompt = bypassPrompt(command);
+
+  // assert
+  assert.match(prompt, /tail-marker-xyz/);
 });

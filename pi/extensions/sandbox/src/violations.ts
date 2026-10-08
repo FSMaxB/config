@@ -1,3 +1,4 @@
+import type { FilesystemConfig } from "@anthropic-ai/sandbox-runtime";
 import { contains } from "../../lib/repo.ts";
 
 export interface PathViolation {
@@ -17,6 +18,16 @@ export function pathViolations(lines: string[]): PathViolation[] {
     violations.set(`${violation.mode}:${violation.path}`, violation);
   }
   return [...violations.values()];
+}
+
+// Linux masks each read-denied directory with a writable tmpfs, so a write there succeeds and is thrown away
+// when the sandbox exits. Glob entries are skipped: srt drops write globs on Linux and a read-deny glob is a user rule.
+export function discardedWrites(violations: PathViolation[], filesystem: Pick<FilesystemConfig, "denyRead" | "allowWrite">): PathViolation[] {
+  const literal = (entries: readonly string[]) => entries.filter((entry) => !/[*?[\]]/.test(entry));
+  const denied = literal(filesystem.denyRead);
+  const writable = literal(filesystem.allowWrite ?? []);
+  return violations.filter(({ mode, path }) =>
+    mode === "write" && denied.some((root) => contains(root, path)) && !writable.some((root) => contains(root, path)));
 }
 
 export function isSecretPath(path: string, secrets: string[]): boolean {
