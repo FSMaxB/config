@@ -50,9 +50,15 @@ Sandbox limitations (each a candidate for `unsandboxed: true`): programs that ig
 
 ## CI
 
-`.github/workflows/ci.yml` runs 8 independent jobs on push to `main`, on pull requests, on `workflow_dispatch`, and weekly (the weekly run catches upstream breakage that a push wouldn't: dead release URLs, and vim-plug plugins, which have no lockfile):
+`.github/workflows/` has six workflows with 8 independent jobs in total. GitHub's `paths:` filter works per workflow, so jobs that share inputs live in one workflow, each with a `push` (to `main`) and `pull_request` `paths:` filter (shared through a YAML anchor) that always includes the workflow's own file. `workflow_dispatch` and `schedule` ignore `paths:` and always run every job. `nvim`, `vim`, `extensions` and `binaries` also run weekly, to catch upstream breakage that a push wouldn't (`stable` nvim, vim-plug plugins, which have no lockfile, `latest` node, dead release URLs); `shellcheck` and `actionlint` don't, since their tools are pinned.
 
-- **shellcheck** / **actionlint** / **stylua**: lint shell scripts, the workflow file itself, and `nvim/`. `.github/scripts/shellcheck.sh` auto-discovers every tracked file with a shell shebang or `.sh` suffix and runs the same way locally.
+Known gap: the `shellcheck` paths cover `.sh` files plus the extensionless shell files by name (`.ansi-colors`, `.shellrc-common`, `.git_template/hooks/`); a new extensionless shell script elsewhere won't trigger it on its own PR, so add its path to `shellcheck.yml`.
+
+`shellcheck.yml` (paths: shell files and `.github/scripts/shellcheck.sh`), `actionlint.yml` (paths: `.github/workflows/**`), `nvim.yml` (paths: `nvim/**`, `nvim-check.lua`), `vim.yml` (paths: `.vimrc`, `.vim/**`), `extensions.yml` (paths: `pi/extensions/**`, because `sandbox` imports from `pi/extensions/lib/`) and `binaries.yml` (paths: `binaries/download.sh`, `tuicr-skill/**`):
+
+- **shellcheck**: lints shell scripts. `.github/scripts/shellcheck.sh` auto-discovers every tracked file with a shell shebang or `.sh` suffix and runs the same way locally.
+- **actionlint**: lints the workflow files.
+- **stylua**: checks formatting of `nvim/`.
 - **node**: `npm ci` + `npm test` + `npm run typecheck` in every `pi/extensions/*/` directory that has a `package.json` (discovered automatically, so new packages need no workflow change but must define both scripts), plus `node --test pi/extensions/*/*.test.ts` for the package-less directories (`lib`, `subagent`; the `lib` tests need `fd` on `PATH`). Matrixed on the `engines` floor (22.19.0) and `latest`.
 - **nvim**: installs plugins from `nvim/lazy-lock.json` via `Lazy! restore`, then runs `.github/scripts/nvim-check.lua` headless, which force-loads every plugin and fails on any config error. Matrixed on `v0.12.0` (the floor, since `nvim-treesitter` on `main` requires it) and `stable`. `nvim-check.lua` runs the same way locally: `nvim --headless --cmd "luafile .github/scripts/nvim-check.lua"`.
 - **vim**: installs plugins with vim-plug and checks for startup errors. vim-plug has no lockfile, so this always tests upstream HEAD — the weekly run is what surfaces breakage here.
