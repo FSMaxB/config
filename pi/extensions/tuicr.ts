@@ -37,6 +37,9 @@ interface Session {
 let current: Session | undefined;
 
 export default function (pi: ExtensionAPI) {
+  // Module state outlives a session: pi reuses the loaded module for every session in the process.
+  pi.on("session_start", () => { current = undefined; });
+
   registerToolWithGuidelines(pi, {
     name: "tuicr_open",
     exposure: "model-only",
