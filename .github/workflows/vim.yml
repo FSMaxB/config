@@ -1,0 +1,35 @@
+name: vim
+
+on:
+  push:
+    branches: [main]
+    paths: &paths
+      - ".vimrc"
+      - ".vim/**"
+      - ".github/workflows/vim.yml"
+  pull_request:
+    paths: *paths
+  workflow_dispatch:
+  schedule:
+    # Weekly, to catch upstream breakage that a push wouldn't: vim-plug
+    # plugins have no lockfile.
+    - cron: "0 6 * * 1"
+
+jobs:
+  vim:
+    name: vim
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Symlink vim config
+        run: |
+          ln -sfn "$GITHUB_WORKSPACE/.vimrc" ~/.vimrc
+          ln -sfn "$GITHUB_WORKSPACE/.vim" ~/.vim
+      - name: Install plugins (vim-plug)
+        # The first start errors on `colorscheme gruvbox` because the plugin
+        # isn't there yet, so this step may fail.
+        run: vim -Es -u ~/.vimrc +PlugInstall +qall || true
+      - name: Check for startup errors
+        # vim-plug has no lockfile, so this tests upstream HEAD; the weekly
+        # schedule run is what surfaces breakage there.
+        run: vim -Es -u ~/.vimrc -c 'if !empty(v:errmsg) | cquit 1 | else | qall | endif'

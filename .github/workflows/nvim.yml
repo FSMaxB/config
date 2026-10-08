@@ -1,0 +1,68 @@
+name: nvim
+
+on:
+  push:
+    branches: [main]
+    paths: &paths
+      - "nvim/**"
+      - ".github/scripts/nvim-check.lua"
+      - ".github/workflows/nvim.yml"
+  pull_request:
+    paths: *paths
+  workflow_dispatch:
+  schedule:
+    # Weekly, to catch upstream breakage that a push wouldn't: the `stable`
+    # nvim release and tool downloads.
+    - cron: "0 6 * * 1"
+
+jobs:
+  stylua:
+    name: stylua
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: JohnnyMorganz/stylua-action@v5.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: "2.5.2"
+          args: --check nvim/
+
+  nvim:
+    name: nvim (${{ matrix.nvim }})
+    runs-on: ubuntu-26.04
+    strategy:
+      matrix:
+        nvim: [v0.12.0, stable]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: rhysd/action-setup-vim@v1.6.1
+        # The action extracts into os.tmpdir() and renames into $HOME; on
+        # ubuntu-26.04 /tmp is a separate filesystem, so that rename fails
+        # with EXDEV. runner.temp lives under /home/runner.
+        env:
+          TMPDIR: ${{ runner.temp }}
+        with:
+          neovim: true
+          version: ${{ matrix.nvim }}
+      - name: Symlink nvim config
+        # Not install.sh: it requires ~/config and touches global git config.
+        run: |
+          mkdir -p ~/.config
+          ln -sfn "$GITHUB_WORKSPACE/nvim" ~/.config/nvim
+      - name: Install tree-sitter CLI 0.27.0
+        # nvim-treesitter main needs this to compile parsers; without it,
+        # install() reports an error and the check fails spuriously.
+        run: |
+          curl -fsSL -o tree-sitter.zip \
+            https://github.com/tree-sitter/tree-sitter/releases/download/v0.27.0/tree-sitter-cli-linux-x64.zip
+          echo "e4a3826bcd0fe099ee3a5617767374939cbc23c4a35b5b53f5fc04142525a2c1  tree-sitter.zip" | sha256sum -c -
+          unzip -o tree-sitter.zip -d /tmp/tree-sitter
+          sudo install -m 755 /tmp/tree-sitter/tree-sitter /usr/local/bin/tree-sitter
+      - uses: actions/cache@v6.1.0
+        with:
+          path: ~/.local/share/nvim
+          key: nvim-plugins-${{ matrix.nvim }}-${{ hashFiles('nvim/lazy-lock.json') }}
+      - name: Install plugins at locked commits
+        run: nvim --headless "+Lazy! restore" +qa
+      - name: Check plugin load and config
+        run: nvim --headless --cmd "luafile .github/scripts/nvim-check.lua"

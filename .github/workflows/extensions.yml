@@ -1,0 +1,91 @@
+name: extensions
+
+on:
+  push:
+    branches: [main]
+    paths: &paths
+      - "pi/extensions/**"
+      - ".github/workflows/extensions.yml"
+  pull_request:
+    paths: *paths
+  workflow_dispatch:
+  schedule:
+    # Weekly, to catch upstream breakage that a push wouldn't: the `latest`
+    # node release and runner image changes.
+    - cron: "0 6 * * 1"
+
+jobs:
+  node:
+    name: node (${{ matrix.node-version }})
+    runs-on: ubuntu-26.04
+    strategy:
+      matrix:
+        node-version: ["22.19.0", "latest"]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: pi/extensions/*/package-lock.json
+      - name: Install jj v0.45.1
+        # Offline VCS API fixtures need jj; match binaries/download.sh's pin.
+        run: |
+          curl -fsSL -o jj.tar.gz \
+            https://github.com/jj-vcs/jj/releases/download/v0.45.1/jj-v0.45.1-x86_64-unknown-linux-musl.tar.gz
+          echo "f35438350b5d61963aac5dd74ede510b31d6b9690769d1a6268cf058cc825f72  jj.tar.gz" | sha256sum -c -
+          tar -xf jj.tar.gz ./jj
+          sudo install -m 755 jj /usr/local/bin/jj
+      - name: Extension packages
+        # Every extension directory with a package.json is picked up
+        # automatically; each must define `test` and `typecheck` scripts.
+        # Skipped: test:int / tests/int-*.mjs (need live Claude credentials;
+        # the sandbox job runs sandbox's test:int on its own).
+        run: |
+          for pkg in pi/extensions/*/package.json; do
+            dir=$(dirname "$pkg")
+            echo "::group::$dir"
+            (cd "$dir" && npm ci && npm test && npm run typecheck)
+            echo "::endgroup::"
+          done
+      - name: Install fd v10.5.0
+        # The lib/path-preflight tests drive a real fd. fd publishes no
+        # checksum assets, so the digest is pinned here.
+        run: |
+          curl -fsSL -o fd.tar.gz \
+            https://github.com/sharkdp/fd/releases/download/v10.5.0/fd-v10.5.0-x86_64-unknown-linux-gnu.tar.gz
+          echo "a1259cd129636efbc3fef123525c1b49e88fe5088c012630983c310e52fdfa95  fd.tar.gz" | sha256sum -c -
+          tar -xf fd.tar.gz
+          sudo install -m 755 fd-v10.5.0-x86_64-unknown-linux-gnu/fd /usr/local/bin/fd
+      - name: Unit tests outside packages
+        # lib/ and subagent/ have no package.json; their tests run on plain
+        # node. Skipped: lib/search-tools.smoke.ts (needs a hand-made
+        # node_modules symlink plus rg/fd).
+        run: node --test pi/extensions/*/*.test.ts
+
+  sandbox:
+    name: sandbox (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-26.04, macos-26]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "22.19.0"
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y bubblewrap socat ripgrep
+          # Ubuntu gates unprivileged user namespaces twice: the sysctl blocks creating them, and the
+          # bwrap-userns-restrict AppArmor profile strips capabilities from bwrap's children, which
+          # leaves srt's apply-seccomp helper unable to set up its nested namespace.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          if [ -e /etc/apparmor.d/bwrap-userns-restrict ]; then
+            sudo apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict
+          fi
+          # The same nested user namespace apply-seccomp creates; fails fast with a readable error.
+          bwrap --ro-bind / / --dev /dev --proc /proc --unshare-user --unshare-pid --cap-drop ALL -- unshare --user --map-root-user true
+      - name: Integration test
+        run: cd pi/extensions/sandbox && npm ci && npm run test:int
