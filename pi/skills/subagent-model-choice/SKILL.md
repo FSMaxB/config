@@ -29,9 +29,9 @@ Written for the Pi coding agent's `subagent` tool and its `model` and
 
 | Task | Tier | Thinking | Why |
 | --- | --- | --- | --- |
-| Mechanical fact-finding: where is X defined, who calls Y, list the files that match | cheap | `low` | Tool calls dominate; reasoning adds little. Anthropic and OpenAI both name "subagents" and "search / retrieval" as the `low` effort use case. |
-| Exploration that needs judgment: how does this subsystem work, which of these helpers fits, summarize the design | mid | `medium` | Needs synthesis across files. Cheap models miss connections; frontier models are wasted on reading. |
-| Scoped implementation with a clear spec and tests to run | mid | `medium` | OpenAI's `medium` row: "agentic coding ... delegating long-horizon work". Raise to `high` if the first attempt fails tests. |
+| Mechanical fact-finding: where is X defined, who calls Y, list the files that match | cheap | `low` | Tool calls dominate; reasoning adds little. Anthropic and OpenAI both name "subagents" and "search / retrieval" as the `low` effort use case. When the list must be exhaustive, use `medium`: Haiku 5.5 at `low` is more likely to skip a search or stop early in a long agent prompt. |
+| Exploration that needs judgment: how does this subsystem work, which of these helpers fits, summarize the design | cheap, then mid | `high` on cheap, `medium` on mid | Needs synthesis across files. Anthropic's Haiku 5.5 guidance puts longer agent tasks and knowledge work at `high`; move to Sonnet 5.5 at `medium` when the report misses connections. Frontier models are wasted on reading. |
+| Scoped implementation with a clear spec and tests to run | mid | `medium` | OpenAI's `medium` row: "agentic coding ... delegating long-horizon work". Anthropic starts Haiku 5.5 at `medium` for agentic coding too; try it when tests judge the result, and tell it to run the check, since at `low` and `medium` it sometimes reports a change done without running one. Raise to `high` if the first attempt fails tests. |
 | Debugging, root-cause analysis, tricky refactor across modules | inherit | `high` | Anthropic and OpenAI both put "complex debugging, hard reasoning" at `high`. Do not save money here; a wrong answer costs more than the tokens. |
 | Review or verification of a change (correctness, security) | inherit | `high` or `xhigh` | OpenAI lists "security and code review" under `xhigh`; Anthropic's `xhigh` is for long-horizon agentic work. Use `xhigh` only when the model supports it natively. |
 | Long-running autonomous work (hours, many tool calls) | frontier | `high` / `xhigh` | Anthropic: Fable-class models for "agent sessions that run for hours". Only when the task genuinely needs it. |
@@ -46,6 +46,9 @@ Two overriding rules from Anthropic's measurements:
 - **Verifiable output can start cheap.** When a test suite or checker judges
   the result, run at `low` and re-run only the failures at `high`. On
   Anthropic's coding benchmark this held the pass rate at about half the cost.
+- **Escalate one tier at `low`.** When a report falls short and effort is
+  already back at the default, Anthropic's next step is the next tier up at
+  `low`, not the same tier at `xhigh` or `max`.
 
 ## Thinking levels
 
@@ -55,11 +58,11 @@ support is clamped to the nearest one it does.
 
 | Level | Anthropic (`effort`) | OpenAI (`reasoning.effort`) | Google (`thinking_level`) |
 | --- | --- | --- | --- |
-| `off` / `minimal` | Not available on adaptive-thinking models (Opus 5.5, Fable 5.1 always think); clamps up | `none` (GPT-6 Sol and Luna only; GPT-6.1 Sol and Astra require at least `low`) / `minimal` (supported GPT-5.x models; GPT-6 maps to `low`) | `minimal` (Flash-Lite, some Flash) |
-| `low` | Most efficient; "simpler tasks ... such as subagents" | Tool use, search, execution-oriented coding | `low` |
-| `medium` | Balanced; default on Opus 5.5 | Default for most workloads; agentic coding, research | `medium` (Flash default) |
-| `high` | Default on Fable, Sonnet, older Opus | Hard reasoning, complex debugging | `high` (Pro default) |
-| `xhigh` | Long-horizon work; native only on Fable 5.x, Opus 4.7+, Sonnet 5+; clamps to `high` elsewhere | Long runs; only with evals showing a gain | clamps to `high` |
+| `off` / `minimal` | Opus 5.5 and Fable 5.1 always think, so this clamps up. Haiku 5.5 and Sonnet 5.5 accept thinking off at `high` or below (`disabled` and `between_tools` respectively) | `none` (GPT-6 Sol and Luna only; GPT-6.1 Sol and Astra require at least `low`) / `minimal` (supported GPT-5.x models; GPT-6 maps to `low`) | `minimal` (Flash-Lite, some Flash) |
+| `low` | Most efficient; "simpler tasks ... such as subagents". On Haiku 5.5: chat, short tool tasks, high-volume requests; in long agent prompts it may skip a search, stop early, or skip a check | Tool use, search, execution-oriented coding | `low` |
+| `medium` | Balanced; default on Opus 5.5 and Haiku 5.5 | Default for most workloads; agentic coding, research | `medium` (Flash default) |
+| `high` | Default on Fable, Sonnet, older Opus. On Haiku 5.5: knowledge work, longer agent tasks, strict instruction following | Hard reasoning, complex debugging | `high` (Pro default) |
+| `xhigh` | Long-horizon work; native only on Fable 5.x, Opus 4.7+, Sonnet 5+, Haiku 5.5; clamps to `high` elsewhere. On Haiku 5.5 compare against Sonnet 5.5 first | Long runs; only with evals showing a gain | clamps to `high` |
 | `max` | No token constraint; often overthinks structured tasks | Only if `xhigh` measurably falls short | clamps to `high` |
 
 Effort applies to every output token, not only thinking: at `low` a model
@@ -73,20 +76,31 @@ to be a no-op unless the server exposes reasoning effort explicitly.
 
 ## Model tiers
 
-Prices are USD per million input / output tokens as published in September 2026.
+Prices are USD per million input / output tokens as published in October 2026.
 
 ### Anthropic
 
 | Tier | Model | Price | Notes |
 | --- | --- | --- | --- |
-| cheap | Claude Haiku 4.5 (`claude-haiku-4-5`) | 1 / 5 | Anthropic's named "sub-agent tasks" model. No effort parameter; use `thinkingLevel` for its thinking budget. 200K context. |
+| cheap | Claude Haiku 5.5 (`claude-haiku-5-5`) | 0.10 / 0.50 (0.50 / 2.50 once the prompt exceeds 100K tokens) | Anthropic's named "sub-agent tasks" model. Adaptive thinking steered by effort; `medium` default; all five levels. 1M context, 128K output. |
 | mid | Claude Sonnet 5.5 (`claude-sonnet-5-5`) | 2 / 10 | "Everyday coding, agent workloads". For well-specified agentic tasks Anthropic recommends starting at `medium`. |
 | frontier | Claude Opus 5.5 (`claude-opus-5-5`) | 4 / 20 | "Most workloads start here". Adaptive thinking always on; `medium` default. |
 | frontier+ | Claude Fable 5.1 (`claude-fable-5-1`) | 10 / 50 | Hours-long agent sessions, deep research. Reserve for subagents that must reason as well as the main session. |
 
-Haiku costs a quarter of Opus and a tenth of Fable per token, and finishes
-faster. A Haiku explore subagent is nearly free next to the session that
-spawned it.
+Haiku 5.5 costs a fortieth of Opus 5.5 and a hundredth of Fable 5.1 per token
+while the prompt stays under 100K tokens, and finishes faster. A file-heavy
+explore subagent crosses that line, after which every request bills at the
+higher rate; that is still a quarter of Sonnet 5.5 and an eighth of Opus 5.5.
+On GPQA Diamond, Anthropic measured Haiku 5.5 at about a twentieth of Opus
+5.5's cost per question for 85% against 91% accuracy, which is the gap to
+expect on judgment-heavy briefs. Haiku 5.5 uses the Claude 4.7+ tokenizer
+(about 30% more tokens than Haiku 4.5 for the same text), so price
+comparisons against the other current models are like for like.
+
+Claude Haiku 4.5 (`claude-haiku-4-5`, 1 / 5, 200K context, no effort
+parameter) is the previous generation. Use it only when Haiku 5.5 is not
+configured; Haiku 5.5's safety classifiers can decline a request, and the
+claude-bridge provider falls back to Haiku 4.5 on its own in that case.
 
 ### OpenAI
 
@@ -141,6 +155,10 @@ only sensible "cheap" option, and the session model is the ceiling.
 
 - Inheriting a Fable-class session model for "find where X is defined".
   That is a Haiku task at `low`.
+- Sending Haiku 5.5 at `low` on a long brief and trusting the report as
+  exhaustive. At `low` it is more likely to skip a search or stop early;
+  Anthropic measured that `medium` roughly halves early stopping. Use
+  `medium` when completeness matters.
 - Sending a cheap model into a debugging task to save money, then spending
   the main session's tokens to redo it. Token spend explains most of the
   variance in agent performance (Anthropic's multi-agent research
@@ -156,10 +174,14 @@ only sensible "cheap" option, and the session model is the ceiling.
 
 ## Sources
 
-Checked 2026-09-29; OpenAI sources rechecked 2026-09-30.
+Anthropic sources checked 2026-10-08 (Haiku 5.5 release); OpenAI sources
+checked 2026-09-30; Google sources checked 2026-09-29.
 
 - Anthropic, Choosing the right model: https://platform.claude.com/docs/en/about-claude/models/choosing-a-model
 - Anthropic, Models overview (prices, defaults): https://platform.claude.com/docs/en/models/overview
+- Anthropic, Pricing (Haiku 5.5 prompt-length tiers): https://platform.claude.com/docs/en/about-claude/pricing
+- Anthropic, Claude Haiku 5.5 overview: https://platform.claude.com/docs/en/models/haiku-5-5/overview
+- Anthropic, Prompting Claude Haiku 5.5 (effort levels, early stopping, verification): https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-haiku-5-5
 - Anthropic, Effort: https://platform.claude.com/docs/en/build-with-claude/effort
 - Anthropic, Optimizing for cost and intelligence: https://platform.claude.com/docs/en/about-claude/models/optimizing-for-cost-and-intelligence
 - Anthropic, How we built our multi-agent research system: https://www.anthropic.com/engineering/multi-agent-research-system
