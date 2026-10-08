@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import { dropDuplicateNames } from "./agent-names.ts";
 
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const satisfies readonly ModelThinkingLevel[];
 
@@ -35,20 +36,20 @@ type AgentFrontmatter = {
   thinkingLevel?: unknown;
 };
 
-export function discoverAgents(): AgentConfig[] {
+export function discoverAgents(): { agents: AgentConfig[]; skipped: string[] } {
   // Agents ship next to this extension so the whole setup lives in the config repo.
   const userDir = join(dirname(fileURLToPath(import.meta.url)), "agents");
   return loadAgentsFromDir(userDir);
 }
 
-function loadAgentsFromDir(dir: string): AgentConfig[] {
-  const agents: AgentConfig[] = [];
+function loadAgentsFromDir(dir: string): { agents: AgentConfig[]; skipped: string[] } {
+  const pairs: { file: string; agent: AgentConfig }[] = [];
 
   let entries: Dirent[];
   try {
     entries = readdirSync(dir, { withFileTypes: true });
   } catch {
-    return agents;
+    return dropDuplicateNames(pairs);
   }
 
   for (const entry of entries) {
@@ -68,17 +69,20 @@ function loadAgentsFromDir(dir: string): AgentConfig[] {
       continue;
     }
 
-    agents.push({
-      name: frontmatter.name,
-      description: frontmatter.description,
-      tools: parseToolList(frontmatter.tools),
-      model: typeof frontmatter.model === "string" ? frontmatter.model : undefined,
-      thinkingLevel: parseThinkingLevel(frontmatter.thinkingLevel),
-      systemPrompt: body,
+    pairs.push({
+      file: entry.name,
+      agent: {
+        name: frontmatter.name,
+        description: frontmatter.description,
+        tools: parseToolList(frontmatter.tools),
+        model: typeof frontmatter.model === "string" ? frontmatter.model : undefined,
+        thinkingLevel: parseThinkingLevel(frontmatter.thinkingLevel),
+        systemPrompt: body,
+      },
     });
   }
 
-  return agents;
+  return dropDuplicateNames(pairs);
 }
 
 /**
