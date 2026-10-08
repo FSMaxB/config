@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { covers, defaultAllowed, emptyRules, evaluate, exact, glob, matchesRule, parseRules, readOnlyRepositoryNotice, recordRule, selectorFromKey, selectorKey, selectorLabel, serializeRules, tree, type AccessMode, type PathSelector, type PathRule, type RuleSets, type RuleTier, type SerializedRules, type Verdict } from "./path-permission-rules.ts";
+import { covers, coveredProtectedSelectors, defaultAllowed, emptyRules, evaluate, exact, glob, matchesRule, parseRules, readOnlyRepositoryNotice, recordRule, selectorFromKey, selectorKey, selectorLabel, serializeRules, tree, type AccessMode, type PathSelector, type PathRule, type RuleSets, type RuleTier, type SerializedRules, type Verdict } from "./path-permission-rules.ts";
 import { AgentMode, PathRuleStore, storeForMode } from "./agent-mode.ts";
 import { expandHome } from "./path-resolution.ts";
 import { readStoredRules, transaction } from "./path-rule-store.ts";
@@ -131,7 +131,10 @@ async function requestAccess(resolved: string, mode: AccessMode, context: Extens
   const protectedMatch = protectedSelectors.find((candidate) => matchesRule(resolved, candidate));
   const selector = protectedMatch ?? tree(await grantRootFor(resolved));
   const label = selectorLabel(selector), verb = mode === "read" ? "Read" : "Write";
-  const choice = await context.ui.select(`${verb} ${resolved}?\n\n  Allowing grants ${mode} access to ${label}\n  Denying blocks ${mode} access to ${label}`, choices);
+  const covered = coveredProtectedSelectors(selector, protectedSelectors).filter((target) => target !== protectedMatch);
+  const warning = covered.length === 0 ? "" :
+    `\n  Warning: this also grants ${mode} access to protected paths:\n${covered.map((target) => `  - ${selectorLabel(target)}`).join("\n")}`;
+  const choice = await context.ui.select(`${verb} ${resolved}?\n\n  Allowing grants ${mode} access to ${label}\n  Denying blocks ${mode} access to ${label}${warning}`, choices);
   if (choice === ALLOW_ONCE) return;
   if (choice === ALLOW_SESSION) { await addPathRule({ mode, kind: "allow", tier: "session", selector }); return; }
   if (choice === ALLOW_ALWAYS) { await addPathRule({ mode, kind: "allow", tier: "always", selector }); return; }
