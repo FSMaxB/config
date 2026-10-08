@@ -36,8 +36,8 @@ type Rank = (
 ) => Promise<string[]>;
 
 export default function (pi: ExtensionAPI) {
-  pi.on("session_start", async (_event, ctx) => {
-    if (!ctx.hasUI) return;
+  pi.on("session_start", async (_event, context) => {
+    if (!context.hasUI) return;
 
     const fd = await resolveBinary(pi, [
       join(homedir(), ".pi", "agent", "bin", "fd"),
@@ -49,10 +49,10 @@ export default function (pi: ExtensionAPI) {
     const rank = (await resolveBinary(pi, ["fzf"]))
       ? rankWithFzf
       : rankInProcess;
-    const getEntries = createEntryLoader(pi, fd, ctx.cwd);
+    const getEntries = createEntryLoader(pi, fd, context.cwd);
     void getEntries();
 
-    ctx.ui.addAutocompleteProvider((current) =>
+    context.ui.addAutocompleteProvider((current) =>
       createProvider(current, getEntries, rank),
     );
   });
