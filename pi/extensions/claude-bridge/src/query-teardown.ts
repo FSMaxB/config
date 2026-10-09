@@ -18,9 +18,18 @@ export function closeSdkQuery(sdkQuery: unknown): void {
 	catch (error) { debug("provider: closing the sdk query threw; continuing teardown:", error); }
 }
 
-/** Stop an in-flight SDK query. `interrupt()` asks the CLI to stop gracefully,
- *  `close()` kills it; both are needed, because interrupt alone lets the current
- *  API call finish. */
+/** Ask the CLI to stop gracefully. It cancels its in-flight API call or MCP
+ *  tool call, records the interruption in its transcript (a rejected
+ *  tool_result per pending call, or the partial assistant message) and exits
+ *  by itself, which is what keeps the session resumable with a warm cache. */
+export function interruptSdkQuery(sdkQuery: unknown): void {
+	void (sdkQuery as { interrupt(): Promise<void> }).interrupt().catch(() => {});
+}
+
+/** Stop an in-flight SDK query without waiting: interrupt, then kill. For the
+ *  paths that rebuild or rotate the session anyway (stream-idle timeout,
+ *  history restart, a signal already aborted before the child spawned). A
+ *  user abort uses interruptSdkQuery instead. */
 export function abortSdkQuery(sdkQuery: unknown): void {
 	void (sdkQuery as { interrupt(): Promise<void> }).interrupt().catch(() => {});
 	closeSdkQuery(sdkQuery);
@@ -56,8 +65,13 @@ export function teardownQuery(
 
 export interface AbortSettlement {
 	childExit: ChildExitOutcome;
+	/** The child ignored the interrupt and was killed after the grace. */
+	interruptIgnored: boolean;
 	/** A tool call was waiting, queued or unmatched when the abort hit. */
 	toolCallInFlight: boolean;
+	/** Every tool_use in the Claude transcript has a tool_result. Only
+	 *  consulted when a tool call was in flight. */
+	transcriptPairsToolCalls: boolean;
 	droppedQueuedUserMessages: number;
 	/** The query or the record knows which Claude session this turn ran in. */
 	hasSessionId: boolean;
@@ -66,10 +80,12 @@ export interface AbortSettlement {
 /** Why an aborted query's record must rebuild, or undefined when the
  *  interruption was clean enough to resume the same Claude session next turn.
  *  The unconfirmed exit is checked first because it is the only reason that
- *  also rotates the session id. */
+ *  also rotates the session id. An interrupted tool call keeps the session when
+ *  the transcript shows the CLI recorded its rejection. */
 export function abortRebuildReason(settlement: AbortSettlement): string | undefined {
 	if (settlement.childExit === "still-running") return "abort while the Claude Code process was still running";
-	if (settlement.toolCallInFlight) return "abort with a tool call in flight";
+	if (settlement.interruptIgnored) return "abort: Claude Code ignored the interrupt and was killed";
+	if (settlement.toolCallInFlight && !settlement.transcriptPairsToolCalls) return "abort with a tool call in flight whose result Claude Code did not record";
 	if (settlement.droppedQueuedUserMessages > 0) return `abort dropped ${settlement.droppedQueuedUserMessages} queued user message(s)`;
 	if (!settlement.hasSessionId) return "abort before Claude Code reported a session";
 	return undefined;
