@@ -177,7 +177,7 @@ test("evaluation allows every allow layer and prompts without a match", () => {
   assert.equal(unmatchedVerdict, "prompt");
 });
 
-test("default write access excludes the repository in restricted modes", () => {
+test("default write access excludes the repository but not the jj locks in restricted modes", () => {
   // arrange
   const options = {
     repoRoot: "/repo",
@@ -192,8 +192,9 @@ test("default write access excludes the repository in restricted modes", () => {
   const normal = defaultAllowed("write", { ...options, agentMode: AgentMode.Execution });
 
   // assert
-  assert.deepEqual(planning.map(selectorLabel), ["/memory/**", "/agent/plans/**"]);
-  assert.deepEqual(exploring.map(selectorLabel), ["/memory/**", "/agent/plans/**"]);
+  const jjLocks = ["/repo/.jj/working_copy/working_copy.lock", "/repo/.jj/repo/git_import_export.lock"];
+  assert.deepEqual(planning.map(selectorLabel), ["/memory/**", "/agent/plans/**", ...jjLocks]);
+  assert.deepEqual(exploring.map(selectorLabel), ["/memory/**", "/agent/plans/**", ...jjLocks]);
   assert.deepEqual(normal.map(selectorLabel), ["/repo/**", "/memory/**", "/agent/plans/**"]);
 });
 
