@@ -79,6 +79,23 @@ describe("syncSharedSession REUSE path", () => {
 	});
 });
 
+describe("syncSharedSession REUSE after an interrupted tool call", () => {
+	it("resumes across Pi's results for the interrupted calls and consumes the ids", () => {
+		// arrange
+		setSharedSession({ sessionId: "s1", cursor: 1, cwd: CWD, interruptedToolCallIds: ["call-1"] });
+		const aborted = { role: "toolResult", toolCallId: "call-1", content: "Operation aborted", isError: true };
+		const messages = [user("hello"), assistant(), aborted, user("next")];
+
+		// act
+		const result = syncSharedSession(messages, CWD);
+
+		// assert
+		assert.equal(result.sessionId, "s1");
+		assert.equal(result.promptStart, 3);
+		assert.equal(__testGetBridgeIntegrityState().sharedSession.interruptedToolCallIds, undefined);
+	});
+});
+
 describe("syncSharedSession clean start", () => {
 	it("returns no resume id and prompts the sole user message", () => {
 		const messages = [user("hello")];

@@ -230,6 +230,9 @@ export function restoreSharedSessionFromPi(ctx: { sessionManager?: unknown; cwd?
 		// Absent on pre-3.1.1 markers: restore as identity-unknown (the foreign
 		// guard fails open) rather than rejecting the entry.
 		...(typeof persisted.conversationFingerprint === "string" ? { conversationFingerprint: persisted.conversationFingerprint } : {}),
+		...(Array.isArray(persisted.interruptedToolCallIds)
+			? { interruptedToolCallIds: persisted.interruptedToolCallIds.filter((id): id is string => typeof id === "string") }
+			: {}),
 	});
 	debug(`restoreSharedSession: restored ${persisted.sessionId.slice(0, 8)}, cursor=${cursor}`);
 }
@@ -394,6 +397,8 @@ export interface IncrementalPromptBatchPlan {
  * delivered together by Pi (for example, followUpMode="all"). Claude Code has
  * already persisted the optional leading assistant message; every user message
  * after it must be sent as this query's prompt rather than imported via rebuild.
+ * The tail may also hold Pi's results for calls the interrupt already settled
+ * in Claude's transcript (`interruptedToolCallIds`); those are skipped.
  * `messages` are conversation messages (see `src/transcript.ts::conversationMessages`);
  * the provider lane filters the transcript before calling, so a `system` message
  * here is a caller bug.
@@ -401,6 +406,7 @@ export interface IncrementalPromptBatchPlan {
 export function planIncrementalPromptBatch(
 	messages: Message[],
 	cursor: number,
+	interruptedToolCallIds: readonly string[] = [],
 ): IncrementalPromptBatchPlan | undefined {
 	const lastIndex = messages.length - 1;
 	if (lastIndex < 0 || (messages[lastIndex] as { role?: string }).role !== "user") return undefined;
@@ -416,6 +422,7 @@ export function planIncrementalPromptBatch(
 	const boundedCursor = Math.max(0, cursor);
 	let promptStart = boundedCursor;
 	if ((messages[promptStart] as { role?: string } | undefined)?.role === "assistant") promptStart++;
+	while (isInterruptedToolResult(messages[promptStart], interruptedToolCallIds)) promptStart++;
 
 	const pendingPrompts = messages.slice(promptStart);
 	if (pendingPrompts.length === 0 || pendingPrompts.some((message) => (message as { role?: string }).role !== "user")) {
@@ -429,6 +436,11 @@ export function planIncrementalPromptBatch(
 		promptStart,
 		userMessageCount: pendingPrompts.length,
 	};
+}
+
+function isInterruptedToolResult(message: Message | undefined, interruptedToolCallIds: readonly string[]): boolean {
+	const { role, toolCallId } = (message ?? {}) as { role?: string; toolCallId?: string };
+	return role === "toolResult" && toolCallId !== undefined && interruptedToolCallIds.includes(toolCallId);
 }
 
 // Read the session file we just wrote and sanity-check it. Warns instead of
@@ -571,7 +583,7 @@ export function syncSharedSession(
 
 	// REUSE path.
 	if (sharedSession && !sharedSession.needsRebuild) {
-		const batch = planIncrementalPromptBatch(messages, sharedSession.cursor);
+		const batch = planIncrementalPromptBatch(messages, sharedSession.cursor, sharedSession.interruptedToolCallIds ?? []);
 		if (batch) {
 			// Read the pre-update cursor first: setSharedSession reassigns the live
 			// binding, so comparing against sharedSession.cursor afterwards would
@@ -583,8 +595,9 @@ export function syncSharedSession(
 			// upgrades to the two-component form once the conversation has its
 			// first assistant message (see conversationFingerprintUpgrade).
 			const upgradedFingerprint = conversationFingerprintUpgrade(sharedSession.conversationFingerprint, incomingFingerprint);
+			const { interruptedToolCallIds: _settledByInterrupt, ...recordWithoutInterrupted } = sharedSession;
 			setSharedSession({
-				...sharedSession,
+				...recordWithoutInterrupted,
 				cursor: batch.promptStart,
 				cwd,
 				...(upgradedFingerprint ? { conversationFingerprint: upgradedFingerprint } : {}),
