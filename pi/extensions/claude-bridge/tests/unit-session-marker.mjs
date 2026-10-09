@@ -83,6 +83,24 @@ describe("bridge session markers", () => {
 			else process.env.CLAUDE_CONFIG_DIR = previousDir;
 		}
 	});
+
+	it("restores the tool-call ids an interrupt settled, dropping non-string entries", () => {
+		// arrange
+		const child = createSession({ projectPath: cwd, claudeDir });
+		child.addUserMessage("hello");
+		child.save();
+		const previousDir = process.env.CLAUDE_CONFIG_DIR;
+		process.env.CLAUDE_CONFIG_DIR = claudeDir;
+		try {
+			// act
+			restoreSharedSessionFromPi({ cwd, sessionManager: sessionManager(makeMarker(child.sessionId, { interruptedToolCallIds: ["call-1", 7] })) });
+			// assert
+			assert.deepEqual(__testGetBridgeIntegrityState().sharedSession, { sessionId: child.sessionId, cursor: 1, cwd, interruptedToolCallIds: ["call-1"] });
+		} finally {
+			if (previousDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+			else process.env.CLAUDE_CONFIG_DIR = previousDir;
+		}
+	});
 });
 
 function makeMarker(sessionId, extra = {}) {
