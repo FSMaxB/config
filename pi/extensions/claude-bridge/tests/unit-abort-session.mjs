@@ -1,8 +1,8 @@
 /**
- * An aborted query waits for its killed Claude Code child before deciding what
- * happens to the session record: a clean interruption keeps the record so the
- * next turn resumes (prompt cache stays warm), anything else rebuilds, and only
- * an unconfirmed exit rotates the session id.
+ * An aborted query interrupts its Claude Code child and waits for it to exit
+ * before deciding what happens to the session record: a clean interruption
+ * keeps the record so the next turn resumes (prompt cache stays warm), anything
+ * else rebuilds, and only an unconfirmed exit rotates the session id.
  */
 import "./lib/debug-env.mjs";
 import assert from "node:assert/strict";
@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, it } from "node:test";
+import { createSession } from "cc-session-io";
 import {
 	__testGetBridgeIntegrityState,
 	__testSetAbortExitGraceMs,
@@ -36,6 +37,8 @@ const toolContext = () => ({ tools: [{ name: "mytool", description: "", paramete
 
 let root;
 let diagnosticDir;
+let claudeConfigDir;
+let previousClaudeConfigDir;
 
 beforeEach(() => {
 	process.env.CLAUDE_BRIDGE_STREAM_IDLE_TIMEOUT = "0";
@@ -43,6 +46,9 @@ beforeEach(() => {
 	diagnosticDir = mkdtempSync(join(tmpdir(), "bridge-abort-diag-"));
 	process.env.CLAUDE_BRIDGE_DIAG_PATH = join(diagnosticDir, "diag.log");
 	root = mkdtempSync(join(tmpdir(), "bridge-abort-cwd-"));
+	claudeConfigDir = mkdtempSync(join(tmpdir(), "bridge-abort-claude-"));
+	previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+	process.env.CLAUDE_CONFIG_DIR = claudeConfigDir;
 	resetStack();
 	__testSetBridgeIntegrityState({ sharedSession: null, ui: { notify: () => {} } });
 	setExtensionApi({ events: { emit: () => {} }, appendEntry: () => {} });
@@ -53,6 +59,9 @@ afterEach(() => {
 	delete process.env.CLAUDE_BRIDGE_DIAG_PATH;
 	rmSync(diagnosticDir, { recursive: true, force: true });
 	rmSync(root, { recursive: true, force: true });
+	rmSync(claudeConfigDir, { recursive: true, force: true });
+	if (previousClaudeConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+	else process.env.CLAUDE_CONFIG_DIR = previousClaudeConfigDir;
 	__testSetSdkQueryFactory();
 	__testSetSpawnClaudeCodeProcess();
 	__testSetAbortExitGraceMs();
@@ -65,8 +74,15 @@ describe("aborted query settlement", () => {
 	it("a clean abort keeps the Claude session for the next turn", async () => {
 		// arrange
 		const child = new FakeChild();
+		const spawned = [];
 		__testSetSpawnClaudeCodeProcess(() => child);
-		__testSetSdkQueryFactory((input) => textQuery(input, child, "exit-on-close"));
+		__testSetSdkQueryFactory((input) => {
+			const query = textQuery(input, child, "exits-on-interrupt");
+			spawned.push(query);
+			return query;
+		});
+		let closedWhenChildExited;
+		child.once("exit", () => { closedWhenChildExited = spawned[0].closed; });
 		const abort = new AbortController();
 		const events = [];
 
@@ -80,6 +96,7 @@ describe("aborted query settlement", () => {
 		// assert
 		const aborted = events.filter((event) => event.type === "error");
 		assert.deepEqual(aborted.map((event) => event.reason), ["aborted"]);
+		assert.equal(closedWhenChildExited, false, "the child exited on its own, it was not killed");
 		const record = laneRecord();
 		assert.equal(record.sessionId, "sdk-session");
 		assert.equal(record.cursor, 1);
@@ -89,11 +106,36 @@ describe("aborted query settlement", () => {
 		assert.equal(record.rebuildReason, undefined);
 	});
 
+	it("a child that ignores the interrupt is killed after the grace and the session rebuilds", async () => {
+		// arrange
+		const child = new FakeChild();
+		__testSetSpawnClaudeCodeProcess(() => child);
+		__testSetSdkQueryFactory((input) => textQuery(input, child, "exits-on-close"));
+		__testSetAbortExitGraceMs(50);
+		runInRequestLane(LANE, () => __testSetBridgeIntegrityState({ sharedSession: { sessionId: "before", cursor: 1, cwd: root } }));
+		const abort = new AbortController();
+		const events = [];
+
+		// act
+		const consumer = consume(streamNormalized(model, { messages: [userMessage("hello")] }, { sessionId: LANE, signal: abort.signal, cwd: root }), events);
+		assert.equal(await waitFor(() => events.some((event) => event.type === "text_delta")), true, "the turn started streaming");
+		abort.abort();
+		await consumer;
+		assert.equal(await waitFor(() => runInRequestLane(LANE, () => ctx().activeQuery === null)), true, "teardown completed");
+
+		// assert
+		const record = laneRecord();
+		assert.equal(record.sessionId, "before");
+		assert.equal(record.needsRebuild, true);
+		assert.equal(record.forceRotate, undefined);
+		assert.equal(record.rebuildReason, "abort: Claude Code ignored the interrupt and was killed");
+	});
+
 	it("a child still running after the grace forces a rebuild with a rotated id", async () => {
 		// arrange
 		const child = new FakeChild();
 		__testSetSpawnClaudeCodeProcess(() => child);
-		__testSetSdkQueryFactory((input) => textQuery(input, child, "stay-running"));
+		__testSetSdkQueryFactory((input) => textQuery(input, child, "stays-running"));
 		__testSetAbortExitGraceMs(50);
 		runInRequestLane(LANE, () => __testSetBridgeIntegrityState({ sharedSession: { sessionId: "before", cursor: 1, cwd: root } }));
 		const abort = new AbortController();
@@ -114,12 +156,36 @@ describe("aborted query settlement", () => {
 		assert.equal(record.rebuildReason, "abort while the Claude Code process was still running");
 	});
 
-	it("an abort with a tool call in flight rebuilds without rotating once the child exited", async () => {
+	it("an abort with a tool call in flight keeps the session when Claude Code recorded the rejection", async () => {
 		// arrange
 		const child = new FakeChild();
 		__testSetSpawnClaudeCodeProcess(() => child);
-		__testSetSdkQueryFactory((input) => toolUseQuery(input, child, "exit-on-close"));
+		__testSetSdkQueryFactory((input) => toolUseQuery(input, child, "exits-on-interrupt"));
 		runInRequestLane(LANE, () => __testSetBridgeIntegrityState({ sharedSession: { sessionId: "before", cursor: 1, cwd: root } }));
+		writeInterruptedTranscript(root, { paired: true });
+		const abort = new AbortController();
+
+		// act
+		await consume(streamNormalized(model, toolContext(), { sessionId: LANE, signal: abort.signal, cwd: root }), []);
+		assert.ok(runInRequestLane(LANE, () => ctx().activeQuery), "the query is mid tool call");
+		abort.abort();
+		assert.equal(await waitFor(() => runInRequestLane(LANE, () => ctx().activeQuery === null)), true, "teardown completed");
+
+		// assert
+		const record = laneRecord();
+		assert.equal(record.sessionId, "sdk-session");
+		assert.equal(record.needsRebuild, undefined);
+		assert.equal(record.forceRotate, undefined);
+		assert.deepEqual(record.interruptedToolCallIds, ["call-1"]);
+	});
+
+	it("an abort with a tool call in flight rebuilds when the transcript lacks the result", async () => {
+		// arrange
+		const child = new FakeChild();
+		__testSetSpawnClaudeCodeProcess(() => child);
+		__testSetSdkQueryFactory((input) => toolUseQuery(input, child, "exits-on-interrupt"));
+		runInRequestLane(LANE, () => __testSetBridgeIntegrityState({ sharedSession: { sessionId: "before", cursor: 1, cwd: root } }));
+		writeInterruptedTranscript(root, { paired: false });
 		const abort = new AbortController();
 
 		// act
@@ -132,7 +198,30 @@ describe("aborted query settlement", () => {
 		const record = laneRecord();
 		assert.equal(record.needsRebuild, true);
 		assert.equal(record.forceRotate, undefined);
-		assert.equal(record.rebuildReason, "abort with a tool call in flight");
+		assert.equal(record.rebuildReason, "abort with a tool call in flight whose result Claude Code did not record");
+	});
+
+	it("a signal already aborted at query start kills the query", async () => {
+		// arrange
+		const child = new FakeChild();
+		const spawned = [];
+		__testSetSpawnClaudeCodeProcess(() => child);
+		__testSetSdkQueryFactory((input) => {
+			const query = textQuery(input, child, "exits-on-close");
+			spawned.push(query);
+			return query;
+		});
+		const abort = new AbortController();
+		abort.abort();
+		const events = [];
+
+		// act
+		await consume(streamNormalized(model, { messages: [userMessage("hello")] }, { sessionId: LANE, signal: abort.signal, cwd: root }), events);
+		assert.equal(await waitFor(() => runInRequestLane(LANE, () => ctx().activeQuery === null)), true, "teardown completed");
+
+		// assert
+		assert.deepEqual(events.filter((event) => event.type === "error").map((event) => event.reason), ["aborted"]);
+		assert.equal(spawned[0].closed, true);
 	});
 });
 
@@ -156,46 +245,71 @@ class FakeChild extends EventEmitter {
 }
 
 /** A query that spawns `child` the way the SDK does, streams some text and then
- *  stays open until it is closed. `exitBehavior` is what a real child does when
- *  its stdin is destroyed: exit, or keep running. */
-function textQuery({ options }, child, exitBehavior) {
+ *  stays open until the CLI stops. `behavior` is what a real child does: exit on
+ *  the interrupt, ignore it and exit once its stdin is closed, or keep running. */
+function textQuery({ options }, child, behavior) {
 	options.spawnClaudeCodeProcess({ command: "claude", args: [], cwd: "/", env: {} });
 	const gate = Promise.withResolvers();
-	return {
-		async *[Symbol.asyncIterator]() {
-			yield { type: "system", subtype: "init", session_id: "sdk-session" };
-			yield* streamedText("partial answer");
-			await gate.promise;
-		},
-		close() {
-			gate.resolve();
-			if (exitBehavior === "exit-on-close") child.exit(0);
-		},
-		async interrupt() {},
+	const query = cliControls(child, behavior, gate);
+	query[Symbol.asyncIterator] = async function* () {
+		yield { type: "system", subtype: "init", session_id: "sdk-session" };
+		yield* streamedText("partial answer");
+		await gate.promise;
+		if (query.interrupted) throw interruptedTurnError();
 	};
+	return query;
 }
 
 /** Like textQuery but the turn ends in a tool_use, so the abort hits a waiting
  *  tool call. */
-function toolUseQuery({ options }, child, exitBehavior) {
+function toolUseQuery({ options }, child, behavior) {
 	options.spawnClaudeCodeProcess({ command: "claude", args: [], cwd: "/", env: {} });
 	const gate = Promise.withResolvers();
+	const query = cliControls(child, behavior, gate);
+	query[Symbol.asyncIterator] = async function* () {
+		yield { type: "system", subtype: "init", session_id: "sdk-session" };
+		yield { type: "stream_event", event: { type: "message_start", message: { id: "m1", model: model.id, usage: { input_tokens: 1 } } } };
+		yield { type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "call-1", name: "mcp__custom-tools__mytool", input: {} } } };
+		yield { type: "stream_event", event: { type: "content_block_stop", index: 0 } };
+		yield { type: "stream_event", event: { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 5 } } };
+		yield { type: "stream_event", event: { type: "message_stop" } };
+		await gate.promise;
+		if (query.interrupted) throw interruptedTurnError();
+	};
+	return query;
+}
+
+function cliControls(child, behavior, gate) {
 	return {
-		async *[Symbol.asyncIterator]() {
-			yield { type: "system", subtype: "init", session_id: "sdk-session" };
-			yield { type: "stream_event", event: { type: "message_start", message: { id: "m1", model: model.id, usage: { input_tokens: 1 } } } };
-			yield { type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "call-1", name: "mcp__custom-tools__mytool", input: {} } } };
-			yield { type: "stream_event", event: { type: "content_block_stop", index: 0 } };
-			yield { type: "stream_event", event: { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 5 } } };
-			yield { type: "stream_event", event: { type: "message_stop" } };
-			await gate.promise;
+		closed: false,
+		interrupted: false,
+		async interrupt() {
+			if (behavior !== "exits-on-interrupt") return;
+			this.interrupted = true;
+			gate.resolve();
+			child.exit(1);
 		},
 		close() {
+			this.closed = true;
 			gate.resolve();
-			if (exitBehavior === "exit-on-close") child.exit(0);
+			if (behavior === "exits-on-close") child.exit(0);
 		},
-		async interrupt() {},
 	};
+}
+
+/** What the SDK generator throws after the CLI's error result for an interrupted turn. */
+function interruptedTurnError() {
+	return new Error("Claude Code returned an error result: [ede_diagnostic] interrupted");
+}
+
+/** The transcript an interrupted Claude Code child leaves behind: the tool
+ *  call Pi was executing, paired with the CLI's rejected result. */
+function writeInterruptedTranscript(cwd, { paired }) {
+	const session = createSession({ sessionId: "sdk-session", projectPath: cwd, claudeDir: process.env.CLAUDE_CONFIG_DIR });
+	session.addUserMessage("hello");
+	session.addAssistantMessage([{ type: "tool_use", id: "call-1", name: "mcp__custom-tools__mytool", input: {} }], { stopReason: "tool_use" });
+	if (paired) session.addToolResults([{ toolUseId: "call-1", content: "The user doesn't want to proceed with this tool use.", isError: true }]);
+	session.save();
 }
 
 function streamedText(text) {

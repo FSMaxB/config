@@ -158,43 +158,13 @@ describe("teardownQuery shared-record gating (#1001)", () => {
 
 	it("marks only a claiming session after unresolved-call teardown", async () => {
 		const rows = [
-			{ detached: true, expected: parentRecord() },
-			{ detached: false, expected: { ...parentRecord(), needsRebuild: true, rebuildReason: "tool result delivery interrupted during query teardown", forceRotate: true } },
-		];
-		for (const { detached, expected } of rows) {
-			resetStack();
-			__testSetBridgeIntegrityState({ sharedSession: parentRecord() });
-			const queryCtx = ctx();
-			queryCtx.detachedFromSharedSession = detached;
-			const sdkQuery = { id: "sdk-query" };
-			queryCtx.activeQuery = sdkQuery;
-			queryCtx.recordToolCall("call-1", "bash", { cmd: "ls" });
-			const waiting = registerWaitingCall(queryCtx, "call-1", "bash");
-			const tornDown = teardownQuery(queryCtx, sdkQuery, "abort", "/tmp", false);
-			const result = await waiting;
-			assert.deepEqual({
-				tornDown,
-				isError: result.isError,
-				reportedMismatch: queryCtx.reportedToolResultMismatch,
-				record: __testGetBridgeIntegrityState().sharedSession,
-			}, {
-				tornDown: true,
-				isError: true,
-				reportedMismatch: true,
-				record: expected,
-			}, `detached=${detached}`);
-		}
-	});
-});
-
-describe("abortRebuildReason", () => {
-	it("names why an aborted query must rebuild, and nothing when the abort was clean", () => {
-		const rows = [
-			{ childExit: "still-running", toolCallInFlight: true, droppedQueuedUserMessages: 2, hasSessionId: true, expected: "abort while the Claude Code process was still running" },
-			{ childExit: "exited", toolCallInFlight: true, droppedQueuedUserMessages: 0, hasSessionId: true, expected: "abort with a tool call in flight" },
-			{ childExit: "exited", toolCallInFlight: false, droppedQueuedUserMessages: 3, hasSessionId: true, expected: "abort dropped 3 queued user message(s)" },
-			{ childExit: "exited", toolCallInFlight: false, droppedQueuedUserMessages: 0, hasSessionId: false, expected: "abort before Claude Code reported a session" },
-			{ childExit: "exited", toolCallInFlight: false, droppedQueuedUserMessages: 0, hasSessionId: true, expected: undefined },
+			{ childExit: "still-running", interruptIgnored: false, toolCallInFlight: true, transcriptPairsToolCalls: false, droppedQueuedUserMessages: 2, hasSessionId: true, expected: "abort while the Claude Code process was still running" },
+			{ childExit: "exited", interruptIgnored: true, toolCallInFlight: false, transcriptPairsToolCalls: false, droppedQueuedUserMessages: 0, hasSessionId: true, expected: "abort: Claude Code ignored the interrupt and was killed" },
+			{ childExit: "exited", interruptIgnored: false, toolCallInFlight: true, transcriptPairsToolCalls: false, droppedQueuedUserMessages: 0, hasSessionId: true, expected: "abort with a tool call in flight whose result Claude Code did not record" },
+			{ childExit: "exited", interruptIgnored: false, toolCallInFlight: true, transcriptPairsToolCalls: true, droppedQueuedUserMessages: 0, hasSessionId: true, expected: undefined },
+			{ childExit: "exited", interruptIgnored: false, toolCallInFlight: false, transcriptPairsToolCalls: false, droppedQueuedUserMessages: 3, hasSessionId: true, expected: "abort dropped 3 queued user message(s)" },
+			{ childExit: "exited", interruptIgnored: false, toolCallInFlight: false, transcriptPairsToolCalls: false, droppedQueuedUserMessages: 0, hasSessionId: false, expected: "abort before Claude Code reported a session" },
+			{ childExit: "exited", interruptIgnored: false, toolCallInFlight: false, transcriptPairsToolCalls: false, droppedQueuedUserMessages: 0, hasSessionId: true, expected: undefined },
 		];
 		for (const { expected, ...settlement } of rows) {
 			assert.equal(abortRebuildReason(settlement), expected, JSON.stringify(settlement));

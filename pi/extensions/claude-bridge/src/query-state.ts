@@ -265,6 +265,10 @@ export class QueryContext {
 	 *  feeds the replacement query's events into that callback's stream. */
 	restartRequest: QueryRestartRequest | null = null;
 	latestCursor = 0;
+	/** Claude Code's session id from this query's init message. The SDK throws
+	 *  out of the generator after an interrupted turn's error result, which
+	 *  loses consumeQuery's return value; the abort settlement reads it here. */
+	claudeSessionId: string | undefined = undefined;
 	pendingToolCalls = new Map<string, PendingToolCall>();
 	pendingResults = new Map<string, McpResult>();
 	/** Results a message-boundary reap moved OUT of pendingResults so they stop

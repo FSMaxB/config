@@ -148,6 +148,23 @@ function claudeSessionExists(sessionId: string, cwd: string, claudeDir: string |
 	}
 }
 
+/** Whether every assistant tool_use in the Claude transcript has a matching
+ *  tool_result. An interrupted Claude Code child records a rejected result for
+ *  each pending call before it exits; a transcript that still has an unpaired
+ *  tool_use came from a child that died before that write, and resuming it
+ *  would hand Claude a history its API rejects. A missing or unreadable
+ *  transcript counts as unpaired. */
+export function claudeSessionPairsToolCalls(sessionId: string, cwd: string, claudeDir: string | undefined): boolean {
+	try {
+		const session = openSession({ sessionId, projectPath: cwd, claudeDir });
+		const messages = session.messages.map(({ message: { role, content } }) => ({ role, content }));
+		return findUnpairedToolUses(messages).length === 0;
+	} catch (error) {
+		debug(`claudeSessionPairsToolCalls: cannot read session ${sessionId.slice(0, 8)}:`, error);
+		return false;
+	}
+}
+
 function canonicalize(p: string | undefined): string | undefined {
 	if (!p) return undefined;
 	try { return realpathSync.native(p); } catch { return pathResolve(p); }

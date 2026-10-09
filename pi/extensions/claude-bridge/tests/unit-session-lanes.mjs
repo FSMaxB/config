@@ -469,7 +469,7 @@ describe("provider request session lanes", () => {
 		assert.deepEqual(runInRequestLane("parent", () => __testGetBridgeIntegrityState().sharedSession), parentRecord, "named lane untouched by a default-lane abort");
 		assert.equal(__testGetBridgeIntegrityState().sharedSession?.needsRebuild, true, "the default lane record carries the abort mark");
 		assert.equal(__testGetBridgeIntegrityState().sharedSession?.forceRotate, undefined, "the fake SDK spawns no child, so there is no writer to rotate away from");
-		assert.equal(__testGetBridgeIntegrityState().sharedSession?.rebuildReason, "abort with a tool call in flight");
+		assert.equal(__testGetBridgeIntegrityState().sharedSession?.rebuildReason, "abort with a tool call in flight whose result Claude Code did not record");
 	});
 
 	it("releases the lane of a cacheRetention:none one-shot once it settles", async () => {

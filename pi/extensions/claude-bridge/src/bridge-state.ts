@@ -46,6 +46,13 @@ export interface SessionState {
 	// replaced the history (session_compact)", ...). Lives and dies with
 	// needsRebuild: a REBUILD and a completed query both write a fresh record.
 	rebuildReason?: string;
+	// Tool-call ids whose results the Claude transcript already holds although
+	// Pi delivered them after the record was written: an abort that interrupted
+	// the query made Claude Code record a rejected result for every pending call,
+	// while Pi appended its own "Operation aborted" results afterwards. The REUSE
+	// plan skips Pi's trailing toolResult messages with these ids. Consumed by the
+	// next REUSE; a completed query writes a fresh record without it.
+	interruptedToolCallIds?: string[];
 }
 
 // Claude session state is scoped to Pi's provider `sessionId`. Parent and child
