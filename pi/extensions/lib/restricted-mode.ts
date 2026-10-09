@@ -106,6 +106,12 @@ const UNGATED_TOOLS = new Set([
   ...PLAN_TOOLS,
 ]);
 
+const MODE_UNGATED_TOOLS: Record<RestrictedMode, ReadonlySet<string>> = {
+  [AgentMode.Planning]: UNGATED_TOOLS,
+  // Reviewing with tuicr is part of exploring a change; it only opens a pane and exchanges review comments.
+  [AgentMode.Exploring]: new Set([...UNGATED_TOOLS, "tuicr_open", "tuicr_wait", "tuicr_comment"]),
+};
+
 type Decision = "allow-session" | "allow-always" | "deny-session" | "deny-always";
 
 const CHOICE_DECISIONS: Record<string, Decision | undefined> = {
@@ -277,7 +283,7 @@ class Engine {
     return planToolPermission(
       toolName,
       { sessionGrants, alwaysGrants, sessionDenials: sessionDenials.keys(), alwaysDenials: alwaysDenials.keys() },
-      UNGATED_TOOLS,
+      isRestricted(this.mode) ? MODE_UNGATED_TOOLS[this.mode] : UNGATED_TOOLS,
       trustedReadOnlyToolNames(this.pi.getAllTools()),
     );
   }
