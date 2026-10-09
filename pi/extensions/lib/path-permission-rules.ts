@@ -107,7 +107,9 @@ export function defaultAllowed(mode: AccessMode, options: DefaultAllowedOptions)
   const { agentMode, repoRoot, memoryDirectory, skillRoots, agentDirectory, temporaryDirectory } = options;
   const scratch = [tree(memoryDirectory), tree(join(agentDirectory, "plans")), ...(temporaryDirectory ? [tree(temporaryDirectory)] : [])];
   if (mode === "read") return [tree(repoRoot), ...scratch, tree(join(homedir(), ".crit")), ...skillRoots.map(tree)];
-  return isRestricted(agentMode) ? scratch : [tree(repoRoot), ...scratch];
+  // Even read-only jj commands take these locks to snapshot the working copy and import from a colocated git repository.
+  const jjLocks = [join(".jj", "working_copy", "working_copy.lock"), join(".jj", "repo", "git_import_export.lock")].map((lock) => exact(join(repoRoot, lock)));
+  return isRestricted(agentMode) ? [...scratch, ...jjLocks] : [tree(repoRoot), ...scratch];
 }
 
 // Restricted modes drop the repository from the default write allows, so a write failure names it as the likely cause.
