@@ -2,65 +2,55 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   APPROVE,
-  APPROVE_CURRENT,
-  IMPLEMENT_DIFFERENT,
-  REFINE,
   STAY,
   SubmissionAction,
+  preferredThinkingLevel,
   submissionAction,
-  submissionOptions,
+  thinkingLevelLabel,
 } from "./plan-mode-policy.ts";
 
-test("submission options offer the suggested model first and approve with the current one", () => {
+test("only an explicit approval approves", () => {
   // arrange
-  const suggested = "capture/other";
+  const choices = [APPROVE, STAY, undefined, "Approve — leave plan mode", "Implement with different model"];
 
   // act
-  const withSuggestion = submissionOptions(suggested);
-  const withoutSuggestion = submissionOptions(undefined);
-
-  // assert
-  assert.deepEqual(withSuggestion, [
-    "Approve — implement with capture/other (suggested)",
-    APPROVE_CURRENT,
-    IMPLEMENT_DIFFERENT,
-    REFINE,
-    STAY,
-  ]);
-  assert.deepEqual(withoutSuggestion, [APPROVE, IMPLEMENT_DIFFERENT, REFINE, STAY]);
-});
-
-test("each submission choice maps to its action", () => {
-  // arrange
-  const suggested = "capture/other";
-  const [approveSuggested] = submissionOptions(suggested);
-
-  // act
-  const actions = [
-    submissionAction(approveSuggested, suggested),
-    submissionAction(APPROVE_CURRENT, suggested),
-    submissionAction(APPROVE, undefined),
-    submissionAction(IMPLEMENT_DIFFERENT, undefined),
-    submissionAction(REFINE, undefined),
-  ];
+  const actions = choices.map((choice) => submissionAction(choice));
 
   // assert
   assert.deepEqual(actions, [
-    SubmissionAction.ApproveSuggested,
     SubmissionAction.Approve,
-    SubmissionAction.Approve,
-    SubmissionAction.ImplementDifferent,
-    SubmissionAction.Refine,
+    SubmissionAction.Stay,
+    SubmissionAction.Stay,
+    SubmissionAction.Stay,
+    SubmissionAction.Stay,
   ]);
 });
 
-test("staying, dismissing the dialog and unoffered choices keep plan mode on", () => {
+test("the per-model level wins over the global default, which wins over medium", () => {
   // arrange
-  const choices = [STAY, undefined, APPROVE_CURRENT, "Approve — implement with capture/other (suggested)"];
+  const perModel = { modelThinkingLevels: { "capture/model": "low" }, defaultThinkingLevel: "high" };
+  const otherModel = { modelThinkingLevels: { "capture/other": "low" }, defaultThinkingLevel: "high" };
 
   // act
-  const actions = choices.map((choice) => submissionAction(choice, undefined));
+  const levels = [
+    preferredThinkingLevel("capture/model", perModel),
+    preferredThinkingLevel("capture/model", otherModel),
+    preferredThinkingLevel("capture/model", {}),
+  ];
 
   // assert
-  assert.deepEqual(actions, Array(choices.length).fill(SubmissionAction.Stay));
+  assert.deepEqual(levels, ["low", "high", "medium"]);
+});
+
+test("thinking level labels mark the default and the current level", () => {
+  // arrange
+  const levels = ["off", "low", "medium", "high"];
+
+  // act
+  const separate = levels.map((level) => thinkingLevelLabel(level, "high", "medium"));
+  const together = levels.map((level) => thinkingLevelLabel(level, "high", "high"));
+
+  // assert
+  assert.deepEqual(separate, ["off", "low", "medium (current)", "high (default)"]);
+  assert.deepEqual(together, ["off", "low", "medium", "high (default, current)"]);
 });

@@ -1,38 +1,31 @@
 export const SubmissionAction = {
-  ApproveSuggested: "approve-suggested",
   Approve: "approve",
-  ImplementDifferent: "implement-different",
-  Refine: "refine",
   Stay: "stay",
 } as const;
 export type SubmissionAction = (typeof SubmissionAction)[keyof typeof SubmissionAction];
 
-export const APPROVE = "Approve — leave plan mode";
-export const APPROVE_CURRENT = "Approve — implement with current model";
-export const IMPLEMENT_DIFFERENT = "Implement with different model";
-export const REFINE = "Refine — send feedback";
+export const APPROVE = "Approve";
 export const STAY = "Stay in plan mode";
+export const SUBMISSION_OPTIONS = [APPROVE, STAY];
 
-export function submissionOptions(suggestedModel: string | undefined): string[] {
-  return [
-    ...(suggestedModel ? [approveSuggestedLabel(suggestedModel)] : []),
-    suggestedModel ? APPROVE_CURRENT : APPROVE,
-    IMPLEMENT_DIFFERENT,
-    REFINE,
-    STAY,
+// Anything but an explicit approval, a dismissed dialog included, keeps plan mode on.
+export function submissionAction(choice: string | undefined): SubmissionAction {
+  return choice === APPROVE ? SubmissionAction.Approve : SubmissionAction.Stay;
+}
+
+// Mirrors pi's own choice when switching models, so the preselected level is the one
+// the model would get without this dialog.
+export function preferredThinkingLevel(
+  modelLabel: string,
+  settings: { modelThinkingLevels?: Record<string, string>; defaultThinkingLevel?: string },
+): string {
+  return settings.modelThinkingLevels?.[modelLabel] ?? settings.defaultThinkingLevel ?? "medium";
+}
+
+export function thinkingLevelLabel(level: string, defaultLevel: string, currentLevel: string): string {
+  const markers = [
+    ...(level === defaultLevel ? ["default"] : []),
+    ...(level === currentLevel ? ["current"] : []),
   ];
-}
-
-// Anything that is not an offered option, a dismissed dialog included, keeps plan mode on.
-export function submissionAction(choice: string | undefined, suggestedModel: string | undefined): SubmissionAction {
-  if (choice === undefined || !submissionOptions(suggestedModel).includes(choice)) return SubmissionAction.Stay;
-  if (suggestedModel && choice === approveSuggestedLabel(suggestedModel)) return SubmissionAction.ApproveSuggested;
-  if (choice === APPROVE || choice === APPROVE_CURRENT) return SubmissionAction.Approve;
-  if (choice === IMPLEMENT_DIFFERENT) return SubmissionAction.ImplementDifferent;
-  if (choice === REFINE) return SubmissionAction.Refine;
-  return SubmissionAction.Stay;
-}
-
-function approveSuggestedLabel(suggestedModel: string): string {
-  return `Approve — implement with ${suggestedModel} (suggested)`;
+  return markers.length === 0 ? level : `${level} (${markers.join(", ")})`;
 }

@@ -63,8 +63,6 @@ interface PlanSubmissionService {
 
 export interface PlanSubmissionParams {
   path: string;
-  suggestedModel?: string;
-  suggestedModelReason?: string;
 }
 
 export type PlanSubmissionOutcome =
@@ -72,8 +70,6 @@ export type PlanSubmissionOutcome =
   | "missing"
   | "outside-plans-directory"
   | "saved"
-  | "approved"
-  | "refine"
   | "handed-off";
 
 export type PlanSubmissionResult = AgentToolResult<{ path: string | null; outcome: PlanSubmissionOutcome }>;

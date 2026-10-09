@@ -12,7 +12,7 @@ import { Type } from "typebox";
 import { MODE_IDENTITIES } from "./lib/agent-mode.ts";
 import { isInPlansDirectory, newPlanPath, plansDirectory } from "./lib/plan-file.ts";
 import { activateMissingPlanTools, PLAN_PATH, SUBMIT_PLAN } from "./lib/plan-tools.ts";
-import { SubmissionAction, submissionAction, submissionOptions } from "./lib/plan-mode-policy.ts";
+import { preferredThinkingLevel, SUBMISSION_OPTIONS, SubmissionAction, submissionAction, thinkingLevelLabel } from "./lib/plan-mode-policy.ts";
 import { commitPlanFileForUser } from "./lib/plan-commit.ts";
 import { registerPlanSubmission, type PlanSubmissionOutcome, type PlanSubmissionParams, type PlanSubmissionResult } from "./lib/plan-submission.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
@@ -20,9 +20,6 @@ import { registerRestrictedMode } from "./lib/restricted-mode.ts";
 import { selectWithDefault } from "./lib/select-with-default.ts";
 import { latestCustomData } from "./lib/session-entries.ts";
 
-const CONTEXT_FULL = "Full context — inherit the whole conversation";
-const CONTEXT_COMPACT = "Compact — summarize, then implement in a fresh turn";
-const CONTEXT_FRESH = "Fresh session — only the plan file, nothing else";
 const FRESH_HANDOFF_ARGUMENT = "fresh-handoff";
 const PLAN_HANDOFF_ENTRY_TYPE = "plan-handoff";
 
@@ -102,34 +99,20 @@ export default function (pi: ExtensionAPI) {
     label: "Submit plan",
     description:
       "Submit the plan file at path for the user to approve. Runs only while plan mode is active; otherwise the call is rejected. " +
-      "Optionally suggest a different model to implement the plan; the user decides whether to use it. " +
-      "Asks the user whether to approve it, request changes, or stay in plan mode. Approval ends plan mode. " +
+      "Asks the user to approve it or stay in plan mode. On approval the user picks a model and thinking level, and a fresh session " +
+      "implements the plan from the plan file alone, so the plan must be self-contained. " +
       "The submitted file is committed into the plans directory's repository (jj, or git as fallback).",
     promptSnippet:
       "Submit the written plan for the user to approve; approval ends plan mode",
     promptGuidelines: [
       "Call submit_plan with the finished plan file path unless crit_review already submitted it automatically after explicit approval. Do not submit the same approved review a second time.",
       "Only the user can leave plan mode. Rely on the implementation decision returned by submit_plan or by automatic submission inside crit_review, not on Crit approval alone.",
-      "Suggest an implementation model via suggestedModel only when a different model is clearly better suited than the current one (for example a cheaper model for a mechanical plan); otherwise omit it.",
     ],
     executionMode: "sequential",
     parameters: Type.Object({
       path: Type.String({
         description: "Absolute path of the plan file to submit, as returned by plan_path",
       }),
-      suggestedModel: Type.Optional(
-        Type.String({
-          description:
-            'Model suggested for implementing the plan, as "provider/id" (a bare id works when unambiguous). ' +
-            "Omit when the current model should implement it.",
-        }),
-      ),
-      suggestedModelReason: Type.Optional(
-        Type.String({
-          description:
-            "One short sentence on why the suggested model fits this implementation; shown to the user.",
-        }),
-      ),
     }),
 
     async execute(_toolCallId, params, signal, _onUpdate, context) {
@@ -137,14 +120,7 @@ export default function (pi: ExtensionAPI) {
     },
 
     renderCall(args, theme) {
-      const suggested = typeof args.suggestedModel === "string" && args.suggestedModel
-        ? theme.fg("muted", ` suggests ${args.suggestedModel}`)
-        : "";
-      return new Text(
-        theme.fg("toolTitle", theme.bold("submit_plan ")) + theme.fg("muted", args.path ?? "") + suggested,
-        0,
-        0,
-      );
+      return new Text(theme.fg("toolTitle", theme.bold("submit_plan ")) + theme.fg("muted", args.path ?? ""), 0, 0);
     },
 
     renderResult(result, renderOptions, theme) {
@@ -241,76 +217,16 @@ export default function (pi: ExtensionAPI) {
 
     await commitPlanFileForUser(pi, context, path, "submit");
 
-    const { suggestedModel, suggestedModelReason } = params;
-    let suggested = suggestedModel
-      ? findSuggestedModel(suggestedModel, await settledAvailableModels(context))
-      : undefined;
-    if (suggestedModel && !suggested) {
-      context.ui.notify(
-        `Suggested model "${suggestedModel}" is not available.`,
-        "warning",
-      );
-    }
-    if (
-      suggested &&
-      context.model &&
-      suggested.provider === context.model.provider &&
-      suggested.id === context.model.id
-    ) {
-      // Suggesting the session model leaves nothing to offer.
-      suggested = undefined;
-    }
-
-    const suggestedLabel = suggested
-      ? `${suggested.provider}/${suggested.id}`
-      : undefined;
-    const reason = suggestedModelReason?.trim();
-    const suggestionNote = suggestedLabel
-      ? `\n\n  Suggests ${suggestedLabel}${reason ? ` — ${reason}` : ""}`
-      : "";
-
     signal?.throwIfAborted();
     const choice = await context.ui.select(
-      `Plan submitted — what next?\n\n  ${path}${suggestionNote}`,
-      submissionOptions(suggestedLabel),
+      `Plan submitted — what next?\n\n  ${path}`,
+      SUBMISSION_OPTIONS,
     );
-    const action = submissionAction(choice, suggestedLabel);
-
-    if (suggested && action === SubmissionAction.ApproveSuggested) {
-      return await handOffToModel(path, suggested, undefined, context);
-    }
-
-    if (action === SubmissionAction.Approve) {
-      plan.leave(context);
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Plan at ${path} approved. Plan mode is off; ordinary tool permissions still apply.`,
-          },
-        ],
-        details: { path, outcome: "approved" },
-      };
-    }
-
-    if (action === SubmissionAction.ImplementDifferent) {
-      return await handleImplementDifferent(path, context);
-    }
-
-    if (action === SubmissionAction.Refine) {
-      const feedback = (
-        await context.ui.input("Feedback on the plan:", "What should change?")
-      )?.trim();
-      return {
-        ...notApproved(path, feedback && `The user asks for: ${feedback}`),
-        details: { path, outcome: "refine" },
-      };
-    }
-
-    return notApproved(path);
+    if (submissionAction(choice) === SubmissionAction.Stay) return notApproved(path);
+    return await approve(path, context);
   }
 
-  async function handleImplementDifferent(
+  async function approve(
     planPath: string,
     context: ExtensionContext,
   ): Promise<AgentToolResult<{ path: string; outcome: PlanSubmissionOutcome }>> {
@@ -343,118 +259,53 @@ export default function (pi: ExtensionAPI) {
     if (modelChoice === undefined) return notApproved(planPath);
     const selectedModel = models[modelOptions.indexOf(modelChoice)];
 
-    // The session level may not exist on the target model, so the preselected
-    // entry is the clamped level; the "(current)" marker still tags the real one.
+    // The fresh session starts from the model's own default rather than this session's level;
+    // the "(current)" marker still shows the level this session runs at.
     const currentLevel = pi.getThinkingLevel();
-    let level = clampThinkingLevel(selectedModel, currentLevel);
+    const defaultLevel = clampThinkingLevel(
+      selectedModel,
+      preferredThinkingLevel(`${selectedModel.provider}/${selectedModel.id}`, pi.getSettings()) as ModelThinkingLevel,
+    );
     const supportedLevels = getSupportedThinkingLevels(selectedModel);
-    if (supportedLevels.length > 1) {
-      const levelOptions = supportedLevels.map((candidate) =>
-        candidate === currentLevel ? `${candidate} (current)` : candidate,
-      );
-      const levelChoice = await selectWithDefault(
-        context.ui,
-        "Thinking level",
-        levelOptions,
-        levelOptions[supportedLevels.indexOf(level)],
-      );
-      if (levelChoice !== undefined) {
-        level = supportedLevels[levelOptions.indexOf(levelChoice)];
-      }
+    if (supportedLevels.length <= 1) {
+      return handOffToFreshSession(planPath, selectedModel, defaultLevel, context);
     }
-
-    return await handOffToModel(planPath, selectedModel, level, context);
+    const levelOptions = supportedLevels.map((candidate) => thinkingLevelLabel(candidate, defaultLevel, currentLevel));
+    const levelChoice = await selectWithDefault(
+      context.ui,
+      "Thinking level",
+      levelOptions,
+      levelOptions[supportedLevels.indexOf(defaultLevel)],
+    );
+    const level = levelChoice === undefined ? defaultLevel : supportedLevels[levelOptions.indexOf(levelChoice)];
+    return handOffToFreshSession(planPath, selectedModel, level, context);
   }
 
-  async function handOffToModel(
+  function handOffToFreshSession(
     planPath: string,
     selectedModel: Model<Api>,
-    level: ModelThinkingLevel | undefined,
+    level: ModelThinkingLevel,
     context: ExtensionContext,
-  ): Promise<AgentToolResult<{ path: string; outcome: PlanSubmissionOutcome }>> {
-    const modelName = `${selectedModel.provider}/${selectedModel.id}`;
-    const choice = await selectWithDefault(
-      context.ui,
-      `How should ${modelName} start?\n\n` +
-        "  Full context keeps the whole conversation, plan text included.\n" +
-        "  Compact aborts this turn, summarizes, and implements from the summary plus the plan file.\n" +
-        "  Fresh session abandons this conversation entirely; the new session only gets the plan file path.",
-      [CONTEXT_FULL, CONTEXT_COMPACT, CONTEXT_FRESH],
-      CONTEXT_FRESH,
-    );
-
-    if (choice === CONTEXT_FRESH) {
-      pendingFreshHandoff = {
-        planPath,
-        provider: selectedModel.provider,
-        modelId: selectedModel.id,
-        thinkingLevel: level ?? pi.getThinkingLevel(),
-      };
-      plan.leave(context);
-      // newSession only exists on the command context, so the switch is dispatched
-      // as a command; prompt() executes extension commands immediately even while
-      // the agent is streaming, and the resulting teardown aborts this turn after
-      // persisting it.
-      pi.sendUserMessage(`/plan ${FRESH_HANDOFF_ARGUMENT}`, {
-        expandPromptTemplates: true,
-      });
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Plan at ${planPath} approved. A fresh session with ${modelName} takes over; this conversation ends here.`,
-          },
-        ],
-        details: { path: planPath, outcome: "handed-off" },
-      };
-    }
-
-    const compactFirst = choice === CONTEXT_COMPACT;
-
-    if (!(await pi.setModel(selectedModel))) {
-      context.ui.notify(`No API key for ${selectedModel.provider}.`, "error");
-      return notApproved(
-        planPath,
-        `No API key is configured for ${selectedModel.provider}.`,
-      );
-    }
-    // setModel re-clamps the current thinking level for the new model, so an
-    // explicit choice has to be applied after the switch; without one the
-    // clamped level stands.
-    if (level !== undefined) pi.setThinkingLevel(level);
-
+  ): AgentToolResult<{ path: string; outcome: PlanSubmissionOutcome }> {
+    pendingFreshHandoff = {
+      planPath,
+      provider: selectedModel.provider,
+      modelId: selectedModel.id,
+      thinkingLevel: level,
+    };
     plan.leave(context);
-
-    if (compactFirst) {
-      // Compaction aborts the run this tool call belongs to, so the kickoff has
-      // to come from the completion callback instead of this tool result.
-      const kickoff = () =>
-        pi.sendUserMessage(`Implement the plan at ${planPath}.`);
-      context.compact({
-        onComplete: kickoff,
-        onError: (error) => {
-          context.ui.notify(`Compaction failed: ${error.message}`, "error");
-          kickoff();
-        },
-      });
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Plan at ${planPath} approved. Compacting the conversation, then ${modelName} implements it in a fresh turn.`,
-          },
-        ],
-        details: { path: planPath, outcome: "handed-off" },
-      };
-    }
-
+    // newSession only exists on the command context, so the switch is dispatched
+    // as a command; prompt() executes extension commands immediately even while
+    // the agent is streaming, and the resulting teardown aborts this turn after
+    // persisting it.
+    pi.sendUserMessage(`/plan ${FRESH_HANDOFF_ARGUMENT}`, {
+      expandPromptTemplates: true,
+    });
     return {
       content: [
         {
           type: "text",
-          text:
-            `Plan at ${planPath} approved. Plan mode is off; ordinary tool permissions still apply. ` +
-            `The user picked ${modelName} (thinking level ${pi.getThinkingLevel()}) to implement the plan. Implement it now.`,
+          text: `Plan at ${planPath} approved. A fresh session with ${selectedModel.provider}/${selectedModel.id} takes over; this conversation ends here.`,
         },
       ],
       details: { path: planPath, outcome: "handed-off" },
@@ -573,8 +424,6 @@ function latestPlanHandoff(
 }
 
 const OUTCOME_LABELS: Record<string, string | undefined> = {
-  approved: "approved",
-  refine: "needs changes",
   "handed-off": "handed off",
 };
 
@@ -586,20 +435,6 @@ const OUTCOME_LABELS: Record<string, string | undefined> = {
 async function settledAvailableModels(context: ExtensionContext): Promise<Model<Api>[]> {
   await context.modelRegistry.refresh({ allowNetwork: false }).catch(() => undefined);
   return context.modelRegistry.getAvailable();
-}
-
-function findSuggestedModel(
-  requested: string,
-  availableModels: Model<Api>[],
-): Model<Api> | undefined {
-  const exact = availableModels.filter(
-    (model) => `${model.provider}/${model.id}` === requested,
-  );
-  const matches =
-    exact.length > 0
-      ? exact
-      : availableModels.filter((model) => model.id === requested);
-  return matches.length === 1 ? matches[0] : undefined;
 }
 
 function notApproved(
