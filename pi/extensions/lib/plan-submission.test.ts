@@ -8,8 +8,8 @@ it("discovers across separate API wrappers and awaits the live handler", async (
   const bus = eventBus();
   const context = {} as ExtensionContext;
   const controller = new AbortController();
-  const params = { path: "/plan.md", suggestedModel: "fixture/model", suggestedModelReason: "Mechanical work" };
-  const expected = { content: [{ type: "text" as const, text: "approved" }], details: { path: params.path, outcome: "approved" } };
+  const params = { path: "/plan.md" };
+  const expected = { content: [{ type: "text" as const, text: "handed off" }], details: { path: params.path, outcome: "handed-off" } };
   let received: unknown[];
   registerPlanSubmission({ ...bus }, {
     available: (liveContext) => liveContext === context,

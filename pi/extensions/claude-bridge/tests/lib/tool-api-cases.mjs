@@ -543,24 +543,23 @@ it("registers the agreed exposures, namespaces, and trusted read-only hints", as
 	} finally { await fixture.dispose(); }
 });
 
-it("submits an approved Crit plan before another model request and preserves implementation access", async () => {
+it("submits an approved Crit plan before another model request and hands off to a fresh session", async () => {
 	// arrange
-	await withCritPlanSession({}, async ({ fixture, plan, dialogs, processes }) => {
+	await withCritPlanSession({}, async ({ fixture, plan, dialogs, processes, messages }) => {
 		// act
 		const result = await fixture.call("crit_review", { plan });
 		// assert
 		assert.equal(result.isError, false, JSON.stringify(result.content));
-		assert.equal(dialogs.length, 1);
+		assert.equal(dialogs.length, 2);
 		assert.equal(fixture.definitions.get("crit_review").parameters.properties.suggestedModel, undefined);
 		assert.equal(fixture.definitions.get("crit_review").parameters.properties.suggestedModelReason, undefined);
-		assert.deepEqual(dialogs[0].items, [
-			"Approve — leave plan mode", "Implement with different model", "Refine — send feedback", "Stay in plan mode",
-		]);
-		assert.deepEqual(result.details.submission, { path: plan, outcome: "approved" });
+		assert.equal(fixture.definitions.get("submit_plan").parameters.properties.suggestedModel, undefined);
+		assert.deepEqual(dialogs[0].items, ["Approve", "Stay in plan mode"]);
+		assert.deepEqual(result.details.submission, { path: plan, outcome: "handed-off" });
 		assert.match(result.content[0].text, /Fixture feedback/);
-		assert.match(result.content[1].text, /ordinary tool permissions still apply/);
+		assert.match(result.content[1].text, /fresh session/);
 		assert.equal(result.terminate, undefined);
-		assert.equal(fixture.requests.length, 2, "Implementation still gets the normal post-tool model request");
+		assert.deepEqual(messages.map(item => item.message), ["/plan fresh-handoff"]);
 		assert.ok(fixture.api.getActiveTools().includes("write"));
 		assert.ok(fixture.api.getActiveTools().includes("submit_plan"), "The tool set stays fixed so the cache prefix survives");
 		assert.deepEqual(processes.filter(process => process.args.includes("commit"))
@@ -569,26 +568,6 @@ it("submits an approved Crit plan before another model request and preserves imp
 		assert.equal(fixture.session.messages.filter(message => message.role === "toolResult" && message.toolName === "submit_plan").length, 0);
 	});
 });
-
-for (const [suggestion, expectedSuggested] of [
-	["alternate-test/fake", true], ["tool-api-test/fake", false], ["missing/model", false],
-]) {
-	it(`preserves manual submit_plan model suggestions: ${suggestion}`, async () => {
-		// arrange
-		await withCritPlanSession({ alternateModel: true, choice: items => items.find(item => item.startsWith("Approve") && !item.includes("(suggested)")) },
-			async ({ fixture, plan, dialogs, notifications }) => {
-				// act
-				const result = await fixture.call("submit_plan", { path: plan, suggestedModel: suggestion, suggestedModelReason: "Mechanical implementation" });
-				// assert
-				assert.equal(result.isError, false, JSON.stringify(result.content));
-				assert.equal(dialogs.length, 1);
-				assert.equal(dialogs[0].title.includes("Mechanical implementation"), expectedSuggested);
-				assert.equal(dialogs[0].items[0].includes("(suggested)"), expectedSuggested);
-				assert.equal(notifications.some(message => message.includes("not available")), suggestion === "missing/model");
-				assert.equal(result.details.outcome, "approved");
-			});
-	});
-}
 
 for (const status of ["approved: false\n", "", "approved: true\napproved: false\n", "approved: true \n"]) {
 	it(`returns feedback without submission for nonapproval stderr: ${JSON.stringify(status)}`, async () => {
@@ -676,7 +655,7 @@ it("does not submit when Crit is aborted", async () => {
 		});
 });
 
-for (const [choice, outcome] of [["Refine — send feedback", "refine"], ["Stay in plan mode", "saved"], [undefined, "saved"]]) {
+for (const [choice, outcome] of [["Stay in plan mode", "saved"], [undefined, "saved"], ["Approve — leave plan mode", "saved"]]) {
 	it(`preserves the existing nonapproval submission decision: ${choice}`, async () => {
 		// arrange
 		await withCritPlanSession({ choice }, async ({ fixture, plan, dialogs }) => {
@@ -687,10 +666,22 @@ for (const [choice, outcome] of [["Refine — send feedback", "refine"], ["Stay 
 			assert.equal(dialogs.length, 1);
 			assert.equal(result.details.submission.outcome, outcome);
 			assert.ok(fixture.api.getActiveTools().includes("submit_plan"));
-			if (outcome === "refine") assert.match(result.content[1].text, /Use smaller steps/);
 		});
 	});
 }
+
+it("keeps plan mode on when the model picker is dismissed", async () => {
+	// arrange
+	await withCritPlanSession({ modelChoice: undefined }, async ({ fixture, plan, dialogs, messages }) => {
+		// act
+		const result = await fixture.call("crit_review", { plan });
+		// assert
+		assert.equal(result.details.submission.outcome, "saved");
+		assert.equal(dialogs.length, 2);
+		assert.equal(messages.length, 0);
+		assert.match(result.content[1].text, /Still in plan mode/);
+	});
+});
 
 for (const options of [{ missingFile: true, outcome: "missing" }, { noUI: true, outcome: "saved" }]) {
 	it(`preserves validation and no-UI outcomes during automatic submission: ${options.outcome}`, async () => {
@@ -758,55 +749,33 @@ it("discovers exactly one handler after reload with reversed extension load orde
 		});
 });
 
-for (const contextChoice of [
-	"Full context — inherit the whole conversation",
-	"Compact — summarize, then implement in a fresh turn",
-	"Fresh session — only the plan file, nothing else",
-]) {
-	it(`retains single implementation handoff wiring: ${contextChoice}`, async () => {
+it("hands the approved plan off to a fresh session", async () => {
+	// arrange
+	await withCritPlanSession({}, async ({ fixture, plan, dialogs, messages }) => {
+		// act
+		const result = await fixture.call("crit_review", { plan });
+		await new Promise(resolve => setImmediate(resolve));
+		// assert
+		assert.equal(result.isError, false, JSON.stringify(result.content));
+		assert.equal(result.details.submission.outcome, "handed-off");
+		assert.equal(dialogs.filter(dialog => dialog.title.startsWith("Plan submitted")).length, 1);
+		assert.ok(fixture.api.getActiveTools().includes("submit_plan"));
+		assert.deepEqual(messages, [{ message: "/plan fresh-handoff", options: { expandPromptTemplates: true } }]);
 		// arrange
-		await withCritPlanSession({ choice: "Implement with different model", contextChoice },
-			async ({ fixture, plan, dialogs }) => {
-				const messages = [];
-				const compactMock = mock.method(fixture.session, "compact", async () => ({}));
-				const sendMock = mock.method(fixture.session, "sendUserMessage", async (message, options) => { messages.push({ message, options }); });
-				try {
-					// act
-					const result = await fixture.call("crit_review", { plan });
-					await new Promise(resolve => setImmediate(resolve));
-					// assert
-					assert.equal(result.isError, false, JSON.stringify(result.content));
-					assert.equal(result.details.submission.outcome, "handed-off");
-					assert.equal(dialogs.filter(dialog => dialog.title.startsWith("Plan submitted")).length, 1);
-					assert.ok(fixture.api.getActiveTools().includes("submit_plan"));
-					if (contextChoice.startsWith("Compact")) {
-						assert.equal(compactMock.mock.callCount(), 1);
-						assert.deepEqual(messages.map(item => item.message), [`Implement the plan at ${plan}.`]);
-					} else if (contextChoice.startsWith("Fresh")) {
-						assert.equal(compactMock.mock.callCount(), 0);
-						assert.deepEqual(messages, [{ message: "/plan fresh-handoff", options: { expandPromptTemplates: true } }]);
-						// arrange
-						const handoffs = [];
-						const newSession = async options => {
-							await options.setup({ appendCustomEntry: (type, data) => handoffs.push({ type, data }) });
-							return { cancelled: false };
-						};
-						await fixture.session.bindExtensions({ commandContextActions: { newSession } });
-						// act
-						await fixture.session.prompt("/plan fresh-handoff");
-						// assert
-						assert.deepEqual(handoffs, [{ type: "plan-handoff", data: {
-							planPath: plan, provider: "tool-api-test", modelId: "fake", thinkingLevel: "off",
-						} }]);
-					} else {
-						assert.equal(compactMock.mock.callCount(), 0);
-						assert.equal(messages.length, 0);
-						assert.match(result.content[1].text, /ordinary tool permissions still apply/);
-					}
-				} finally { compactMock.mock.restore(); sendMock.mock.restore(); }
-			});
+		const handoffs = [];
+		const newSession = async options => {
+			await options.setup({ appendCustomEntry: (type, data) => handoffs.push({ type, data }) });
+			return { cancelled: false };
+		};
+		await fixture.session.bindExtensions({ commandContextActions: { newSession } });
+		// act
+		await fixture.session.prompt("/plan fresh-handoff");
+		// assert
+		assert.deepEqual(handoffs, [{ type: "plan-handoff", data: {
+			planPath: plan, provider: "tool-api-test", modelId: "fake", thinkingLevel: "off",
+		} }]);
 	});
-}
+});
 
 it("rechecks cancellation after the submission commit before opening the dialog", async () => {
 	// arrange
@@ -826,23 +795,16 @@ it("rechecks cancellation after the submission commit before opening the dialog"
 
 it("lets the user select an alternate model through the existing fresh handoff", async () => {
 	// arrange
-	await withCritPlanSession({ alternateModel: true,
-		choice: "Implement with different model",
-		modelChoice: "alternate-test/fake",
-		contextChoice: "Fresh session — only the plan file, nothing else",
-	}, async ({ fixture, plan, dialogs }) => {
-		const messages = [];
-		const sendMock = mock.method(fixture.session, "sendUserMessage", async message => { messages.push(message); });
-		try {
+	await withCritPlanSession({ alternateModel: true, modelChoice: "alternate-test/fake" },
+		async ({ fixture, plan, dialogs, messages }) => {
 			// act
 			const result = await fixture.call("crit_review", { plan });
 			// assert
 			assert.equal(result.isError, false);
 			assert.equal(result.details.submission.outcome, "handed-off");
-			assert.equal(dialogs.length, 3);
-			assert.ok(!dialogs[0].title.includes("Suggests"));
+			assert.equal(dialogs.length, 2);
 			assert.deepEqual(dialogs[1].items, ["tool-api-test/fake (current)", "alternate-test/fake"]);
-			assert.deepEqual(messages, ["/plan fresh-handoff"]);
+			assert.deepEqual(messages.map(item => item.message), ["/plan fresh-handoff"]);
 			// arrange
 			const handoffs = [];
 			await fixture.session.bindExtensions({ commandContextActions: { newSession: async options => {
@@ -855,9 +817,34 @@ it("lets the user select an alternate model through the existing fresh handoff",
 			assert.equal(handoffs.length, 1);
 			assert.equal(handoffs[0].data.provider, "alternate-test");
 			assert.equal(handoffs[0].data.planPath, plan);
-		} finally { sendMock.mock.restore(); }
-	});
+		});
 });
+
+for (const [settings, expectedDefault] of [
+	[{ modelThinkingLevels: { "alternate-test/fake": "low" }, defaultThinkingLevel: "high" }, "low"],
+	[{ defaultThinkingLevel: "high" }, "high"],
+]) {
+	it(`preselects the model default thinking level: ${expectedDefault}`, async () => {
+		// arrange
+		await withCritPlanSession({ alternateModel: true, alternateModelReasoning: true, settings, modelChoice: "alternate-test/fake" },
+			async ({ fixture, plan, dialogs }) => {
+				// act
+				const result = await fixture.call("crit_review", { plan });
+				const handoffs = [];
+				await fixture.session.bindExtensions({ commandContextActions: { newSession: async options => {
+					await options.setup({ appendCustomEntry: (type, data) => handoffs.push({ type, data }) });
+					return { cancelled: false };
+				} } });
+				await fixture.session.prompt("/plan fresh-handoff");
+				// assert
+				assert.equal(result.details.submission.outcome, "handed-off");
+				assert.equal(dialogs[2].title, "Thinking level");
+				assert.deepEqual(dialogs[2].items, ["off (current)", "minimal", "low", "medium", "high"]
+					.map(item => item === expectedDefault ? `${item} (default)` : item));
+				assert.equal(handoffs[0].data.thinkingLevel, expectedDefault);
+			});
+	});
+}
 
 it("keeps discovery isolated across two live SDK sessions", async () => {
 	// arrange
@@ -878,8 +865,8 @@ it("keeps discovery isolated across two live SDK sessions", async () => {
 		const firstResult = await fixture.call("crit_review", { plan });
 		// assert
 		assert.equal(firstResult.isError, false);
-		assert.equal(firstResult.details.submission.outcome, "approved");
-		assert.equal(dialogs.length, 1);
+		assert.equal(firstResult.details.submission.outcome, "handed-off");
+		assert.equal(dialogs.length, 2);
 	});
 });
 
@@ -901,7 +888,9 @@ async function withCritPlanSession(options, run) {
 	const dialogs = [];
 	const notifications = [];
 	const processes = [];
+	const messages = [];
 	let fixture;
+	let sendMock;
 	let plan;
 	let planDirectory;
 	let expectedRequestCount;
@@ -942,9 +931,8 @@ async function withCritPlanSession(options, run) {
 			assert.ok(title.startsWith("Plan submitted"), `Unexpected dialog: ${title}`);
 			assert.equal(fixture.requests.length, expectedRequestCount, "Submission must open before another model request");
 			return typeof options.choice === "function" ? options.choice(items)
-				: Object.hasOwn(options, "choice") ? options.choice : "Approve — leave plan mode";
+				: Object.hasOwn(options, "choice") ? options.choice : "Approve";
 		},
-		input: async () => "Use smaller steps",
 		// selectWithDefault builds its selector inside ui.custom, so build it here to read the title
 		// (the first rendered line inside the border) and the options it offers.
 		custom: async factory => {
@@ -953,11 +941,12 @@ async function withCritPlanSession(options, run) {
 			const title = selector.render(80).map(line => line.trim()).find(line => line && !line.startsWith("─"));
 			const { options: items } = selector;
 			dialogs.push({ title, items });
-			const choice = title === "Implement with which model?"
-				? options.modelChoice ?? "tool-api-test/fake (current)"
-				: options.contextChoice;
-			assert.ok(choice, `Unexpected custom selector: ${title}`);
-			return items.find(item => item === choice);
+			if (title === "Implement with which model?") {
+				const modelChoice = Object.hasOwn(options, "modelChoice") ? options.modelChoice : "tool-api-test/fake (current)";
+				return items.find(item => item === modelChoice);
+			}
+			assert.equal(title, "Thinking level", `Unexpected custom selector: ${title}`);
+			return items.find(item => item === options.levelChoice);
 		},
 	}, { get: (target, property) => target[property] ?? (() => {}) });
 	try {
@@ -967,7 +956,7 @@ async function withCritPlanSession(options, run) {
 			entries: [{ type: "plan-mode", data: { enabled: options.planMode ?? true,
 				sessionGrants: ["crit_review", "codemode", "nested_review_fixture"], sessionDenials: options.denials ?? [] } }],
 			bindings: options.noUI ? {} : { uiContext: ui, mode: "tui" },
-			settings: options.codemode ? { defaultTools: ["+codemode"] } : {},
+			settings: { ...(options.codemode ? { defaultTools: ["+codemode"] } : {}), ...options.settings },
 			factories: [
 				...(options.codemode ? [createCodemodeExtension({ mode: "on" }), pi => {
 					pi.registerTool({ name: "nested_review_fixture", label: "Nested", description: "Try model-only tools", parameters: Type.Object({}),
@@ -981,11 +970,12 @@ async function withCritPlanSession(options, run) {
 				}] : []),
 				...(options.alternateModel ? [pi => pi.registerProvider("alternate-test", {
 					api: "tool-api-test", baseUrl: "http://invalid.test", apiKey: "offline",
-					models: [{ id: "fake", name: "Alternate offline model", reasoning: false, input: ["text"],
+					models: [{ id: "fake", name: "Alternate offline model", reasoning: options.alternateModelReasoning ?? false, input: ["text"],
 						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 200000, maxTokens: 4096 }],
 				})] : []),
 			],
 		});
+		sendMock = mock.method(fixture.session, "sendUserMessage", async (message, options) => { messages.push({ message, options }); });
 		planDirectory = join(process.env.PI_CODING_AGENT_DIR, "plans", cwdSlug(fixture.directory));
 		plan = join(planDirectory, "fixture.md");
 		await mkdir(planDirectory, { recursive: true });
@@ -996,9 +986,10 @@ async function withCritPlanSession(options, run) {
 			expectedRequestCount = fixture.requests.length + 1;
 			return originalCall(...arguments_);
 		};
-		await run({ fixture, plan, dialogs, notifications, processes });
+		await run({ fixture, plan, dialogs, notifications, processes, messages });
 	} finally {
 		try {
+			sendMock?.mock.restore();
 			await fixture?.dispose();
 			if (planDirectory) await rm(planDirectory, { recursive: true, force: true });
 		} finally {
