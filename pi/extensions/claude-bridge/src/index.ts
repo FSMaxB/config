@@ -829,7 +829,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 	const syncResult = isReentrant
 		? { sessionId: null, promptStart: conversation.length - 1 }
 		: syncSharedSession(conversation, cwd, customToolNameToSdk, model.id);
-	const { sessionId: resumeSessionId, promptStart } = syncResult;
+	const { sessionId: resumeSessionId, promptStart, forkAt } = syncResult;
 	// A FOREIGN-conversation query (conversation-fingerprint mismatch against
 	// the shared record — a subagent-shaped request arriving while the parent
 	// is IDLE,) also runs as a clean one-shot and gets the same
@@ -889,6 +889,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 		tools: mcpTools,
 		reasoning: options?.reasoning,
 		resumeSessionId,
+		forkAt,
 		mcpServers,
 		claudeExecutable,
 		spawnClaudeCodeProcess: childExits.spawn,
@@ -897,7 +898,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 
 	debug("provider: fresh query",
 		`model=${model.id} msgs=${conversation.length} tools=${mcpTools.length}`,
-		`resume=${resumeSessionId?.slice(0, 8) ?? "none"} effort=${built.effort ?? "default"}`,
+		`resume=${resumeSessionId?.slice(0, 8) ?? "none"} fork=${forkAt?.slice(0, 8) ?? "none"} effort=${built.effort ?? "default"}`,
 		`fallback=${built.fallbackModel ?? "none"}`,
 		`sysPrompt=${built.systemPromptMode} appendSys=${built.appendSystemPrompt} promptCtx=${built.promptContextLabels.join(",") || "none"} strictMcp=true fastMode=${providerSettings.fastMode === true}`,
 		`claudeExec=${claudeExecutablePreflight ? `${claudeExecutablePreflight.fileType}:${claudeExecutablePreflight.path}` : "sdk-default"}`,
@@ -1067,6 +1068,10 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 		const toolCallInFlight = abortCtx.reportedToolResultMismatch;
 		const transcriptPairsToolCalls = toolCallInFlight && childExit === "exited" && sessionId !== undefined
 			&& claudeSessionPairsToolCalls(sessionId, cwd, process.env.CLAUDE_CONFIG_DIR);
+		if (capturedSessionId === undefined && abortCtx.claudeSessionId === undefined && activeSession?.forkAt) {
+			markRebuildForThisQuery("aborted before the tree-navigation fork started");
+			return;
+		}
 		const reason = abortRebuildReason({
 			childExit,
 			interruptIgnored,
@@ -1142,6 +1147,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 						cursor,
 						cwd,
 						...(droppedSteers.length > 0 ? { needsRebuild: true, rebuildReason: `${droppedSteers.length} queued user message(s) dropped at a terminal failure` } : {}),
+						...(capturedSessionId === undefined && activeSession?.forkAt ? { needsRebuild: true, rebuildReason: "the tree-navigation fork never started" } : {}),
 					});
 				}
 				return;
@@ -1156,7 +1162,12 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 				// Fresh record on purpose: a transient mid-turn needsRebuild/forceRotate
 				// must not survive a completed query and force a rebuild next turn.
 				// persistSession re-adds what a pi history replacement requires.
-				persistSession({ sessionId, cursor, cwd });
+				persistSession({
+					sessionId,
+					cursor,
+					cwd,
+					...(capturedSessionId === undefined && activeSession?.forkAt ? { needsRebuild: true, rebuildReason: "the tree-navigation fork never started" } : {}),
+				});
 			}
 
 			// --- Replay deferred user messages as continuation queries ---
@@ -1181,7 +1192,8 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 						break;
 					}
 
-					const contOptions = { ...queryOptions, resume: resumeId, ...makeCliDebugOptions("continuation") };
+					const { resumeSessionAt: _resumeSessionAt, forkSession: _forkSession, ...continuationBase } = queryOptions;
+					const contOptions = { ...continuationBase, resume: resumeId, ...makeCliDebugOptions("continuation") };
 					// Runs carrying image blocks replay as blocks (wrapPromptStream) so
 					// the images survive; text-only runs stay plain strings.
 					const contQuery = sdkQueryFactory({ prompt: steer.blocks ? wrapPromptStream(steer.blocks) : steer.text, options: contOptions });

@@ -79,6 +79,38 @@ describe("syncSharedSession REUSE path", () => {
 	});
 });
 
+describe("syncSharedSession REUSE with a fork point", () => {
+	it("hands the record's forkAt to the query", () => {
+		// arrange
+		setSharedSession({ sessionId: "sess-fork", cursor: 2, cwd: CWD, forkAt: "uuid-fork" });
+		const messages = [user("u1"), assistantText("a1"), user("u2")];
+		// act
+		const result = syncSharedSession(messages, CWD);
+		// assert
+		assert.deepEqual({ sessionId: result.sessionId, forkAt: result.forkAt, promptStart: result.promptStart }, { sessionId: "sess-fork", forkAt: "uuid-fork", promptStart: 2 });
+	});
+
+	it("returns no forkAt for a record without one", () => {
+		// arrange
+		setSharedSession({ sessionId: "sess-plain", cursor: 2, cwd: CWD });
+		// act
+		const result = syncSharedSession([user("u1"), assistantText("a1"), user("u2")], CWD);
+		// assert
+		assert.equal(result.forkAt, undefined);
+	});
+
+	it("keeps resuming at the fork point when the request shows a request-local opener", () => {
+		// arrange
+		const branch = [user("u1"), assistantText("a1")];
+		setSharedSession({ sessionId: "sess-fork", cursor: 2, cwd: CWD, conversationFingerprint: conversationFingerprint(branch), forkAt: "uuid-fork" });
+		const messages = [user("bootstrap opener"), user("u1"), assistantText("a1"), user("u2")];
+		// act
+		const result = syncSharedSession(messages, CWD);
+		// assert
+		assert.deepEqual({ sessionId: result.sessionId, forkAt: result.forkAt, prompt: promptContents(messages, result.promptStart) }, { sessionId: "sess-fork", forkAt: "uuid-fork", prompt: ["u2"] });
+	});
+});
+
 describe("syncSharedSession REUSE after an interrupted tool call", () => {
 	it("resumes across Pi's results for the interrupted calls and consumes the ids", () => {
 		// arrange

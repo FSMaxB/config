@@ -52,6 +52,8 @@ export interface BuildClaudeQueryOptionsInput {
 	/** Pi reasoning level from the stream options, if any. */
 	reasoning?: string;
 	resumeSessionId: string | null;
+	/** Record uuid to truncate the resumed session at; the query then forks into a new session id. Ignored without `resumeSessionId`. */
+	forkAt?: string;
 	mcpServers?: Record<string, McpSdkServerConfigWithInstance>;
 	claudeExecutable?: string;
 	/** Replaces the default spawn so the caller can observe the child; defaults to spawnClaudeCodeWithDiagnostics. */
@@ -75,7 +77,7 @@ export interface BuiltClaudeQueryOptions {
 }
 
 export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): BuiltClaudeQueryOptions {
-	const { cwd, requestedModel, bridgeConfig, systemPrompt, tools, reasoning, resumeSessionId, mcpServers, claudeExecutable, spawnClaudeCodeProcess } = input;
+	const { cwd, requestedModel, bridgeConfig, systemPrompt, tools, reasoning, resumeSessionId, forkAt, mcpServers, claudeExecutable, spawnClaudeCodeProcess } = input;
 	const providerSettings = bridgeConfig.provider ?? {};
 	const systemPromptMode = systemPromptModeForQuery(tools, systemPrompt);
 	const appendSystemPrompt = systemPromptMode === "claude-code-preset" && providerSettings.appendSystemPrompt !== false;
@@ -135,7 +137,7 @@ export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): Bu
 		extraArgs,
 		...(effort ? { effort } : {}),
 		...(settingSources ? { settingSources } : {}),
-		...(resumeSessionId ? { resume: resumeSessionId } : {}),
+		...(resumeSessionId ? { resume: resumeSessionId, ...(forkAt ? { resumeSessionAt: forkAt, forkSession: true } : {}) } : {}),
 		...(claudeExecutable ? { pathToClaudeCodeExecutable: claudeExecutable } : {}),
 		spawnClaudeCodeProcess: spawnClaudeCodeProcess ?? spawnClaudeCodeWithDiagnostics,
 		...makeCliDebugOptions("provider"),

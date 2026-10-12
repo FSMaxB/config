@@ -272,6 +272,7 @@ export function restoreSharedSessionFromPi(ctx: { sessionManager?: unknown; cwd?
 		...(Array.isArray(persisted.interruptedToolCallIds)
 			? { interruptedToolCallIds: persisted.interruptedToolCallIds.filter((id): id is string => typeof id === "string") }
 			: {}),
+		...(typeof persisted.forkAt === "string" ? { forkAt: persisted.forkAt } : {}),
 	});
 	debug(`restoreSharedSession: restored ${persisted.sessionId.slice(0, 8)}, cursor=${cursor}`);
 }
@@ -422,6 +423,9 @@ interface SyncResult {
 	// completion must NOT persist over the module-level record — the caller
 	// gates its persistSession/markRebuild exactly like the reentrant path.
 	foreignContext?: boolean;
+	// Record uuid the REUSE query truncates the resumed session at before
+	// forking into a new session id (see SessionState.forkAt).
+	forkAt?: string;
 }
 
 export interface IncrementalPromptBatchPlan {
@@ -649,6 +653,7 @@ export function syncSharedSession(
 			return {
 				sessionId: sharedSession.sessionId,
 				promptStart: batch.promptStart,
+				forkAt: sharedSession.forkAt,
 			};
 		}
 	}

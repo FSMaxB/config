@@ -101,6 +101,28 @@ describe("bridge session markers", () => {
 			else process.env.CLAUDE_CONFIG_DIR = previousDir;
 		}
 	});
+
+	it("restores the fork point, dropping a non-string one", () => {
+		// arrange
+		const child = createSession({ projectPath: cwd, claudeDir });
+		child.addUserMessage("hello");
+		child.save();
+		const previousDir = process.env.CLAUDE_CONFIG_DIR;
+		process.env.CLAUDE_CONFIG_DIR = claudeDir;
+		try {
+			// act
+			restoreSharedSessionFromPi({ cwd, sessionManager: sessionManager(makeMarker(child.sessionId, { forkAt: "uuid-1" })) });
+			const restored = __testGetBridgeIntegrityState().sharedSession;
+			restoreSharedSessionFromPi({ cwd, sessionManager: sessionManager(makeMarker(child.sessionId, { forkAt: 7 })) });
+			const dropped = __testGetBridgeIntegrityState().sharedSession;
+			// assert
+			assert.equal(restored.forkAt, "uuid-1");
+			assert.equal("forkAt" in dropped, false);
+		} finally {
+			if (previousDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+			else process.env.CLAUDE_CONFIG_DIR = previousDir;
+		}
+	});
 });
 
 function makeMarker(sessionId, extra = {}) {
