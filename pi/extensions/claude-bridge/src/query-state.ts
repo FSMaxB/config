@@ -786,3 +786,15 @@ export function clearQueryLanes(): void {
 export function __testQueryLaneCount(): number {
 	return queryLaneStore().sessionLanes.size;
 }
+
+/** Where a Pi assistant message ends in the Claude transcript: the Claude
+ *  session that produced it and the API message id of its last message. Pi
+ *  persists the stamped message object as-is, so the stamp follows the Pi
+ *  branch, and the tree-resume path (src/tree-resume.ts) resolves it to a
+ *  record uuid only when the branch is navigated to. */
+export interface ClaudeTranscriptAnchor {
+	sessionId: string;
+	messageId: string;
+}
+
+export type StampedAssistantMessage = AssistantMessage & { claudeBridge?: ClaudeTranscriptAnchor };

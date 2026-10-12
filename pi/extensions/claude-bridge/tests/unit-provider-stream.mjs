@@ -48,6 +48,22 @@ afterEach(() => {
 });
 
 describe("ordinary provider stream", () => {
+	it("stamps the finished assistant message with its Claude session and message id", async () => {
+		// arrange
+		__testSetSdkQueryFactory(() => query([
+			{ type: "system", subtype: "init", session_id: "session-stamp" },
+			{ type: "stream_event", event: { type: "message_start", message: { id: "msg_stamp", model: model.id, usage: { input_tokens: 1 } } } },
+			{ type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } } },
+			{ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "hi" } } },
+			{ type: "result", subtype: "success", result: "hi" },
+		]));
+		// act
+		const events = await collect(streamNormalized(model, context, { sessionId: "stamp" }));
+		// assert
+		const done = events.find((event) => event.type === "done");
+		assert.deepEqual(done.message.claudeBridge, { sessionId: "session-stamp", messageId: "msg_stamp" });
+	});
+
 	it("keeps a successful fallback after a rejected rate limit", async () => {
 		// arrange
 		let calls = 0;
