@@ -592,6 +592,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 		}
 		queryCtx.currentPiStream = stream;
 		queryCtx.resetTurnState(model);
+		queryCtx.latestConversationFingerprint = conversationFingerprint(conversation);
 		// A fresh callback separates handlers registered for settled turns from
 		// ones racing this callback's own stream — the stranded drain below only
 		// ever touches the former.
@@ -797,6 +798,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 	ctx().resetToolTracking();
 	ctx().latestCursor = 0;
 	ctx().claudeSessionId = undefined;
+	ctx().latestConversationFingerprint = undefined;
 	ctx().committedOutput = false;
 	// This query is built from the context Pi holds now; only a replacement that
 	// arrives while it runs makes it stale.
@@ -840,7 +842,9 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 	if (foreignContext) ctx().detachedFromSharedSession = true;
 	// Identity anchor stamped onto every record this outermost query persists,
 	// so the record created by a Case-1 clean start is protected from the very
-	// next idle-window foreign query.
+	// next idle-window foreign query. The prompt's anchor is the fallback: once
+	// a tool-result callback has shown this query the first assistant message,
+	// persistSession stamps that context's anchor instead.
 	const conversationFp = isReentrant || foreignContext ? undefined : conversationFingerprint(conversation);
 	const promptMessages = conversation.slice(promptStart);
 	const promptBlocks = extractUserPromptBlocks(promptMessages);
@@ -930,7 +934,8 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 		const replaced = next && (abortCtx.piHistoryReplaced || restartPending)
 			? { ...next, needsRebuild: true, rebuildReason: "pi replaced the history while the query ran", ...(restartPending ? { forceRotate: true } : {}) }
 			: next;
-		setSharedSession(replaced && conversationFp ? { conversationFingerprint: conversationFp, ...replaced } : replaced);
+		const conversationAnchor = conversationFp === undefined ? undefined : abortCtx.latestConversationFingerprint ?? conversationFp;
+		setSharedSession(replaced && conversationAnchor ? { conversationFingerprint: conversationAnchor, ...replaced } : replaced);
 	};
 	const markRebuildForThisQuery = (reason: string, opts: { forceRotate?: boolean } = {}): void => {
 		if (isReentrant || foreignContext) return;

@@ -43,27 +43,63 @@ function shortHash(text: string): string {
 
 /** Identity anchor for a pi conversation, encoded component-wise as
  *  `u:<12hex>` (short sha256 of the FIRST user message's normalized text) or
- *  `u:<12hex>|a:<12hex>` (plus the FIRST assistant message's normalized text
- *  once the conversation has one with any text). The opening messages are the
- *  stable elements of a pi history — later messages get appended, compacted,
- *  or tree-navigated (all of which set needsRebuild), but the first user/
- *  assistant pair survives for the session's lifetime. The two-component form
- *  exists because a first USER message alone is a weak anchor: unrelated
- *  conversations routinely open with identical text ("continue"), and a
- *  same-opener foreign context shaped to align with the cursor would REUSE
- *  across genuinely different histories. Returns undefined when the context
- *  has no user message or its text normalizes to empty (image-only) —
- *  identity unknown, callers must fail open to the pre-fingerprint behavior,
- *  never treat it as a mismatch. Distinct from fingerprintMessages below,
- *  which hashes a cursor slice for restore integrity. */
+ *  `u:<12hex>|a:<12hex>` (plus the FIRST assistant message's text and tool
+ *  calls, once the conversation has an assistant message with either). The
+ *  opening messages are the stable elements of a pi history — later messages
+ *  get appended, compacted, or tree-navigated (all of which set needsRebuild),
+ *  but the first user/assistant pair survives for the session's lifetime. The
+ *  two-component form exists because a first USER message alone is a weak
+ *  anchor in two ways: unrelated conversations routinely open with identical
+ *  text ("continue"), so a same-opener foreign context shaped to align with
+ *  the cursor would REUSE across genuinely different histories; and a
+ *  `context` handler may prepend a request-local message to some requests
+ *  only (superpowers' bootstrap exists on the first turn alone), so the opener
+ *  a request shows is not always the persisted one. The assistant message is
+ *  persisted history, which is why it decides once both anchors carry it (see
+ *  conversationFingerprintsMatch), and why it includes tool calls: a first
+ *  assistant turn usually carries only those, and an anchor that waited for
+ *  text would leave the first turn's abort record without the component.
+ *  Returns undefined when the context has no user message or its text
+ *  normalizes to empty (image-only) — identity unknown, callers must fail
+ *  open to the pre-fingerprint behavior, never treat it as a mismatch.
+ *  Distinct from fingerprintMessages below, which hashes a cursor slice for
+ *  restore integrity. */
 export function conversationFingerprint(messages: Message[]): string | undefined {
 	const firstUser = messages.find((message) => (message as { role?: string }).role === "user");
 	if (!firstUser) return undefined;
 	const userText = normalizedMessageText(firstUser);
 	if (!userText) return undefined;
-	const firstAssistant = messages.find((message) => (message as { role?: string }).role === "assistant");
-	const assistantText = firstAssistant ? normalizedMessageText(firstAssistant) : "";
-	return assistantText ? `u:${shortHash(userText)}|a:${shortHash(assistantText)}` : `u:${shortHash(userText)}`;
+	const assistantIdentity = firstAssistantIdentity(messages);
+	return assistantIdentity ? `u:${shortHash(userText)}|a:${shortHash(assistantIdentity)}` : `u:${shortHash(userText)}`;
+}
+
+/** The first assistant message with any text or tool call, normalized. An
+ *  assistant message with neither (an aborted turn) is skipped. */
+function firstAssistantIdentity(messages: Message[]): string {
+	for (const message of messages) {
+		if ((message as { role?: string }).role !== "assistant") continue;
+		const identity = normalizedAssistantIdentity(message);
+		if (identity) return identity;
+	}
+	return "";
+}
+
+/** Text blocks and tool calls of an assistant message, in order. Thinking is
+ *  left out, since providers may redact it. For a message without tool calls
+ *  this equals normalizedMessageText, so anchors recorded before tool calls
+ *  counted stay valid. */
+function normalizedAssistantIdentity(message: unknown): string {
+	const content = (message as { content?: unknown }).content;
+	if (!Array.isArray(content)) return normalizedMessageText(message);
+	return content
+		.map((block) => {
+			const { type, text, name, arguments: toolArguments } = block as { type?: string; text?: string; name?: string; arguments?: unknown };
+			if (type === "text") return text ?? "";
+			if (type === "toolCall") return `${name ?? ""}(${JSON.stringify(toolArguments ?? null)})`;
+			return "";
+		})
+		.join("\n")
+		.trim();
 }
 
 function parseConversationFingerprint(fp: string): { user: string; assistant?: string } | undefined {
@@ -72,18 +108,21 @@ function parseConversationFingerprint(fp: string): { user: string; assistant?: s
 	return { user: match[1], ...(match[2] ? { assistant: match[2] } : {}) };
 }
 
-/** Component-wise anchor comparison. The user component must always match; the
- *  assistant component is compared only when BOTH sides carry one — a record
- *  stamped on turn 1 has no assistant yet, and its own conversation grown past
- *  turn 1 is an upgrade, not a mismatch (see conversationFingerprintUpgrade).
- *  An unparseable side means identity unknown: fail open (match), consistent
- *  with the guard's treatment of absent fingerprints. */
+/** Component-wise anchor comparison. When BOTH sides carry an assistant
+ *  component it decides alone: the first assistant message is persisted
+ *  history, while the opener a request shows may be a request-local message a
+ *  `context` handler prepended to that request only. While either side lacks
+ *  one, the user component decides — a record stamped on turn 1 has no
+ *  assistant yet, and its own conversation grown past turn 1 is an upgrade,
+ *  not a mismatch (see conversationFingerprintUpgrade). An unparseable side
+ *  means identity unknown: fail open (match), consistent with the guard's
+ *  treatment of absent fingerprints. */
 export function conversationFingerprintsMatch(recorded: string, incoming: string): boolean {
 	const rec = parseConversationFingerprint(recorded);
 	const inc = parseConversationFingerprint(incoming);
 	if (!rec || !inc) return true;
-	if (rec.user !== inc.user) return false;
-	return !(rec.assistant && inc.assistant && rec.assistant !== inc.assistant);
+	if (rec.assistant && inc.assistant) return rec.assistant === inc.assistant;
+	return rec.user === inc.user;
 }
 
 /** Whether a REUSE-matched context's anchor should replace the recorded one:

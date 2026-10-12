@@ -269,6 +269,13 @@ export class QueryContext {
 	 *  out of the generator after an interrupted turn's error result, which
 	 *  loses consumeQuery's return value; the abort settlement reads it here. */
 	claudeSessionId: string | undefined = undefined;
+	/** Conversation anchor of the latest context Pi handed this query: the
+	 *  prompt's, then each tool-result callback's. The record a query persists
+	 *  carries this one rather than the prompt's. A `context` handler may
+	 *  prepend a request-local opener to some requests only, and only an anchor
+	 *  that already includes the first assistant message, which a callback's
+	 *  context has, identifies the conversation across such requests. */
+	latestConversationFingerprint: string | undefined = undefined;
 	pendingToolCalls = new Map<string, PendingToolCall>();
 	pendingResults = new Map<string, McpResult>();
 	/** Results a message-boundary reap moved OUT of pendingResults so they stop

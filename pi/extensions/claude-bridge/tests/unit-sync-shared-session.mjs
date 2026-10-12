@@ -155,6 +155,33 @@ describe("syncSharedSession foreign-conversation guard (#1001)", () => {
 		assert.deepEqual(__testGetBridgeIntegrityState().sharedSession, record);
 	});
 
+	it("REUSEs the conversation's own next turn after an abort when a request-local opener vanished", () => {
+		// arrange
+		// A context handler prepended a message on turn one only (superpowers'
+		// bootstrap), so the record stamped then anchors on text later turns
+		// never carry. An interrupt-kept record has priors === cursor, exactly
+		// the shape the guard reads as a foreign tail; the first assistant
+		// message, which Pi persisted, must identify the conversation instead.
+		const answer = assistantText("first answer");
+		const record = {
+			sessionId: "sess-parent",
+			cursor: 2,
+			cwd: CWD,
+			conversationFingerprint: conversationFingerprint([user("request-local bootstrap"), user("opener"), answer]),
+		};
+		setSharedSession({ ...record });
+		const messages = [user("opener"), answer, user("next turn")];
+
+		// act
+		const result = syncSharedSession(messages, CWD);
+
+		// assert
+		assert.equal(result.sessionId, "sess-parent");
+		assert.equal(result.foreignContext, undefined);
+		assert.equal(result.promptStart, 2);
+		assert.equal(__testGetBridgeIntegrityState().sharedSession.cursor, 2);
+	});
+
 	it("keeps REUSE identical for a matching fingerprint", () => {
 		const fp = conversationFingerprint([user("u1")]);
 		setSharedSession({ sessionId: "sess-reuse", cursor: 1, cwd: CWD, conversationFingerprint: fp });

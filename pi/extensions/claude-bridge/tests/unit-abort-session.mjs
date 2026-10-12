@@ -22,6 +22,7 @@ import {
 } from "../src/index.ts";
 import { setExtensionApi } from "../src/bridge-state.ts";
 import { ctx, resetStack } from "../src/query-state.ts";
+import { conversationFingerprint, conversationFingerprintsMatch } from "../src/session-persistence.ts";
 import { runInRequestLane } from "../src/request-lane.ts";
 import { streamNormalized } from "./lib/stream-normalized.mjs";
 import { waitFor } from "./lib/wait-for.mjs";
@@ -177,6 +178,40 @@ describe("aborted query settlement", () => {
 		assert.equal(record.needsRebuild, undefined);
 		assert.equal(record.forceRotate, undefined);
 		assert.deepEqual(record.interruptedToolCallIds, ["call-1"]);
+	});
+
+	it("an abort anchors the kept record on the context of the latest callback", async () => {
+		// arrange
+		// A context handler prepends a request-local message during turn one
+		// (superpowers' bootstrap), which Pi never persists: the anchor the query
+		// start computed names an opener the next turn's context will not have.
+		// The callback that delivered the tool result saw the first assistant
+		// message, and that one is persisted, so the record must anchor on it.
+		const child = new FakeChild();
+		__testSetSpawnClaudeCodeProcess(() => child);
+		__testSetSdkQueryFactory((input) => toolUseQuery(input, child, "exits-on-interrupt"));
+		writeInterruptedTranscript(root, { paired: true });
+		const abort = new AbortController();
+		const bootstrap = userMessage("request-local bootstrap");
+		const opener = userMessage("hello");
+		const assistantCall = { role: "assistant", content: [{ type: "toolCall", id: "call-1", name: "mytool", arguments: {} }], stopReason: "toolUse", timestamp: Date.now() };
+		const toolResult = { role: "toolResult", toolCallId: "call-1", toolName: "mytool", content: [{ type: "text", text: "ok" }], timestamp: Date.now() };
+		const tools = toolContext().tools;
+
+		// act
+		await consume(streamNormalized(model, { tools, messages: [bootstrap, opener] }, { sessionId: LANE, signal: abort.signal, cwd: root }), []);
+		const delivery = consume(streamNormalized(model, { tools, messages: [bootstrap, opener, assistantCall, toolResult] }, { sessionId: LANE, signal: abort.signal, cwd: root }), []);
+		abort.abort();
+		await delivery;
+		assert.equal(await waitFor(() => runInRequestLane(LANE, () => ctx().activeQuery === null)), true, "teardown completed");
+
+		// assert
+		const record = laneRecord();
+		assert.equal(record.sessionId, "sdk-session");
+		assert.equal(record.needsRebuild, undefined);
+		assert.equal(record.conversationFingerprint, conversationFingerprint([bootstrap, opener, assistantCall, toolResult]));
+		const nextTurn = conversationFingerprint([opener, assistantCall, toolResult, userMessage("next turn")]);
+		assert.equal(conversationFingerprintsMatch(record.conversationFingerprint, nextTurn), true, "the next turn without the bootstrap is the same conversation");
 	});
 
 	it("an abort with a tool call in flight rebuilds when the transcript lacks the result", async () => {
