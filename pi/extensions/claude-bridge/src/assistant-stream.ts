@@ -2,7 +2,7 @@ import { calculateCost, type AssistantMessage, type Model } from "@earendil-work
 import { type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { appendIntegrityEntry, safeNotify } from "./bridge-state.js";
 import { debug, diagDump } from "./debug.js";
-import { ctx, failStrandedToolCall, type QueryContext } from "./query-state.js";
+import { ctx, failStrandedToolCall, type ClaudeTranscriptAnchor, type QueryContext, type StampedAssistantMessage } from "./query-state.js";
 import { isPiDispatchable, mapToolArgs, mapToolName } from "./tool-mapping.js";
 
 // --- Usage helpers ---
@@ -57,11 +57,12 @@ export function ensureTurnStarted(c: QueryContext = ctx()): void {
 	}
 }
 
-export function finalizeCurrentStream(stopReason?: string, c: QueryContext = ctx()): void {
+export function finalizeCurrentStream(stopReason?: string, c: QueryContext = ctx(), anchor?: ClaudeTranscriptAnchor): void {
 	if (!c.currentPiStream || !c.turnOutput) return;
 	debug(`provider: finalizeCurrentStream called, stopReason=${stopReason}, turnOutput=${JSON.stringify({stopReason: c.turnOutput.stopReason, error: c.turnOutput.errorMessage})}`);
 	if (!c.turnStarted) ensureTurnStarted(c);
 	const reason = stopReason === "length" ? "length" : "stop";
+	if (anchor) (c.turnOutput as StampedAssistantMessage).claudeBridge = anchor;
 	c.markCurrentMessageBilled();
 	c.currentPiStream.push({ type: "done", reason, message: c.turnOutput });
 	c.currentPiStream.end();

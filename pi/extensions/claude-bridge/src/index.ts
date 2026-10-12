@@ -1234,7 +1234,9 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 				abortCtx.activeQuery = sdkQuery;
 			}
 
-			finalizeCurrentStream(abortCtx.turnOutput?.stopReason, abortCtx);
+			const anchorSessionId = capturedSessionId ?? abortCtx.claudeSessionId;
+			const anchor = anchorSessionId && abortCtx.currentMessageId ? { sessionId: anchorSessionId, messageId: abortCtx.currentMessageId } : undefined;
+			finalizeCurrentStream(abortCtx.turnOutput?.stopReason, abortCtx, anchor);
 		})
 		.catch(async (error) => {
 			debug(`provider: query error, model=${model.id}, aborted=${Boolean(options?.signal?.aborted)}, error=`, error);
