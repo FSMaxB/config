@@ -33,7 +33,7 @@ jobs:
         run: |
           set -eu
           DIR="binaries/$(uname -s)/$(uname -m)"
-          for tool in bat crit jj jq rtk starship tuicr zellij; do
+          for tool in bat crit fzf jj jq rtk starship tuicr zellij; do
             "$DIR/$tool" --version
           done
       - name: Verify tuicr-skill matches pinned digests
