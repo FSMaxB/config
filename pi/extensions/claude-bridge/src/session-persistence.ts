@@ -565,10 +565,10 @@ function debugSessionPaths(label: string, cwd: string, jsonlPath: string, claude
 //
 // Why reuse the sessionId across rebuilds:
 //   CC re-reads the JSONL on every --resume call — no in-process UUID
-//   caching. Validated in tests/exp-session-clear.mjs, including the case
-//   where CC had appended its own tool_use/tool_result records between
-//   rebuilds. Preserving the UUID means stable log correlation across
-//   provider switches and no orphaned session files.
+//   caching. Preserving the UUID means stable log correlation across
+//   provider switches and no orphaned session files. The resumeSessionAt +
+//   forkSession semantics the tree-resume path relies on are checked in
+//   tests/exp-resume-at.mjs.
 //
 // Log strings still say "Case 1/2/3/4" so existing diagnostics (int-cache.sh,
 // int-session-resume.mjs) keep grepping the same anchors.
