@@ -27,18 +27,22 @@ CRIT_BASE_URL="https://github.com/tomasz-tomczyk/crit/releases/download/v${CRIT_
 RTK_VERSION="0.51.0"
 RTK_BASE_URL="https://github.com/rtk-ai/rtk/releases/download/v${RTK_VERSION}"
 
+FZF_VERSION="0.74.5"
+FZF_BASE_URL="https://github.com/junegunn/fzf/releases/download/v${FZF_VERSION}"
+
 # Every tool spells the same platform differently, and bat, jj and tuicr publish no
 # checksum assets at all, so each platform keeps its identifier spellings and its pinned
 # digests together.
 function download_platform() {
 	local PLATFORM="$1"
-	local TRIPLE JQ_NAME CRIT_NAME RTK_NAME BAT_SHA256 JJ_SHA256 TUICR_SHA256
+	local TRIPLE JQ_NAME CRIT_NAME RTK_NAME FZF_NAME BAT_SHA256 JJ_SHA256 TUICR_SHA256
 	case "${PLATFORM}" in
 		Linux/aarch64)
 			TRIPLE="aarch64-unknown-linux-musl"
 			JQ_NAME="linux-arm64"
 			CRIT_NAME="linux-arm64"
 			RTK_NAME="aarch64-unknown-linux-gnu"
+			FZF_NAME="linux_arm64"
 			BAT_SHA256="6369242c584065f195fb20cb36fbd7cb63ae690605bbe89868a7596b596c2c23"
 			JJ_SHA256="80e28f7501c11e50e0ca06cd6a1fa1d982cff9cc59bfe4411a9d36aa501d867e"
 			TUICR_SHA256="d0707f491cc8cdf0930fc1466029341d804a0105dd0b674f8dca33afb8366490"
@@ -48,6 +52,7 @@ function download_platform() {
 			JQ_NAME="linux-amd64"
 			CRIT_NAME="linux-amd64"
 			RTK_NAME="x86_64-unknown-linux-musl"
+			FZF_NAME="linux_amd64"
 			BAT_SHA256="0dcd8ac79732c0d5b136f11f4ee00e581440e16a44eab5b3105b611bbf2cf191"
 			JJ_SHA256="fce0271158e665ceb82dc66c5eb95b1728649094e9133074f3b5baece345fc08"
 			TUICR_SHA256="f673ff709af2501c111216c95745395ae2bfedf3daa3d039539f9614a6ddb4e4"
@@ -57,6 +62,7 @@ function download_platform() {
 			JQ_NAME="macos-arm64"
 			CRIT_NAME="darwin-arm64"
 			RTK_NAME="aarch64-apple-darwin"
+			FZF_NAME="darwin_arm64"
 			BAT_SHA256="e30beff26779c9bf60bb541e1d79046250cb74378f2757f8eb250afddb19e114"
 			JJ_SHA256="43daa37ce0f9716cdf6fb65a29cbcae74a3160aef048cf3cb3d166d41cb4ab58"
 			TUICR_SHA256="170b2e5290435faaf663c9498b1385493df7c336646b74c9336388844e028dcf"
@@ -79,6 +85,7 @@ function download_platform() {
 	download_jq "${JQ_NAME}" "${OUTDIR}"
 	download_crit "${CRIT_NAME}" "${OUTDIR}"
 	download_rtk "${RTK_NAME}" "${OUTDIR}"
+	download_fzf "${FZF_NAME}" "${OUTDIR}"
 	download_tuicr "${TRIPLE}" "${OUTDIR}" "${TUICR_SHA256}"
 }
 
@@ -185,6 +192,18 @@ function download_rtk() {
 	curl -fL --output "${TARBALL}" "${RTK_BASE_URL}/${TARBALL}"
 	verify "${TARBALL}" "$(grep " ${TARBALL}\$" rtk-checksums.txt | cut -d' ' -f1)"
 	tar --directory "${OUTDIR}" -xf "${TARBALL}" rtk
+}
+
+# fzf publishes a checksums file covering all platforms, like crit and rtk. The tarball
+# contains only the binary at its root.
+function download_fzf() {
+	local PLATFORM="$1"
+	local OUTDIR="$2"
+	local TARBALL="fzf-${FZF_VERSION}-${PLATFORM}.tar.gz"
+	curl -fL --output fzf-checksums.txt "${FZF_BASE_URL}/fzf_${FZF_VERSION}_checksums.txt"
+	curl -fL --output "${TARBALL}" "${FZF_BASE_URL}/${TARBALL}"
+	verify "${TARBALL}" "$(grep " ${TARBALL}\$" fzf-checksums.txt | cut -d' ' -f1)"
+	tar --directory "${OUTDIR}" -xf "${TARBALL}" fzf
 }
 
 # tuicr publishes no checksum assets, so its release asset metadata digests are
