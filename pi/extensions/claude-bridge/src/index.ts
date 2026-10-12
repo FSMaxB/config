@@ -1,6 +1,6 @@
 import { type AssistantMessage, type AssistantMessageEventStream, type Message, type Model, type SimpleStreamOptions, type Tool, type TranscriptContext, getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import * as piAi from "@earendil-works/pi-ai";
-import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, type SessionProjection } from "@earendil-works/pi-coding-agent";
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { Base64ImageSource, ContentBlockParam, MessageParam } from "@anthropic-ai/sdk/resources";
 import { PROVIDER_ID, messageContentToText } from "./convert.js";
@@ -29,6 +29,7 @@ import { BRIDGE_BILLING_IDENTITY, CLAUDE_BILLING_IDENTITY_SYMBOL, beginBillingId
 import { registerBridgeCommands } from "./bridge-commands.js";
 import { consumeQuery, emitRateLimitEvent, type ClaudeAttemptFailure } from "./consume-query.js";
 import { buildClaudeQueryOptions } from "./query-options.js";
+import { findTreeResumeTarget, resolveForkPoint } from "./tree-resume.js";
 import { sdkQueryFactory } from "./sdk-query.js";
 import { currentRequestLaneId, runInRequestLane } from "./request-lane.js";
 
@@ -511,6 +512,37 @@ export function onPiHistoryReplaced(event: string): void {
 		// has no writer to race and rebuilds in place.
 		markSessionForRebuild(`pi replaced the history (${event})`, { forceRotate: restarts });
 	}
+}
+
+/** After /tree navigation, replace the record with the Claude transcript
+ *  position the new branch ends at, so the next turn resumes (and, when the
+ *  branch ends before the transcript's tail, forks) instead of rebuilding.
+ *  onPiHistoryReplaced has already marked the record for rebuild; every
+ *  rejection below simply leaves that in place. A running query is left to the
+ *  restart path, which rotates the session id because the killed child may
+ *  still be writing. Exported for the tree-resume unit tests. */
+export function adoptTreeResumeTarget(sessionManager: { buildSessionProjection(): SessionProjection; getCwd(): string }): void {
+	if (ctx().activeQuery !== null) return;
+	const target = findTreeResumeTarget(sessionManager.buildSessionProjection());
+	if (typeof target === "string") {
+		debug(`tree-resume: rebuilding instead (${target})`);
+		return;
+	}
+	const cwd = getSharedSession()?.cwd ?? sessionManager.getCwd();
+	const forkPoint = resolveForkPoint(target, cwd, process.env.CLAUDE_CONFIG_DIR);
+	if (typeof forkPoint === "string") {
+		debug(`tree-resume: rebuilding instead (${forkPoint})`);
+		return;
+	}
+	const fingerprint = conversationFingerprint(target.conversation);
+	setSharedSession({
+		sessionId: target.sessionId,
+		cursor: target.conversation.length,
+		cwd,
+		...(fingerprint ? { conversationFingerprint: fingerprint } : {}),
+		...(forkPoint.isTail ? {} : { forkAt: forkPoint.uuid }),
+	});
+	debug(`tree-resume: session ${target.sessionId.slice(0, 8)} ${forkPoint.isTail ? "resumes at its tail" : `forks at ${forkPoint.uuid.slice(0, 8)}`}, cursor=${target.conversation.length}`);
 }
 
 /** Provider entry point. Pi calls this for each prompt and each tool result.
@@ -1421,7 +1453,10 @@ export default function (pi: ExtensionAPI) {
 	// Both events replace pi's messages array out from under the bridge; see
 	// onPiHistoryReplaced for what that forces.
 	pi.on("session_compact", (_event, ctx) => runInRequestLane(ctx.sessionManager.getSessionId(), () => onPiHistoryReplaced("session_compact")));
-	pi.on("session_tree", (_event, ctx) => runInRequestLane(ctx.sessionManager.getSessionId(), () => onPiHistoryReplaced("session_tree")));
+	pi.on("session_tree", (_event, ctx) => runInRequestLane(ctx.sessionManager.getSessionId(), () => {
+		onPiHistoryReplaced("session_tree");
+		adoptTreeResumeTarget(ctx.sessionManager);
+	}));
 
 	// --- Provider ---
 	//
