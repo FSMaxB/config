@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { planIncrementalPromptBatch } from "../src/index.ts";
 
-const msg = (role) => ({ role, content: role === "assistant" ? [] : role });
+const msg = (role, toolCallId) => ({ role, content: role === "assistant" ? [] : role, ...(toolCallId ? { toolCallId } : {}) });
 
 describe("planIncrementalPromptBatch", () => {
 	it("plans only unclaimed user tails after the cursor", () => {
@@ -19,6 +19,19 @@ describe("planIncrementalPromptBatch", () => {
 			{ name: "last-index cursor", roles: ["user", "assistant", "user"], cursor: 2, expected: { promptStart: 2, userMessageCount: 1 } },
 		]) {
 			assert.deepEqual(planIncrementalPromptBatch(roles.map(msg), cursor), expected, name);
+		}
+	});
+});
+
+describe("planIncrementalPromptBatch with interrupted tool calls", () => {
+	it("skips Pi's results for calls the interrupt already settled in Claude's transcript", () => {
+		for (const { name, messages, cursor, ids, expected } of [
+			{ name: "interrupted tool result in tail", messages: [msg("user"), msg("assistant"), msg("toolResult", "call-1"), msg("user")], cursor: 1, ids: ["call-1"], expected: { promptStart: 3, userMessageCount: 1 } },
+			{ name: "two interrupted tool results in tail", messages: [msg("user"), msg("assistant"), msg("toolResult", "call-1"), msg("toolResult", "call-2"), msg("user")], cursor: 1, ids: ["call-1", "call-2"], expected: { promptStart: 4, userMessageCount: 1 } },
+			{ name: "unknown tool result in tail", messages: [msg("user"), msg("assistant"), msg("toolResult", "call-9"), msg("user")], cursor: 1, ids: ["call-1"], expected: undefined },
+			{ name: "interrupted tool result without a prompt", messages: [msg("user"), msg("assistant"), msg("toolResult", "call-1")], cursor: 1, ids: ["call-1"], expected: undefined },
+		]) {
+			assert.deepEqual(planIncrementalPromptBatch(messages, cursor, ids), expected, name);
 		}
 	});
 });

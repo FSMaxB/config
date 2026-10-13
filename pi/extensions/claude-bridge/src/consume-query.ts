@@ -88,7 +88,11 @@ export async function consumeQuery(
 	};
 
 	for await (const message of sdkQuery) {
-		if (wasAborted()) break;
+		// After an abort the loop only drains the generator: the CLI is finishing
+		// its own interrupt handling (rejected tool_results, the terminal result)
+		// and exits by itself. `break` would call the iterator's return(), which is
+		// close(), and kill it mid-write.
+		if (wasAborted()) continue;
 		activeStreamIdleWatchdogs.get(queryCtx)?.noteChunk();
 		if (!queryCtx.turnOutput) continue;
 		// Only rendering needs a live Pi stream; failure metadata may arrive
@@ -157,6 +161,7 @@ export async function consumeQuery(
 				if (!streamLive) break;
 				if ((message as any).subtype === "init" && (message as any).session_id) {
 					capturedSessionId = (message as any).session_id;
+					queryCtx.claudeSessionId = capturedSessionId;
 					noteFastModeDisabledReason(message, bridgeConfig);
 					// Which login this child authenticated as is published for other
 					// extensions. Nothing waits for

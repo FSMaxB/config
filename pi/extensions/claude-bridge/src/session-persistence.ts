@@ -43,27 +43,63 @@ function shortHash(text: string): string {
 
 /** Identity anchor for a pi conversation, encoded component-wise as
  *  `u:<12hex>` (short sha256 of the FIRST user message's normalized text) or
- *  `u:<12hex>|a:<12hex>` (plus the FIRST assistant message's normalized text
- *  once the conversation has one with any text). The opening messages are the
- *  stable elements of a pi history — later messages get appended, compacted,
- *  or tree-navigated (all of which set needsRebuild), but the first user/
- *  assistant pair survives for the session's lifetime. The two-component form
- *  exists because a first USER message alone is a weak anchor: unrelated
- *  conversations routinely open with identical text ("continue"), and a
- *  same-opener foreign context shaped to align with the cursor would REUSE
- *  across genuinely different histories. Returns undefined when the context
- *  has no user message or its text normalizes to empty (image-only) —
- *  identity unknown, callers must fail open to the pre-fingerprint behavior,
- *  never treat it as a mismatch. Distinct from fingerprintMessages below,
- *  which hashes a cursor slice for restore integrity. */
+ *  `u:<12hex>|a:<12hex>` (plus the FIRST assistant message's text and tool
+ *  calls, once the conversation has an assistant message with either). The
+ *  opening messages are the stable elements of a pi history — later messages
+ *  get appended, compacted, or tree-navigated (all of which set needsRebuild),
+ *  but the first user/assistant pair survives for the session's lifetime. The
+ *  two-component form exists because a first USER message alone is a weak
+ *  anchor in two ways: unrelated conversations routinely open with identical
+ *  text ("continue"), so a same-opener foreign context shaped to align with
+ *  the cursor would REUSE across genuinely different histories; and a
+ *  `context` handler may prepend a request-local message to some requests
+ *  only (superpowers' bootstrap exists on the first turn alone), so the opener
+ *  a request shows is not always the persisted one. The assistant message is
+ *  persisted history, which is why it decides once both anchors carry it (see
+ *  conversationFingerprintsMatch), and why it includes tool calls: a first
+ *  assistant turn usually carries only those, and an anchor that waited for
+ *  text would leave the first turn's abort record without the component.
+ *  Returns undefined when the context has no user message or its text
+ *  normalizes to empty (image-only) — identity unknown, callers must fail
+ *  open to the pre-fingerprint behavior, never treat it as a mismatch.
+ *  Distinct from fingerprintMessages below, which hashes a cursor slice for
+ *  restore integrity. */
 export function conversationFingerprint(messages: Message[]): string | undefined {
 	const firstUser = messages.find((message) => (message as { role?: string }).role === "user");
 	if (!firstUser) return undefined;
 	const userText = normalizedMessageText(firstUser);
 	if (!userText) return undefined;
-	const firstAssistant = messages.find((message) => (message as { role?: string }).role === "assistant");
-	const assistantText = firstAssistant ? normalizedMessageText(firstAssistant) : "";
-	return assistantText ? `u:${shortHash(userText)}|a:${shortHash(assistantText)}` : `u:${shortHash(userText)}`;
+	const assistantIdentity = firstAssistantIdentity(messages);
+	return assistantIdentity ? `u:${shortHash(userText)}|a:${shortHash(assistantIdentity)}` : `u:${shortHash(userText)}`;
+}
+
+/** The first assistant message with any text or tool call, normalized. An
+ *  assistant message with neither (an aborted turn) is skipped. */
+function firstAssistantIdentity(messages: Message[]): string {
+	for (const message of messages) {
+		if ((message as { role?: string }).role !== "assistant") continue;
+		const identity = normalizedAssistantIdentity(message);
+		if (identity) return identity;
+	}
+	return "";
+}
+
+/** Text blocks and tool calls of an assistant message, in order. Thinking is
+ *  left out, since providers may redact it. For a message without tool calls
+ *  this equals normalizedMessageText, so anchors recorded before tool calls
+ *  counted stay valid. */
+function normalizedAssistantIdentity(message: unknown): string {
+	const content = (message as { content?: unknown }).content;
+	if (!Array.isArray(content)) return normalizedMessageText(message);
+	return content
+		.map((block) => {
+			const { type, text, name, arguments: toolArguments } = block as { type?: string; text?: string; name?: string; arguments?: unknown };
+			if (type === "text") return text ?? "";
+			if (type === "toolCall") return `${name ?? ""}(${JSON.stringify(toolArguments ?? null)})`;
+			return "";
+		})
+		.join("\n")
+		.trim();
 }
 
 function parseConversationFingerprint(fp: string): { user: string; assistant?: string } | undefined {
@@ -72,18 +108,21 @@ function parseConversationFingerprint(fp: string): { user: string; assistant?: s
 	return { user: match[1], ...(match[2] ? { assistant: match[2] } : {}) };
 }
 
-/** Component-wise anchor comparison. The user component must always match; the
- *  assistant component is compared only when BOTH sides carry one — a record
- *  stamped on turn 1 has no assistant yet, and its own conversation grown past
- *  turn 1 is an upgrade, not a mismatch (see conversationFingerprintUpgrade).
- *  An unparseable side means identity unknown: fail open (match), consistent
- *  with the guard's treatment of absent fingerprints. */
+/** Component-wise anchor comparison. When BOTH sides carry an assistant
+ *  component it decides alone: the first assistant message is persisted
+ *  history, while the opener a request shows may be a request-local message a
+ *  `context` handler prepended to that request only. While either side lacks
+ *  one, the user component decides — a record stamped on turn 1 has no
+ *  assistant yet, and its own conversation grown past turn 1 is an upgrade,
+ *  not a mismatch (see conversationFingerprintUpgrade). An unparseable side
+ *  means identity unknown: fail open (match), consistent with the guard's
+ *  treatment of absent fingerprints. */
 export function conversationFingerprintsMatch(recorded: string, incoming: string): boolean {
 	const rec = parseConversationFingerprint(recorded);
 	const inc = parseConversationFingerprint(incoming);
 	if (!rec || !inc) return true;
-	if (rec.user !== inc.user) return false;
-	return !(rec.assistant && inc.assistant && rec.assistant !== inc.assistant);
+	if (rec.assistant && inc.assistant) return rec.assistant === inc.assistant;
+	return rec.user === inc.user;
 }
 
 /** Whether a REUSE-matched context's anchor should replace the recorded one:
@@ -144,6 +183,23 @@ function claudeSessionExists(sessionId: string, cwd: string, claudeDir: string |
 		statSync(session.jsonlPath);
 		return true;
 	} catch {
+		return false;
+	}
+}
+
+/** Whether every assistant tool_use in the Claude transcript has a matching
+ *  tool_result. An interrupted Claude Code child records a rejected result for
+ *  each pending call before it exits; a transcript that still has an unpaired
+ *  tool_use came from a child that died before that write, and resuming it
+ *  would hand Claude a history its API rejects. A missing or unreadable
+ *  transcript counts as unpaired. */
+export function claudeSessionPairsToolCalls(sessionId: string, cwd: string, claudeDir: string | undefined): boolean {
+	try {
+		const session = openSession({ sessionId, projectPath: cwd, claudeDir });
+		const messages = session.messages.map(({ message: { role, content } }) => ({ role, content }));
+		return findUnpairedToolUses(messages).length === 0;
+	} catch (error) {
+		debug(`claudeSessionPairsToolCalls: cannot read session ${sessionId.slice(0, 8)}:`, error);
 		return false;
 	}
 }
@@ -213,6 +269,10 @@ export function restoreSharedSessionFromPi(ctx: { sessionManager?: unknown; cwd?
 		// Absent on pre-3.1.1 markers: restore as identity-unknown (the foreign
 		// guard fails open) rather than rejecting the entry.
 		...(typeof persisted.conversationFingerprint === "string" ? { conversationFingerprint: persisted.conversationFingerprint } : {}),
+		...(Array.isArray(persisted.interruptedToolCallIds)
+			? { interruptedToolCallIds: persisted.interruptedToolCallIds.filter((id): id is string => typeof id === "string") }
+			: {}),
+		...(typeof persisted.forkAt === "string" ? { forkAt: persisted.forkAt } : {}),
 	});
 	debug(`restoreSharedSession: restored ${persisted.sessionId.slice(0, 8)}, cursor=${cursor}`);
 }
@@ -363,6 +423,9 @@ interface SyncResult {
 	// completion must NOT persist over the module-level record — the caller
 	// gates its persistSession/markRebuild exactly like the reentrant path.
 	foreignContext?: boolean;
+	// Record uuid the REUSE query truncates the resumed session at before
+	// forking into a new session id (see SessionState.forkAt).
+	forkAt?: string;
 }
 
 export interface IncrementalPromptBatchPlan {
@@ -377,6 +440,8 @@ export interface IncrementalPromptBatchPlan {
  * delivered together by Pi (for example, followUpMode="all"). Claude Code has
  * already persisted the optional leading assistant message; every user message
  * after it must be sent as this query's prompt rather than imported via rebuild.
+ * The tail may also hold Pi's results for calls the interrupt already settled
+ * in Claude's transcript (`interruptedToolCallIds`); those are skipped.
  * `messages` are conversation messages (see `src/transcript.ts::conversationMessages`);
  * the provider lane filters the transcript before calling, so a `system` message
  * here is a caller bug.
@@ -384,6 +449,7 @@ export interface IncrementalPromptBatchPlan {
 export function planIncrementalPromptBatch(
 	messages: Message[],
 	cursor: number,
+	interruptedToolCallIds: readonly string[] = [],
 ): IncrementalPromptBatchPlan | undefined {
 	const lastIndex = messages.length - 1;
 	if (lastIndex < 0 || (messages[lastIndex] as { role?: string }).role !== "user") return undefined;
@@ -399,6 +465,7 @@ export function planIncrementalPromptBatch(
 	const boundedCursor = Math.max(0, cursor);
 	let promptStart = boundedCursor;
 	if ((messages[promptStart] as { role?: string } | undefined)?.role === "assistant") promptStart++;
+	while (isInterruptedToolResult(messages[promptStart], interruptedToolCallIds)) promptStart++;
 
 	const pendingPrompts = messages.slice(promptStart);
 	if (pendingPrompts.length === 0 || pendingPrompts.some((message) => (message as { role?: string }).role !== "user")) {
@@ -412,6 +479,11 @@ export function planIncrementalPromptBatch(
 		promptStart,
 		userMessageCount: pendingPrompts.length,
 	};
+}
+
+function isInterruptedToolResult(message: Message | undefined, interruptedToolCallIds: readonly string[]): boolean {
+	const { role, toolCallId } = (message ?? {}) as { role?: string; toolCallId?: string };
+	return role === "toolResult" && toolCallId !== undefined && interruptedToolCallIds.includes(toolCallId);
 }
 
 // Read the session file we just wrote and sanity-check it. Warns instead of
@@ -493,10 +565,10 @@ function debugSessionPaths(label: string, cwd: string, jsonlPath: string, claude
 //
 // Why reuse the sessionId across rebuilds:
 //   CC re-reads the JSONL on every --resume call — no in-process UUID
-//   caching. Validated in tests/exp-session-clear.mjs, including the case
-//   where CC had appended its own tool_use/tool_result records between
-//   rebuilds. Preserving the UUID means stable log correlation across
-//   provider switches and no orphaned session files.
+//   caching. Preserving the UUID means stable log correlation across
+//   provider switches and no orphaned session files. The resumeSessionAt +
+//   forkSession semantics the tree-resume path relies on are checked in
+//   tests/exp-resume-at.mjs.
 //
 // Log strings still say "Case 1/2/3/4" so existing diagnostics (int-cache.sh,
 // int-session-resume.mjs) keep grepping the same anchors.
@@ -554,7 +626,7 @@ export function syncSharedSession(
 
 	// REUSE path.
 	if (sharedSession && !sharedSession.needsRebuild) {
-		const batch = planIncrementalPromptBatch(messages, sharedSession.cursor);
+		const batch = planIncrementalPromptBatch(messages, sharedSession.cursor, sharedSession.interruptedToolCallIds ?? []);
 		if (batch) {
 			// Read the pre-update cursor first: setSharedSession reassigns the live
 			// binding, so comparing against sharedSession.cursor afterwards would
@@ -566,8 +638,9 @@ export function syncSharedSession(
 			// upgrades to the two-component form once the conversation has its
 			// first assistant message (see conversationFingerprintUpgrade).
 			const upgradedFingerprint = conversationFingerprintUpgrade(sharedSession.conversationFingerprint, incomingFingerprint);
+			const { interruptedToolCallIds: _settledByInterrupt, ...recordWithoutInterrupted } = sharedSession;
 			setSharedSession({
-				...sharedSession,
+				...recordWithoutInterrupted,
 				cursor: batch.promptStart,
 				cwd,
 				...(upgradedFingerprint ? { conversationFingerprint: upgradedFingerprint } : {}),
@@ -580,6 +653,7 @@ export function syncSharedSession(
 			return {
 				sessionId: sharedSession.sessionId,
 				promptStart: batch.promptStart,
+				forkAt: sharedSession.forkAt,
 			};
 		}
 	}

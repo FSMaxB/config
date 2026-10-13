@@ -265,6 +265,17 @@ export class QueryContext {
 	 *  feeds the replacement query's events into that callback's stream. */
 	restartRequest: QueryRestartRequest | null = null;
 	latestCursor = 0;
+	/** Claude Code's session id from this query's init message. The SDK throws
+	 *  out of the generator after an interrupted turn's error result, which
+	 *  loses consumeQuery's return value; the abort settlement reads it here. */
+	claudeSessionId: string | undefined = undefined;
+	/** Conversation anchor of the latest context Pi handed this query: the
+	 *  prompt's, then each tool-result callback's. The record a query persists
+	 *  carries this one rather than the prompt's. A `context` handler may
+	 *  prepend a request-local opener to some requests only, and only an anchor
+	 *  that already includes the first assistant message, which a callback's
+	 *  context has, identifies the conversation across such requests. */
+	latestConversationFingerprint: string | undefined = undefined;
 	pendingToolCalls = new Map<string, PendingToolCall>();
 	pendingResults = new Map<string, McpResult>();
 	/** Results a message-boundary reap moved OUT of pendingResults so they stop
@@ -775,3 +786,15 @@ export function clearQueryLanes(): void {
 export function __testQueryLaneCount(): number {
 	return queryLaneStore().sessionLanes.size;
 }
+
+/** Where a Pi assistant message ends in the Claude transcript: the Claude
+ *  session that produced it and the API message id of its last message. Pi
+ *  persists the stamped message object as-is, so the stamp follows the Pi
+ *  branch, and the tree-resume path (src/tree-resume.ts) resolves it to a
+ *  record uuid only when the branch is navigated to. */
+export interface ClaudeTranscriptAnchor {
+	sessionId: string;
+	messageId: string;
+}
+
+export type StampedAssistantMessage = AssistantMessage & { claudeBridge?: ClaudeTranscriptAnchor };

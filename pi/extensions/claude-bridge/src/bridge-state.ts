@@ -46,6 +46,21 @@ export interface SessionState {
 	// replaced the history (session_compact)", ...). Lives and dies with
 	// needsRebuild: a REBUILD and a completed query both write a fresh record.
 	rebuildReason?: string;
+	// Tool-call ids whose results the Claude transcript already holds although
+	// Pi delivered them after the record was written: an abort that interrupted
+	// the query made Claude Code record a rejected result for every pending call,
+	// while Pi appended its own "Operation aborted" results afterwards. The REUSE
+	// plan skips Pi's trailing toolResult messages with these ids. Consumed by the
+	// next REUSE; a completed query writes a fresh record without it.
+	interruptedToolCallIds?: string[];
+	// Record uuid at which the next query resumes `sessionId` with the SDK's
+	// resumeSessionAt + forkSession options, set by the tree-resume path when a
+	// /tree navigation landed inside a Claude transcript the bridge produced
+	// (src/tree-resume.ts). The fork continues under a new session id, which the
+	// completed query persists in a fresh record, so the field never survives a
+	// completed query. Absent when the navigation target is the transcript's
+	// tail: a plain resume is enough there.
+	forkAt?: string;
 }
 
 // Claude session state is scoped to Pi's provider `sessionId`. Parent and child
