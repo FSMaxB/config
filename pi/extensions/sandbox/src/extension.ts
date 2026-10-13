@@ -8,7 +8,7 @@ import type { BashOperations, BashToolDetails, ExtensionAPI, ExtensionContext, T
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { readOnlyRepositoryNotice } from "../../lib/path-permission-rules.ts";
-import { ALLOW_ALWAYS, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWAYS, DENY_ONCE, DENY_SESSION, currentAgentMode, currentPolicy, grantPathAccess } from "../../lib/path-permissions.ts";
+import { ALLOW_ALWAYS, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWAYS, DENY_ONCE, DENY_SESSION, currentAgentMode, currentPolicy, grantPathAccess, type OnceGrant } from "../../lib/path-permissions.ts";
 import { registerToolWithGuidelines } from "../../lib/register-tool.ts";
 import { markSandboxActive } from "../../lib/sandbox-state.ts";
 import { selectWithDefault } from "../../lib/select-with-default.ts";
@@ -20,9 +20,10 @@ import { NETWORK_ENTRY_TYPE, effectiveNetwork, emptyGrants, parseGrants, recordG
 import { filesystemConfig, secretPaths, type PolicyOptions } from "./policy.ts";
 import { loadSettings, updateDomainLists, type Settings } from "./settings.ts";
 import { discardedWrites, isSecretPath, pathViolations, type PathViolation } from "./violations.ts";
+import { nextStep, violationReport, type NextStep, type ViolationOutcome } from "./violation-outcomes.ts";
 
 const SANDBOX_NOTE =
-  "Commands run inside an OS sandbox that enforces the same read/write path rules as the file tools, with no network except allowed hosts. Denied paths are reported in a <sandbox_violations> block and the user is asked to grant them; after a grant the command has to be rerun. Never try to work around a denial. " +
+  "Commands run inside an OS sandbox that enforces the same read/write path rules as the file tools, with no network except allowed hosts. Denied paths are reported in a <sandbox_violations> block and the user is asked to grant them; after a grant the command has to be rerun, unless the user allowed it once: then the sandbox reruns it itself and the rerun's output follows the report. Never try to work around a denial. " +
   "Set unsandboxed to true only for a command the sandbox itself breaks (ssh git remotes, programs that ignore proxy variables, listening sockets); the user confirms every unsandboxed command first, and subagents cannot use it.";
 
 const INSTALL_HINT =
@@ -117,25 +118,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
         throw error;
       });
       await initialization;
-      const commandId = randomUUID();
-      const filesystem = filesystemConfig(await currentPolicy(), policyOptions());
-      try {
-        const wrapped = await SandboxManager.wrapWithSandbox(command, undefined, { filesystem }, options.signal, { commandId, commandText: command });
-        const result = await stock.exec(wrapped, cwd, options);
-        if (result.exitCode === 0 && process.platform !== "linux") return result;
-        if (result.exitCode === 0) {
-          const report = discardedWritesReport(await readViolationsAfterOneWait(commandId), filesystem);
-          if (report) options.onData(Buffer.from(report));
-          return result;
-        }
-        const violations = await collectViolations(commandId);
-        if (violations.length === 0) return result;
-        options.onData(Buffer.from(SandboxManager.annotateStderrWithSandboxFailures(commandId, "")));
-        options.onData(Buffer.from(await promptForPaths(violations)));
-        return result;
-      } finally {
-        SandboxManager.cleanupAfterCommand();
-      }
+      return await runSandboxed(command, cwd, options, []);
     },
   };
 
@@ -148,6 +131,37 @@ function createRuntime(pi: ExtensionAPI): Runtime {
       applyNetwork();
     },
   };
+
+  // Once-grants live only in this recursion, so they never outlast the command they were given for.
+  async function runSandboxed(command: string, cwd: string, options: ExecOptions, onceGrants: OnceGrant[]): Promise<ExecResult> {
+    const { result, step } = await runOnce(command, cwd, options, onceGrants);
+    if (step.kind === "return" || options.signal?.aborted) return result;
+    return await runSandboxed(command, cwd, options, [...onceGrants, ...step.grants]);
+  }
+
+  async function runOnce(command: string, cwd: string, options: ExecOptions, onceGrants: OnceGrant[]): Promise<{ result: ExecResult; step: NextStep }> {
+    const commandId = randomUUID();
+    const filesystem = filesystemConfig(await currentPolicy(onceGrants), policyOptions());
+    try {
+      const wrapped = await SandboxManager.wrapWithSandbox(command, undefined, { filesystem }, options.signal, { commandId, commandText: command });
+      const result = await stock.exec(wrapped, cwd, options);
+      if (result.exitCode === 0 && process.platform !== "linux") return { result, step: { kind: "return" } };
+      if (result.exitCode === 0) {
+        const report = discardedWritesReport(await readViolationsAfterOneWait(commandId), filesystem);
+        if (report) options.onData(Buffer.from(report));
+        return { result, step: { kind: "return" } };
+      }
+      const violations = await collectViolations(commandId);
+      if (violations.length === 0) return { result, step: { kind: "return" } };
+      options.onData(Buffer.from(SandboxManager.annotateStderrWithSandboxFailures(commandId, "")));
+      const outcomes = await resolveViolations(violations);
+      const step = nextStep(outcomes);
+      options.onData(Buffer.from(violationReport(outcomes, step, currentAgentMode())));
+      return { result, step };
+    } finally {
+      SandboxManager.cleanupAfterCommand();
+    }
+  }
 
   async function initialize(): Promise<void> {
     settings = await loadSettings(SETTINGS_FILE);
@@ -238,22 +252,22 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     });
   }
 
-  async function promptForPaths(violations: { line: string }[]): Promise<string> {
+  async function resolveViolations(violations: { line: string }[]): Promise<ViolationOutcome[]> {
     const secrets = secretPaths(homedir());
-    const lines: string[] = [];
+    const outcomes: ViolationOutcome[] = [];
     for (const [index, violation] of pathViolations(violations.map(({ line }) => line)).entries()) {
-      lines.push(await resolveViolation(violation, secrets, index < MAX_PATH_PROMPTS_PER_COMMAND));
+      outcomes.push(await resolveViolation(violation, secrets, index < MAX_PATH_PROMPTS_PER_COMMAND));
     }
-    return `\n${lines.join("\n")}\n`;
+    return outcomes;
   }
 
-  async function resolveViolation({ mode, path }: PathViolation, secrets: string[], mayPrompt: boolean): Promise<string> {
-    if (isSecretPath(path, secrets)) return `${path} is on the sandbox secret list and cannot be granted.`;
-    const notice = readOnlyRepositoryNotice(mode, currentAgentMode());
-    if (!activeContext?.hasUI) return `${path} is not covered by the ${mode} path rules and there is no interactive UI to ask.${notice}`;
-    if (!mayPrompt) return `${path} is not covered by the ${mode} path rules; too many paths were denied to ask about each one.${notice}`;
+  async function resolveViolation({ mode, path }: PathViolation, secrets: string[], mayPrompt: boolean): Promise<ViolationOutcome> {
+    if (isSecretPath(path, secrets)) return { kind: "secret", path };
+    if (!activeContext?.hasUI) return { kind: "no-ui", mode, path };
+    if (!mayPrompt) return { kind: "not-asked", mode, path };
     const outcome = await grantPathAccess(path, mode, activeContext);
-    return outcome === "allowed" ? `${mode} access to ${path} was granted; rerun the command.` : `${mode} access to ${path} was denied; do not retry it.${notice}`;
+    if (outcome.kind === "allowed-once") return { kind: "allowed-once", mode, path, grant: outcome.grant };
+    return { kind: outcome.kind, mode, path };
   }
 }
 
@@ -263,3 +277,6 @@ function discardedWritesReport(violations: { line: string }[], filesystem: Files
   const lines = discarded.map(({ path }) => `${path} is not covered by the write path rules; the write was discarded and nothing reached the real filesystem.`);
   return `\n<sandbox_violations>\n${lines.join("\n")}${readOnlyRepositoryNotice("write", currentAgentMode())}\n</sandbox_violations>\n`;
 }
+
+type ExecOptions = Parameters<BashOperations["exec"]>[2];
+type ExecResult = Awaited<ReturnType<BashOperations["exec"]>>;
