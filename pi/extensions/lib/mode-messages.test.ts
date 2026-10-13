@@ -162,14 +162,46 @@ test("the initial message is returned only when the session lacks the current co
   const delivery = createModeDelivery(() => assert.fail("initialMessage must not send"));
 
   // act
-  const missing = delivery.initialMessage("on", []);
-  const obsolete = delivery.initialMessage("on", [stateMessage("off")]);
-  const current = delivery.initialMessage("on", [stateMessage("off"), stateMessage("on")]);
+  const missing = delivery.initialMessage(() => "on", []);
+  const obsolete = delivery.initialMessage(() => "on", [stateMessage("off")]);
+  const current = delivery.initialMessage(() => "on", [stateMessage("off"), stateMessage("on")]);
 
   // assert
   assert.equal(missing, "on");
   assert.equal(obsolete, "on");
   assert.equal(current, undefined);
+});
+
+test("announcements made while a run starts are held and the initial message carries them", () => {
+  // arrange
+  const sent: string[] = [];
+  const delivery = createModeDelivery((content) => sent.push(content));
+  const visible = [stateMessage("off")];
+
+  // act
+  const content = delivery.initialMessage(() => {
+    delivery.announce("on", visible);
+    return "on";
+  }, visible);
+
+  // assert
+  assert.equal(content, "on");
+  assert.deepEqual(sent, []);
+});
+
+test("announcements are sent again once the run has started, even when preparing threw", () => {
+  // arrange
+  const sent: string[] = [];
+  const delivery = createModeDelivery((content) => sent.push(content));
+
+  // act
+  assert.throws(() => delivery.initialMessage(() => { throw new Error("prepare failed"); }, []), /prepare failed/);
+  delivery.announce("on", [stateMessage("off")]);
+  delivery.initialMessage(() => "on", [stateMessage("on")]);
+  delivery.announce("off", [stateMessage("on")]);
+
+  // assert
+  assert.deepEqual(sent, ["on", "off"]);
 });
 
 test("a request that keeps the current snapshot is left untouched", () => {
