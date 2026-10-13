@@ -1,4 +1,5 @@
 {
+  "$schema": "https://pi.dev/schemas/keybindings.schema.json",
   "app.thinking.toggle": "f3",
   "app.tools.expand": "f4"
 }
