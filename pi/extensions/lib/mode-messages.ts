@@ -42,8 +42,10 @@ export function registerModeMessages(
   );
 
   pi.on("before_agent_start", async (_event, context) => {
-    prepare(context);
-    const content = delivery.initialMessage(renderSnapshot(snapshot()), projection(context));
+    const content = delivery.initialMessage(() => {
+      prepare(context);
+      return renderSnapshot(snapshot());
+    }, projection(context));
     if (content === undefined) return undefined;
     return { message: { customType: MODE_MESSAGE_TYPE, content, display: false } };
   });
@@ -106,6 +108,7 @@ export function createModeDelivery(send: (content: string) => void) {
   // Content handed to sendMessage that the session may not show yet: while the agent streams,
   // Pi holds custom messages until the tool results of the current turn are in.
   let queued: string | undefined;
+  let announcements: Announcements = Announcements.Sent;
 
   function observe(visible: readonly unknown[]): void {
     if (queued !== undefined && latestSnapshotContent(visible) === queued) queued = undefined;
@@ -118,14 +121,26 @@ export function createModeDelivery(send: (content: string) => void) {
 
   return {
     announce(content: string, visible: readonly unknown[]): void {
+      if (announcements === Announcements.Held) return;
       observe(visible);
       if ((queued ?? latestSnapshotContent(visible)) === content) return;
       queue(content);
     },
 
-    // before_agent_start runs while idle, so anything queued earlier is either persisted or was
-    // dropped with an aborted run; the session itself is the only reliable reference.
-    initialMessage(content: string, visible: readonly unknown[]): string | undefined {
+    // Pi counts the session as busy while a run starts, so a snapshot sent from before_agent_start
+    // would be queued into the run on top of the returned message. Announcements made while
+    // preparing are held instead, and the returned message carries the latest state. Anything
+    // queued before the run started is either persisted or was dropped with an aborted run; the
+    // session itself is the only reliable reference.
+    initialMessage(prepare: () => string, visible: readonly unknown[]): string | undefined {
+      announcements = Announcements.Held;
+      const content = (() => {
+        try {
+          return prepare();
+        } finally {
+          announcements = Announcements.Sent;
+        }
+      })();
       const needed = latestSnapshotContent(visible) !== content;
       queued = needed ? content : undefined;
       return needed ? content : undefined;
@@ -145,6 +160,9 @@ export function createModeDelivery(send: (content: string) => void) {
     },
   };
 }
+
+const Announcements = { Sent: "sent", Held: "held" } as const;
+type Announcements = (typeof Announcements)[keyof typeof Announcements];
 
 export function latestSnapshotContent(messages: readonly unknown[]): string | undefined {
   const latest = (messages as readonly { role?: unknown; customType?: unknown; content?: unknown }[]).findLast(

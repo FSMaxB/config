@@ -256,7 +256,7 @@ it("keeps explicit denials declared but blocked and announced in the agent-mode 
 		// act
 		const nested = await fixture.call("caller_fixture");
 		const scripted = await fixture.call("codemode", { code:
-			'return { submit: typeof tools.submit_plan, blocked: await tools.target_fixture({}).then(() => "unexpected", error => error.message) };' });
+			'return { submit: "submit_plan" in tools, blocked: await tools.target_fixture({}).then(() => "unexpected", error => error.message) };' });
 		fixture.api.setActiveTools(fixture.api.getActiveTools());
 		fixture.api.registerTool({ name: "late_fixture", label: "Late", description: "Late denied tool", parameters: Type.Object({}),
 			execute: async () => ({ content: [], details: undefined }) });
@@ -273,7 +273,7 @@ it("keeps explicit denials declared but blocked and announced in the agent-mode 
 		assert.ok(fixture.api.getActiveTools().includes("plan_path"));
 		assert.equal(JSON.parse(nested.content[0].text).isError, true);
 		assert.equal(scripted.isError, false, JSON.stringify(scripted));
-		assert.match(scripted.content.map(block => block.text).join("\n"), /undefined/);
+		assert.match(scripted.content.map(block => block.text).join("\n"), /"submit":false/);
 		assert.match(scripted.content.map(block => block.text).join("\n"), /denied/);
 		assert.ok(JSON.parse(nested.content[0].text).callable.includes("target_fixture"));
 		const bridgeTools = resolveMcpTools(fixture.requests.at(-1)).mcpTools;
@@ -874,11 +874,11 @@ it("keeps both real tools inaccessible to codemode and nested tool execution", a
 	// arrange
 	await withCritPlanSession({ codemode: true }, async ({ fixture, dialogs }) => {
 		// act
-		const scripted = await fixture.call("codemode", { code: "text([typeof tools.crit_review, typeof tools.submit_plan]);" });
+		const scripted = await fixture.call("codemode", { code: "return ['crit_review' in tools, 'submit_plan' in tools];" });
 		const nested = await fixture.call("nested_review_fixture");
 		// assert
 		assert.equal(scripted.isError, false);
-		assert.match(scripted.content.map(block => block.text).join("\n"), /undefined/);
+		assert.match(scripted.content.map(block => block.text).join("\n"), /\[\s*false,\s*false\s*\]/);
 		assert.deepEqual(JSON.parse(nested.content[0].text), [true, true]);
 		assert.equal(dialogs.length, 0);
 	});
