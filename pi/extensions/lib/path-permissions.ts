@@ -70,32 +70,39 @@ export interface ModePolicy { allow: PathSelector[]; deny: PathSelector[]; prote
 export interface EffectivePolicy { read: ModePolicy; write: ModePolicy }
 
 // The merged view per mode, for enforcement outside this process (the bash sandbox).
-export async function currentPolicy(): Promise<EffectivePolicy> {
+export async function currentPolicy(onceGrants: OnceGrant[] = []): Promise<EffectivePolicy> {
   if (state.inherited === null) throw new Error("The inherited child path policy is invalid; the sandbox cannot be configured.");
-  return { read: await modePolicy("read"), write: await modePolicy("write") };
+  return { read: await modePolicy("read", onceGrants), write: await modePolicy("write", onceGrants) };
 }
 
-const POST_FAILURE_CHOICES = [ALLOW_SESSION, ALLOW_ALWAYS, DENY_ONCE, DENY_SESSION, DENY_ALWAYS];
-
-// Used by the sandbox after a command was denied: the command already failed, so "allow once" is meaningless.
-export async function grantPathAccess(path: string, mode: AccessMode, context: ExtensionContext): Promise<"allowed" | "denied"> {
+// Used by the sandbox after a command was denied. "Allow once" records nothing: the sandbox reruns the command with the returned grant.
+export async function grantPathAccess(path: string, mode: AccessMode, context: ExtensionContext): Promise<PathAccessOutcome> {
   const resolved = await resolveThroughSymlinks(path);
   const verdict = async () => evaluate(resolved, mode, await effectiveLayers(mode));
-  const settled = (current: Verdict) => current === "prompt" ? undefined : current === "allow" ? "allowed" : "denied";
+  const settled = (current: Verdict): PathAccessOutcome | undefined =>
+    current === "prompt" ? undefined : current === "allow" ? { kind: "allowed" } : { kind: "denied" };
   const immediate = settled(await verdict());
   if (immediate) return immediate;
   return await serialize(async () => {
     const latest = settled(await verdict());
     if (latest) return latest;
     const { protected: protectedSelectors } = await effectiveLayers(mode);
-    try { await requestAccess(resolved, mode, context, protectedSelectors, POST_FAILURE_CHOICES); return "allowed"; }
-    catch { return "denied"; }
+    try {
+      const grant = await requestAccess(resolved, mode, context, protectedSelectors);
+      return grant.kind === "once" ? { kind: "allowed-once", grant: { mode, selector: grant.selector } } : { kind: "allowed" };
+    } catch {
+      return { kind: "denied" };
+    }
   });
 }
 
-async function modePolicy(mode: AccessMode): Promise<ModePolicy> {
+export interface OnceGrant { mode: AccessMode; selector: PathSelector }
+export type PathAccessOutcome = { kind: "allowed" } | { kind: "allowed-once"; grant: OnceGrant } | { kind: "denied" };
+
+async function modePolicy(mode: AccessMode, onceGrants: OnceGrant[]): Promise<ModePolicy> {
   const { defaults, always, session, protected: protectedSelectors } = await effectiveLayers(mode);
-  const explicitAllow = [...always[mode].allow, ...session[mode].allow].map(selectorFromKey);
+  const onceAllow = onceGrants.filter((grant) => grant.mode === mode).map(({ selector }) => selector);
+  const explicitAllow = [...[...always[mode].allow, ...session[mode].allow].map(selectorFromKey), ...onceAllow];
   const deny = [...always[mode].deny, ...session[mode].deny].map(selectorFromKey);
   const uncovered = protectedSelectors.filter((target) => !explicitAllow.some((grant) => covers(grant, target)));
   return { allow: [...defaults, ...explicitAllow], deny, protected: uncovered };
@@ -126,7 +133,7 @@ async function ensureAllowed(path: string, mode: AccessMode, context: ExtensionC
   await serialize(async () => { if (verdict() === "deny") throw deniedError(path, mode); if (verdict() === "allow") return; await requestAccess(path, mode, context, layers.protected); });
 }
 
-async function requestAccess(resolved: string, mode: AccessMode, context: ExtensionContext, protectedSelectors: PathSelector[] = [], choices: string[] = [ALLOW_ONCE, ALLOW_SESSION, ALLOW_ALWAYS, DENY_ONCE, DENY_SESSION, DENY_ALWAYS]): Promise<void> {
+async function requestAccess(resolved: string, mode: AccessMode, context: ExtensionContext, protectedSelectors: PathSelector[] = []): Promise<AccessGrant> {
   if (!context.hasUI) throw new Error(`${resolved} is not covered by the ${mode} path rules and there is no interactive UI to ask. Stay inside the repository.${readOnlyRepositoryNotice(mode, currentAgentMode())}`);
   // A protected path is granted as its own protected root, so approving one extension file does not open the whole repository.
   const protectedMatch = protectedSelectors.find((candidate) => matchesRule(resolved, candidate));
@@ -135,14 +142,16 @@ async function requestAccess(resolved: string, mode: AccessMode, context: Extens
   const covered = coveredProtectedSelectors(selector, protectedSelectors).filter((target) => target !== protectedMatch);
   const warning = covered.length === 0 ? "" :
     `\n  Warning: this also grants ${mode} access to protected paths:\n${covered.map((target) => `  - ${selectorLabel(target)}`).join("\n")}`;
-  const choice = await context.ui.select(`${verb} ${resolved}?\n\n  Allowing grants ${mode} access to ${label}\n  Denying blocks ${mode} access to ${label}${warning}`, choices);
-  if (choice === ALLOW_ONCE) return;
-  if (choice === ALLOW_SESSION) { await addPathRule({ mode, kind: "allow", tier: "session", selector }); return; }
-  if (choice === ALLOW_ALWAYS) { await addPathRule({ mode, kind: "allow", tier: "always", selector }); return; }
+  const choice = await context.ui.select(`${verb} ${resolved}?\n\n  Allowing grants ${mode} access to ${label}\n  Denying blocks ${mode} access to ${label}${warning}`, [ALLOW_ONCE, ALLOW_SESSION, ALLOW_ALWAYS, DENY_ONCE, DENY_SESSION, DENY_ALWAYS]);
+  if (choice === ALLOW_ONCE) return { kind: "once", selector };
+  if (choice === ALLOW_SESSION) { await addPathRule({ mode, kind: "allow", tier: "session", selector }); return { kind: "rule" }; }
+  if (choice === ALLOW_ALWAYS) { await addPathRule({ mode, kind: "allow", tier: "always", selector }); return { kind: "rule" }; }
   if (choice === DENY_SESSION) { await addPathRule({ mode, kind: "deny", tier: "session", selector }); throw deniedError(resolved, mode); }
   if (choice === DENY_ALWAYS) { await addPathRule({ mode, kind: "deny", tier: "always", selector }); throw deniedError(resolved, mode); }
   throw deniedError(resolved, mode);
 }
+
+type AccessGrant = { kind: "once"; selector: PathSelector } | { kind: "rule" };
 
 async function grantRootFor(path: string): Promise<string> { const stats = await stat(path).catch(() => undefined); return findRepoRoot(stats?.isDirectory() ? path : dirname(path)); }
 async function currentDefaults(mode: AccessMode): Promise<ReturnType<typeof defaultAllowed>> {
