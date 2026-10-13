@@ -1,14 +1,14 @@
 import { type AssistantMessage, type AssistantMessageEventStream, type Message, type Model, type SimpleStreamOptions, type Tool, type TranscriptContext, getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import * as piAi from "@earendil-works/pi-ai";
-import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, type SessionProjection } from "@earendil-works/pi-coding-agent";
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { Base64ImageSource, ContentBlockParam, MessageParam } from "@anthropic-ai/sdk/resources";
 import { PROVIDER_ID, messageContentToText } from "./convert.js";
 import { buildModels } from "./models.js";
 import { MCP_SERVER_NAME, MCP_TOOL_PREFIX } from "./skills.js";
 import { extractAllToolResults as _extractAllToolResults, type McpResult } from "./extract-tool-results.js";
-import { QueryContext, ctx, deleteQueryLane, drainPendingToolCalls, drainStrandedToolCalls, stackDepth, pushContext, summarizeDroppedUserMessages, takeQueuedOrParkedResult, toolCallDrainCause, type DeferredUserMessage, type QueryRestartRequest } from "./query-state.js";
-import { abortRebuildReason, abortSdkQuery, closeSdkQuery, teardownQuery } from "./query-teardown.js";
+import { QueryContext, ctx, deleteQueryLane, drainStrandedToolCalls, stackDepth, pushContext, summarizeDroppedUserMessages, takeQueuedOrParkedResult, toolCallDrainCause, type DeferredUserMessage, type QueryRestartRequest } from "./query-state.js";
+import { abortRebuildReason, abortSdkQuery, closeSdkQuery, interruptSdkQuery, teardownQuery } from "./query-teardown.js";
 import { abortExitGraceMs, createChildExitTracker } from "./child-exit.js";
 import { loadConfig, recordProjectTrust } from "./config.js";
 import { hasClaudeCredentials } from "./auth-presence.js";
@@ -19,7 +19,7 @@ import { conversationMessages } from "./transcript.js";
 import { debug, diagDump, makeCliDebugOptions, moduleInstanceId } from "./debug.js";
 import { preflightClaudeExecutable, resolveClaudeExecutable } from "./claude-executable.js";
 import { appendIntegrityEntry, argKeys, deleteSharedSessionLane, getExtensionApi, getSharedSession, markSessionForRebuild, recordStartedLane, reportToolResultMismatch, safeNotify, safeToolCallSummary, setExtensionApi, setPiUI, setSharedSession, takeStartedLane, type SessionState } from "./bridge-state.js";
-import { cancelScheduledSessionPersistence, conversationFingerprint, restoreSharedSessionFromPi, schedulePersistSharedSession, syncSharedSession } from "./session-persistence.js";
+import { cancelScheduledSessionPersistence, claudeSessionPairsToolCalls, conversationFingerprint, restoreSharedSessionFromPi, schedulePersistSharedSession, syncSharedSession } from "./session-persistence.js";
 import { STREAM_IDLE_BACKOFF_HINT_MS, activeStreamIdleWatchdogs, buildStreamIdleTimeoutErrorMessage, createStreamIdleWatchdog, formatDurationShort, streamIdleTimeoutMsFromEnv } from "./stream-idle-watchdog.js";
 import { RATE_LIMIT_TOKEN } from "./rate-limit.js";
 import { mapToolArgs } from "./tool-mapping.js";
@@ -29,6 +29,7 @@ import { BRIDGE_BILLING_IDENTITY, CLAUDE_BILLING_IDENTITY_SYMBOL, beginBillingId
 import { registerBridgeCommands } from "./bridge-commands.js";
 import { consumeQuery, emitRateLimitEvent, type ClaudeAttemptFailure } from "./consume-query.js";
 import { buildClaudeQueryOptions } from "./query-options.js";
+import { findTreeResumeTarget, resolveForkPoint } from "./tree-resume.js";
 import { sdkQueryFactory } from "./sdk-query.js";
 import { currentRequestLaneId, runInRequestLane } from "./request-lane.js";
 
@@ -513,6 +514,37 @@ export function onPiHistoryReplaced(event: string): void {
 	}
 }
 
+/** After /tree navigation, replace the record with the Claude transcript
+ *  position the new branch ends at, so the next turn resumes (and, when the
+ *  branch ends before the transcript's tail, forks) instead of rebuilding.
+ *  onPiHistoryReplaced has already marked the record for rebuild; every
+ *  rejection below simply leaves that in place. A running query is left to the
+ *  restart path, which rotates the session id because the killed child may
+ *  still be writing. Exported for the tree-resume unit tests. */
+export function adoptTreeResumeTarget(sessionManager: { buildSessionProjection(): SessionProjection; getCwd(): string }): void {
+	if (ctx().activeQuery !== null) return;
+	const target = findTreeResumeTarget(sessionManager.buildSessionProjection());
+	if (typeof target === "string") {
+		debug(`tree-resume: rebuilding instead (${target})`);
+		return;
+	}
+	const cwd = getSharedSession()?.cwd ?? sessionManager.getCwd();
+	const forkPoint = resolveForkPoint(target, cwd, process.env.CLAUDE_CONFIG_DIR);
+	if (typeof forkPoint === "string") {
+		debug(`tree-resume: rebuilding instead (${forkPoint})`);
+		return;
+	}
+	const fingerprint = conversationFingerprint(target.conversation);
+	setSharedSession({
+		sessionId: target.sessionId,
+		cursor: target.conversation.length,
+		cwd,
+		...(fingerprint ? { conversationFingerprint: fingerprint } : {}),
+		...(forkPoint.isTail ? {} : { forkAt: forkPoint.uuid }),
+	});
+	debug(`tree-resume: session ${target.sessionId.slice(0, 8)} ${forkPoint.isTail ? "resumes at its tail" : `forks at ${forkPoint.uuid.slice(0, 8)}`}, cursor=${target.conversation.length}`);
+}
+
 /** Provider entry point. Pi calls this for each prompt and each tool result.
  *  Two cases: tool result delivery (active query) or fresh query. Exported for
  *  the rotation-stream unit tests, which drive it with a fake SDK factory. */
@@ -592,6 +624,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 		}
 		queryCtx.currentPiStream = stream;
 		queryCtx.resetTurnState(model);
+		queryCtx.latestConversationFingerprint = conversationFingerprint(conversation);
 		// A fresh callback separates handlers registered for settled turns from
 		// ones racing this callback's own stream — the stranded drain below only
 		// ever touches the former.
@@ -796,6 +829,8 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 	ctx().resetTurnState(model);
 	ctx().resetToolTracking();
 	ctx().latestCursor = 0;
+	ctx().claudeSessionId = undefined;
+	ctx().latestConversationFingerprint = undefined;
 	ctx().committedOutput = false;
 	// This query is built from the context Pi holds now; only a replacement that
 	// arrives while it runs makes it stale.
@@ -826,7 +861,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 	const syncResult = isReentrant
 		? { sessionId: null, promptStart: conversation.length - 1 }
 		: syncSharedSession(conversation, cwd, customToolNameToSdk, model.id);
-	const { sessionId: resumeSessionId, promptStart } = syncResult;
+	const { sessionId: resumeSessionId, promptStart, forkAt } = syncResult;
 	// A FOREIGN-conversation query (conversation-fingerprint mismatch against
 	// the shared record — a subagent-shaped request arriving while the parent
 	// is IDLE,) also runs as a clean one-shot and gets the same
@@ -839,7 +874,9 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 	if (foreignContext) ctx().detachedFromSharedSession = true;
 	// Identity anchor stamped onto every record this outermost query persists,
 	// so the record created by a Case-1 clean start is protected from the very
-	// next idle-window foreign query.
+	// next idle-window foreign query. The prompt's anchor is the fallback: once
+	// a tool-result callback has shown this query the first assistant message,
+	// persistSession stamps that context's anchor instead.
 	const conversationFp = isReentrant || foreignContext ? undefined : conversationFingerprint(conversation);
 	const promptMessages = conversation.slice(promptStart);
 	const promptBlocks = extractUserPromptBlocks(promptMessages);
@@ -884,6 +921,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 		tools: mcpTools,
 		reasoning: options?.reasoning,
 		resumeSessionId,
+		forkAt,
 		mcpServers,
 		claudeExecutable,
 		spawnClaudeCodeProcess: childExits.spawn,
@@ -892,7 +930,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 
 	debug("provider: fresh query",
 		`model=${model.id} msgs=${conversation.length} tools=${mcpTools.length}`,
-		`resume=${resumeSessionId?.slice(0, 8) ?? "none"} effort=${built.effort ?? "default"}`,
+		`resume=${resumeSessionId?.slice(0, 8) ?? "none"} fork=${forkAt?.slice(0, 8) ?? "none"} effort=${built.effort ?? "default"}`,
 		`fallback=${built.fallbackModel ?? "none"}`,
 		`sysPrompt=${built.systemPromptMode} appendSys=${built.appendSystemPrompt} promptCtx=${built.promptContextLabels.join(",") || "none"} strictMcp=true fastMode=${providerSettings.fastMode === true}`,
 		`claudeExec=${claudeExecutablePreflight ? `${claudeExecutablePreflight.fileType}:${claudeExecutablePreflight.path}` : "sdk-default"}`,
@@ -929,7 +967,8 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 		const replaced = next && (abortCtx.piHistoryReplaced || restartPending)
 			? { ...next, needsRebuild: true, rebuildReason: "pi replaced the history while the query ran", ...(restartPending ? { forceRotate: true } : {}) }
 			: next;
-		setSharedSession(replaced && conversationFp ? { conversationFingerprint: conversationFp, ...replaced } : replaced);
+		const conversationAnchor = conversationFp === undefined ? undefined : abortCtx.latestConversationFingerprint ?? conversationFp;
+		setSharedSession(replaced && conversationAnchor ? { conversationFingerprint: conversationAnchor, ...replaced } : replaced);
 	};
 	const markRebuildForThisQuery = (reason: string, opts: { forceRotate?: boolean } = {}): void => {
 		if (isReentrant || foreignContext) return;
@@ -998,24 +1037,39 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 		activeStreamIdleWatchdogs.set(abortCtx, streamIdleWatchdog);
 		streamIdleWatchdog.refresh();
 	}
-	// Runs in the ABORTER's async context (AbortSignal listeners do not inherit
-	// AsyncLocalStorage), so re-enter this request's lane explicitly: the
-	// mismatch report marks the shared record of whatever lane is current.
-	const onAbort = () => runInRequestLane(laneId, () => {
+	let interruptIgnored = false;
+	const noteAbort = (): void => {
 		wasAborted = true;
 		// Prevent stale deferred messages from being replayed by parent on pop
 		abortDroppedSteerCount += dropDeferredUserMessages("abort").length;
 		// Rotation is decided in settleAbortedQuery once the child's exit is known;
-		// this report only records whether a tool call was in flight.
+		// this report only records whether a tool call was in flight. Waiting MCP
+		// handlers are NOT drained here: the CLI cancels them itself and records a
+		// rejected result for each; teardownQuery drains them once it is gone.
 		reportToolResultMismatch(abortCtx, "abort", cwd, { expectedInterruption: true });
-		const drained = drainPendingToolCalls(abortCtx, "abort");
-		if (drained > 0) debug(`provider: abort drained ${drained} waiting MCP handler(s) as errors`);
 		abortCtx.pendingResults.clear();
-		abortSdkQuery(sdkQuery);
+	};
+	// Runs in the ABORTER's async context (AbortSignal listeners do not inherit
+	// AsyncLocalStorage), so re-enter this request's lane explicitly: the
+	// mismatch report marks the shared record of whatever lane is current.
+	const onAbort = () => runInRequestLane(laneId, () => {
+		noteAbort();
+		interruptSdkQuery(sdkQuery);
+		void childExits.awaitExit(abortExitGraceMs).then((outcome) => {
+			if (outcome !== "still-running") return;
+			interruptIgnored = true;
+			debug("provider: abort: Claude Code ignored the interrupt; killing it");
+			closeSdkQuery(sdkQuery);
+		});
 	});
 	if (options?.signal) {
-		if (options.signal.aborted) onAbort();
-		else options.signal.addEventListener("abort", onAbort, { once: true });
+		if (options.signal.aborted) {
+			// No child to interrupt yet: kill the query outright, as before.
+			noteAbort();
+			abortSdkQuery(sdkQuery);
+		} else {
+			options.signal.addEventListener("abort", onAbort, { once: true });
+		}
 	}
 
 	const surfaceFailure = (failure: ClaudeAttemptFailure, aborted = false): void => {
@@ -1028,23 +1082,33 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 		abortCtx.currentPiStream = null;
 	};
 
-	// Both abort endings land here: the generator finishing after close(), or
-	// throwing out of the killed child. The child is waited for first. Once it
-	// has exited nothing can race a write into its JSONL, so a turn interrupted
-	// with no tool call in flight and no queued input dropped keeps its record
-	// exactly like a completed query would: the next turn resumes the same
-	// Claude session, as Claude Code itself does after Esc, and the prompt
-	// cache stays warm. Anything else rebuilds, and only an unconfirmed exit
-	// still rotates the session id. Pi keeps consuming our stream until it
-	// ends, so waiting here cannot overlap with the next prompt.
+	// Both abort endings land here: the generator finishing, or throwing the
+	// error result of the interrupted turn. After an interrupt the child exits by
+	// itself, and the bridge waits for that first. Once it has exited nothing can
+	// race a write into its JSONL, so a turn whose child exited, whose interrupt
+	// was honoured, whose transcript pairs every tool call and which dropped no
+	// queued input keeps its record exactly like a completed query would: the
+	// next turn resumes the same Claude session, as Claude Code itself does after
+	// Esc, and the prompt cache stays warm. Anything else rebuilds, and only an
+	// unconfirmed exit still rotates the session id. Pi keeps consuming our
+	// stream until it ends, so waiting here cannot overlap with the next prompt.
 	const settleAbortedQuery = async (capturedSessionId: string | undefined, dropSite: string): Promise<void> => {
 		const childExit = await childExits.awaitExit(abortExitGraceMs);
 		const droppedQueuedUserMessages = abortDroppedSteerCount + dropDeferredUserMessages(dropSite).length;
 		const activeSession = getSharedSession();
-		const sessionId = capturedSessionId ?? activeSession?.sessionId;
+		const sessionId = capturedSessionId ?? abortCtx.claudeSessionId ?? activeSession?.sessionId;
+		const toolCallInFlight = abortCtx.reportedToolResultMismatch;
+		const transcriptPairsToolCalls = toolCallInFlight && childExit === "exited" && sessionId !== undefined
+			&& claudeSessionPairsToolCalls(sessionId, cwd, process.env.CLAUDE_CONFIG_DIR);
+		if (capturedSessionId === undefined && abortCtx.claudeSessionId === undefined && activeSession?.forkAt) {
+			markRebuildForThisQuery("aborted before the tree-navigation fork started");
+			return;
+		}
 		const reason = abortRebuildReason({
 			childExit,
-			toolCallInFlight: abortCtx.reportedToolResultMismatch,
+			interruptIgnored,
+			toolCallInFlight,
+			transcriptPairsToolCalls,
 			droppedQueuedUserMessages,
 			hasSessionId: sessionId !== undefined,
 		});
@@ -1054,8 +1118,12 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 			return;
 		}
 		const cursor = Math.max(conversation.length, abortCtx.latestCursor, activeSession?.cursor ?? 0);
-		debug(`provider: abort settled cleanly, keeping session=${sessionId!.slice(0, 8)} for resume, cursor=${cursor}`);
-		persistSession({ sessionId: sessionId!, cursor, cwd });
+		// Every call handed to Pi during this query has a result in the Claude
+		// transcript: delivered normally, or recorded as rejected by the interrupt.
+		// The next turn's REUSE plan skips Pi's own results for these ids.
+		const interruptedToolCallIds = [...abortCtx.forwardedToolCallIds];
+		debug(`provider: abort settled cleanly, keeping session=${sessionId!.slice(0, 8)} for resume, cursor=${cursor}, interruptedToolCalls=${interruptedToolCallIds.length}`);
+		persistSession({ sessionId: sessionId!, cursor, cwd, ...(interruptedToolCallIds.length > 0 ? { interruptedToolCallIds } : {}) });
 	};
 
 	// Background consumer runs until the SDK query ends.
@@ -1111,6 +1179,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 						cursor,
 						cwd,
 						...(droppedSteers.length > 0 ? { needsRebuild: true, rebuildReason: `${droppedSteers.length} queued user message(s) dropped at a terminal failure` } : {}),
+						...(capturedSessionId === undefined && activeSession?.forkAt ? { needsRebuild: true, rebuildReason: "the tree-navigation fork never started" } : {}),
 					});
 				}
 				return;
@@ -1125,7 +1194,12 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 				// Fresh record on purpose: a transient mid-turn needsRebuild/forceRotate
 				// must not survive a completed query and force a rebuild next turn.
 				// persistSession re-adds what a pi history replacement requires.
-				persistSession({ sessionId, cursor, cwd });
+				persistSession({
+					sessionId,
+					cursor,
+					cwd,
+					...(capturedSessionId === undefined && activeSession?.forkAt ? { needsRebuild: true, rebuildReason: "the tree-navigation fork never started" } : {}),
+				});
 			}
 
 			// --- Replay deferred user messages as continuation queries ---
@@ -1150,7 +1224,8 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 						break;
 					}
 
-					const contOptions = { ...queryOptions, resume: resumeId, ...makeCliDebugOptions("continuation") };
+					const { resumeSessionAt: _resumeSessionAt, forkSession: _forkSession, ...continuationBase } = queryOptions;
+					const contOptions = { ...continuationBase, resume: resumeId, ...makeCliDebugOptions("continuation") };
 					// Runs carrying image blocks replay as blocks (wrapPromptStream) so
 					// the images survive; text-only runs stay plain strings.
 					const contQuery = sdkQueryFactory({ prompt: steer.blocks ? wrapPromptStream(steer.blocks) : steer.text, options: contOptions });
@@ -1203,7 +1278,9 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 				abortCtx.activeQuery = sdkQuery;
 			}
 
-			finalizeCurrentStream(abortCtx.turnOutput?.stopReason, abortCtx);
+			const anchorSessionId = capturedSessionId ?? abortCtx.claudeSessionId;
+			const anchor = anchorSessionId && abortCtx.currentMessageId ? { sessionId: anchorSessionId, messageId: abortCtx.currentMessageId } : undefined;
+			finalizeCurrentStream(abortCtx.turnOutput?.stopReason, abortCtx, anchor);
 		})
 		.catch(async (error) => {
 			debug(`provider: query error, model=${model.id}, aborted=${Boolean(options?.signal?.aborted)}, error=`, error);
@@ -1214,15 +1291,11 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 			}
 			const suppressDuplicateError = abortCtx.handledTerminalError || streamIdleTimedOut;
 			if (wasAborted || options?.signal?.aborted) {
-				// The generator threw because the child was killed; capturedSessionId is
-				// unknown here, so the record's own id stands in (a resumed query runs
-				// in exactly that session).
-				await settleAbortedQuery(undefined, "query-error");
+				// The interrupted turn ends with an error result the SDK throws on;
+				// consumeQuery's return value is lost, so the id comes from the context.
+				await settleAbortedQuery(abortCtx.claudeSessionId, "query-error");
 				if (suppressDuplicateError) return;
-				surfaceFailure({
-					kind: classifyClaudeFailure(error),
-					message: error instanceof Error ? error.message : String(error),
-				}, true);
+				surfaceFailure({ message: "Operation aborted" }, true);
 				return;
 			}
 			// A record kept past this error with steers behind its cursor must
@@ -1380,7 +1453,10 @@ export default function (pi: ExtensionAPI) {
 	// Both events replace pi's messages array out from under the bridge; see
 	// onPiHistoryReplaced for what that forces.
 	pi.on("session_compact", (_event, ctx) => runInRequestLane(ctx.sessionManager.getSessionId(), () => onPiHistoryReplaced("session_compact")));
-	pi.on("session_tree", (_event, ctx) => runInRequestLane(ctx.sessionManager.getSessionId(), () => onPiHistoryReplaced("session_tree")));
+	pi.on("session_tree", (_event, ctx) => runInRequestLane(ctx.sessionManager.getSessionId(), () => {
+		onPiHistoryReplaced("session_tree");
+		adoptTreeResumeTarget(ctx.sessionManager);
+	}));
 
 	// --- Provider ---
 	//

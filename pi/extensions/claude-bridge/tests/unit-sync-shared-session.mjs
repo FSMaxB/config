@@ -79,6 +79,55 @@ describe("syncSharedSession REUSE path", () => {
 	});
 });
 
+describe("syncSharedSession REUSE with a fork point", () => {
+	it("hands the record's forkAt to the query", () => {
+		// arrange
+		setSharedSession({ sessionId: "sess-fork", cursor: 2, cwd: CWD, forkAt: "uuid-fork" });
+		const messages = [user("u1"), assistantText("a1"), user("u2")];
+		// act
+		const result = syncSharedSession(messages, CWD);
+		// assert
+		assert.deepEqual({ sessionId: result.sessionId, forkAt: result.forkAt, promptStart: result.promptStart }, { sessionId: "sess-fork", forkAt: "uuid-fork", promptStart: 2 });
+	});
+
+	it("returns no forkAt for a record without one", () => {
+		// arrange
+		setSharedSession({ sessionId: "sess-plain", cursor: 2, cwd: CWD });
+		// act
+		const result = syncSharedSession([user("u1"), assistantText("a1"), user("u2")], CWD);
+		// assert
+		assert.equal(result.forkAt, undefined);
+	});
+
+	it("keeps resuming at the fork point when the request shows a request-local opener", () => {
+		// arrange
+		const branch = [user("u1"), assistantText("a1")];
+		setSharedSession({ sessionId: "sess-fork", cursor: 2, cwd: CWD, conversationFingerprint: conversationFingerprint(branch), forkAt: "uuid-fork" });
+		const messages = [user("bootstrap opener"), user("u1"), assistantText("a1"), user("u2")];
+		// act
+		const result = syncSharedSession(messages, CWD);
+		// assert
+		assert.deepEqual({ sessionId: result.sessionId, forkAt: result.forkAt, prompt: promptContents(messages, result.promptStart) }, { sessionId: "sess-fork", forkAt: "uuid-fork", prompt: ["u2"] });
+	});
+});
+
+describe("syncSharedSession REUSE after an interrupted tool call", () => {
+	it("resumes across Pi's results for the interrupted calls and consumes the ids", () => {
+		// arrange
+		setSharedSession({ sessionId: "s1", cursor: 1, cwd: CWD, interruptedToolCallIds: ["call-1"] });
+		const aborted = { role: "toolResult", toolCallId: "call-1", content: "Operation aborted", isError: true };
+		const messages = [user("hello"), assistant(), aborted, user("next")];
+
+		// act
+		const result = syncSharedSession(messages, CWD);
+
+		// assert
+		assert.equal(result.sessionId, "s1");
+		assert.equal(result.promptStart, 3);
+		assert.equal(__testGetBridgeIntegrityState().sharedSession.interruptedToolCallIds, undefined);
+	});
+});
+
 describe("syncSharedSession clean start", () => {
 	it("returns no resume id and prompts the sole user message", () => {
 		const messages = [user("hello")];
@@ -136,6 +185,33 @@ describe("syncSharedSession foreign-conversation guard (#1001)", () => {
 		assert.equal(result.sessionId, null);
 		assert.equal(result.foreignContext, true);
 		assert.deepEqual(__testGetBridgeIntegrityState().sharedSession, record);
+	});
+
+	it("REUSEs the conversation's own next turn after an abort when a request-local opener vanished", () => {
+		// arrange
+		// A context handler prepended a message on turn one only (superpowers'
+		// bootstrap), so the record stamped then anchors on text later turns
+		// never carry. An interrupt-kept record has priors === cursor, exactly
+		// the shape the guard reads as a foreign tail; the first assistant
+		// message, which Pi persisted, must identify the conversation instead.
+		const answer = assistantText("first answer");
+		const record = {
+			sessionId: "sess-parent",
+			cursor: 2,
+			cwd: CWD,
+			conversationFingerprint: conversationFingerprint([user("request-local bootstrap"), user("opener"), answer]),
+		};
+		setSharedSession({ ...record });
+		const messages = [user("opener"), answer, user("next turn")];
+
+		// act
+		const result = syncSharedSession(messages, CWD);
+
+		// assert
+		assert.equal(result.sessionId, "sess-parent");
+		assert.equal(result.foreignContext, undefined);
+		assert.equal(result.promptStart, 2);
+		assert.equal(__testGetBridgeIntegrityState().sharedSession.cursor, 2);
 	});
 
 	it("keeps REUSE identical for a matching fingerprint", () => {

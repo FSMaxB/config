@@ -48,6 +48,78 @@ afterEach(() => {
 });
 
 describe("ordinary provider stream", () => {
+	it("resumes at the record's forkAt and persists the forked session without it", async () => {
+		// arrange
+		let queryOptions;
+		runInRequestLane("fork-resume", () => __testSetBridgeIntegrityState({ sharedSession: forkRecord() }));
+		__testSetSdkQueryFactory((input) => {
+			queryOptions = input.options;
+			return query([
+				{ type: "system", subtype: "init", session_id: "sess-forked" },
+				{ type: "result", subtype: "success", result: "ok" },
+			]);
+		});
+		// act
+		await collect(streamNormalized(model, forkContext, { sessionId: "fork-resume" }));
+		// assert
+		assert.equal(queryOptions.resume, "sess-fork");
+		assert.equal(queryOptions.resumeSessionAt, "uuid-fork");
+		assert.equal(queryOptions.forkSession, true);
+		const { sessionId, cursor, cwd, forkAt } = sessionFor("fork-resume");
+		assert.deepEqual({ sessionId, cursor, cwd, forkAt }, { sessionId: "sess-forked", cursor: 3, cwd: process.cwd(), forkAt: undefined });
+	});
+
+	it("keeps the fork options off deferred-input continuations", async () => {
+		// arrange
+		const options = [];
+		runInRequestLane("fork-continuation", () => __testSetBridgeIntegrityState({ sharedSession: forkRecord() }));
+		__testSetSdkQueryFactory((input) => {
+			options.push(input.options);
+			if (options.length > 1) return query([{ type: "result", subtype: "success", result: "second" }]);
+			return {
+				async *[Symbol.asyncIterator]() {
+					ctx().deferredUserMessages.push({ text: "later" });
+					yield { type: "system", subtype: "init", session_id: "sess-forked" };
+					yield { type: "result", subtype: "success", result: "first" };
+				}, close() {}, async interrupt() {}, async accountInfo() { return {}; },
+			};
+		});
+		// act
+		await collect(streamNormalized(model, forkContext, { sessionId: "fork-continuation" }));
+		// assert
+		assert.equal(options.length, 2);
+		assert.equal(options[0].resumeSessionAt, "uuid-fork");
+		assert.equal(options[1].resume, "sess-forked");
+		assert.equal(options[1].resumeSessionAt, undefined);
+		assert.equal(options[1].forkSession, undefined);
+	});
+
+	it("rebuilds instead of resuming untruncated when the fork never reported a session id", async () => {
+		// arrange
+		runInRequestLane("fork-never-started", () => __testSetBridgeIntegrityState({ sharedSession: forkRecord() }));
+		__testSetSdkQueryFactory(() => query([{ type: "result", subtype: "error_during_execution", errors: ["boom"] }]));
+		// act
+		await collect(streamNormalized(model, forkContext, { sessionId: "fork-never-started" }));
+		// assert
+		assert.equal(sessionFor("fork-never-started")?.needsRebuild, true);
+	});
+
+	it("stamps the finished assistant message with its Claude session and message id", async () => {
+		// arrange
+		__testSetSdkQueryFactory(() => query([
+			{ type: "system", subtype: "init", session_id: "session-stamp" },
+			{ type: "stream_event", event: { type: "message_start", message: { id: "msg_stamp", model: model.id, usage: { input_tokens: 1 } } } },
+			{ type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } } },
+			{ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "hi" } } },
+			{ type: "result", subtype: "success", result: "hi" },
+		]));
+		// act
+		const events = await collect(streamNormalized(model, context, { sessionId: "stamp" }));
+		// assert
+		const done = events.find((event) => event.type === "done");
+		assert.deepEqual(done.message.claudeBridge, { sessionId: "session-stamp", messageId: "msg_stamp" });
+	});
+
 	it("keeps a successful fallback after a rejected rate limit", async () => {
 		// arrange
 		let calls = 0;
@@ -274,6 +346,12 @@ describe("ordinary provider stream", () => {
 	});
 });
 
+const forkContext = { messages: [
+	{ role: "user", content: "u1", timestamp: 1 },
+	{ role: "assistant", content: [{ type: "text", text: "a1" }], timestamp: 2 },
+	{ role: "user", content: "u2", timestamp: 3 },
+] };
+function forkRecord() { return { sessionId: "sess-fork", cursor: 2, cwd: process.cwd(), forkAt: "uuid-fork" }; }
 function query(messages) { return fakeSdkQuery(messages, "ordinary", { usageProbes: [] }); }
 function streamedText(text) {
 	return [
