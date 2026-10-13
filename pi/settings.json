@@ -9,8 +9,7 @@
     "+codemode"
   ],
   "packages": [
-    "npm:pi-web-access",
-    "npm:@firstpick/pi-themes-bundle"
+    "npm:pi-web-access"
   ],
   "compaction": {
     "enabled": false
