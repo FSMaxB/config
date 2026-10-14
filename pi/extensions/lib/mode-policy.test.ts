@@ -23,7 +23,7 @@ test("a requested mode starts and is recorded when the branch says otherwise", (
   ];
 
   // act
-  const results = cases.map(({ restored }) => startupMode(restored, [AgentMode.Planning]));
+  const results = cases.map(({ restored }) => startupMode(restored, [AgentMode.Planning], []));
 
   // assert
   assert.deepEqual(results, cases.map(({ expected }) => expected));
@@ -39,7 +39,7 @@ test("without a startup request the branch keeps its recorded mode, defaulting t
   ];
 
   // act
-  const results = cases.map(({ restored }) => startupMode(restored, []));
+  const results = cases.map(({ restored }) => startupMode(restored, [], []));
 
   // assert
   assert.deepEqual(results, cases.map(({ expected }) => expected));
@@ -50,12 +50,35 @@ test("the explore flag overrides a recorded plan mode, and plan wins when both f
   const restored = { mode: AgentMode.Planning, recorded: true };
 
   // act
-  const explore = startupMode(restored, [AgentMode.Exploring]);
-  const both = startupMode({ mode: AgentMode.Execution, recorded: true }, [AgentMode.Planning, AgentMode.Exploring]);
+  const explore = startupMode(restored, [AgentMode.Exploring], []);
+  const both = startupMode({ mode: AgentMode.Execution, recorded: true }, [AgentMode.Planning, AgentMode.Exploring], []);
 
   // assert
   assert.deepEqual(explore, { mode: AgentMode.Exploring, recording: StateRecording.Record });
   assert.deepEqual(both, { mode: AgentMode.Planning, recording: StateRecording.Record });
+});
+
+test("a default mode starts only on a branch that records no mode yet", () => {
+  // arrange
+  const cases = [
+    { restored: { mode: AgentMode.Execution, recorded: false }, expected: { mode: AgentMode.Exploring, recording: StateRecording.Record } },
+    { restored: { mode: AgentMode.Execution, recorded: true }, expected: { mode: AgentMode.Execution, recording: StateRecording.Keep } },
+    { restored: { mode: AgentMode.Planning, recorded: true }, expected: { mode: AgentMode.Planning, recording: StateRecording.Keep } },
+  ];
+
+  // act
+  const results = cases.map(({ restored }) => startupMode(restored, [], [AgentMode.Exploring]));
+
+  // assert
+  assert.deepEqual(results, cases.map(({ expected }) => expected));
+});
+
+test("a startup flag beats a default", () => {
+  // act
+  const result = startupMode({ mode: AgentMode.Execution, recorded: false }, [AgentMode.Planning], [AgentMode.Exploring]);
+
+  // assert
+  assert.deepEqual(result, { mode: AgentMode.Planning, recording: StateRecording.Record });
 });
 
 test("outside the restricted modes every tool runs, denied ones included", () => {
