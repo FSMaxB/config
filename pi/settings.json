@@ -32,5 +32,8 @@
   "steeringMode": "all",
   "iHaveAdhd": {
     "alwaysOn": true
+  },
+  "exploreMode": {
+    "alwaysOn": true
   }
 }
