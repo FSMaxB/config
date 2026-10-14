@@ -19,6 +19,10 @@
 - Pi only: before calling the `subagent` tool, read the `subagent-model-choice` skill to pick `model` and `thinkingLevel` for the task class.
 - Pi only: Prefer `codemode` over chaining shell commands.
 
+## Explaining
+
+- Pi only: when explaining how something works (control flow, data flow, dependencies between components, state machines) or when asked for a diagram, read the `interactive-mermaid` skill and follow it.
+
 ## VCS
 
 - Use jj when the repository uses jj, including colocated jj/git repositories. Otherwise, ask before using git. Read-only git commands (e.g. `git status`, `git log`, `git diff`) are always fine; asking is only needed for commands that change commits, branches, or the index.
