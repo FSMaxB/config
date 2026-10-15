@@ -46,6 +46,10 @@ Sandbox limitations (each a candidate for `unsandboxed: true`): programs that ig
 
 `pi/skills/` is symlinked to `~/.pi/agent/skills`, pi's global skill root. Each skill is `pi/skills/<name>/SKILL.md`. Skills meant for Claude Code as well go in `<name>-skill/` at the top level and are linked into `~/.claude/skills/` instead (see `tuicr-skill`).
 
+## pi themes
+
+`pi/themes/` is symlinked to `~/.pi/agent/themes`, pi's global theme directory; pi loads every `*.json` there, and the active theme hot-reloads from it. `gruvbox-dark.json` (the `theme` in `settings.json`) is inlined from the MIT-licensed `@firstpick/pi-themes-bundle`; `pi/themes/README.md` lists the source and the differences, and `LICENSE` carries the upstream copyright. Validate theme files against `schemas/theme.schema.json` of the installed pi package.
+
 ## pi packages
 
 `pi/npm/` holds `package.json` and `package-lock.json` for the npm packages in `settings.json`. `install.sh` symlinks both into `~/.pi/agent/npm` (pi's npm install root, whose own `.gitignore` ignores everything else) and runs `npm ci` there when `node_modules` is missing. `pi update --extensions` runs `npm install <name>@latest` there, which rewrites the repo files through the symlinks (npm writes through them, verified), so review and commit the diff after each update. Git packages have no lockfile: their commit is only recorded in the checkout under `~/.pi/agent/git/`.
