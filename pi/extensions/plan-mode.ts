@@ -18,10 +18,10 @@ import { registerPlanSubmission, type PlanSubmissionOutcome, type PlanSubmission
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 import { registerRestrictedMode } from "./lib/restricted-mode.ts";
 import { selectWithDefault } from "./lib/select-with-default.ts";
+import { PLAN_HANDOFF_ENTRY_TYPE } from "./lib/plan-handoff.ts";
 import { latestCustomData } from "./lib/session-entries.ts";
 
 const FRESH_HANDOFF_ARGUMENT = "fresh-handoff";
-const PLAN_HANDOFF_ENTRY_TYPE = "plan-handoff";
 
 export default function (pi: ExtensionAPI) {
   let pendingFreshHandoff: PlanHandoff | undefined;

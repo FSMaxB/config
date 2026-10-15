@@ -1,5 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MODE_IDENTITIES } from "./lib/agent-mode.ts";
+import { isExploreAlwaysOn } from "./lib/explore-settings.ts";
+import { isPlanHandoffSession } from "./lib/plan-handoff.ts";
 import { registerRestrictedMode } from "./lib/restricted-mode.ts";
 
 // Explore mode is plan mode without the planning workflow: read-only by default, its own grant
@@ -8,6 +10,10 @@ export default function (pi: ExtensionAPI) {
   const explore = registerRestrictedMode(pi, {
     identity: MODE_IDENTITIES.exploring,
     requestedAtStartup: () => true,
+    // Sessions without a UI (subagent children, print mode) could not approve a gated tool, and a
+    // fresh plan-handoff session exists to implement the approved plan.
+    defaultAtStartup: (_event, context) =>
+      context.hasUI && isExploreAlwaysOn(pi.getSettings()) && !isPlanHandoffSession(context.sessionManager),
   });
 
   pi.registerFlag("explore", {

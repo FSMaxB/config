@@ -7,20 +7,25 @@ import type { ToolPermission } from "./tool-permission-policy.ts";
 export const StateRecording = { Keep: "keep", Record: "record" } as const;
 export type StateRecording = (typeof StateRecording)[keyof typeof StateRecording];
 
-// requested holds the modes whose startup flag applies to this session. Planning wins over
-// exploring when both are requested. Subagents read the recorded state, so a mode the branch
-// does not record yet is recorded.
+// requested holds the modes whose startup flag applies to this session; defaulted the modes the
+// settings start in. Flags override the recorded mode, while a default only fills a branch that
+// records no mode yet, so resuming keeps where the session left off. Planning wins over exploring
+// at each level. Subagents read the recorded state, so a mode the branch does not record yet is recorded.
 export function startupMode(
   restored: { mode: AgentMode; recorded: boolean },
   requested: readonly RestrictedMode[],
+  defaulted: readonly RestrictedMode[],
 ): { mode: AgentMode; recording: StateRecording } {
-  const mode = requested.includes(AgentMode.Planning)
-    ? AgentMode.Planning
-    : requested.includes(AgentMode.Exploring)
-      ? AgentMode.Exploring
-      : restored.mode;
+  const mode =
+    preferredMode(requested) ?? (restored.recorded ? restored.mode : (preferredMode(defaulted) ?? restored.mode));
   const recording = restored.recorded && mode === restored.mode ? StateRecording.Keep : StateRecording.Record;
   return { mode, recording };
+}
+
+function preferredMode(modes: readonly RestrictedMode[]): RestrictedMode | undefined {
+  if (modes.includes(AgentMode.Planning)) return AgentMode.Planning;
+  if (modes.includes(AgentMode.Exploring)) return AgentMode.Exploring;
+  return undefined;
 }
 
 export const Timing = { Immediate: "immediate", Deferred: "deferred" } as const;

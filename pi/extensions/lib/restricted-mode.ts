@@ -50,6 +50,8 @@ export interface ModeDefinition {
   // Whether the mode's startup flag counts on this session_start; plan mode ignores its flag
   // in a fresh handoff session.
   requestedAtStartup(event: { reason: string }, context: ExtensionContext): boolean;
+  // Whether the settings start this mode in a session whose branch records no mode yet.
+  defaultAtStartup?(event: { reason: string }, context: ExtensionContext): boolean;
 }
 
 export interface RestrictedModeHandle {
@@ -243,10 +245,13 @@ class Engine {
       const requested = [...this.registered.values()]
         .filter(({ pi: owner, definition }) => owner.getFlag(definition.identity.command) === true && definition.requestedAtStartup(event, context))
         .map(({ definition }) => definition.identity.mode);
+      const defaulted = [...this.registered.values()]
+        .filter(({ definition }) => definition.defaultAtStartup?.(event, context) === true)
+        .map(({ definition }) => definition.identity.mode);
       if (requested.length > 1) {
         context.ui.notify("Both --plan and --explore were given; starting in plan mode.", "warning");
       }
-      const { mode, recording } = startupMode(restored, requested);
+      const { mode, recording } = startupMode(restored, requested, defaulted);
       this.mode = mode;
       if (recording === StateRecording.Record) for (const restricted of RESTRICTED_MODES) this.persist(restricted);
       this.applyRestoredState(context);
