@@ -76,7 +76,7 @@ function assistantProvenancePrefix(msg: PiMessage): string | undefined {
 	const model = typeof (msg as any).model === "string" ? (msg as any).model : undefined;
 	const api = typeof (msg as any).api === "string" ? (msg as any).api : undefined;
 	if (!provider && !model && !api) return undefined;
-	if (provider === PROVIDER_ID || api === "anthropic") return undefined;
+	if (provider === PROVIDER_ID || isAnthropicApi(api)) return undefined;
 	return `[Prior Pi assistant response from ${provider ?? api ?? "unknown-provider"}${model ? `/${model}` : ""}]\n`;
 }
 
@@ -146,7 +146,7 @@ export function convertPiMessages(
 					blocks.push({ type: "text", text: block.text });
 				} else if (block.type === "thinking") {
 					const sig = block.thinkingSignature;
-					const isAnthropicProvider = msg.provider === PROVIDER_ID || msg.api === "anthropic";
+					const isAnthropicProvider = msg.provider === PROVIDER_ID || isAnthropicApi(msg.api);
 					if (isAnthropicProvider && sig) {
 						blocks.push({ type: "thinking", thinking: block.thinking ?? "", signature: sig });
 					}
@@ -193,4 +193,9 @@ export function convertPiMessages(
 	}
 
 	return { anthropicMessages, sanitizedIds };
+}
+
+/** Pi's native Anthropic provider uses "anthropic-messages". */
+function isAnthropicApi(api: string | undefined): boolean {
+	return api === "anthropic" || api === "anthropic-messages";
 }
