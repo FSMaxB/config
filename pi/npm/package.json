@@ -2,6 +2,6 @@
   "name": "pi-extensions",
   "private": true,
   "dependencies": {
-    "pi-web-access": "^0.41.0"
+    "pi-web-access": "^0.42.0"
   }
 }
