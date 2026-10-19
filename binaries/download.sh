@@ -2,7 +2,7 @@
 
 set -euxo pipefail
 
-STARSHIP_VERSION="1.26.0"
+STARSHIP_VERSION="1.27.0"
 STARSHIP_BASE_URL="https://github.com/starship/starship/releases/download/v${STARSHIP_VERSION}"
 
 ZELLIJ_VERSION="0.45.1"
@@ -21,10 +21,10 @@ TUICR_VERSION="0.27.0"
 TUICR_BASE_URL="https://github.com/agavra/tuicr/releases/download/v${TUICR_VERSION}"
 TUICR_RAW_URL="https://raw.githubusercontent.com/agavra/tuicr/v${TUICR_VERSION}/skills/tuicr"
 
-CRIT_VERSION="0.22.0"
+CRIT_VERSION="0.23.0"
 CRIT_BASE_URL="https://github.com/tomasz-tomczyk/crit/releases/download/v${CRIT_VERSION}"
 
-RTK_VERSION="0.51.0"
+RTK_VERSION="1.0.1"
 RTK_BASE_URL="https://github.com/rtk-ai/rtk/releases/download/v${RTK_VERSION}"
 
 FZF_VERSION="0.74.5"
