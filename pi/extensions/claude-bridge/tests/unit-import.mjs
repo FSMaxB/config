@@ -63,6 +63,7 @@ describe("thinking block filtering", () => {
 			{ name: "other provider", content: [{ type: "thinking", thinking: "let me think..." }, { type: "text", text: "answer" }], expected: [{ type: "text", text: "answer" }] },
 			{ name: "canonical provider", provenance: { provider: "pi-claude" }, content: [{ type: "thinking", thinking: "reasoning...", thinkingSignature: "sig123" }, { type: "text", text: "answer" }], expected: [{ type: "thinking", thinking: "reasoning...", signature: "sig123" }, { type: "text", text: "answer" }] },
 			{ name: "Anthropic API", provenance: { api: "anthropic" }, content: [{ type: "thinking", thinking: "hmm", thinkingSignature: "sig456" }, { type: "text", text: "done" }], expected: [{ type: "thinking", thinking: "hmm", signature: "sig456" }, { type: "text", text: "done" }] },
+			{ name: "native Anthropic provider", provenance: { provider: "anthropic", api: "anthropic-messages" }, content: [{ type: "thinking", thinking: "hmm", thinkingSignature: "sig789" }, { type: "text", text: "done" }], expected: [{ type: "thinking", thinking: "hmm", signature: "sig789" }, { type: "text", text: "done" }] },
 			{ name: "missing signature", provenance: { provider: "pi-claude" }, content: [{ type: "thinking", thinking: "no sig" }, { type: "text", text: "answer" }], expected: [{ type: "text", text: "answer" }] },
 			{ name: "only incompatible thinking", content: [{ type: "thinking", thinking: "deep thoughts" }], expected: [{ type: "text", text: "[incompatible content omitted]" }] },
 		]) {
@@ -76,6 +77,17 @@ describe("thinking block filtering", () => {
 		]);
 		assert.equal(result[0].content[0].text, "[Prior Pi assistant response from openai/gpt-test]\n");
 		assert.equal(result[0].content[1].text, "hello");
+	});
+
+	it("native Anthropic provider gets no provenance prefix", () => {
+		// arrange
+		const messages = [{ role: "assistant", provider: "anthropic", api: "anthropic-messages", model: "claude-test", content: [{ type: "text", text: "hello" }] }];
+
+		// act
+		const result = convert(messages);
+
+		// assert
+		assert.deepEqual(result[0].content, [{ type: "text", text: "hello" }]);
 	});
 });
 
