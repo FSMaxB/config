@@ -14,3 +14,10 @@ description: Rust code style rules for writing or editing Rust code. Use wheneve
 - Prefer `let Some(...) = foo else { /* early exit / continue */ }` to nesting code in `if let Some` (same for other enums than Option).
 - Avoid `let mut` wherever possible as long as the alternative isn't significantly more complex.
 - Prefer iterator or stream combinator style over loops mutating a variable
+- When a value is cloned (or otherwise prepared) only to be moved into a closure or async block, do it in a block expression that wraps that closure, shadowing the original name. This keeps the clone next to its only use and out of the surrounding scope.
+  ```rust
+  thread::spawn({
+      let a = a.clone();
+      move || use_a(a)
+  });
+  ```
