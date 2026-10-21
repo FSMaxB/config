@@ -25,7 +25,7 @@ test("the planning snapshot carries the workflow, plans directory and denials wi
   assert.match(content, /Plan mode is active\./);
   assert.match(content, /the plans directory \(\/agent\/plans\/repository\)/);
   assert.match(content, /call plan_path once/);
-  assert.match(content, /An approved crit_review plan automatically opens the submission dialog/);
+  assert.match(content, /An approved crit_review plan is submitted automatically; do not submit it again\./);
   assert.match(content, /do not retry it/);
   assert.match(content, /Only the user can leave plan mode\./);
   assert.match(content, / {2}- bash\n {2}- web_search \(do this instead: Use the docs in the repository\)/);

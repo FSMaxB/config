@@ -4,6 +4,13 @@ export const SubmissionAction = {
 } as const;
 export type SubmissionAction = (typeof SubmissionAction)[keyof typeof SubmissionAction];
 
+// crit_review submits a plan only after the user approved it in crit, so asking again is redundant.
+export const PlanApproval = {
+  Pending: "pending",
+  Given: "given",
+} as const;
+export type PlanApproval = (typeof PlanApproval)[keyof typeof PlanApproval];
+
 export const APPROVE = "Approve";
 export const STAY = "Stay in plan mode";
 export const SUBMISSION_OPTIONS = [APPROVE, STAY];

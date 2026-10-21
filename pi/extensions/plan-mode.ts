@@ -12,7 +12,7 @@ import { Type } from "typebox";
 import { MODE_IDENTITIES } from "./lib/agent-mode.ts";
 import { isInPlansDirectory, newPlanPath, plansDirectory } from "./lib/plan-file.ts";
 import { activateMissingPlanTools, PLAN_PATH, SUBMIT_PLAN } from "./lib/plan-tools.ts";
-import { preferredThinkingLevel, SUBMISSION_OPTIONS, SubmissionAction, submissionAction, thinkingLevelLabel } from "./lib/plan-mode-policy.ts";
+import { PlanApproval, preferredThinkingLevel, SUBMISSION_OPTIONS, SubmissionAction, submissionAction, thinkingLevelLabel } from "./lib/plan-mode-policy.ts";
 import { commitPlanFileForUser } from "./lib/plan-commit.ts";
 import { registerPlanSubmission, type PlanSubmissionOutcome, type PlanSubmissionParams, type PlanSubmissionResult } from "./lib/plan-submission.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
@@ -116,7 +116,7 @@ export default function (pi: ExtensionAPI) {
     }),
 
     async execute(_toolCallId, params, signal, _onUpdate, context) {
-      return await submitPlan(params, signal, context);
+      return await submitPlan(params, signal, context, PlanApproval.Pending);
     },
 
     renderCall(args, theme) {
@@ -165,7 +165,7 @@ export default function (pi: ExtensionAPI) {
       if (plan.isActive() && !pi.getActiveTools().includes(SUBMIT_PLAN)) {
         throw new Error("submit_plan is deactivated, so the reviewed plan was not submitted.");
       }
-      return await submitPlan(params, signal, context);
+      return await submitPlan(params, signal, context, PlanApproval.Given);
     },
   });
 
@@ -173,6 +173,7 @@ export default function (pi: ExtensionAPI) {
     params: PlanSubmissionParams,
     signal: AbortSignal | undefined,
     context: ExtensionContext,
+    approval: PlanApproval,
   ): Promise<PlanSubmissionResult> {
     signal?.throwIfAborted();
     plan.flushPendingToggle(context);
@@ -218,11 +219,7 @@ export default function (pi: ExtensionAPI) {
     await commitPlanFileForUser(pi, context, path, "submit");
 
     signal?.throwIfAborted();
-    const choice = await context.ui.select(
-      `Plan submitted — what next?\n\n  ${path}`,
-      SUBMISSION_OPTIONS,
-    );
-    if (submissionAction(choice) === SubmissionAction.Stay) return notApproved(path);
+    if ((await submissionDecision(path, approval, context)) === SubmissionAction.Stay) return notApproved(path);
     return await approve(path, context);
   }
 
@@ -435,6 +432,19 @@ const OUTCOME_LABELS: Record<string, string | undefined> = {
 async function settledAvailableModels(context: ExtensionContext): Promise<Model<Api>[]> {
   await context.modelRegistry.refresh({ allowNetwork: false }).catch(() => undefined);
   return context.modelRegistry.getAvailable();
+}
+
+async function submissionDecision(
+  planPath: string,
+  approval: PlanApproval,
+  context: ExtensionContext,
+): Promise<SubmissionAction> {
+  if (approval === PlanApproval.Given) return SubmissionAction.Approve;
+  const choice = await context.ui.select(
+    `Plan submitted — what next?\n\n  ${planPath}`,
+    SUBMISSION_OPTIONS,
+  );
+  return submissionAction(choice);
 }
 
 function notApproved(

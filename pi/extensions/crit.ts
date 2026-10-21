@@ -39,11 +39,11 @@ export default function (pi: ExtensionAPI) {
       "story ingests an authored story-mode overview over the diff scope (no target, range or pr) before the review opens; " +
       "author it from the output of crit_story_prepare, and pass the same range, pr and baseBranch. " +
       "A plan file inside the plans directory is committed there before the review opens. " +
-      "An explicitly approved plan review automatically opens the submission decision dialog while plan mode is active.",
+      "An explicitly approved plan review counts as plan approval while plan mode is active: it goes straight to the implementation model picker.",
     promptSnippet: "Open a crit review and wait for the user's inline comments",
     promptGuidelines: [
       "Do not continue past a crit review until the user submits it, and address every unresolved comment before moving on.",
-      "Approved plan reviews automatically submit the plan; do not call submit_plan again. Crit approval alone does not leave plan mode: the user decides in the submission dialog.",
+      "Approved plan reviews automatically submit the plan; do not call submit_plan again. Crit approval alone does not leave plan mode: the user still picks the implementation model and can dismiss the picker to stay in plan mode.",
       "Only author a crit story when the user explicitly asks for one; a generic review, PR or diff request is not a story request.",
     ],
     executionMode: "sequential",

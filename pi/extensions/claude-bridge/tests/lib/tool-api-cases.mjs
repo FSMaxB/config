@@ -550,11 +550,11 @@ it("submits an approved Crit plan before another model request and hands off to 
 		const result = await fixture.call("crit_review", { plan });
 		// assert
 		assert.equal(result.isError, false, JSON.stringify(result.content));
-		assert.equal(dialogs.length, 2);
+		assert.equal(dialogs.length, 1);
 		assert.equal(fixture.definitions.get("crit_review").parameters.properties.suggestedModel, undefined);
 		assert.equal(fixture.definitions.get("crit_review").parameters.properties.suggestedModelReason, undefined);
 		assert.equal(fixture.definitions.get("submit_plan").parameters.properties.suggestedModel, undefined);
-		assert.deepEqual(dialogs[0].items, ["Approve", "Stay in plan mode"]);
+		assert.equal(dialogs[0].title, "Implement with which model?");
 		assert.deepEqual(result.details.submission, { path: plan, outcome: "handed-off" });
 		assert.match(result.content[0].text, /Fixture feedback/);
 		assert.match(result.content[1].text, /fresh session/);
@@ -656,19 +656,35 @@ it("does not submit when Crit is aborted", async () => {
 });
 
 for (const [choice, outcome] of [["Stay in plan mode", "saved"], [undefined, "saved"], ["Approve — leave plan mode", "saved"]]) {
-	it(`preserves the existing nonapproval submission decision: ${choice}`, async () => {
+	it(`keeps plan mode on for a nonapproval submit_plan decision: ${choice}`, async () => {
 		// arrange
 		await withCritPlanSession({ choice }, async ({ fixture, plan, dialogs }) => {
 			// act
-			const result = await fixture.call("crit_review", { plan });
+			const result = await fixture.call("submit_plan", { path: plan });
 			// assert
 			assert.equal(result.isError, false);
 			assert.equal(dialogs.length, 1);
-			assert.equal(result.details.submission.outcome, outcome);
+			assert.equal(result.details.outcome, outcome);
 			assert.ok(fixture.api.getActiveTools().includes("submit_plan"));
 		});
 	});
 }
+
+it("asks Approve or Stay before the model picker when submit_plan is called directly", async () => {
+	// arrange
+	await withCritPlanSession({}, async ({ fixture, plan, dialogs, messages }) => {
+		// act
+		const result = await fixture.call("submit_plan", { path: plan });
+		// assert
+		assert.equal(result.isError, false, JSON.stringify(result.content));
+		assert.equal(result.details.outcome, "handed-off");
+		assert.deepEqual(dialogs.map(dialog => dialog.items), [
+			["Approve", "Stay in plan mode"],
+			["tool-api-test/fake (current)"],
+		]);
+		assert.deepEqual(messages.map(item => item.message), ["/plan fresh-handoff"]);
+	});
+});
 
 it("keeps plan mode on when the model picker is dismissed", async () => {
 	// arrange
@@ -677,7 +693,7 @@ it("keeps plan mode on when the model picker is dismissed", async () => {
 		const result = await fixture.call("crit_review", { plan });
 		// assert
 		assert.equal(result.details.submission.outcome, "saved");
-		assert.equal(dialogs.length, 2);
+		assert.equal(dialogs.length, 1);
 		assert.equal(messages.length, 0);
 		assert.match(result.content[1].text, /Still in plan mode/);
 	});
@@ -735,7 +751,7 @@ it("an always allow replaces a session deny for the same path", async () => {
 
 it("discovers exactly one handler after reload with reversed extension load order", async () => {
 	// arrange
-	await withCritPlanSession({ extensions: ["plan-mode.ts", "crit.ts"], choice: "Stay in plan mode" },
+	await withCritPlanSession({ extensions: ["plan-mode.ts", "crit.ts"], modelChoice: undefined },
 		async ({ fixture, plan, dialogs }) => {
 			// act
 			const first = await fixture.call("crit_review", { plan });
@@ -758,7 +774,7 @@ it("hands the approved plan off to a fresh session", async () => {
 		// assert
 		assert.equal(result.isError, false, JSON.stringify(result.content));
 		assert.equal(result.details.submission.outcome, "handed-off");
-		assert.equal(dialogs.filter(dialog => dialog.title.startsWith("Plan submitted")).length, 1);
+		assert.deepEqual(dialogs.map(dialog => dialog.title), ["Implement with which model?"]);
 		assert.ok(fixture.api.getActiveTools().includes("submit_plan"));
 		assert.deepEqual(messages, [{ message: "/plan fresh-handoff", options: { expandPromptTemplates: true } }]);
 		// arrange
@@ -802,8 +818,8 @@ it("lets the user select an alternate model through the existing fresh handoff",
 			// assert
 			assert.equal(result.isError, false);
 			assert.equal(result.details.submission.outcome, "handed-off");
-			assert.equal(dialogs.length, 2);
-			assert.deepEqual(dialogs[1].items, ["tool-api-test/fake (current)", "alternate-test/fake"]);
+			assert.equal(dialogs.length, 1);
+			assert.deepEqual(dialogs[0].items, ["tool-api-test/fake (current)", "alternate-test/fake"]);
 			assert.deepEqual(messages.map(item => item.message), ["/plan fresh-handoff"]);
 			// arrange
 			const handoffs = [];
@@ -838,8 +854,8 @@ for (const [settings, expectedDefault] of [
 				await fixture.session.prompt("/plan fresh-handoff");
 				// assert
 				assert.equal(result.details.submission.outcome, "handed-off");
-				assert.equal(dialogs[2].title, "Thinking level");
-				assert.deepEqual(dialogs[2].items, ["off (current)", "minimal", "low", "medium", "high"]
+				assert.equal(dialogs[1].title, "Thinking level");
+				assert.deepEqual(dialogs[1].items, ["off (current)", "minimal", "low", "medium", "high"]
 					.map(item => item === expectedDefault ? `${item} (default)` : item));
 				assert.equal(handoffs[0].data.thinkingLevel, expectedDefault);
 			});
@@ -866,7 +882,7 @@ it("keeps discovery isolated across two live SDK sessions", async () => {
 		// assert
 		assert.equal(firstResult.isError, false);
 		assert.equal(firstResult.details.submission.outcome, "handed-off");
-		assert.equal(dialogs.length, 2);
+		assert.equal(dialogs.length, 1);
 	});
 });
 
