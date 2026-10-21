@@ -90,7 +90,7 @@ export function renderSnapshot({ mode, plansDirectory, sandbox, denials }: ModeS
     ...denialLines(denials),
     "- If a call or a path is denied, do not retry it and do not route around it.",
     planning
-      ? `- To write a plan, call ${PLAN_PATH} once to get a file path, create the file there with write, and revise it with edit. An approved crit_review plan automatically opens the submission dialog; do not submit it again. Otherwise call ${SUBMIT_PLAN} with that path when it is ready. Only the user can leave plan mode.`
+      ? `- To write a plan, call ${PLAN_PATH} once to get a file path, create the file there with write, and revise it with edit. An approved crit_review plan is submitted automatically; do not submit it again. Otherwise call ${SUBMIT_PLAN} with that path when it is ready. Only the user can leave plan mode.`
       : `- ${PLAN_PATH} and ${SUBMIT_PLAN} reject every call in explore mode; do not call them. There is nothing to submit: when the exploration is done, report what you found and stop. Only the user can leave explore mode.`,
   ].join("\n");
 }

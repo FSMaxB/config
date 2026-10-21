@@ -54,6 +54,7 @@ interface DiscoveryRequest {
 
 interface PlanSubmissionService {
   available: (context: ExtensionContext) => boolean;
+  // Only called after the user approved the plan in crit, so the service skips its own approval question.
   submit: (
     params: PlanSubmissionParams,
     signal: AbortSignal | undefined,
