@@ -10,10 +10,16 @@
 // compares against the streamed tool_use input. Pi validates the arguments
 // against the TypeBox schema itself before running the tool.
 
+import { createRequire } from "node:module";
 import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from "@modelcontextprotocol/sdk/types.js";
 import type { McpResult } from "./extract-tool-results.js";
+
+type McpServerModule = typeof import("@modelcontextprotocol/sdk/server/index.js");
+type McpTypesModule = typeof import("@modelcontextprotocol/sdk/types.js");
+
+// Required on first use, not imported: the MCP SDK (with zod and ajv) cost every pi startup
+// ~60 ms although only a query ever builds a tool server.
+const requirePackage = createRequire(import.meta.url);
 
 export interface BridgedTool {
 	name: string;
@@ -23,6 +29,9 @@ export interface BridgedTool {
 }
 
 export function createToolServer(name: string, tools: BridgedTool[]): McpSdkServerConfigWithInstance {
+	const { Server } = requirePackage("@modelcontextprotocol/sdk/server/index.js") as McpServerModule;
+	const { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } =
+		requirePackage("@modelcontextprotocol/sdk/types.js") as McpTypesModule;
 	const server = new Server({ name, version: "1.0.0" }, { capabilities: { tools: {} } });
 	server.setRequestHandler(ListToolsRequestSchema, async () => ({
 		tools: tools.map((tool) => ({

@@ -1,13 +1,7 @@
-import { USAGE_LIMIT_ERROR_PREFIXES } from "@anthropic-ai/claude-agent-sdk";
+import { claudeAgentSdk } from "./sdk-query.js";
 
 export const RATE_LIMIT_AUTO_RESUME_EVENT = "kendex:rate-limit";
 export const RATE_LIMIT_TOKEN = "\x1b[31m[rate-limit]\x1b[39m";
-
-// The SDK export is @alpha — degrade to "no match" (pre-0.3.220 behavior) if a
-// future release drops it, instead of crashing message classification.
-const USAGE_LIMIT_PREFIXES: readonly string[] = Array.isArray(USAGE_LIMIT_ERROR_PREFIXES as unknown)
-	? USAGE_LIMIT_ERROR_PREFIXES
-	: [];
 
 function coerceMessageText(value: unknown): string {
 	if (typeof value === "string") return value;
@@ -22,7 +16,14 @@ function coerceMessageText(value: unknown): string {
  *  text usually arrives embedded in a result payload's errors array. */
 export function isUsageLimitMessage(value: unknown): boolean {
 	const text = coerceMessageText(value);
-	return USAGE_LIMIT_PREFIXES.some((prefix) => text.includes(prefix));
+	return usageLimitPrefixes().some((prefix) => text.includes(prefix));
+}
+
+// The SDK export is @alpha — degrade to "no match" (pre-0.3.220 behavior) if a
+// future release drops it, instead of crashing message classification.
+function usageLimitPrefixes(): readonly string[] {
+	const prefixes = claudeAgentSdk().USAGE_LIMIT_ERROR_PREFIXES as unknown;
+	return Array.isArray(prefixes) ? prefixes : [];
 }
 
 export function uniqueNonEmptyLines(values: unknown[]): string[] {
