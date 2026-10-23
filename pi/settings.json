@@ -5,8 +5,12 @@
   "defaultProvider": "pi-claude",
   "defaultModel": "claude-sonnet-5-5",
   "defaultThinkingLevel": "high",
-  "defaultTools": ["+codemode"],
-  "packages": ["npm:pi-web-access"],
+  "defaultTools": [
+    "+codemode"
+  ],
+  "packages": [
+    "npm:pi-web-access"
+  ],
   "compaction": {
     "enabled": false
   },
@@ -20,9 +24,21 @@
   "foreignThinking": {
     "default": "text",
     "rules": [
-      { "from": "anthropic/*", "to": "anthropic/*", "mode": "keep" },
-      { "from": "pi-claude/*", "to": "anthropic/*", "mode": "keep" },
-      { "from": "lmstudio/*", "to": "lmstudio/*", "mode": "keep" }
+      {
+        "from": "anthropic/*",
+        "to": "anthropic/*",
+        "mode": "keep"
+      },
+      {
+        "from": "pi-claude/*",
+        "to": "anthropic/*",
+        "mode": "keep"
+      },
+      {
+        "from": "lmstudio/*",
+        "to": "lmstudio/*",
+        "mode": "keep"
+      }
     ]
   },
   "showCacheMissNotices": true,
