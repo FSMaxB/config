@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { SandboxManager, type FilesystemConfig } from "@anthropic-ai/sandbox-runtime";
+import type { FilesystemConfig } from "@anthropic-ai/sandbox-runtime";
 import { createBashToolDefinition, createLocalBashOperations, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { BashOperations, BashToolDetails, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
@@ -44,6 +44,8 @@ interface Runtime {
   authorizeBypass(command: string, context: ExtensionContext): Promise<BypassAuthorization>;
   restoreGrants(sessionManager: { getEntries(): readonly unknown[] }): void;
 }
+
+type SandboxManagerType = typeof import("@anthropic-ai/sandbox-runtime")["SandboxManager"];
 
 export default function (pi: ExtensionAPI) {
   if (process.env.PI_SANDBOX === "0") return;
@@ -107,6 +109,9 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   let activeContext: ExtensionContext | undefined;
   let initialization: Promise<void> | undefined;
   let settings: Settings | undefined;
+  // Imported in initialize(), not at module level: sandbox-runtime (with node-forge) cost every pi
+  // startup ~40 ms although only a bash command needs it.
+  let sandboxManager: SandboxManagerType | undefined;
   let grants: NetworkGrants = emptyGrants();
   // Deliberately not persisted in the session: a resumed session asks again before bypassing the sandbox.
   let bypassDecision: SessionDecision | undefined;
@@ -143,7 +148,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     const commandId = randomUUID();
     const filesystem = filesystemConfig(await currentPolicy(onceGrants), policyOptions());
     try {
-      const wrapped = await SandboxManager.wrapWithSandbox(command, undefined, { filesystem }, options.signal, { commandId, commandText: command });
+      const wrapped = await manager().wrapWithSandbox(command, undefined, { filesystem }, options.signal, { commandId, commandText: command });
       const result = await stock.exec(wrapped, cwd, options);
       if (result.exitCode === 0 && process.platform !== "linux") return { result, step: { kind: "return" } };
       if (result.exitCode === 0) {
@@ -153,26 +158,27 @@ function createRuntime(pi: ExtensionAPI): Runtime {
       }
       const violations = await collectViolations(commandId);
       if (violations.length === 0) return { result, step: { kind: "return" } };
-      options.onData(Buffer.from(SandboxManager.annotateStderrWithSandboxFailures(commandId, "")));
+      options.onData(Buffer.from(manager().annotateStderrWithSandboxFailures(commandId, "")));
       const outcomes = await resolveViolations(violations);
       const step = nextStep(outcomes);
       options.onData(Buffer.from(violationReport(outcomes, step, currentAgentMode())));
       return { result, step };
     } finally {
-      SandboxManager.cleanupAfterCommand();
+      manager().cleanupAfterCommand();
     }
   }
 
   async function initialize(): Promise<void> {
+    ({ SandboxManager: sandboxManager } = await import("@anthropic-ai/sandbox-runtime"));
     settings = await loadSettings(SETTINGS_FILE);
     // srt points TMPDIR here and always allows writes to it, but leaves creating it to the embedder.
     await mkdir(SANDBOX_TEMPORARY_DIRECTORY, { recursive: true, mode: 0o700 });
-    const { errors, warnings } = await SandboxManager.checkDependenciesAsync();
+    const { errors, warnings } = await manager().checkDependenciesAsync();
     // Without the seccomp filter a sandboxed process could open unix sockets to escape the network rules.
     const seccompMissing = process.platform === "linux" ? warnings.filter((warning) => /seccomp/i.test(warning)) : [];
     const problems = [...errors, ...seccompMissing];
     if (problems.length > 0) throw new Error(`Sandboxed bash is unavailable: ${problems.join("; ")}. ${INSTALL_HINT}`);
-    await SandboxManager.initialize(
+    await manager().initialize(
       {
         network: { ...effectiveNetwork(settings, grants), allowUnixSockets: settings.allowUnixSockets, allowLocalBinding: settings.allowLocalBinding },
         filesystem: filesystemConfig(await currentPolicy(), policyOptions()),
@@ -189,21 +195,27 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     return { platform: process.platform as PolicyOptions["platform"], homeDirectory: homedir(), toolchainRead: settings.toolchainRead, extraDenyRead: settings.extraDenyRead };
   }
 
+  function manager(): SandboxManagerType {
+    if (!sandboxManager) throw new Error("Sandbox runtime is not loaded.");
+    return sandboxManager;
+  }
+
   function applyNetwork(): void {
-    const config = SandboxManager.getConfig();
-    if (!config || !settings) return;
-    SandboxManager.updateConfig({ ...config, network: { ...config.network, ...effectiveNetwork(settings, grants) } });
+    if (!sandboxManager || !settings) return;
+    const config = sandboxManager.getConfig();
+    if (!config) return;
+    sandboxManager.updateConfig({ ...config, network: { ...config.network, ...effectiveNetwork(settings, grants) } });
   }
 
   // The discarded-write report is best effort and runs on every successful Linux command, so it pays one
   // poll interval instead of waiting for the count to settle like a failed command does.
   async function readViolationsAfterOneWait(commandId: string) {
     await new Promise((resolve) => setTimeout(resolve, VIOLATION_POLL_MILLISECONDS));
-    return SandboxManager.getSandboxViolationStore().getViolationsForCommand(commandId);
+    return manager().getSandboxViolationStore().getViolationsForCommand(commandId);
   }
 
   async function collectViolations(commandId: string) {
-    const store = SandboxManager.getSandboxViolationStore();
+    const store = manager().getSandboxViolationStore();
     let previousCount = -1;
     for (let poll = 0; poll < VIOLATION_MAX_POLLS; poll += 1) {
       await new Promise((resolve) => setTimeout(resolve, VIOLATION_POLL_MILLISECONDS));
