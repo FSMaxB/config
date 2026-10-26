@@ -13,12 +13,9 @@ import {
   loadPolicyConfig,
   type SubagentModelConfig,
 } from "../subagent/model-policy.ts";
-import {
-  ContextChange,
-  requiredContextChange,
-  sessionIsEmpty,
-} from "./context-sync.ts";
-import { isOffByDefaultModel } from "./model-defaults.ts";
+import { ContextChange, requiredContextChange } from "./context-sync.ts";
+import { isOffByDefaultModel } from "../lib/model-defaults.ts";
+import { sessionIsEmpty } from "../lib/session-empty.ts";
 import { isAlwaysOn } from "./settings.ts";
 
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
