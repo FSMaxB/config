@@ -17,7 +17,7 @@ JJ_BASE_URL="https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}"
 JQ_VERSION="1.8.2"
 JQ_BASE_URL="https://github.com/jqlang/jq/releases/download/jq-${JQ_VERSION}"
 
-TUICR_VERSION="0.27.0"
+TUICR_VERSION="0.28.0"
 TUICR_BASE_URL="https://github.com/agavra/tuicr/releases/download/v${TUICR_VERSION}"
 TUICR_RAW_URL="https://raw.githubusercontent.com/agavra/tuicr/v${TUICR_VERSION}/skills/tuicr"
 
@@ -45,7 +45,7 @@ function download_platform() {
 			FZF_NAME="linux_arm64"
 			BAT_SHA256="6369242c584065f195fb20cb36fbd7cb63ae690605bbe89868a7596b596c2c23"
 			JJ_SHA256="80e28f7501c11e50e0ca06cd6a1fa1d982cff9cc59bfe4411a9d36aa501d867e"
-			TUICR_SHA256="d0707f491cc8cdf0930fc1466029341d804a0105dd0b674f8dca33afb8366490"
+			TUICR_SHA256="c5f60e3846733c3f6f676f0b5b44a6c1cec148e2d1132f3bd107833cf5f7fc0e"
 			;;
 		Linux/x86_64)
 			TRIPLE="x86_64-unknown-linux-musl"
@@ -55,7 +55,7 @@ function download_platform() {
 			FZF_NAME="linux_amd64"
 			BAT_SHA256="0dcd8ac79732c0d5b136f11f4ee00e581440e16a44eab5b3105b611bbf2cf191"
 			JJ_SHA256="fce0271158e665ceb82dc66c5eb95b1728649094e9133074f3b5baece345fc08"
-			TUICR_SHA256="f673ff709af2501c111216c95745395ae2bfedf3daa3d039539f9614a6ddb4e4"
+			TUICR_SHA256="0e6be65458e83bf3f917a30660d029b7f4dc5f9b6d203adc10f11a93a30c22f2"
 			;;
 		Darwin/arm64)
 			TRIPLE="aarch64-apple-darwin"
@@ -65,7 +65,7 @@ function download_platform() {
 			FZF_NAME="darwin_arm64"
 			BAT_SHA256="e30beff26779c9bf60bb541e1d79046250cb74378f2757f8eb250afddb19e114"
 			JJ_SHA256="43daa37ce0f9716cdf6fb65a29cbcae74a3160aef048cf3cb3d166d41cb4ab58"
-			TUICR_SHA256="170b2e5290435faaf663c9498b1385493df7c336646b74c9336388844e028dcf"
+			TUICR_SHA256="4138f2d243422aff68b32ec52fb1524cbadffcf6763b34fc180f25f0ac971674"
 			;;
 		*)
 			echo "unsupported platform ${PLATFORM}" >&2
