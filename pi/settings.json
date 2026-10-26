@@ -52,6 +52,9 @@
   "iHaveAdhd": {
     "alwaysOn": true
   },
+  "rtk": {
+    "alwaysOn": true
+  },
   "exploreMode": {
     "alwaysOn": true
   }
