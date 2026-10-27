@@ -142,6 +142,23 @@ describe("one-shot requests on a busy session id", () => {
 		assert.deepEqual(textDeltas(parentEvents), ["partial"]);
 		assert.equal(parentEvents.at(-1).type, "done");
 	});
+
+	it("ends a callback's stream when its own signal, not the query's, aborts", { timeout: 5000 }, async () => {
+		// arrange
+		const parentAbort = new AbortController();
+		await startParentToolTurn(parentAbort.signal);
+		const foreignAbort = new AbortController();
+		const foreign = collect(streamNormalized(model, { messages: [userMessage("foreign")] }, { sessionId: PARENT, signal: foreignAbort.signal, cwd: root }));
+
+		// act
+		foreignAbort.abort();
+
+		// assert
+		assert.deepEqual(errorReasons(await foreign), ["aborted"]);
+		assert.equal(parentAbort.signal.aborted, false);
+		assert.ok(runInRequestLane(PARENT, () => ctx().activeQuery), "the parent query keeps running");
+		assert.equal(runInRequestLane(PARENT, () => ctx().currentPiStream), null);
+	});
 });
 
 function fakeSdk({ prompt, options }) {
