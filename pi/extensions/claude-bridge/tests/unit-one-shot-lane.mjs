@@ -118,6 +118,30 @@ describe("one-shot requests on a busy session id", () => {
 		assert.deepEqual(errorReasons(await answer), ["aborted"]);
 		assert.ok(runInRequestLane(PARENT, () => ctx().activeQuery), "the parent query keeps running");
 	});
+
+	it("refuses a request that arrives while the running query's stream is still open", { timeout: 5000 }, async () => {
+		// arrange
+		const parent = collect(streamNormalized(model, { messages: [userMessage("streaming")] }, { sessionId: PARENT, cwd: root }));
+		assert.equal(await waitFor(() => queries.has("streaming")), true, "the parent query started");
+		const parentStream = runInRequestLane(PARENT, () => ctx().currentPiStream);
+
+		// act
+		const foreign = await collect(streamNormalized(model, { messages: [userMessage("foreign")] }, { sessionId: PARENT, cwd: root }));
+
+		// assert
+		assert.deepEqual(errorReasons(foreign), ["error"]);
+		assert.match(foreign.at(-1).error.errorMessage, /response stream is still open/);
+		assert.equal(runInRequestLane(PARENT, () => ctx().currentPiStream), parentStream);
+		assert.deepEqual(runInRequestLane(PARENT, () => ctx().deferredUserMessages), []);
+
+		// act
+		queries.get("streaming").gate.resolve();
+
+		// assert
+		const parentEvents = await parent;
+		assert.deepEqual(textDeltas(parentEvents), ["partial"]);
+		assert.equal(parentEvents.at(-1).type, "done");
+	});
 });
 
 function fakeSdk({ prompt, options }) {

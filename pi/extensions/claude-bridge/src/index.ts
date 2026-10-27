@@ -597,6 +597,18 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 	// handlers. Results that arrive before their handler get queued in pendingResults.
 	if (ctx().activeQuery) {
 		const queryCtx = ctx();
+		// Pi calls back only after the previous response stream ended, so a request
+		// that arrives while it is still open does not continue this conversation:
+		// another caller reused the session id. Taking over the stream would orphan
+		// the stream Pi is waiting on and leave this request unanswered.
+		if (queryCtx.currentPiStream !== null) {
+			debug(`provider: refusing a request (${conversation.length} message(s)) while this session's response stream is still open`);
+			queueMicrotask(() => {
+				stream.push({ type: "error", reason: "error", error: standaloneErrorMessage(model, "error", CONCURRENT_REQUEST_MESSAGE) });
+				stream.end();
+			});
+			return stream;
+		}
 		if (queryCtx.piHistoryReplaced) {
 			// Pi compacted or navigated this conversation while the query ran, so the
 			// query's Claude session holds history Pi has replaced. Restart from THIS
@@ -1393,6 +1405,21 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 		.finally(releaseEphemeralLane);
 
 	return stream;
+}
+
+const CONCURRENT_REQUEST_MESSAGE = "Claude bridge: another request for this Pi session arrived while its response stream is still open. A one-shot request must not reuse a running session's id.";
+
+/** An error or abort outcome for a request the running query does not serve,
+ *  built without touching that query's turn state. */
+function standaloneErrorMessage(model: Model<any>, stopReason: "error" | "aborted", errorMessage: string): AssistantMessage {
+	return {
+		role: "assistant", content: [],
+		api: model.api, provider: model.provider, model: model.id,
+		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+		stopReason, timestamp: Date.now(),
+		errorMessage,
+	};
 }
 
 // --- Extension registration ---
