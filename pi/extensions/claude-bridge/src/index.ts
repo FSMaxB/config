@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { type AssistantMessage, type AssistantMessageEventStream, type Message, type Model, type SimpleStreamOptions, type Tool, type TranscriptContext, getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import * as piAi from "@earendil-works/pi-ai";
 import { type ExtensionAPI, type SessionProjection } from "@earendil-works/pi-coding-agent";
@@ -549,7 +550,20 @@ export function adoptTreeResumeTarget(sessionManager: { buildSessionProjection()
  *  Two cases: tool result delivery (active query) or fresh query. Exported for
  *  the rotation-stream unit tests, which drive it with a fake SDK factory. */
 export function streamClaudeAgentSdk(model: Model<any>, context: TranscriptContext, options?: SimpleStreamOptions): AssistantMessageEventStream {
-	return runInRequestLane(options?.sessionId, () => streamClaudeAgentSdkInLane(model, context, options));
+	return runInRequestLane(requestLaneId(options), () => streamClaudeAgentSdkInLane(model, context, options));
+}
+
+/** Pi marks every one-shot request (compaction, branch summary, bug-report
+ *  summary) with cacheRetention "none", and so does pi-web-access's answer
+ *  mode. Some of them reuse the caller's session id; answer mode even runs
+ *  inside a tool call of the query that owns that lane. None of them
+ *  continues the session's conversation. In the session's lane, such a
+ *  request is taken for a tool-result callback of the running query, and
+ *  releasing the lane afterwards deletes the session's state. A private lane
+ *  per request makes it an ordinary fresh query. */
+function requestLaneId(options?: SimpleStreamOptions): string | undefined {
+	if (options?.cacheRetention === "none") return `one-shot:${randomUUID()}`;
+	return options?.sessionId;
 }
 
 function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContext, options?: SimpleStreamOptions): AssistantMessageEventStream {
@@ -561,10 +575,9 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 	// The lane this request runs in, for callbacks that fire OUTSIDE it: an
 	// AbortSignal listener runs in the aborter's async context, not ours.
 	const laneId = currentRequestLaneId();
-	// Pi marks its compaction and branch-summary one-shots with cacheRetention
-	// "none" and a fresh sessionId per call; no session_shutdown ever prunes
-	// those lanes. Map the hint onto lane lifetime: nothing about this request
-	// is retained once it settles.
+	// Every cacheRetention "none" request runs in a private lane (see
+	// requestLaneId) that nothing references once the request settles, so
+	// release it then.
 	const ephemeralLane = laneId !== undefined && options?.cacheRetention === "none";
 	const releaseEphemeralLane = (): void => {
 		if (!ephemeralLane) return;
