@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { type AssistantMessage, type AssistantMessageEventStream, type Message, type Model, type SimpleStreamOptions, type Tool, type TranscriptContext, getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import * as piAi from "@earendil-works/pi-ai";
 import { type ExtensionAPI, type SessionProjection } from "@earendil-works/pi-coding-agent";
@@ -549,7 +550,20 @@ export function adoptTreeResumeTarget(sessionManager: { buildSessionProjection()
  *  Two cases: tool result delivery (active query) or fresh query. Exported for
  *  the rotation-stream unit tests, which drive it with a fake SDK factory. */
 export function streamClaudeAgentSdk(model: Model<any>, context: TranscriptContext, options?: SimpleStreamOptions): AssistantMessageEventStream {
-	return runInRequestLane(options?.sessionId, () => streamClaudeAgentSdkInLane(model, context, options));
+	return runInRequestLane(requestLaneId(options), () => streamClaudeAgentSdkInLane(model, context, options));
+}
+
+/** Pi marks every one-shot request (compaction, branch summary, bug-report
+ *  summary) with cacheRetention "none", and so does pi-web-access's answer
+ *  mode. Some of them reuse the caller's session id; answer mode even runs
+ *  inside a tool call of the query that owns that lane. None of them
+ *  continues the session's conversation. In the session's lane, such a
+ *  request is taken for a tool-result callback of the running query, and
+ *  releasing the lane afterwards deletes the session's state. A private lane
+ *  per request makes it an ordinary fresh query. */
+function requestLaneId(options?: SimpleStreamOptions): string | undefined {
+	if (options?.cacheRetention === "none") return `one-shot:${randomUUID()}`;
+	return options?.sessionId;
 }
 
 function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContext, options?: SimpleStreamOptions): AssistantMessageEventStream {
@@ -561,10 +575,9 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 	// The lane this request runs in, for callbacks that fire OUTSIDE it: an
 	// AbortSignal listener runs in the aborter's async context, not ours.
 	const laneId = currentRequestLaneId();
-	// Pi marks its compaction and branch-summary one-shots with cacheRetention
-	// "none" and a fresh sessionId per call; no session_shutdown ever prunes
-	// those lanes. Map the hint onto lane lifetime: nothing about this request
-	// is retained once it settles.
+	// Every cacheRetention "none" request runs in a private lane (see
+	// requestLaneId) that nothing references once the request settles, so
+	// release it then.
 	const ephemeralLane = laneId !== undefined && options?.cacheRetention === "none";
 	const releaseEphemeralLane = (): void => {
 		if (!ephemeralLane) return;
@@ -584,6 +597,18 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 	// handlers. Results that arrive before their handler get queued in pendingResults.
 	if (ctx().activeQuery) {
 		const queryCtx = ctx();
+		// Pi calls back only after the previous response stream ended, so a request
+		// that arrives while it is still open does not continue this conversation:
+		// another caller reused the session id. Taking over the stream would orphan
+		// the stream Pi is waiting on and leave this request unanswered.
+		if (queryCtx.currentPiStream !== null) {
+			debug(`provider: refusing a request (${conversation.length} message(s)) while this session's response stream is still open`);
+			queueMicrotask(() => {
+				stream.push({ type: "error", reason: "error", error: standaloneErrorMessage(model, "error", CONCURRENT_REQUEST_MESSAGE) });
+				stream.end();
+			});
+			return stream;
+		}
 		if (queryCtx.piHistoryReplaced) {
 			// Pi compacted or navigated this conversation while the query ran, so the
 			// query's Claude session holds history Pi has replaced. Restart from THIS
@@ -623,6 +648,20 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 			}
 		}
 		queryCtx.currentPiStream = stream;
+		// The query's own abort handler ends whichever stream is current, but it
+		// listens only on the signal that started the query. A callback carrying
+		// another signal would otherwise wait forever once that signal aborts.
+		const callbackSignal = options?.signal;
+		if (callbackSignal && callbackSignal !== queryCtx.querySignal) {
+			const endOnAbort = (): void => {
+				if (queryCtx.currentPiStream !== stream) return;
+				queryCtx.currentPiStream = null;
+				stream.push({ type: "error", reason: "aborted", error: standaloneErrorMessage(model, "aborted", "Operation aborted") });
+				stream.end();
+			};
+			if (callbackSignal.aborted) queueMicrotask(endOnAbort);
+			else callbackSignal.addEventListener("abort", endOnAbort, { once: true });
+		}
 		queryCtx.resetTurnState(model);
 		queryCtx.latestConversationFingerprint = conversationFingerprint(conversation);
 		// A fresh callback separates handlers registered for settled turns from
@@ -830,6 +869,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 	ctx().resetToolTracking();
 	ctx().latestCursor = 0;
 	ctx().claudeSessionId = undefined;
+	ctx().querySignal = options?.signal;
 	ctx().latestConversationFingerprint = undefined;
 	ctx().committedOutput = false;
 	// This query is built from the context Pi holds now; only a replacement that
@@ -1380,6 +1420,21 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 		.finally(releaseEphemeralLane);
 
 	return stream;
+}
+
+const CONCURRENT_REQUEST_MESSAGE = "Claude bridge: another request for this Pi session arrived while its response stream is still open. A one-shot request must not reuse a running session's id.";
+
+/** An error or abort outcome for a request the running query does not serve,
+ *  built without touching that query's turn state. */
+function standaloneErrorMessage(model: Model<any>, stopReason: "error" | "aborted", errorMessage: string): AssistantMessage {
+	return {
+		role: "assistant", content: [],
+		api: model.api, provider: model.provider, model: model.id,
+		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+		stopReason, timestamp: Date.now(),
+		errorMessage,
+	};
 }
 
 // --- Extension registration ---
