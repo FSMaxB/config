@@ -269,6 +269,11 @@ export class QueryContext {
 	 *  out of the generator after an interrupted turn's error result, which
 	 *  loses consumeQuery's return value; the abort settlement reads it here. */
 	claudeSessionId: string | undefined = undefined;
+	/** The signal of the request that started this query. Pi passes one signal
+	 *  to every provider call of an agent run, and the query's abort handler
+	 *  listens on it, so only a callback carrying another signal needs a
+	 *  listener of its own. */
+	querySignal: AbortSignal | undefined = undefined;
 	/** Conversation anchor of the latest context Pi handed this query: the
 	 *  prompt's, then each tool-result callback's. The record a query persists
 	 *  carries this one rather than the prompt's. A `context` handler may
