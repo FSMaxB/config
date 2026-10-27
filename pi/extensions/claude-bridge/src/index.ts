@@ -648,6 +648,20 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 			}
 		}
 		queryCtx.currentPiStream = stream;
+		// The query's own abort handler ends whichever stream is current, but it
+		// listens only on the signal that started the query. A callback carrying
+		// another signal would otherwise wait forever once that signal aborts.
+		const callbackSignal = options?.signal;
+		if (callbackSignal && callbackSignal !== queryCtx.querySignal) {
+			const endOnAbort = (): void => {
+				if (queryCtx.currentPiStream !== stream) return;
+				queryCtx.currentPiStream = null;
+				stream.push({ type: "error", reason: "aborted", error: standaloneErrorMessage(model, "aborted", "Operation aborted") });
+				stream.end();
+			};
+			if (callbackSignal.aborted) queueMicrotask(endOnAbort);
+			else callbackSignal.addEventListener("abort", endOnAbort, { once: true });
+		}
 		queryCtx.resetTurnState(model);
 		queryCtx.latestConversationFingerprint = conversationFingerprint(conversation);
 		// A fresh callback separates handlers registered for settled turns from
@@ -855,6 +869,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 	ctx().resetToolTracking();
 	ctx().latestCursor = 0;
 	ctx().claudeSessionId = undefined;
+	ctx().querySignal = options?.signal;
 	ctx().latestConversationFingerprint = undefined;
 	ctx().committedOutput = false;
 	// This query is built from the context Pi holds now; only a replacement that
