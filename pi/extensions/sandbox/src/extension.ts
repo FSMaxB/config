@@ -106,6 +106,9 @@ function unsupportedOperations(): BashOperations {
 
 function createRuntime(pi: ExtensionAPI): Runtime {
   const stock = createLocalBashOperations();
+  // pi passes the same session-scoped ExtensionContext to every tool call, so parallel bash
+  // calls racing this assignment all land on the same object; prompts are serialized via
+  // serialize() in ui-queue.ts regardless.
   let activeContext: ExtensionContext | undefined;
   let initialization: Promise<void> | undefined;
   let settings: Settings | undefined;
