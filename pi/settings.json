@@ -1,6 +1,6 @@
 {
   "$schema": "https://pi.dev/schemas/settings.schema.json",
-  "lastChangelogVersion": "1.4.0",
+  "lastChangelogVersion": "1.5.0",
   "theme": "gruvbox-dark",
   "defaultProvider": "pi-claude",
   "defaultModel": "claude-sonnet-5-5",
@@ -57,5 +57,8 @@
   },
   "exploreMode": {
     "alwaysOn": true
+  },
+  "extensionChangelogVersions": {
+    "{\"source\":\"npm:pi-web-access\",\"scope\":\"user\"}": "0.47.0"
   }
 }
