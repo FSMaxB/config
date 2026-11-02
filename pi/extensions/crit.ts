@@ -446,7 +446,8 @@ async function ingestStory(
   try {
     await writeFile(file, JSON.stringify(story, null, 2));
     const args = ["story", "--story-file", file, "--refresh", ...scopeArgs];
-    const { stdout, stderr, code, killed } = await pi.exec("crit", args, { signal, timeout: TIMEOUT });
+    const { stdout, stderr, code, killed, truncated } = await pi.exec("crit", args, { signal, timeout: TIMEOUT });
+    if (truncated) throw new Error(`crit ${args.join(" ")} was killed: its output exceeded pi.exec's buffer limit.`);
     if (killed) throw new Error(`crit ${args.join(" ")} timed out after ${TIMEOUT / 1000}s.`);
     if (code !== 0) {
       throw new Error(
