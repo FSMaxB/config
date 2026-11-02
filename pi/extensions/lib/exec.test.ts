@@ -3,8 +3,8 @@ import test from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { execChecked } from "./exec.ts";
 
-function fakePi(): ExtensionAPI {
-  return { exec: async () => ({ stdout: "", stderr: "", code: 1, killed: true }) } as unknown as ExtensionAPI;
+function fakePi({ truncated } = { truncated: false }): ExtensionAPI {
+  return { exec: async () => ({ stdout: "", stderr: "", code: 1, killed: true, truncated }) } as unknown as ExtensionAPI;
 }
 
 test("an aborted invocation reports an abort instead of a timeout", async () => {
@@ -22,4 +22,12 @@ test("a killed invocation reports the timeout", async () => {
 
   // act & assert
   await assert.rejects(execChecked(pi, "crit", ["review"], { timeout: 15000 }), /timed out after 15s\./);
+});
+
+test("an invocation killed for too much output reports that instead of a timeout", async () => {
+  // arrange
+  const pi = fakePi({ truncated: true });
+
+  // act & assert
+  await assert.rejects(execChecked(pi, "crit", ["review"], { timeout: 15000 }), /output exceeded pi\.exec's buffer limit\./);
 });
