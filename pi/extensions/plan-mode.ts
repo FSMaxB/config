@@ -252,6 +252,7 @@ export default function (pi: ExtensionAPI) {
       "Implement with which model?",
       modelOptions,
       currentOption,
+      "question",
     );
     if (modelChoice === undefined) return notApproved(planPath);
     const selectedModel = models[modelOptions.indexOf(modelChoice)];
@@ -273,6 +274,7 @@ export default function (pi: ExtensionAPI) {
       "Thinking level",
       levelOptions,
       levelOptions[supportedLevels.indexOf(defaultLevel)],
+      "question",
     );
     const level = levelChoice === undefined ? defaultLevel : supportedLevels[levelOptions.indexOf(levelChoice)];
     return handOffToFreshSession(planPath, selectedModel, level, context);
