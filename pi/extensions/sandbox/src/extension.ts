@@ -229,7 +229,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   async function authorizeBypass(command: string, context: ExtensionContext): Promise<BypassAuthorization> {
     const outcome = bypassOutcome({ agentMode: currentAgentMode(), subagent: Boolean(process.env.PI_SUBAGENT_CHILD), hasUI: context.hasUI, sessionDecision: bypassDecision });
     if (outcome.kind !== "ask") return outcome;
-    const choice = await serialize(() => selectWithDefault(context.ui, bypassPrompt(command), outcome.choices, outcome.defaultChoice));
+    const choice = await serialize(() => selectWithDefault(context.ui, bypassPrompt(command), outcome.choices, outcome.defaultChoice, "permission"));
     const { authorization, remember } = resolveChoice(choice);
     if (remember) bypassDecision = remember;
     return authorization;

@@ -6,20 +6,25 @@ import { DynamicBorder, getSelectListTheme, keyText } from "@earendil-works/pi-c
 import {
   Container,
   type KeybindingsManager,
+  type ProgramStatus,
   SelectList,
   Spacer,
   Text,
 } from "@earendil-works/pi-tui";
 
+export type WaitKind = NonNullable<ProgramStatus["kind"]>;
+
 // ui.select() always starts on the first option, so a dialog that wants to
 // recommend something else has to bring its own selector. SelectList windows
 // the visible rows around the selection, so long lists scroll instead of
-// overflowing the screen.
+// overflowing the screen. Unlike ui.select(), ui.custom() does not tell the
+// terminal (OSC 7501) that pi waits for the user, hence the blocked option.
 export async function selectWithDefault(
   ui: ExtensionUIContext,
   title: string,
   options: string[],
   defaultOption: string,
+  waitKind: WaitKind,
 ): Promise<string | undefined> {
   const defaultIndex = Math.max(0, options.indexOf(defaultOption));
   return await ui.custom<string | undefined>((tui, theme, keybindings, done) => {
@@ -39,7 +44,7 @@ export async function selectWithDefault(
       keybindings,
       done,
     );
-  });
+  }, { blocked: { kind: waitKind, message: title } });
 }
 
 class DefaultSelector extends Container {
