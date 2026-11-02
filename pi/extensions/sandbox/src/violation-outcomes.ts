@@ -1,6 +1,8 @@
+import type { FilesystemConfig } from "@anthropic-ai/sandbox-runtime";
 import type { AgentMode } from "../../lib/agent-mode.ts";
 import { readOnlyRepositoryNotice, type AccessMode } from "../../lib/path-permission-rules.ts";
 import type { OnceGrant } from "../../lib/path-permissions.ts";
+import { discardedWrites, type PathViolation } from "./violations.ts";
 
 export type ViolationOutcome =
   | { kind: "secret"; path: string }
@@ -38,4 +40,22 @@ function outcomeLine(outcome: ViolationOutcome, step: NextStep, agentMode: Agent
       : `${mode} access to ${path} was allowed once, but the command was not rerun because other paths are still blocked.`;
     case "denied": return `${mode} access to ${path} was denied; do not retry it.${notice}`;
   }
+}
+
+// A command that exited 0 despite denials is only reported, never prompted or rerun: rerunning could
+// repeat side effects, and prompts happen after a failed command.
+export function successViolationReport(
+  violations: PathViolation[],
+  filesystem: Pick<FilesystemConfig, "denyRead" | "allowWrite">,
+  agentMode: AgentMode,
+): string {
+  if (violations.length === 0) return "";
+  const discarded = discardedWrites(violations, filesystem);
+  const lines = violations.map((violation) => {
+    if (discarded.includes(violation)) {
+      return `${violation.path} is not covered by the write path rules; the write was discarded and nothing reached the real filesystem.`;
+    }
+    return `${violation.mode} access to ${violation.path} was denied by the sandbox; the command still exited 0.`;
+  });
+  return `\n<sandbox_violations>\n${lines.join("\n")}${readOnlyRepositoryNotice("write", agentMode)}\n</sandbox_violations>\n`;
 }
