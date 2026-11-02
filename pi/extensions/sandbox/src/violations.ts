@@ -1,5 +1,5 @@
 import type { FilesystemConfig } from "@anthropic-ai/sandbox-runtime";
-import { contains } from "../../lib/repo.ts";
+import { contains, resolveThroughSymlinks } from "../../lib/repo.ts";
 
 export interface PathViolation {
   mode: "read" | "write";
@@ -32,6 +32,13 @@ export function discardedWrites(violations: PathViolation[], filesystem: Pick<Fi
 
 export function isSecretPath(path: string, secrets: string[]): boolean {
   return secrets.some((secret) => contains(secret, path));
+}
+
+// A violation path may travel through a symlink into a secret tree; resolve first so the report
+// names the real secret path. The existing parent is resolved for missing paths, so write-create
+// violations are covered too.
+export async function isSecretPathThroughSymlinks(path: string, secrets: string[]): Promise<boolean> {
+  return isSecretPath(await resolveThroughSymlinks(path), secrets);
 }
 
 function parseViolation(line: string): PathViolation | undefined {

@@ -8,6 +8,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { ALLOW_ALWAYS, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWAYS, DENY_ONCE, DENY_SESSION, currentAgentMode, currentPolicy, grantPathAccess, type OnceGrant } from "../../lib/path-permissions.ts";
 import { registerToolWithGuidelines } from "../../lib/register-tool.ts";
+import { resolveThroughSymlinks } from "../../lib/repo.ts";
 import { markSandboxActive } from "../../lib/sandbox-state.ts";
 import { selectWithDefault } from "../../lib/select-with-default.ts";
 import { latestCustomData } from "../../lib/session-entries.ts";
@@ -280,7 +281,10 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   }
 
   async function resolveViolation({ mode, path }: PathViolation, secrets: string[], mayPrompt: boolean): Promise<ViolationOutcome> {
-    if (isSecretPath(path, secrets)) return { kind: "secret", path };
+    // Resolve before the secret check so a symlink into a secret tree short-circuits and the
+    // report names the real secret path. grantPathAccess already resolves internally.
+    const resolved = await resolveThroughSymlinks(path);
+    if (isSecretPath(resolved, secrets)) return { kind: "secret", path: resolved };
     if (!activeContext?.hasUI) return { kind: "no-ui", mode, path };
     if (!mayPrompt) return { kind: "not-asked", mode, path };
     const outcome = await grantPathAccess(path, mode, activeContext);
