@@ -31,6 +31,7 @@ const INSTALL_HINT =
 // exits, sometimes later than any single fixed wait. Keep polling until the count stops changing.
 const VIOLATION_POLL_MILLISECONDS = 250;
 const VIOLATION_MAX_POLLS = 6;
+// Per command, across all reruns of that command.
 const MAX_PATH_PROMPTS_PER_COMMAND = 5;
 
 const SANDBOX_TEMPORARY_DIRECTORY = "/tmp/claude";
@@ -121,7 +122,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
         throw error;
       });
       await initialization;
-      return await runSandboxed(command, cwd, options, []);
+      return await runSandboxed(command, cwd, options, [], MAX_PATH_PROMPTS_PER_COMMAND);
     },
   };
 
@@ -136,13 +137,14 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   };
 
   // Once-grants live only in this recursion, so they never outlast the command they were given for.
-  async function runSandboxed(command: string, cwd: string, options: ExecOptions, onceGrants: OnceGrant[]): Promise<ExecResult> {
-    const { result, step } = await runOnce(command, cwd, options, onceGrants);
+  // The prompt budget is per command too: each rerun draws from what the previous runs left.
+  async function runSandboxed(command: string, cwd: string, options: ExecOptions, onceGrants: OnceGrant[], promptsLeft: number): Promise<ExecResult> {
+    const { result, step, promptsUsed } = await runOnce(command, cwd, options, onceGrants, promptsLeft);
     if (step.kind === "return" || options.signal?.aborted) return result;
-    return await runSandboxed(command, cwd, options, [...onceGrants, ...step.grants]);
+    return await runSandboxed(command, cwd, options, [...onceGrants, ...step.grants], promptsLeft - promptsUsed);
   }
 
-  async function runOnce(command: string, cwd: string, options: ExecOptions, onceGrants: OnceGrant[]): Promise<{ result: ExecResult; step: NextStep }> {
+  async function runOnce(command: string, cwd: string, options: ExecOptions, onceGrants: OnceGrant[], promptsLeft: number): Promise<{ result: ExecResult; step: NextStep; promptsUsed: number }> {
     const commandId = randomUUID();
     const filesystem = filesystemConfig(await currentPolicy(onceGrants), policyOptions());
     try {
@@ -157,15 +159,15 @@ function createRuntime(pi: ExtensionAPI): Runtime {
           : await collectViolations(commandId);
         const report = successViolationReport(pathViolations(violations.map(({ line }) => line)), filesystem, currentAgentMode());
         if (report) options.onData(Buffer.from(report));
-        return { result, step: { kind: "return" } };
+        return { result, step: { kind: "return" }, promptsUsed: 0 };
       }
       const violations = await collectViolations(commandId);
-      if (violations.length === 0) return { result, step: { kind: "return" } };
+      if (violations.length === 0) return { result, step: { kind: "return" }, promptsUsed: 0 };
       options.onData(Buffer.from(manager().annotateStderrWithSandboxFailures(commandId, "")));
-      const outcomes = await resolveViolations(violations);
+      const { outcomes, promptsUsed } = await resolveViolations(violations, promptsLeft);
       const step = nextStep(outcomes);
       options.onData(Buffer.from(violationReport(outcomes, step, currentAgentMode())));
-      return { result, step };
+      return { result, step, promptsUsed };
     } finally {
       manager().cleanupAfterCommand();
     }
@@ -267,13 +269,14 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     });
   }
 
-  async function resolveViolations(violations: { line: string }[]): Promise<ViolationOutcome[]> {
+  async function resolveViolations(violations: { line: string }[], promptsLeft: number): Promise<{ outcomes: ViolationOutcome[]; promptsUsed: number }> {
     const secrets = secretPaths(homedir());
+    const parsed = pathViolations(violations.map(({ line }) => line));
     const outcomes: ViolationOutcome[] = [];
-    for (const [index, violation] of pathViolations(violations.map(({ line }) => line)).entries()) {
-      outcomes.push(await resolveViolation(violation, secrets, index < MAX_PATH_PROMPTS_PER_COMMAND));
+    for (const [index, violation] of parsed.entries()) {
+      outcomes.push(await resolveViolation(violation, secrets, index < promptsLeft));
     }
-    return outcomes;
+    return { outcomes, promptsUsed: Math.min(parsed.length, promptsLeft) };
   }
 
   async function resolveViolation({ mode, path }: PathViolation, secrets: string[], mayPrompt: boolean): Promise<ViolationOutcome> {
