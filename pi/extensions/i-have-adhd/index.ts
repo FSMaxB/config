@@ -228,7 +228,11 @@ export default function iHaveAdhdExtension(pi: ExtensionAPI) {
       requiredContextChange(enabled, rulesAreInContext(ctx)),
       rules,
     );
-    return message === undefined ? undefined : { message };
+    if (message === undefined) return;
+
+    // Returning the message would put it after the user prompt; the pending
+    // queue is flushed before the prompt is appended.
+    pi.sendMessage(message, { triggerTurn: false });
   });
 }
 
