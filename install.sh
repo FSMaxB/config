@@ -57,7 +57,7 @@ if [[ ! -e ~/.claude/skills/tuicr ]]; then
   mkdir -p ~/.claude/skills
   ln -s ~/config/tuicr-skill ~/.claude/skills/tuicr
 fi
-for skill in rust-style planning; do
+for skill in rust-style planning exploration; do
   if [[ ! -e ~/.claude/skills/$skill ]]; then
     mkdir -p ~/.claude/skills
     ln -s ~/config/pi/skills/$skill ~/.claude/skills/$skill
