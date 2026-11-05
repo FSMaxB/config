@@ -118,8 +118,8 @@ export function commitMessage(planFile: string, reason: CommitReason): string {
   return `${prefix}: ${basename(planFile, ".md")}`;
 }
 
-// -R / -C pin the command to the detected root the same way lib/vcs.ts does, so the
-// process cwd can never redirect the commit into another repository.
+// -R / -C pin the command to the detected root, so the process cwd can never redirect
+// the commit into another repository.
 function jjGlobalArgs(root: string): string[] {
   return ["-R", root, "--color=never", "--no-pager"];
 }

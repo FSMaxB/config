@@ -10,7 +10,6 @@ test("only exact local owner/name pairs with read-only hints receive trust", () 
   // arrange
   const groups = [
     ["files.ts", ["read", "ls", "find", "grep"]],
-    ["vcs.ts", ["vcs_info", "vcs_status", "vcs_branches", "vcs_log", "vcs_show", "vcs_diff", "vcs_file", "vcs_blame"]],
     ["crit.ts", ["crit_comments", "crit_status"]],
   ] as const;
   const tools = groups.flatMap(([owner, names]) => names.map(name => tool(name, fileURLToPath(new URL(`../${owner}`, import.meta.url)))));

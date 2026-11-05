@@ -19,7 +19,6 @@ export function trustedReadOnlyToolNames(tools: readonly ToolPolicyInfo[]): Set<
   const owners = new Map<string, ReadonlySet<string>>();
   for (const [file, names] of [
     ["files.ts", ["read", "ls", "find", "grep"]],
-    ["vcs.ts", ["vcs_info", "vcs_status", "vcs_branches", "vcs_log", "vcs_show", "vcs_diff", "vcs_file", "vcs_blame"]],
     ["crit.ts", ["crit_comments", "crit_status"]],
   ] as const) {
     const path = canonicalPath(new URL(`../${file}`, import.meta.url));
