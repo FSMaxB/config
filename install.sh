@@ -57,10 +57,12 @@ if [[ ! -e ~/.claude/skills/tuicr ]]; then
   mkdir -p ~/.claude/skills
   ln -s ~/config/tuicr-skill ~/.claude/skills/tuicr
 fi
-if [[ ! -e ~/.claude/skills/rust-style ]]; then
-  mkdir -p ~/.claude/skills
-  ln -s ~/config/pi/skills/rust-style ~/.claude/skills/rust-style
-fi
+for skill in rust-style; do
+  if [[ ! -e ~/.claude/skills/$skill ]]; then
+    mkdir -p ~/.claude/skills
+    ln -s ~/config/pi/skills/$skill ~/.claude/skills/$skill
+  fi
+done
 if [[ ! -e ~/.pi/agent/AGENTS.md ]]; then
   mkdir -p ~/.pi/agent
   ln -s ~/config/INSTALL-AGENTS.md ~/.pi/agent/AGENTS.md
