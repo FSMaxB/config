@@ -7,8 +7,6 @@ import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { promisify } from "node:util";
-import { Check } from "typebox/value";
 import { join } from "node:path";
 import { Type } from "typebox";
 import { getCurrentTools } from "@earendil-works/pi-ai";
@@ -62,7 +60,7 @@ it("keeps model-only tools declared but excludes nested execution", async () => 
 it("allows owned read-only tools without approval but rejects foreign hints and denied paths", async () => {
 	// arrange
 	const fixture = await toolApiSession({
-		extensions: ["files.ts", "vcs.ts", "plan-mode.ts"].map(path => fileURLToPath(new URL(`../../../${path}`, import.meta.url))),
+		extensions: ["files.ts", "plan-mode.ts"].map(path => fileURLToPath(new URL(`../../../${path}`, import.meta.url))),
 		entries: directory => [
 			{ type: "plan-mode", data: { enabled: true, sessionGrants: [], sessionDenials: [] } },
 			{ type: "path-permissions", data: { version: 2,
@@ -77,12 +75,10 @@ it("allows owned read-only tools without approval but rejects foreign hints and 
 	await writeFile(join(fixture.directory, "allowed.txt"), "readable");
 	try {
 		// act
-		const vcs = await fixture.call("vcs_info");
 		const foreign = await fixture.call("foreign_reader");
 		const denied = await fixture.call("read", { path: join(fixture.directory, "denied.txt") });
 		const allowed = await fixture.call("read", { path: join(fixture.directory, "allowed.txt") });
 		// assert
-		assert.equal(vcs.isError, false);
 		assert.equal(foreign.isError, true);
 		assert.match(foreign.content[0].text, /no interactive UI/);
 		assert.equal(denied.isError, true);
@@ -92,13 +88,13 @@ it("allows owned read-only tools without approval but rejects foreign hints and 
 	} finally { await fixture.dispose(); }
 });
 
-it("does not transfer ownership trust to an SDK override of an owned VCS name", async () => {
+it("does not transfer ownership trust to an SDK override of an owned read-only name", async () => {
 	// arrange
 	let executed = false;
 	const fixture = await toolApiSession({
-		extensions: ["vcs.ts", "plan-mode.ts"].map(path => fileURLToPath(new URL(`../../../${path}`, import.meta.url))),
+		extensions: ["crit.ts", "plan-mode.ts"].map(path => fileURLToPath(new URL(`../../../${path}`, import.meta.url))),
 		entries: [{ type: "plan-mode", data: { enabled: true, sessionGrants: [], sessionDenials: [] } }],
-		customTools: [{ name: "vcs_info", label: "Foreign override", description: "Not the owned implementation",
+		customTools: [{ name: "crit_status", label: "Foreign override", description: "Not the owned implementation",
 			parameters: Type.Object({}), annotations: { readOnlyHint: true }, execute: async () => {
 				executed = true;
 				return { content: [{ type: "text", text: "foreign execution" }], details: undefined };
@@ -106,9 +102,9 @@ it("does not transfer ownership trust to an SDK override of an owned VCS name", 
 	});
 	try {
 		// act
-		const result = await fixture.call("vcs_info");
+		const result = await fixture.call("crit_status");
 		// assert
-		assert.equal(fixture.api.getAllTools().find(tool => tool.name === "vcs_info").sourceInfo.path, "<sdk:vcs_info>");
+		assert.equal(fixture.api.getAllTools().find(tool => tool.name === "crit_status").sourceInfo.path, "<sdk:crit_status>");
 		assert.equal(result.isError, true);
 		assert.match(result.content[0].text, /no interactive UI/);
 		assert.equal(executed, false);
@@ -400,76 +396,6 @@ it("switches between explore, plan and normal mode by appending snapshots only",
 	} finally { await fixture.dispose(); }
 });
 
-it("returns schema-valid bounded VCS results for all tools and paging branches", async () => {
-	// arrange
-	const fixture = await toolApiSession({ extensions: [fileURLToPath(new URL("../../../vcs.ts", import.meta.url))] });
-	const execute = promisify(childProcess.execFile);
-	try {
-		// act
-		const missing = await fixture.call("vcs_info");
-		// assert
-		assert.equal(missing.structuredContent.kind, "none");
-		assert.equal(missing.isError, false);
-		assert.ok(Check(fixture.definitions.get("vcs_info").outputSchema, missing.structuredContent));
-		// arrange
-		await execute("jj", ["git", "init", "--colocate", fixture.directory]);
-		await execute("jj", ["-R", fixture.directory, "config", "set", "--repo", "user.name", "Fixture"]);
-		await execute("jj", ["-R", fixture.directory, "config", "set", "--repo", "user.email", "fixture@example.invalid"]);
-		await writeFile(join(fixture.directory, "sample.txt"), Array.from({ length: 2100 }, (_, index) => `line ${index}`).join("\n"));
-		await writeFile(join(fixture.directory, "other.txt"), "second change");
-		const cases = [
-			["vcs_info", {}], ["vcs_status", { limit: 1 }], ["vcs_branches", {}], ["vcs_log", {}],
-			["vcs_show", { revision: "@" }], ["vcs_diff", {}], ["vcs_file", { revision: "@", path: "sample.txt" }],
-			["vcs_blame", { path: "sample.txt", limit: 2 }],
-		];
-		// act
-		const results = [];
-		for (const [name, parameters] of cases) results.push(await fixture.call(name, parameters));
-		const page = await fixture.call("vcs_file", { revision: "@", path: "sample.txt", offset: 2, limit: 2 });
-		await writeFile(join(fixture.directory, "long.txt"), "x".repeat(60000));
-		const long = await fixture.call("vcs_file", { revision: "@", path: "long.txt" });
-		// assert
-		results.forEach((result, index) => {
-			assert.equal(result.isError, false, JSON.stringify(result.content));
-			assert.ok(Check(fixture.definitions.get(cases[index][0]).outputSchema, result.structuredContent));
-			assert.equal(result.structuredContent.output, result.content[0].text);
-			assert.equal(result.structuredContent.kind, "jj");
-			assert.ok(Buffer.byteLength(result.structuredContent.output) < 52000);
-		});
-		assert.equal(results[1].structuredContent.truncated, true);
-		assert.equal(results[6].structuredContent.truncated, true);
-		assert.equal(page.structuredContent.truncated, false);
-		assert.match(page.structuredContent.output, /line 1\nline 2/);
-		assert.equal(long.structuredContent.truncated, true);
-		assert.match(long.structuredContent.output, /first line alone exceeds/);
-	} finally { await fixture.dispose(); }
-});
-
-it("returns the same structured VCS contract in a git-only fixture", async () => {
-	// arrange
-	const fixture = await toolApiSession({ extensions: [fileURLToPath(new URL("../../../vcs.ts", import.meta.url))] });
-	const execute = promisify(childProcess.execFile);
-	try {
-		await execute("git", ["init", fixture.directory]);
-		await writeFile(join(fixture.directory, "sample.txt"), "git fixture");
-		await execute("git", ["-C", fixture.directory, "add", "sample.txt"]);
-		await execute("git", ["-C", fixture.directory, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-m", "Fixture"]);
-		// act
-		const info = await fixture.call("vcs_info");
-		const file = await fixture.call("vcs_file", { revision: "HEAD", path: "sample.txt" });
-		const diff = await fixture.call("vcs_diff");
-		// assert
-		for (const result of [info, file, diff]) {
-			assert.equal(result.isError, false);
-			assert.equal(result.structuredContent.kind, "git");
-			assert.equal(result.structuredContent.colocated, false);
-			assert.equal(result.structuredContent.output, result.content[0].text);
-		}
-		assert.equal(file.structuredContent.output, "git fixture");
-		assert.equal(diff.structuredContent.output, "(no output)");
-	} finally { await fixture.dispose(); }
-});
-
 it("reports finalized delegated usage once and flags single/parallel failures", async () => {
 	// arrange
 	let childFails = false;
@@ -549,7 +475,7 @@ it("reports finalized delegated usage once and flags single/parallel failures", 
 
 it("registers the agreed exposures, namespaces, and trusted read-only hints", async () => {
 	// arrange
-	const fixture = await toolApiSession({ extensions: ["files.ts", "vcs.ts", "question.ts", "plan-mode.ts", "crit.ts", "tuicr.ts", "subagent/index.ts"]
+	const fixture = await toolApiSession({ extensions: ["files.ts", "question.ts", "plan-mode.ts", "crit.ts", "tuicr.ts", "subagent/index.ts"]
 		.map(path => fileURLToPath(new URL(`../../../${path}`, import.meta.url))) });
 	try {
 		// act
@@ -558,13 +484,12 @@ it("registers the agreed exposures, namespaces, and trusted read-only hints", as
 		// assert
 		assert.deepEqual(modelOnly, ["crit_review", "crit_story_prepare", "question", "subagent", "submit_plan", "tuicr_open", "tuicr_wait"]);
 		for (const tool of definitions) {
-			const expectedNamespace = tool.name.startsWith("vcs_") ? "vcs"
-				: tool.name.startsWith("crit_") ? "crit"
+			const expectedNamespace = tool.name.startsWith("crit_") ? "crit"
 				: tool.name.startsWith("tuicr_") ? "tuicr"
 				: ["plan_path", "submit_plan"].includes(tool.name) ? "planning"
 				: ["read", "write", "edit", "ls", "find", "grep", "delete"].includes(tool.name) ? "files" : undefined;
 			assert.equal(tool.namespace?.name, expectedNamespace, tool.name);
-			const readOnly = ["read", "ls", "find", "grep", "crit_comments", "crit_status"].includes(tool.name) || tool.name.startsWith("vcs_");
+			const readOnly = ["read", "ls", "find", "grep", "crit_comments", "crit_status"].includes(tool.name);
 			assert.equal(tool.annotations?.readOnlyHint === true, readOnly, tool.name);
 			assert.equal(typeof tool.execute, "function");
 			assert.equal(tool.parameters.type, "object");

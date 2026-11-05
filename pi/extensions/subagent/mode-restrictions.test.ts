@@ -6,12 +6,12 @@ import type { ToolPolicyInfo } from "../lib/tool-permission-policy.ts";
 
 test("child permissions share owned read-only trust and deny precedence", () => {
   // arrange
-  const tools = [tool("read", "files.ts"), tool("vcs_status", "vcs.ts"), tool("crit_comments", "crit.ts"),
+  const tools = [tool("read", "files.ts"), tool("grep", "files.ts"), tool("crit_comments", "crit.ts"),
     tool("foreign", "foreign.ts"), tool("granted", "foreign.ts"), tool("hidden", "foreign.ts", "hidden"),
     tool("question", "question.ts", "model-only")];
-  const snapshot = { sessionGrants: ["granted", "hidden", "question", "absent"], sessionDenials: ["vcs_status"] };
+  const snapshot = { sessionGrants: ["granted", "hidden", "question", "absent"], sessionDenials: ["grep"] };
   // act
-  const allowed = restrictedModeAllowedTools(snapshot, { alwaysAllowed: ["vcs_status"], alwaysDenied: [] }, tools, false);
+  const allowed = restrictedModeAllowedTools(snapshot, { alwaysAllowed: ["grep"], alwaysDenied: [] }, tools, false);
   // assert
   assert.deepEqual([...allowed], ["read", "crit_comments", "granted"]);
 });
@@ -58,15 +58,15 @@ test("the child checks its own sandbox before running bash", () => {
 
 test("restricted-mode child selection intersects lists and preserves requested order", () => {
   // arrange
-  const allowed = new Set(["read", "vcs_info"]);
+  const allowed = new Set(["read", "ls"]);
   // act
   const results = [
-    effectiveChildTools(["write", "vcs_info", "read", "read"], allowed),
+    effectiveChildTools(["write", "ls", "read", "read"], allowed),
     effectiveChildTools(undefined, allowed), effectiveChildTools([], allowed),
     effectiveChildTools(["write"], allowed), effectiveChildTools(undefined, new Set()),
   ];
   // assert
-  assert.deepEqual(results, [["vcs_info", "read"], ["read", "vcs_info"], [], [], []]);
+  assert.deepEqual(results, [["ls", "read"], ["read", "ls"], [], [], []]);
 });
 
 test("outside the restricted modes child selection leaves configured defaults unchanged", () => {
