@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { effectiveChildTools, restrictedModeAllowedTools } from "./mode-restrictions.ts";
+import { ChildToolVerdict, childToolVerdict, effectiveChildTools, restrictedModeAllowedTools } from "./mode-restrictions.ts";
 import type { ToolPolicyInfo } from "../lib/tool-permission-policy.ts";
 
 test("child permissions share owned read-only trust and deny precedence", () => {
@@ -11,9 +11,49 @@ test("child permissions share owned read-only trust and deny precedence", () => 
     tool("question", "question.ts", "model-only")];
   const snapshot = { sessionGrants: ["granted", "hidden", "question", "absent"], sessionDenials: ["vcs_status"] };
   // act
-  const allowed = restrictedModeAllowedTools(snapshot, { alwaysAllowed: ["vcs_status"], alwaysDenied: [] }, tools);
+  const allowed = restrictedModeAllowedTools(snapshot, { alwaysAllowed: ["vcs_status"], alwaysDenied: [] }, tools, false);
   // assert
   assert.deepEqual([...allowed], ["read", "crit_comments", "granted"]);
+});
+
+test("bash is admitted while the sandbox is active and a bash tool is registered", () => {
+  // arrange
+  const tools = [tool("read", "files.ts"), tool("bash", "foreign.ts")];
+  const snapshot = { sessionGrants: [], sessionDenials: [] };
+  const persisted = { alwaysAllowed: [], alwaysDenied: [] };
+  // act
+  const withSandbox = restrictedModeAllowedTools(snapshot, persisted, tools, true);
+  const withoutSandbox = restrictedModeAllowedTools(snapshot, persisted, tools, false);
+  const withoutBashTool = restrictedModeAllowedTools(snapshot, persisted, [tool("read", "files.ts")], true);
+  // assert
+  assert.deepEqual([...withSandbox], ["read", "bash"]);
+  assert.deepEqual([...withoutSandbox], ["read"]);
+  assert.deepEqual([...withoutBashTool], ["read"]);
+});
+
+test("a session or always denial keeps bash out even with an active sandbox", () => {
+  // arrange
+  const tools = [tool("read", "files.ts"), tool("bash", "foreign.ts")];
+  // act
+  const sessionDenied = restrictedModeAllowedTools({ sessionGrants: [], sessionDenials: ["bash"] }, { alwaysAllowed: [], alwaysDenied: [] }, tools, true);
+  const alwaysDenied = restrictedModeAllowedTools({ sessionGrants: [], sessionDenials: [] }, { alwaysAllowed: [], alwaysDenied: ["bash"] }, tools, true);
+  // assert
+  assert.deepEqual([...sessionDenied], ["read"]);
+  assert.deepEqual([...alwaysDenied], ["read"]);
+});
+
+test("the child checks its own sandbox before running bash", () => {
+  // arrange
+  const allowed = new Set(["read", "bash"]);
+  // act
+  const verdicts = [
+    childToolVerdict("read", allowed, false),
+    childToolVerdict("write", allowed, true),
+    childToolVerdict("bash", allowed, true),
+    childToolVerdict("bash", allowed, false),
+  ];
+  // assert
+  assert.deepEqual(verdicts, [ChildToolVerdict.Allowed, ChildToolVerdict.Restricted, ChildToolVerdict.Allowed, ChildToolVerdict.NoSandbox]);
 });
 
 test("restricted-mode child selection intersects lists and preserves requested order", () => {
