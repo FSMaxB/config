@@ -24,9 +24,6 @@ TUICR_RAW_URL="https://raw.githubusercontent.com/agavra/tuicr/v${TUICR_VERSION}/
 CRIT_VERSION="0.23.0"
 CRIT_BASE_URL="https://github.com/tomasz-tomczyk/crit/releases/download/v${CRIT_VERSION}"
 
-RTK_VERSION="1.0.1"
-RTK_BASE_URL="https://github.com/rtk-ai/rtk/releases/download/v${RTK_VERSION}"
-
 FZF_VERSION="0.74.5"
 FZF_BASE_URL="https://github.com/junegunn/fzf/releases/download/v${FZF_VERSION}"
 
@@ -35,13 +32,12 @@ FZF_BASE_URL="https://github.com/junegunn/fzf/releases/download/v${FZF_VERSION}"
 # digests together.
 function download_platform() {
 	local PLATFORM="$1"
-	local TRIPLE JQ_NAME CRIT_NAME RTK_NAME FZF_NAME BAT_SHA256 JJ_SHA256 TUICR_SHA256
+	local TRIPLE JQ_NAME CRIT_NAME FZF_NAME BAT_SHA256 JJ_SHA256 TUICR_SHA256
 	case "${PLATFORM}" in
 		Linux/aarch64)
 			TRIPLE="aarch64-unknown-linux-musl"
 			JQ_NAME="linux-arm64"
 			CRIT_NAME="linux-arm64"
-			RTK_NAME="aarch64-unknown-linux-gnu"
 			FZF_NAME="linux_arm64"
 			BAT_SHA256="6369242c584065f195fb20cb36fbd7cb63ae690605bbe89868a7596b596c2c23"
 			JJ_SHA256="80e28f7501c11e50e0ca06cd6a1fa1d982cff9cc59bfe4411a9d36aa501d867e"
@@ -51,7 +47,6 @@ function download_platform() {
 			TRIPLE="x86_64-unknown-linux-musl"
 			JQ_NAME="linux-amd64"
 			CRIT_NAME="linux-amd64"
-			RTK_NAME="x86_64-unknown-linux-musl"
 			FZF_NAME="linux_amd64"
 			BAT_SHA256="0dcd8ac79732c0d5b136f11f4ee00e581440e16a44eab5b3105b611bbf2cf191"
 			JJ_SHA256="fce0271158e665ceb82dc66c5eb95b1728649094e9133074f3b5baece345fc08"
@@ -61,7 +56,6 @@ function download_platform() {
 			TRIPLE="aarch64-apple-darwin"
 			JQ_NAME="macos-arm64"
 			CRIT_NAME="darwin-arm64"
-			RTK_NAME="aarch64-apple-darwin"
 			FZF_NAME="darwin_arm64"
 			BAT_SHA256="e30beff26779c9bf60bb541e1d79046250cb74378f2757f8eb250afddb19e114"
 			JJ_SHA256="43daa37ce0f9716cdf6fb65a29cbcae74a3160aef048cf3cb3d166d41cb4ab58"
@@ -84,7 +78,6 @@ function download_platform() {
 	download_jj "${TRIPLE}" "${OUTDIR}" "${JJ_SHA256}"
 	download_jq "${JQ_NAME}" "${OUTDIR}"
 	download_crit "${CRIT_NAME}" "${OUTDIR}"
-	download_rtk "${RTK_NAME}" "${OUTDIR}"
 	download_fzf "${FZF_NAME}" "${OUTDIR}"
 	download_tuicr "${TRIPLE}" "${OUTDIR}" "${TUICR_SHA256}"
 }
@@ -181,20 +174,7 @@ function download_crit() {
 	install -m 755 "${BINARY}" "${OUTDIR}/crit"
 }
 
-# rtk publishes a checksums.txt file covering all platforms. Its Linux aarch64
-# build is glibc rather than musl (no musl build exists for that arch), so its
-# name doesn't follow the shared TRIPLE the way jj's and bat's do.
-function download_rtk() {
-	local PLATFORM="$1"
-	local OUTDIR="$2"
-	local TARBALL="rtk-${PLATFORM}.tar.gz"
-	curl -fL --output rtk-checksums.txt "${RTK_BASE_URL}/checksums.txt"
-	curl -fL --output "${TARBALL}" "${RTK_BASE_URL}/${TARBALL}"
-	verify "${TARBALL}" "$(grep " ${TARBALL}\$" rtk-checksums.txt | cut -d' ' -f1)"
-	tar --directory "${OUTDIR}" -xf "${TARBALL}" rtk
-}
-
-# fzf publishes a checksums file covering all platforms, like crit and rtk. The tarball
+# fzf publishes a checksums file covering all platforms, like crit. The tarball
 # contains only the binary at its root.
 function download_fzf() {
 	local PLATFORM="$1"
