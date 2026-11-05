@@ -2,14 +2,13 @@ import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { FilesystemConfig } from "@anthropic-ai/sandbox-runtime";
 import { createBashToolDefinition, createLocalBashOperations, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { BashOperations, BashToolDetails, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { readOnlyRepositoryNotice } from "../../lib/path-permission-rules.ts";
 import { ALLOW_ALWAYS, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWAYS, DENY_ONCE, DENY_SESSION, currentAgentMode, currentPolicy, grantPathAccess, type OnceGrant } from "../../lib/path-permissions.ts";
 import { registerToolWithGuidelines } from "../../lib/register-tool.ts";
+import { resolveThroughSymlinks } from "../../lib/repo.ts";
 import { markSandboxActive } from "../../lib/sandbox-state.ts";
 import { selectWithDefault } from "../../lib/select-with-default.ts";
 import { latestCustomData } from "../../lib/session-entries.ts";
@@ -19,8 +18,8 @@ import { credentialEnvVars } from "./credentials.ts";
 import { NETWORK_ENTRY_TYPE, effectiveNetwork, emptyGrants, parseGrants, recordGrant, serializeGrants, type NetworkGrants } from "./network-grants.ts";
 import { filesystemConfig, secretPaths, type PolicyOptions } from "./policy.ts";
 import { loadSettings, updateDomainLists, type Settings } from "./settings.ts";
-import { discardedWrites, isSecretPath, pathViolations, type PathViolation } from "./violations.ts";
-import { nextStep, violationReport, type NextStep, type ViolationOutcome } from "./violation-outcomes.ts";
+import { isSecretPath, pathViolations, type PathViolation } from "./violations.ts";
+import { nextStep, successViolationReport, violationReport, type NextStep, type ViolationOutcome } from "./violation-outcomes.ts";
 
 const SANDBOX_NOTE =
   "Commands run inside an OS sandbox that enforces the same read/write path rules as the file tools, with no network except allowed hosts. Denied paths are reported in a <sandbox_violations> block and the user is asked to grant them; after a grant the command has to be rerun, unless the user allowed it once: then the sandbox reruns it itself and the rerun's output follows the report. Never try to work around a denial. " +
@@ -33,6 +32,7 @@ const INSTALL_HINT =
 // exits, sometimes later than any single fixed wait. Keep polling until the count stops changing.
 const VIOLATION_POLL_MILLISECONDS = 250;
 const VIOLATION_MAX_POLLS = 6;
+// Per command, across all reruns of that command.
 const MAX_PATH_PROMPTS_PER_COMMAND = 5;
 
 const SANDBOX_TEMPORARY_DIRECTORY = "/tmp/claude";
@@ -106,6 +106,9 @@ function unsupportedOperations(): BashOperations {
 
 function createRuntime(pi: ExtensionAPI): Runtime {
   const stock = createLocalBashOperations();
+  // pi passes the same session-scoped ExtensionContext to every tool call, so parallel bash
+  // calls racing this assignment all land on the same object; prompts are serialized via
+  // serialize() in ui-queue.ts regardless.
   let activeContext: ExtensionContext | undefined;
   let initialization: Promise<void> | undefined;
   let settings: Settings | undefined;
@@ -123,7 +126,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
         throw error;
       });
       await initialization;
-      return await runSandboxed(command, cwd, options, []);
+      return await runSandboxed(command, cwd, options, [], MAX_PATH_PROMPTS_PER_COMMAND);
     },
   };
 
@@ -138,31 +141,37 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   };
 
   // Once-grants live only in this recursion, so they never outlast the command they were given for.
-  async function runSandboxed(command: string, cwd: string, options: ExecOptions, onceGrants: OnceGrant[]): Promise<ExecResult> {
-    const { result, step } = await runOnce(command, cwd, options, onceGrants);
+  // The prompt budget is per command too: each rerun draws from what the previous runs left.
+  async function runSandboxed(command: string, cwd: string, options: ExecOptions, onceGrants: OnceGrant[], promptsLeft: number): Promise<ExecResult> {
+    const { result, step, promptsUsed } = await runOnce(command, cwd, options, onceGrants, promptsLeft);
     if (step.kind === "return" || options.signal?.aborted) return result;
-    return await runSandboxed(command, cwd, options, [...onceGrants, ...step.grants]);
+    return await runSandboxed(command, cwd, options, [...onceGrants, ...step.grants], promptsLeft - promptsUsed);
   }
 
-  async function runOnce(command: string, cwd: string, options: ExecOptions, onceGrants: OnceGrant[]): Promise<{ result: ExecResult; step: NextStep }> {
+  async function runOnce(command: string, cwd: string, options: ExecOptions, onceGrants: OnceGrant[], promptsLeft: number): Promise<{ result: ExecResult; step: NextStep; promptsUsed: number }> {
     const commandId = randomUUID();
     const filesystem = filesystemConfig(await currentPolicy(onceGrants), policyOptions());
     try {
       const wrapped = await manager().wrapWithSandbox(command, undefined, { filesystem }, options.signal, { commandId, commandText: command });
       const result = await stock.exec(wrapped, cwd, options);
-      if (result.exitCode === 0 && process.platform !== "linux") return { result, step: { kind: "return" } };
       if (result.exitCode === 0) {
-        const report = discardedWritesReport(await readViolationsAfterOneWait(commandId), filesystem);
+        // Linux events arrive over the monitor socket and are best-effort after exit, so the success
+        // path pays one poll on Linux; macOS reports asynchronously via `log stream`, so it polls
+        // until the count settles like the failure path.
+        const violations = process.platform === "linux"
+          ? await readViolationsAfterOneWait(commandId)
+          : await collectViolations(commandId);
+        const report = successViolationReport(pathViolations(violations.map(({ line }) => line)), filesystem, currentAgentMode());
         if (report) options.onData(Buffer.from(report));
-        return { result, step: { kind: "return" } };
+        return { result, step: { kind: "return" }, promptsUsed: 0 };
       }
       const violations = await collectViolations(commandId);
-      if (violations.length === 0) return { result, step: { kind: "return" } };
+      if (violations.length === 0) return { result, step: { kind: "return" }, promptsUsed: 0 };
       options.onData(Buffer.from(manager().annotateStderrWithSandboxFailures(commandId, "")));
-      const outcomes = await resolveViolations(violations);
+      const { outcomes, promptsUsed } = await resolveViolations(violations, promptsLeft);
       const step = nextStep(outcomes);
       options.onData(Buffer.from(violationReport(outcomes, step, currentAgentMode())));
-      return { result, step };
+      return { result, step, promptsUsed };
     } finally {
       manager().cleanupAfterCommand();
     }
@@ -207,8 +216,8 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     sandboxManager.updateConfig({ ...config, network: { ...config.network, ...effectiveNetwork(settings, grants) } });
   }
 
-  // The discarded-write report is best effort and runs on every successful Linux command, so it pays one
-  // poll interval instead of waiting for the count to settle like a failed command does.
+  // The success-path report is best effort on Linux, where events arrive over the monitor socket, so
+  // it pays one poll interval instead of waiting for the count to settle like a failed command does.
   async function readViolationsAfterOneWait(commandId: string) {
     await new Promise((resolve) => setTimeout(resolve, VIOLATION_POLL_MILLISECONDS));
     return manager().getSandboxViolationStore().getViolationsForCommand(commandId);
@@ -264,30 +273,27 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     });
   }
 
-  async function resolveViolations(violations: { line: string }[]): Promise<ViolationOutcome[]> {
+  async function resolveViolations(violations: { line: string }[], promptsLeft: number): Promise<{ outcomes: ViolationOutcome[]; promptsUsed: number }> {
     const secrets = secretPaths(homedir());
+    const parsed = pathViolations(violations.map(({ line }) => line));
     const outcomes: ViolationOutcome[] = [];
-    for (const [index, violation] of pathViolations(violations.map(({ line }) => line)).entries()) {
-      outcomes.push(await resolveViolation(violation, secrets, index < MAX_PATH_PROMPTS_PER_COMMAND));
+    for (const [index, violation] of parsed.entries()) {
+      outcomes.push(await resolveViolation(violation, secrets, index < promptsLeft));
     }
-    return outcomes;
+    return { outcomes, promptsUsed: Math.min(parsed.length, promptsLeft) };
   }
 
   async function resolveViolation({ mode, path }: PathViolation, secrets: string[], mayPrompt: boolean): Promise<ViolationOutcome> {
-    if (isSecretPath(path, secrets)) return { kind: "secret", path };
+    // Resolve before the secret check so a symlink into a secret tree short-circuits and the
+    // report names the real secret path. grantPathAccess already resolves internally.
+    const resolved = await resolveThroughSymlinks(path);
+    if (isSecretPath(resolved, secrets)) return { kind: "secret", path: resolved };
     if (!activeContext?.hasUI) return { kind: "no-ui", mode, path };
     if (!mayPrompt) return { kind: "not-asked", mode, path };
     const outcome = await grantPathAccess(path, mode, activeContext);
     if (outcome.kind === "allowed-once") return { kind: "allowed-once", mode, path, grant: outcome.grant };
     return { kind: outcome.kind, mode, path };
   }
-}
-
-function discardedWritesReport(violations: { line: string }[], filesystem: FilesystemConfig): string {
-  const discarded = discardedWrites(pathViolations(violations.map(({ line }) => line)), filesystem);
-  if (discarded.length === 0) return "";
-  const lines = discarded.map(({ path }) => `${path} is not covered by the write path rules; the write was discarded and nothing reached the real filesystem.`);
-  return `\n<sandbox_violations>\n${lines.join("\n")}${readOnlyRepositoryNotice("write", currentAgentMode())}\n</sandbox_violations>\n`;
 }
 
 type ExecOptions = Parameters<BashOperations["exec"]>[2];

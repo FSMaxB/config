@@ -144,6 +144,50 @@ test("Linux reports a write that the read-deny tmpfs discarded", { skip: !enable
   assert.ok(discarded.some((violation) => violation.mode === "write" && violation.path === target), `the monitor must record the tmpfs write: ${JSON.stringify(discarded)}`);
 });
 
+// srt 0.0.77's Linux observer only reports write-intent syscalls and read-denied trees are masked with
+// a tmpfs, so a denied read fails with ENOENT and leaves no record there; macOS seatbelt logs the deny.
+test("a denied read is recorded on macOS but masked silently on Linux", { skip: !enabled }, async () => {
+  // arrange
+  const target = join(fakeHome, "notes.txt");
+
+  // act
+  const { commandId } = await runSandboxed(`cat '${target}'`);
+  const violations = pathViolations((await collectViolations(commandId)).map(({ line }) => line));
+
+  // assert
+  if (process.platform === "darwin") {
+    assert.ok(violations.some((violation) => violation.mode === "read" && violation.path === target), `expected a read violation for ${target}: ${JSON.stringify(violations)}`);
+  } else {
+    assert.deepEqual(violations, []);
+  }
+});
+
+test("an exit-0 command can still carry violations on macOS", { skip: !enabled || process.platform !== "darwin" }, async () => {
+  // arrange
+  const target = join(fakeHome, "notes.txt");
+
+  // act
+  const { exitCode, commandId } = await runSandboxed(`cat '${target}' 2>/dev/null || true`);
+  const violations = pathViolations((await collectViolations(commandId)).map(({ line }) => line));
+
+  // assert
+  assert.equal(exitCode, 0);
+  assert.ok(violations.some((violation) => violation.mode === "read" && violation.path === target), `expected a read violation for ${target}: ${JSON.stringify(violations)}`);
+});
+
+async function collectViolations(commandId: string) {
+  const store = SandboxManager.getSandboxViolationStore();
+  let previousCount = -1;
+  let violations = store.getViolationsForCommand(commandId);
+  for (let poll = 0; poll < 6; poll += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    violations = store.getViolationsForCommand(commandId);
+    if (violations.length === previousCount) break;
+    previousCount = violations.length;
+  }
+  return violations;
+}
+
 function policyFilesystem(extraReadAllow: PathSelector[] = []) {
   const policy = {
     read: { allow: [tree(workDirectory), ...extraReadAllow], deny: [], protected: [] },
