@@ -5,6 +5,7 @@ import test from "node:test";
 import { exact, glob, tree } from "../../lib/path-permission-rules.ts";
 import type { EffectivePolicy } from "../../lib/path-permissions.ts";
 import { filesystemConfig, secretPaths, type PolicyOptions } from "./policy.ts";
+import { vcsWriteRules, type VcsLayout } from "./vcs-policy.ts";
 
 const HOME = "/Users/max";
 
@@ -194,4 +195,83 @@ test("the sandbox-runtime package stays readable under a denied home directory",
   const runtimeDirectory = config.allowRead?.find((path) => path.endsWith("/node_modules/@anthropic-ai/sandbox-runtime"));
   assert.ok(runtimeDirectory, "the sandbox-runtime package directory must be read-allowed");
   assert.ok(existsSync(join(runtimeDirectory, "vendor", "seccomp")), `${runtimeDirectory} must contain the vendored seccomp helper`);
+});
+
+function vcsLayout(): VcsLayout {
+  const listings = new Map([
+    [`${HOME}/repo/.git`, { path: `${HOME}/repo/.git`, entries: [{ name: "config", directory: false }, { name: "objects", directory: true }] }],
+    [`${HOME}/repo/.jj`, { path: `${HOME}/repo/.jj`, entries: [{ name: "working_copy", directory: true }] }],
+  ]);
+  return { repoRoot: `${HOME}/repo`, listings };
+}
+
+test("on darwin the repository write allow is replaced by the complement of the VCS directories", () => {
+  // arrange
+  const vcs = vcsWriteRules(vcsLayout(), "darwin");
+
+  // act
+  const config = filesystemConfig(policy(), options({ platform: "darwin", vcs }));
+
+  // assert
+  assert.ok(!config.allowWrite.includes(`${HOME}/repo`));
+  assert.ok(config.allowWrite.includes(`${HOME}/repo/[-A-Za-z0-9_@,=~#%!&]*`));
+  assert.ok(config.allowWrite.includes(`${HOME}/repo/.git/objects`));
+  assert.ok(config.allowWrite.includes(`${HOME}/repo/.git/HEAD.lock`));
+  assert.ok(config.allowRead?.includes(`${HOME}/repo`));
+});
+
+test("an explicit grant of the repository root does not re-open the VCS directories on darwin", () => {
+  // arrange
+  const vcs = vcsWriteRules(vcsLayout(), "darwin");
+  const effective = policy({ write: { allow: [tree(`${HOME}/.pi/agent/plans`), exact(`${HOME}/repo`)] } });
+
+  // act
+  const config = filesystemConfig(effective, options({ platform: "darwin", vcs }));
+
+  // assert
+  assert.ok(!config.allowWrite.includes(`${HOME}/repo`));
+  assert.ok(config.allowWrite.includes(`${HOME}/repo/.git/objects`));
+});
+
+test("an ancestor grant keeps the VCS denies in place", () => {
+  // arrange
+  const vcs = vcsWriteRules(vcsLayout(), "darwin");
+  const effective = policy({ write: { allow: [tree(HOME)] } });
+
+  // act
+  const config = filesystemConfig(effective, options({ platform: "darwin", vcs }));
+
+  // assert
+  assert.ok(config.allowWrite.includes(HOME));
+  assert.ok(config.denyWrite.includes(`${HOME}/repo/.git/config`));
+  assert.ok(config.denyWrite.includes(`${HOME}/repo/.git/commondir`));
+});
+
+test("on linux the repository stays writable and every VCS deny applies", () => {
+  // arrange
+  const vcs = vcsWriteRules(vcsLayout(), "linux");
+
+  // act
+  const config = filesystemConfig(policy(), options({ platform: "linux", homeDirectory: "/home/max", vcs }));
+
+  // assert
+  assert.deepEqual(config.allowWrite, [`${HOME}/repo`]);
+  assert.ok(config.denyWrite.includes(`${HOME}/repo/.git/config`));
+  assert.ok(config.denyWrite.includes(`${HOME}/repo/.git/modules`));
+  assert.ok(!config.denyWrite.includes(`${HOME}/repo/.git/commondir`));
+});
+
+test("the jj lock files of plan mode add no VCS denies", () => {
+  // arrange
+  const locks = [exact(`${HOME}/repo/.jj/working_copy/working_copy.lock`), exact(`${HOME}/repo/.jj/repo/git_import_export.lock`)];
+  const effective = policy({ write: { allow: [tree(`${HOME}/.pi/agent/plans`), ...locks] } });
+
+  // act
+  const darwin = filesystemConfig(effective, options({ platform: "darwin", vcs: vcsWriteRules(vcsLayout(), "darwin") }));
+  const linux = filesystemConfig(effective, options({ platform: "linux", vcs: vcsWriteRules(vcsLayout(), "linux") }));
+
+  // assert
+  assert.ok(!darwin.denyWrite.includes(`${HOME}/repo/.git/config`));
+  assert.ok(!linux.denyWrite.includes(`${HOME}/repo/.git/config`));
+  assert.ok(darwin.allowWrite.includes(`${HOME}/repo/.jj/working_copy/working_copy.lock`));
 });

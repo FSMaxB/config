@@ -4,18 +4,23 @@ import type { FilesystemConfig } from "@anthropic-ai/sandbox-runtime";
 import type { EffectivePolicy } from "../../lib/path-permissions.ts";
 import { exact, type PathSelector } from "../../lib/path-permission-rules.ts";
 import { contains } from "../../lib/repo.ts";
+import type { VcsWriteRules } from "./vcs-policy.ts";
 
 export interface PolicyOptions {
   platform: "darwin" | "linux";
   homeDirectory: string;
   toolchainRead: string[];
   extraDenyRead: string[];
+  vcs?: VcsWriteRules;
 }
 
 export function filesystemConfig(policy: EffectivePolicy, options: PolicyOptions): FilesystemConfig {
   const { platform, homeDirectory, toolchainRead, extraDenyRead } = options;
   const secrets = secretPaths(homeDirectory);
   const keepsSecretsDenied = (selector: PathSelector) => !secrets.some((secret) => mayExposeSecret(selector, secret));
+  const writeAllow = replaceRepositoryAllow(policy.write.allow, options.vcs)
+    .filter((selector) => platform === "darwin" || selector.kind !== "glob")
+    .filter(keepsSecretsDenied);
   return {
     denyRead: unique([...userRoots(platform), homeDirectory, ...secrets, ...extraDenyRead, ...policy.read.deny.map(selectorPath)]),
     allowRead: unique([
@@ -23,9 +28,34 @@ export function filesystemConfig(policy: EffectivePolicy, options: PolicyOptions
       ...toolchainRead.filter((path) => keepsSecretsDenied(exact(path))),
       sandboxRuntimeDirectory(),
     ]),
-    allowWrite: unique(policy.write.allow.filter((selector) => platform === "darwin" || selector.kind !== "glob").filter(keepsSecretsDenied).map(selectorPath)),
-    denyWrite: unique([...secrets, ...[...policy.write.deny, ...policy.write.protected].map((selector) => writeDenyPath(selector, platform))]),
+    allowWrite: unique(writeAllow.map(selectorPath)),
+    denyWrite: unique([...secrets, ...vcsDeny(writeAllow, options.vcs), ...[...policy.write.deny, ...policy.write.protected].map((selector) => writeDenyPath(selector, platform))]),
   };
+}
+
+// On darwin the repository allow becomes "everything but .git and .jj" plus the paths git and jj write. A
+// grant of the repository root, which the violation prompt offers, is the same selector and is replaced
+// too, so it cannot re-open the VCS directories.
+function replaceRepositoryAllow(allow: PathSelector[], vcs: VcsWriteRules | undefined): PathSelector[] {
+  if (!vcs || vcs.repositoryAllow.length === 0) return allow;
+  const isRepository = (selector: PathSelector) => selector.kind !== "glob" && selector.path === vcs.repositoryRoot;
+  return [...allow.filter((selector) => !isRepository(selector)), ...(allow.some(isRepository) ? vcs.repositoryAllow : [])];
+}
+
+// srt applies a write deny after every allow, so the denies only matter once some allow reaches into a VCS
+// directory. Literal allows inside one, such as the jj lock files in plan mode, do not.
+function vcsDeny(writeAllow: PathSelector[], vcs: VcsWriteRules | undefined): string[] {
+  if (!vcs) return [];
+  const reached = writeAllow.some((selector) => vcs.vcsDirectories.some((directory) => reachesVcsDirectory(selector, directory)));
+  return reached ? vcs.deny : [];
+}
+
+// Whether an allow can write into the VCS directory beyond its own explicit paths. Not mayExposeSecret: that
+// asks whether an allow would override a deeper deny, and says no for a literal allow above the target.
+function reachesVcsDirectory(selector: PathSelector, directory: string): boolean {
+  if (selector.kind !== "glob") return contains(selector.path, directory);
+  if (contains(directory, selector.base)) return true;
+  return contains(selector.base, directory) && globMayReach(selector.pattern.split("/"), relative(selector.base, directory).split(sep));
 }
 
 export function secretPaths(homeDirectory: string): string[] {
