@@ -12,6 +12,11 @@ export interface NetworkLists {
   deniedDomains: string[];
 }
 
+export interface NetworkConfig extends NetworkLists {
+  allowUnixSockets: string[];
+  allowLocalBinding: boolean;
+}
+
 export function emptyGrants(): NetworkGrants {
   return { allow: new Set(), deny: new Set() };
 }
@@ -31,6 +36,12 @@ export function recordGrant(grants: NetworkGrants, decision: "allow" | "deny", h
   const opposite = decision === "allow" ? "deny" : "allow";
   grants[decision].add(host);
   grants[opposite].delete(host);
+}
+
+// Subagents get no network at all: an empty allowlist plus a deny-all entry, and no local sockets.
+export function networkConfig(settings: Settings, grants: NetworkGrants, subagent: boolean): NetworkConfig {
+  if (subagent) return { allowedDomains: [], deniedDomains: ["*"], allowUnixSockets: [], allowLocalBinding: false };
+  return { ...effectiveNetwork(settings, grants), allowUnixSockets: settings.allowUnixSockets, allowLocalBinding: settings.allowLocalBinding };
 }
 
 // Session grants override the settings file: a session allow lifts a stored deny of the same host and vice versa.

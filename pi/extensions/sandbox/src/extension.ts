@@ -15,7 +15,7 @@ import { latestCustomData } from "../../lib/session-entries.ts";
 import { serialize } from "../../lib/ui-queue.ts";
 import { bypassOutcome, bypassPrompt, resolveChoice, type BypassAuthorization, type SessionDecision } from "./bypass.ts";
 import { credentialEnvVars } from "./credentials.ts";
-import { NETWORK_ENTRY_TYPE, effectiveNetwork, emptyGrants, parseGrants, recordGrant, serializeGrants, type NetworkGrants } from "./network-grants.ts";
+import { NETWORK_ENTRY_TYPE, emptyGrants, networkConfig, parseGrants, recordGrant, serializeGrants, type NetworkGrants } from "./network-grants.ts";
 import { filesystemConfig, secretPaths, type PolicyOptions } from "./policy.ts";
 import { loadSettings, updateDomainLists, type Settings } from "./settings.ts";
 import { scanVcsLayout, vcsWriteRules, type VcsWriteRules } from "./vcs-policy.ts";
@@ -110,6 +110,7 @@ function unsupportedOperations(): BashOperations {
 
 function createRuntime(pi: ExtensionAPI): Runtime {
   const stock = createLocalBashOperations();
+  const subagent = Boolean(process.env.PI_SUBAGENT_CHILD);
   // pi passes the same session-scoped ExtensionContext to every tool call, so parallel bash
   // calls racing this assignment all land on the same object; prompts are serialized via
   // serialize() in ui-queue.ts regardless.
@@ -196,7 +197,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     if (problems.length > 0) throw new Error(`Sandboxed bash is unavailable: ${problems.join("; ")}. ${INSTALL_HINT}`);
     await manager().initialize(
       {
-        network: { ...effectiveNetwork(settings, grants), allowUnixSockets: settings.allowUnixSockets, allowLocalBinding: settings.allowLocalBinding },
+        network: networkConfig(settings, grants, subagent),
         filesystem: filesystemConfig(await currentPolicy(), policyOptions(await vcsRules())),
         credentials: { envVars: credentialEnvVars() },
         allowPty: false,
@@ -234,7 +235,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     if (!sandboxManager || !settings) return;
     const config = sandboxManager.getConfig();
     if (!config) return;
-    sandboxManager.updateConfig({ ...config, network: { ...config.network, ...effectiveNetwork(settings, grants) } });
+    sandboxManager.updateConfig({ ...config, network: { ...config.network, ...networkConfig(settings, grants, subagent) } });
   }
 
   // The success-path report is best effort on Linux, where events arrive over the monitor socket, so
@@ -257,7 +258,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   }
 
   async function authorizeBypass(command: string, context: ExtensionContext): Promise<BypassAuthorization> {
-    const outcome = bypassOutcome({ agentMode: currentAgentMode(), subagent: Boolean(process.env.PI_SUBAGENT_CHILD), hasUI: context.hasUI, sessionDecision: bypassDecision });
+    const outcome = bypassOutcome({ agentMode: currentAgentMode(), subagent, hasUI: context.hasUI, sessionDecision: bypassDecision });
     if (outcome.kind !== "ask") return outcome;
     const choice = await serialize(() => selectWithDefault(context.ui, bypassPrompt(command), outcome.choices, outcome.defaultChoice, "permission"));
     const { authorization, remember } = resolveChoice(choice);
