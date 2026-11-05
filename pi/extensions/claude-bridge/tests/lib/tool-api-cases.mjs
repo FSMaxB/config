@@ -187,6 +187,35 @@ it("caps subagent tools by the exploring mode's own decisions", async () => {
 	} finally { await fixture.dispose(); spawnMock.mock.restore(); syncBuiltinESMExports(); }
 });
 
+it("admits bash to subagents of the exploring mode while the sandbox is active", async () => {
+	// arrange
+	const extensions = ["files.ts", "explore-mode.ts", "subagent/index.ts"].map(path => fileURLToPath(new URL(`../../../${path}`, import.meta.url)));
+	const spawned = [];
+	const spawnMock = mock.method(childProcess, "spawn", (command, args, options) => {
+		spawned.push({ command, args, options });
+		const child = new EventEmitter();
+		child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = () => {};
+		setImmediate(() => child.emit("close", 0));
+		return child;
+	});
+	syncBuiltinESMExports();
+	globalThis.piSandboxActive = true;
+	const fixture = await toolApiSession({ extensions,
+		entries: [
+			{ type: "explore-mode", data: { enabled: true, sessionGrants: [], sessionDenials: [{ name: "grep" }] } },
+			{ type: "plan-mode", data: { enabled: false, sessionGrants: [], sessionDenials: [] } },
+		] });
+	try {
+		// act
+		const result = await fixture.call("subagent", { agent: "explore", task: "fixture" });
+		// assert
+		assert.equal(result.details.results[0].exitCode, 0, result.content[0].text);
+		const { args, options } = spawned[0];
+		assert.equal(args[args.indexOf("--tools") + 1], "read,find,ls,bash");
+		assert.equal(options.env.PI_SUBAGENT_ALLOWED_TOOLS, "bash,find,ls,read");
+	} finally { delete globalThis.piSandboxActive; await fixture.dispose(); spawnMock.mock.restore(); syncBuiltinESMExports(); }
+});
+
 it("registry allowlists exclude deferred tools even after registration and activation", async () => {
 	// arrange
 	const fixture = await toolApiSession({ tools: ["caller_fixture"], factories: [pi => {

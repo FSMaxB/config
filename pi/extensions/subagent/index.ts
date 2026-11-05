@@ -25,16 +25,17 @@ import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { formatDuration, shortenPath } from "../lib/format.ts";
 import { createLineSplitter } from "../lib/lines.ts";
-import { isRestricted, MODE_IDENTITIES, type RestrictedMode } from "../lib/agent-mode.ts";
+import { isRestricted, MODE_IDENTITIES, READ_ONLY_JJ_NOTE, type RestrictedMode } from "../lib/agent-mode.ts";
 import { readPersistedDecisions } from "../lib/mode-decisions.ts";
 import { activeRestrictedMode } from "../lib/mode-entry.ts";
 import { captureChildPathPolicy } from "../lib/path-permissions.ts";
 import { serializeChildPathPolicy, CHILD_POLICY_ENV, type ChildPathPolicy } from "../lib/path-permission-snapshot.ts";
 import { registerToolWithGuidelines } from "../lib/register-tool.ts";
+import { isSandboxActive } from "../lib/sandbox-state.ts";
 import { sessionTemporaryDirectory, TEMPORARY_DIRECTORY_ENV } from "../lib/session-temporary-directory.ts";
 import { type AgentConfig, discoverAgents, THINKING_LEVELS } from "./agents.ts";
 import { guidanceTable, loadPolicyConfig, resolveSubagentModel, type SubagentModelConfig } from "./model-policy.ts";
-import { effectiveChildTools, restrictedModeAllowedTools, type PersistedModeDecisions } from "./mode-restrictions.ts";
+import { ChildToolVerdict, childToolVerdict, effectiveChildTools, restrictedModeAllowedTools, type PersistedModeDecisions } from "./mode-restrictions.ts";
 import { emptyUsage, finalizedMessageUsage, isFailedResult, subagentOutcome, sumUsage } from "./results.ts";
 
 const EXTENSION_DIRECTORY = dirname(fileURLToPath(import.meta.url));
@@ -110,6 +111,7 @@ export default function (pi: ExtensionAPI) {
               },
               await persistedModeDecisions(active.mode),
               pi.getAllTools(),
+              isSandboxActive(),
             ),
           }
         : undefined;
@@ -1016,8 +1018,17 @@ function registerChildRestrictions(pi: ExtensionAPI): void {
   const restrictingMode = Object.values(MODE_IDENTITIES).find(({ mode }) => mode === process.env.PI_SUBAGENT_RESTRICTING_MODE);
   const modeName = restrictingMode?.label.toLowerCase() ?? "a restricted mode";
   const allowedTools = new Set(allowedList.split(",").filter(Boolean));
+  // isSandboxActive() is read inside the handlers, not here, because extension load order is not guaranteed.
   pi.on("tool_call", async (event) => {
-    if (allowedTools.has(event.toolName)) return;
+    const verdict = childToolVerdict(event.toolName, allowedTools, isSandboxActive());
+    if (verdict === ChildToolVerdict.Allowed) return;
+    if (verdict === ChildToolVerdict.NoSandbox) {
+      return {
+        block: true,
+        reason:
+          `bash is unavailable: the dispatching session is in ${modeName}, which only allows sandboxed bash, and the sandbox is not active in this subagent. Do not retry it.`,
+      };
+    }
     // The allowlist covers tools this agent may not even have; only name the usable ones.
     const usableTools = pi.getActiveTools().filter((name) => allowedTools.has(name));
     return {
@@ -1027,6 +1038,12 @@ function registerChildRestrictions(pi: ExtensionAPI): void {
         `Do not retry it. Tools you can use: ${usableTools.sort().join(", ")}.`,
     };
   });
+
+  // The child gets no agent-mode message, so tell it what the read-only repository means for jj.
+  if (!allowedTools.has("bash")) return;
+  pi.on("before_agent_start", async (event) => ({
+    systemPrompt: `${event.systemPrompt}\n\n# Restrictions\n\nThe dispatching session is in ${modeName}. ${READ_ONLY_JJ_NOTE}`,
+  }));
 }
 
 async function persistedModeDecisions(mode: RestrictedMode): Promise<PersistedModeDecisions> {
