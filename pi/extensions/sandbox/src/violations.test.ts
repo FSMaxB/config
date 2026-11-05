@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { mkdtemp, mkdir, realpath, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
-import { discardedWrites, isSecretPath, pathViolations } from "./violations.ts";
+import { discardedWrites, isSecretPath, isSecretPathThroughSymlinks, pathViolations } from "./violations.ts";
 
 test("macOS read and write violations parse", () => {
   // arrange
@@ -100,4 +103,32 @@ test("a secret path matches itself and nested paths only", () => {
   assert.equal(same, true);
   assert.equal(nested, true);
   assert.equal(sibling, false);
+});
+
+test("a secret path is detected through a symlink", async () => {
+  // arrange
+  // realpath first: tmpdir itself can be a symlink and the resolver canonicalizes both sides.
+  const root = await realpath(await mkdtemp(join(tmpdir(), "sandbox-secrets-")));
+  try {
+    const secretDirectory = join(root, "home", ".ssh");
+    const elsewhere = join(root, "elsewhere");
+    await mkdir(secretDirectory, { recursive: true });
+    await mkdir(elsewhere);
+    await symlink(secretDirectory, join(root, "link-to-secret"));
+    await symlink(elsewhere, join(root, "link-elsewhere"));
+    const secrets = [secretDirectory];
+
+    // act
+    const throughSecretLink = await isSecretPathThroughSymlinks(join(root, "link-to-secret", "config"), secrets);
+    const throughOtherLink = await isSecretPathThroughSymlinks(join(root, "link-elsewhere", "file"), secrets);
+    const plainNested = join(secretDirectory, "id_ed25519");
+    const throughPlain = await isSecretPathThroughSymlinks(plainNested, secrets);
+
+    // assert
+    assert.equal(throughSecretLink, true);
+    assert.equal(throughOtherLink, false);
+    assert.equal(throughPlain, isSecretPath(plainNested, secrets));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
