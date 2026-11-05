@@ -1,23 +1,10 @@
 ## Planning
 
-- This section applies in plan mode or when I explicitly ask for a plan. Review and analysis requests are not plans; answer them directly without the steps below.
-- If you are explicitly asked to implement a plan, ignore this entire planning section and start implementing.
-- When in doubt (either during exploration or planning), prefer to ask me clarifying questions instead of extensive exploration
-- When asking me questions, use the agent harness's question tool rather than plain text. If the harness has no question tool, ask in plain text.
-- Explicitly include verification steps in the plan you write
-- Write a self-contained plan that a junior developer with no prior knowledge of this codebase could execute without asking questions or exploring on their own.
-  - Do not defer decisions to the implementer, if multiple approaches exist, discuss them with me first and then include the chosen approach.
-  - When describing concrete code changes, prefer small code examples or pseudo-code over bullet points.
-- Include your own model ID and thinking level at the beginning of the plan. Read both with `echo $PI_MODEL $PI_REASONING_LEVEL` right before writing the header; never infer them from subagent calls or earlier messages. Outside Pi, write `unknown` for anything you can't read. (When modifying a plan made by another model, add yourself to a growing list).
-- When done with planning, launch a crit review of the plan. Wait until I finish the review and address all unresolved comments before submitting the plan for implementation. If crit is unavailable, say so and ask me how to approve the plan instead of skipping the review.
+- In plan mode or when I explicitly ask for a plan, read the `planning` skill first and follow it. Review and analysis requests are not plans. When explicitly asked to implement a plan, skip it.
 
 ## Exploration
 
-- Delegate complex codebase exploration that requires reading lots of code to an explore subagent (when the harness provides one).
-- Write the subagent brief so it contains everything already known, so the subagent verifies instead of re-deriving it.
-- For mechanical fact-finding, run the subagent on a cheaper model or a lower thinking level than the main session instead of inheriting the session model. Pick the cheaper model from whatever provider the session uses.
-- Pi only: before calling the `subagent` tool, read the `subagent-model-choice` skill to pick `model` and `thinkingLevel` for the task class.
-- Pi only: Prefer `codemode` over chaining shell commands.
+- Before exploring a codebase (reading code to answer a question, investigate or prepare a change or plan), read the `exploration` skill and follow it.
 
 ## Explaining
 
@@ -25,59 +12,19 @@
 
 ## VCS
 
-- Use jj when the repository uses jj, including colocated jj/git repositories. Otherwise, ask before using git. Read-only git commands (e.g. `git status`, `git log`, `git diff`) are always fine; asking is only needed for commands that change commits, branches, or the index.
-- Before making changes, inspect the working-copy status. If it already contains changes, make sure they don't end up in your commits.
-- Put each distinct logical change in a separate clean commit. Never include unrelated or pre-existing changes.
-- Always commit before veritifcation. If veritifcation finds issues, make fixups instead.
-
-### jj
-
-- Finalize each change with `jj commit -m "..."`. This commits the current working-copy revision and creates a fresh empty working-copy revision directly on top of it.
-- Finish with `jj status` showing an empty working copy whose parent is your completed change.
-- Never change the working-copy parent, move bookmarks, or rebase without asking.
-
-### git
-
-- Stage only files and changes belonging to the current task, then create a normal commit.
-- Finish with no uncommitted changes from your task. Do not modify, stage, stash, discard, or commit pre-existing changes.
-- Never switch branches, move branches, merge, or rebase without asking.
-
-### Fixups
-
-- Do not amend or rewrite existing commits.
-- Create a separate fixup commit that I can squash later.
-- format: "fixup {id}: {description}"
-- For jj it is fine for fixup commits to be made in between existing commits (they don't necessarily have to be on top)
-- Identify the target in the commit message using its native identifier:
-  - jj: the target’s change ID.
-  - git: the target’s commit hash.
-- Do not make fixups targeting multiple commits, split them into multiple instead.
-
-I will handle all rebasing and history rewriting manually.
+- Before reading VCS status or history, making changes in a repository, committing or creating fixup commits, read the `vcs` skill and follow it.
 
 ## Verification
 
 - After implementing a plan and after committing, ask me with a tool whether I want to do a review with tuicr. Use the harness's tuicr tools or skill; if it has neither, skip the tuicr review and say so.
-- Put fixes for tuicr or crit review comments into fixup commits (see Fixups).
+- Put fixes for tuicr or crit review comments into fixup commits (see the `vcs` skill).
 - Address tuicr comments by doing what was asked and responding to the comment.
 
 ## Code style / Architecture
 
-### General
-
-- Step-down rule: when adding a function or type, place it below its callers or users. Before finishing any edit that adds a helper, verify the helper appears after every site that calls it. If it doesn't, move it. Do not apply it to imports or module definitions!
-- For tests, follow the arrange/act/assert style with an `arrange`, `act` and `assert` comment for each subsection. These labels are an intentional exception to the comment rule below.
-- Do not under any circumstance add separating comments like `// ------------`
-- Follow the "functional core, imperative shell" pattern when adequate
-- Only add comments if they add context that is not part of the code itself. Explicitly do not duplicate what code is doing in the comments, only explain rationale and/or high level architecture.
-- Do not use `err`, `ctx`, `recv` or similar abbreviations. Use full words like `error`, `context` or `receive`.
-- Prefer explicit types (e.g. enum) instead of boolean when used as function arguments (booleans as method return types are fine if they is only used in an condition).
-- Use early returns or equivalent where possible to prevent nesting the happy path.
+- Before writing or editing code, read the `code-style` skill and follow it.
+- Before writing or editing Rust code, also read the `rust-style` skill and follow it.
 - Pi only: Run bazel commands or commands that run bazel internally with unsandboxed bash
-
-### Rust
-
-- Before writing or editing Rust code, read the `rust-style` skill and follow it.
 
 ## Instruction loading (for harnesses without native support, e.g. OpenCode)
 

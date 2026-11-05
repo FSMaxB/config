@@ -50,7 +50,7 @@ Sandbox limitations (each a candidate for `unsandboxed: true`): programs that ig
 
 ## pi skills
 
-`pi/skills/` is symlinked to `~/.pi/agent/skills`, pi's global skill root. Each skill is `pi/skills/<name>/SKILL.md`. Skills meant for Claude Code as well go in `<name>-skill/` at the top level and are linked into `~/.claude/skills/` instead (see `tuicr-skill`). A skill for both lives in `pi/skills/<name>/` and `install.sh` links that directory into `~/.claude/skills/` (see `rust-style`).
+`pi/skills/` is symlinked to `~/.pi/agent/skills`, pi's global skill root. Each skill is `pi/skills/<name>/SKILL.md`. Skills meant for Claude Code as well go in `<name>-skill/` at the top level and are linked into `~/.claude/skills/` instead (see `tuicr-skill`). A skill for both lives in `pi/skills/<name>/` and `install.sh` links that directory into `~/.claude/skills/`; add its name to the `for skill in ...` loop there (see `rust-style`).
 
 ## pi themes
 
