@@ -7,7 +7,7 @@ description: Use in plan mode or whenever Max explicitly asks for a plan. Not fo
 
 - This skill applies in plan mode or when I explicitly ask for a plan. Review and analysis requests are not plans; answer them directly without the steps below.
 - If you are explicitly asked to implement a plan, ignore this entire skill and start implementing.
-- When in doubt (either during exploration or planning), prefer to ask me clarifying questions instead of extensive exploration
+- When in doubt (either during exploration or planning), prefer to ask me clarifying questions instead of extensive exploration. Ask about intent, preferences and priorities; explore when the answer is in the code.
 - When asking me questions, use the agent harness's question tool rather than plain text. If the harness has no question tool, ask in plain text.
 - Explicitly include verification steps in the plan you write
 - Write a self-contained plan that a junior developer with no prior knowledge of this codebase could execute without asking questions or exploring on their own.
