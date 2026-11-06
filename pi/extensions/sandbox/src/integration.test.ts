@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
@@ -8,6 +8,7 @@ import { after, before, test } from "node:test";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import { exact, glob, tree, type PathSelector } from "../../lib/path-permission-rules.ts";
 import { filesystemConfig } from "./policy.ts";
+import { scanVcsLayout, vcsWriteRules } from "./vcs-policy.ts";
 import { discardedWrites, pathViolations } from "./violations.ts";
 
 const enabled = process.env.SANDBOX_INTEGRATION === "1";
@@ -22,6 +23,7 @@ before(async () => {
   workDirectory = join(root, "work");
   fakeHome = join(root, "home");
   await mkdir(workDirectory);
+  await mkdir(join(root, "vcs-home", ".config"), { recursive: true });
   await mkdir(join(fakeHome, ".ssh"), { recursive: true });
   await writeFile(join(fakeHome, ".ssh", "config"), "Host secret\n");
   await writeFile(join(fakeHome, ".netrc"), "machine secret\n");
@@ -175,6 +177,114 @@ test("an exit-0 command can still carry violations on macOS", { skip: !enabled |
   assert.ok(violations.some((violation) => violation.mode === "read" && violation.path === target), `expected a read violation for ${target}: ${JSON.stringify(violations)}`);
 });
 
+const jjAvailable = spawnSync("jj", ["--version"]).error === undefined;
+
+const GIT_BATTERY = [
+  "set -e",
+  "echo a > a.txt && git add a.txt && git commit -q -m one",
+  "git checkout -q -b feature",
+  "echo b > b.txt && git add b.txt && git commit -q -m two",
+  "git checkout -q main",
+  "git merge -q --no-edit feature",
+  "git reset -q --hard HEAD~1",
+  "echo c > c.txt && git add c.txt && git commit -q -m three",
+  "git rebase -q feature",
+  "git tag -a v1 -m v1",
+  "git gc -q",
+  "git log --oneline > /dev/null && git status --short > /dev/null && git diff > /dev/null",
+].join("\n");
+
+const JJ_BATTERY = [
+  "set -e",
+  "jj new && jj describe -m x",
+  "echo f > f.txt && jj commit -m y",
+  "jj bookmark create b -r @-",
+  "jj rebase -r @ -d b",
+  "jj abandon @ && jj undo",
+  "jj git export",
+  "jj log > /dev/null && jj status > /dev/null && jj diff > /dev/null",
+  "git log --oneline > /dev/null && git status --short > /dev/null",
+].join("\n");
+
+// git stash unlinks its temporary index through remove_path(), which then tries to rmdir the emptied parent:
+// .git itself. The sandbox denies that, and git ignores the failure.
+test("git stash works and only reports git's attempt to remove .git", { skip: !enabled }, async () => {
+  // arrange
+  const repository = join(workDirectory, "stash-repo");
+  execFileSync("git", ["init", "--quiet", "--template=", "-b", "main", repository]);
+  await mkdir(join(repository, ".git", "info"));
+  await writeFile(join(repository, ".git", "info", "exclude"), "");
+  const script = "set -e\necho a > a.txt && git add a.txt && git commit -q -m one\necho b >> a.txt && git stash -q && git stash pop -q";
+
+  // act
+  const { exitCode, output, commandId } = await runInRepository(repository, `${vcsEnvironment()}\n${script}`);
+
+  // assert
+  assert.equal(exitCode, 0, output);
+  const violations = pathViolations((await collectViolations(commandId)).map(({ line }) => line));
+  assert.deepEqual(violations.filter((violation) => violation.path !== join(repository, ".git")), []);
+});
+
+test("a git session works inside the sandbox without violations", { skip: !enabled }, async () => {
+  // arrange
+  const repository = join(workDirectory, "git-repo");
+  execFileSync("git", ["init", "--quiet", "--template=", "-b", "main", repository]);
+  await mkdir(join(repository, ".git", "info"));
+  await writeFile(join(repository, ".git", "info", "exclude"), "");
+
+  // act
+  const { exitCode, output, commandId } = await runInRepository(repository, `${vcsEnvironment()}\n${GIT_BATTERY}`);
+
+  // assert
+  assert.equal(exitCode, 0, output);
+  assert.deepEqual(pathViolations((await collectViolations(commandId)).map(({ line }) => line)), []);
+});
+
+// jj git init itself runs outside the sandbox: it creates files in .jj that the allowlist leaves to the user.
+test("a jj session works inside the sandbox without violations", { skip: !enabled || !jjAvailable }, async () => {
+  // arrange
+  const repository = join(workDirectory, "jj-repo");
+  await mkdir(repository);
+  execFileSync("jj", ["git", "init", "--colocate", repository], { env: { ...process.env, ...vcsEnvironmentVariables() }, stdio: "pipe" });
+
+  // act
+  const { exitCode, output, commandId } = await runInRepository(repository, `${vcsEnvironment()}\n${JJ_BATTERY}`);
+
+  // assert
+  assert.equal(exitCode, 0, output);
+  assert.deepEqual(pathViolations((await collectViolations(commandId)).map(({ line }) => line)), []);
+});
+
+function vcsEnvironmentVariables(): Record<string, string> {
+  return {
+    HOME: join(root, "vcs-home"),
+    XDG_CONFIG_HOME: join(root, "vcs-home", ".config"),
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_AUTHOR_NAME: "Test",
+    GIT_AUTHOR_EMAIL: "test@example.com",
+    GIT_COMMITTER_NAME: "Test",
+    GIT_COMMITTER_EMAIL: "test@example.com",
+    GIT_EDITOR: "true",
+    JJ_USER: "Test",
+    JJ_EMAIL: "test@example.com",
+  };
+}
+
+function vcsEnvironment(): string {
+  return Object.entries(vcsEnvironmentVariables()).map(([name, value]) => `export ${name}='${value}'`).join("\n");
+}
+
+async function runInRepository(repository: string, command: string) {
+  const vcs = vcsWriteRules(await scanVcsLayout(repository), process.platform as "darwin" | "linux");
+  const policy = {
+    read: { allow: [tree(workDirectory)], deny: [], protected: [] },
+    write: { allow: [tree(repository)], deny: [], protected: [] },
+  };
+  const filesystem = filesystemConfig(policy, { platform: process.platform as "darwin" | "linux", homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [], vcs });
+  return await runSandboxed(command, filesystem, repository);
+}
+
 async function collectViolations(commandId: string) {
   const store = SandboxManager.getSandboxViolationStore();
   let previousCount = -1;
@@ -196,12 +306,12 @@ function policyFilesystem(extraReadAllow: PathSelector[] = []) {
   return filesystemConfig(policy, { platform: process.platform as "darwin" | "linux", homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [] });
 }
 
-async function runSandboxed(command: string, filesystem = policyFilesystem()): Promise<{ exitCode: number | null; output: string; commandId: string }> {
+async function runSandboxed(command: string, filesystem = policyFilesystem(), cwd = workDirectory): Promise<{ exitCode: number | null; output: string; commandId: string }> {
   const commandId = `${Date.now()}-${Math.random()}`;
   const wrapped = await SandboxManager.wrapWithSandbox(command, undefined, { filesystem }, undefined, { commandId, commandText: command });
   try {
     return await new Promise((resolve, reject) => {
-      const child = spawn(wrapped, { shell: true, cwd: workDirectory });
+      const child = spawn(wrapped, { shell: true, cwd });
       let output = "";
       child.stdout.on("data", (chunk) => { output += chunk; });
       child.stderr.on("data", (chunk) => { output += chunk; });

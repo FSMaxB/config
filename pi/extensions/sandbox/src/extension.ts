@@ -8,16 +8,17 @@ import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { ALLOW_ALWAYS, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWAYS, DENY_ONCE, DENY_SESSION, currentAgentMode, currentPolicy, grantPathAccess, type OnceGrant } from "../../lib/path-permissions.ts";
 import { registerToolWithGuidelines } from "../../lib/register-tool.ts";
-import { resolveThroughSymlinks } from "../../lib/repo.ts";
+import { findRepoRoot, resolveThroughSymlinks } from "../../lib/repo.ts";
 import { markSandboxActive } from "../../lib/sandbox-state.ts";
 import { selectWithDefault } from "../../lib/select-with-default.ts";
 import { latestCustomData } from "../../lib/session-entries.ts";
 import { serialize } from "../../lib/ui-queue.ts";
 import { bypassOutcome, bypassPrompt, resolveChoice, type BypassAuthorization, type SessionDecision } from "./bypass.ts";
 import { credentialEnvVars } from "./credentials.ts";
-import { NETWORK_ENTRY_TYPE, effectiveNetwork, emptyGrants, parseGrants, recordGrant, serializeGrants, type NetworkGrants } from "./network-grants.ts";
+import { NETWORK_ENTRY_TYPE, emptyGrants, networkConfig, parseGrants, recordGrant, serializeGrants, type NetworkGrants } from "./network-grants.ts";
 import { filesystemConfig, secretPaths, type PolicyOptions } from "./policy.ts";
 import { loadSettings, updateDomainLists, type Settings } from "./settings.ts";
+import { scanVcsLayout, vcsWriteRules, type VcsWriteRules } from "./vcs-policy.ts";
 import { isSecretPath, pathViolations, type PathViolation } from "./violations.ts";
 import { nextStep, successViolationReport, violationReport, type NextStep, type ViolationOutcome } from "./violation-outcomes.ts";
 
@@ -34,6 +35,9 @@ const VIOLATION_POLL_MILLISECONDS = 250;
 const VIOLATION_MAX_POLLS = 6;
 // Per command, across all reruns of that command.
 const MAX_PATH_PROMPTS_PER_COMMAND = 5;
+
+const CONFIG_ID_WARNING =
+  "Sandbox: this jj repo has no config-id, so on Linux the sandbox cannot stop a planted .jj/repo/config.toml or .jj/workspace-config.toml. Run `jj config path --repo` and `jj config path --workspace` once to create the ids.";
 
 const SANDBOX_TEMPORARY_DIRECTORY = "/tmp/claude";
 const SETTINGS_FILE = join(getAgentDir(), "sandbox.json");
@@ -106,6 +110,7 @@ function unsupportedOperations(): BashOperations {
 
 function createRuntime(pi: ExtensionAPI): Runtime {
   const stock = createLocalBashOperations();
+  const subagent = Boolean(process.env.PI_SUBAGENT_CHILD);
   // pi passes the same session-scoped ExtensionContext to every tool call, so parallel bash
   // calls racing this assignment all land on the same object; prompts are serialized via
   // serialize() in ui-queue.ts regardless.
@@ -118,6 +123,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   let grants: NetworkGrants = emptyGrants();
   // Deliberately not persisted in the session: a resumed session asks again before bypassing the sandbox.
   let bypassDecision: SessionDecision | undefined;
+  let warnedAboutConfigIds = false;
 
   const operations: BashOperations = {
     async exec(command, cwd, options) {
@@ -150,7 +156,9 @@ function createRuntime(pi: ExtensionAPI): Runtime {
 
   async function runOnce(command: string, cwd: string, options: ExecOptions, onceGrants: OnceGrant[], promptsLeft: number): Promise<{ result: ExecResult; step: NextStep; promptsUsed: number }> {
     const commandId = randomUUID();
-    const filesystem = filesystemConfig(await currentPolicy(onceGrants), policyOptions());
+    const vcs = await vcsRules();
+    const filesystem = filesystemConfig(await currentPolicy(onceGrants), policyOptions(vcs));
+    warnAboutMissingConfigIds(vcs, filesystem.denyWrite);
     try {
       const wrapped = await manager().wrapWithSandbox(command, undefined, { filesystem }, options.signal, { commandId, commandText: command });
       const result = await stock.exec(wrapped, cwd, options);
@@ -189,8 +197,8 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     if (problems.length > 0) throw new Error(`Sandboxed bash is unavailable: ${problems.join("; ")}. ${INSTALL_HINT}`);
     await manager().initialize(
       {
-        network: { ...effectiveNetwork(settings, grants), allowUnixSockets: settings.allowUnixSockets, allowLocalBinding: settings.allowLocalBinding },
-        filesystem: filesystemConfig(await currentPolicy(), policyOptions()),
+        network: networkConfig(settings, grants, subagent),
+        filesystem: filesystemConfig(await currentPolicy(), policyOptions(await vcsRules())),
         credentials: { envVars: credentialEnvVars() },
         allowPty: false,
       },
@@ -199,9 +207,23 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     );
   }
 
-  function policyOptions(): PolicyOptions {
+  function policyOptions(vcs: VcsWriteRules): PolicyOptions {
     if (!settings) throw new Error("Sandbox settings are not loaded.");
-    return { platform: process.platform as PolicyOptions["platform"], homeDirectory: homedir(), toolchainRead: settings.toolchainRead, extraDenyRead: settings.extraDenyRead };
+    return { platform: process.platform as PolicyOptions["platform"], homeDirectory: homedir(), toolchainRead: settings.toolchainRead, extraDenyRead: settings.extraDenyRead, vcs };
+  }
+
+  // Scanned per command: git and jj create and remove entries inside their directories all the time.
+  async function vcsRules(): Promise<VcsWriteRules> {
+    const layout = await scanVcsLayout(await resolveThroughSymlinks(findRepoRoot()));
+    return vcsWriteRules(layout, process.platform as PolicyOptions["platform"]);
+  }
+
+  // Plan and explore mode keep the repository read-only without the VCS denies, so they stay silent.
+  function warnAboutMissingConfigIds(vcs: VcsWriteRules, denyWrite: string[]): void {
+    if (warnedAboutConfigIds || vcs.missingConfigIds.length === 0) return;
+    if (!vcs.deny.some((path) => denyWrite.includes(path))) return;
+    warnedAboutConfigIds = true;
+    activeContext?.ui.notify(CONFIG_ID_WARNING, "warning");
   }
 
   function manager(): SandboxManagerType {
@@ -213,7 +235,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     if (!sandboxManager || !settings) return;
     const config = sandboxManager.getConfig();
     if (!config) return;
-    sandboxManager.updateConfig({ ...config, network: { ...config.network, ...effectiveNetwork(settings, grants) } });
+    sandboxManager.updateConfig({ ...config, network: { ...config.network, ...networkConfig(settings, grants, subagent) } });
   }
 
   // The success-path report is best effort on Linux, where events arrive over the monitor socket, so
@@ -236,7 +258,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   }
 
   async function authorizeBypass(command: string, context: ExtensionContext): Promise<BypassAuthorization> {
-    const outcome = bypassOutcome({ agentMode: currentAgentMode(), subagent: Boolean(process.env.PI_SUBAGENT_CHILD), hasUI: context.hasUI, sessionDecision: bypassDecision });
+    const outcome = bypassOutcome({ agentMode: currentAgentMode(), subagent, hasUI: context.hasUI, sessionDecision: bypassDecision });
     if (outcome.kind !== "ask") return outcome;
     const choice = await serialize(() => selectWithDefault(context.ui, bypassPrompt(command), outcome.choices, outcome.defaultChoice, "permission"));
     const { authorization, remember } = resolveChoice(choice);

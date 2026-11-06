@@ -2,6 +2,10 @@ export const AgentMode = { Execution: "execution", Planning: "planning", Explori
 export type AgentMode = (typeof AgentMode)[keyof typeof AgentMode];
 export type RestrictedMode = Exclude<AgentMode, typeof AgentMode.Execution>;
 
+// Shared by the mode message and the subagent system prompt, so children get the same wording.
+export const READ_ONLY_JJ_NOTE =
+  "The repository is read-only, so jj cannot snapshot the working copy: pass --ignore-working-copy to every jj command. jj then shows the working copy as of its last snapshot, which can miss the newest edits.";
+
 // Plan mode shares the path-rule store with normal execution; explore mode has its own.
 export const PathRuleStore = { Shared: "shared", Explore: "explore" } as const;
 export type PathRuleStore = (typeof PathRuleStore)[keyof typeof PathRuleStore];
