@@ -2,8 +2,8 @@
 // escape attempt FAILS. Run with SANDBOX_INTEGRATION=1 (CI does this natively on
 // ubuntu-26.04 and macos-26 for integration.test.ts and escape.test.ts).
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +12,7 @@ import { createServer, type Server } from "node:net";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import { tree, type PathSelector } from "../../lib/path-permission-rules.ts";
 import { filesystemConfig } from "./policy.ts";
+import { scanVcsLayout, vcsWriteRules } from "./vcs-policy.ts";
 
 const enabled = process.env.SANDBOX_INTEGRATION === "1";
 
@@ -21,6 +22,7 @@ let fakeHome: string;
 let fakeAgentExtensions: string;
 let loopback: Server;
 let loopbackPort: number;
+let repository: string;
 
 before(async () => {
   if (!enabled) return;
@@ -33,6 +35,13 @@ before(async () => {
   await mkdir(fakeAgentExtensions, { recursive: true });
   await writeFile(join(fakeHome, ".ssh", "id_test"), "secret key material\n");
   await writeFile(join(fakeAgentExtensions, "existing.ts"), "// extension\n");
+  repository = join(workDirectory, "repo");
+  execFileSync("git", ["init", "--quiet", "--template=", repository]);
+  await mkdir(join(repository, ".git", "info"));
+  await mkdir(join(repository, ".jj", "repo", "store", "git", "hooks"), { recursive: true });
+  await writeFile(join(repository, ".jj", "repo", "config-id"), "id\n");
+  await writeFile(join(repository, ".jj", "repo", "store", "git_target"), "../../../.git\n");
+  await writeFile(join(repository, ".jj", "repo", "store", "git", "config"), "[core]\n");
   loopback = createServer((socket) => socket.end("reachable\n"));
   await new Promise<void>((resolve) => loopback.listen(0, "127.0.0.1", resolve));
   loopbackPort = (loopback.address() as { port: number }).port;
@@ -140,6 +149,121 @@ test("DNS resolution fails inside the sandbox", { skip: !enabled || process.plat
   assert.match(output, /blocked/);
 });
 
+// Both the macOS allowlist and the Linux enumerated deny must stop a command from planting a file that a
+// later git or jj run outside the sandbox would execute or trust.
+test("a planted .git/commondir never reaches the real filesystem on macOS", { skip: !enabled || process.platform !== "darwin" }, async () => {
+  // arrange
+  const target = join(repository, ".git", "commondir");
+
+  // act
+  await runInRepository(`echo x > '${target}'`);
+
+  // assert
+  assert.equal(existsSync(target), false);
+});
+
+test("a jj config-id cannot be removed", { skip: !enabled }, async () => {
+  // arrange
+  const target = join(repository, ".jj", "repo", "config-id");
+
+  // act
+  await runInRepository(`rm '${target}'`);
+
+  // assert
+  assert.equal(readFileSync(target, "utf8"), "id\n");
+});
+
+test("a planted .jj/repo/config.toml never reaches the real filesystem", { skip: !enabled }, async () => {
+  // arrange
+  const target = join(repository, ".jj", "repo", "config.toml");
+
+  // act
+  await runInRepository(`echo x > '${target}'`);
+
+  // assert
+  assert.equal(existsSync(target), false);
+});
+
+test("the git directory behind a jj repository cannot be repointed", { skip: !enabled }, async () => {
+  // arrange
+  const target = join(repository, ".jj", "repo", "store", "git_target");
+
+  // act
+  await runInRepository(`echo x > '${target}'`);
+
+  // assert
+  assert.equal(readFileSync(target, "utf8"), "../../../.git\n");
+});
+
+test("a nested git directory keeps its config and hooks", { skip: !enabled }, async () => {
+  // arrange
+  const config = join(repository, ".jj", "repo", "store", "git", "config");
+  const hook = join(repository, ".jj", "repo", "store", "git", "hooks", "pre-commit");
+
+  // act
+  await runInRepository(`echo x > '${config}'; echo x > '${hook}'`);
+
+  // assert
+  assert.equal(readFileSync(config, "utf8"), "[core]\n");
+  assert.equal(existsSync(hook), false);
+});
+
+test("submodule, worktree and attribute files cannot be planted in .git", { skip: !enabled }, async () => {
+  // arrange
+  const modules = join(repository, ".git", "modules");
+  const attributes = join(repository, ".git", "info", "attributes");
+
+  // act
+  await runInRepository(`mkdir '${modules}'; echo x > '${attributes}'`);
+
+  // assert
+  assert.equal(existsSync(modules), false);
+  assert.equal(existsSync(attributes), false);
+});
+
+test("a write to an allowlisted path inside .git still works", { skip: !enabled }, async () => {
+  // arrange
+  const target = join(repository, ".git", "COMMIT_EDITMSG");
+
+  // act
+  const { exitCode, output } = await runInRepository(`echo x > '${target}'`);
+
+  // assert
+  assert.equal(exitCode, 0, output);
+  assert.equal(readFileSync(target, "utf8"), "x\n");
+});
+
+// APFS is case-insensitive, so an upper-cased spelling reaches the real directory.
+test("no spelling of .git or .jj is writable on macOS", { skip: !enabled || process.platform !== "darwin" }, async () => {
+  // act
+  await runInRepository(`touch '${repository}/.GIT/planted' '${repository}/.Git/planted2' '${repository}/.JJ/planted3' '${repository}/.jJ/planted4' '${repository}/.git/planted5'`);
+
+  // assert
+  for (const name of [".git/planted", ".git/planted2", ".jj/planted3", ".jj/planted4", ".git/planted5"]) {
+    assert.equal(existsSync(join(repository, name)), false, name);
+  }
+});
+
+test("everything outside .git and .jj stays writable, however deep", { skip: !enabled }, async () => {
+  // act
+  const { exitCode, output } = await runInRepository(`mkdir -p src/deep/er .github/workflows && touch src/deep/er/a.ts .github/workflows/ci.yml .gitignore .envrc top.txt && rm top.txt`);
+
+  // assert
+  assert.equal(exitCode, 0, output);
+  assert.ok(existsSync(join(repository, "src", "deep", "er", "a.ts")));
+  assert.ok(existsSync(join(repository, ".github", "workflows", "ci.yml")));
+});
+
+async function runInRepository(command: string): Promise<{ exitCode: number | null; output: string; commandId: string }> {
+  const vcs = vcsWriteRules(await scanVcsLayout(repository), process.platform as "darwin" | "linux");
+  const policy = {
+    read: { allow: [tree(workDirectory)], deny: [], protected: [] },
+    write: { allow: [tree(repository)], deny: [], protected: [] },
+  };
+  const filesystem = filesystemConfig(policy, { platform: process.platform as "darwin" | "linux", homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [], vcs });
+  return await runSandboxed(command, filesystem, repository);
+}
+
 function policyFilesystem(extraReadAllow: PathSelector[] = [], protectedWrite: PathSelector[] = []) {
   const policy = {
     read: { allow: [tree(workDirectory), ...extraReadAllow], deny: [], protected: [] },
@@ -148,12 +272,12 @@ function policyFilesystem(extraReadAllow: PathSelector[] = [], protectedWrite: P
   return filesystemConfig(policy, { platform: process.platform as "darwin" | "linux", homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [] });
 }
 
-async function runSandboxed(command: string, filesystem = policyFilesystem()): Promise<{ exitCode: number | null; output: string; commandId: string }> {
+async function runSandboxed(command: string, filesystem = policyFilesystem(), cwd = workDirectory): Promise<{ exitCode: number | null; output: string; commandId: string }> {
   const commandId = `${Date.now()}-${Math.random()}`;
   const wrapped = await SandboxManager.wrapWithSandbox(command, undefined, { filesystem }, undefined, { commandId, commandText: command });
   try {
     return await new Promise((resolve, reject) => {
-      const child = spawn(wrapped, { shell: true, cwd: workDirectory });
+      const child = spawn(wrapped, { shell: true, cwd });
       let output = "";
       child.stdout.on("data", (chunk) => { output += chunk; });
       child.stderr.on("data", (chunk) => { output += chunk; });

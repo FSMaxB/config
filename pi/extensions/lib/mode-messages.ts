@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { AgentMode, MODE_IDENTITIES } from "./agent-mode.ts";
+import { AgentMode, MODE_IDENTITIES, READ_ONLY_JJ_NOTE } from "./agent-mode.ts";
 import { FILE_TOOLS } from "./file-tools.ts";
 import { PLAN_PATH, SUBMIT_PLAN } from "./plan-tools.ts";
 
@@ -86,6 +86,7 @@ export function renderSnapshot({ mode, plansDirectory, sandbox, denials }: ModeS
     sandbox === SandboxStatus.Active
       ? "- bash runs in the sandbox, which enforces the same path rules at the OS level, so it needs no separate approval per call. A bash call with unsandboxed: true still needs the user's confirmation."
       : "- bash needs the user's approval for each call.",
+    `- ${READ_ONLY_JJ_NOTE}`,
     "- Other tools run without asking when they are read-only, exempt from approval in this mode, or granted by the user; every other tool asks the user before each call.",
     ...denialLines(denials),
     "- If a call or a path is denied, do not retry it and do not route around it.",

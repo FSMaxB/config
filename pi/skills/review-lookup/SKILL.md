@@ -10,7 +10,9 @@ things fast. You answer their questions about a change with evidence; you do
 not write a review, and you do not change anything.
 
 This skill is written for the Pi coding agent. Tool names below are Pi's
-(`vcs_*`, `read`, `grep`, `subagent`, `set_session_name`).
+(`bash`, `read`, `grep`, `subagent`, `set_session_name`). Run jj and git
+through `bash`; when the agent-mode message says the repository is read-only,
+pass `--ignore-working-copy` to every jj command.
 
 ## Core Rules
 
@@ -28,22 +30,26 @@ This skill is written for the Pi coding agent. Tool names below are Pi's
 
 ## Setup (once per session)
 
-1. Detect the VCS with `vcs_info`.
+1. Detect the VCS: `jj root` succeeds in jj repositories (including colocated
+   ones); otherwise use `git rev-parse --show-toplevel`.
 
-2. Resolve the ref the user named with `vcs_log`. Try the name as given, then
-   the remote form (jj: `name@origin`; git: `origin/name`). If both fail, list
-   candidates with `vcs_branches` (`scope: all`, `pattern` built from the
-   name, e.g. `*login*`), show them and ask which one is meant.
+2. Resolve the ref the user named (jj: `jj log -r '<name>' -n 1`; git:
+   `git rev-parse --verify '<name>'`). Try the name as given, then the remote
+   form (jj: `name@origin`; git: `origin/name`). If both fail, list
+   candidates built from the name (jj: `jj bookmark list --all-remotes
+   'glob:*login*'`; git: `git branch -a --list '*login*'`), show them and ask
+   which one is meant.
 
-3. List the commits under review with `vcs_log` and `revisions: main..<ref>`
-   (substitute the trunk name if the repository uses another). Report the
+3. List the commits under review (jj: `jj log -r 'main..<ref>'`; git:
+   `git log --oneline main..<ref>`; substitute the trunk name if the
+   repository uses another). Report the
    list once, one line per commit with hash and title, and call
    `set_session_name` with the ref.
 
 4. Detect whether the working copy is on that ref.
-   - jj: the working copy is on the ref if `@` or `@-` is the ref's head
-     commit. `vcs_log` with `revisions: "@ | @-"` and compare hashes.
-   - git: the current branch equals the ref.
+   - jj: the working copy is on the ref if `jj log -r '<ref> & (@ | @-)'`
+     prints a revision.
+   - git: `git branch --show-current` equals the ref.
    Record the result; it decides how you read code for the rest of the
    session.
 
@@ -55,17 +61,19 @@ Everything sees the branch content.
 **Not checked out:** `read` and `grep` show the working copy, which
 is usually `main`, not the branch. Then:
 
-- Read branch content with `vcs_file` at the ref, `vcs_show` for a single
-  commit, and `vcs_diff` with `revisions: main..<ref>` for the whole change.
+- Read branch content with `jj file show -r <ref> <path>` / `git show
+  <ref>:<path>`, a single commit with `jj show <rev>` / `git show <rev>`, and
+  the whole change with `jj diff -r 'main..<ref>'` / `git diff main...<ref>`.
 - Use `grep`/`read` only for context the branch does not touch
   (callers on main, existing helpers). Anything the branch adds or modifies
-  must come from the diff or from `vcs_file` at the ref.
+  must come from the diff or from the file at the ref.
 - Say once, in the first answer, that you are reading at the branch revision.
   Repeat it whenever the distinction matters for an answer, for example when
   quoting a line whose number differs between main and the branch.
 - When briefing an explore subagent, state this constraint explicitly and
   paste the relevant diff hunks into the brief, or tell it to run
-  `jj file show -r <ref> <path>` / `git show <ref>:<path>` through bash.
+  `jj file show -r <ref> <path>` / `git show <ref>:<path>` through bash (it has
+  bash while the sandbox is active).
   Otherwise it will report main's version as if it were the branch's.
 
 ## Answering

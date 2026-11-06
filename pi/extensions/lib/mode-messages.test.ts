@@ -66,6 +66,23 @@ test("bash wording follows the sandbox status", () => {
   assert.match(withoutSandbox, /bash needs the user's approval for each call/);
 });
 
+test("both restricted modes tell the model to pass --ignore-working-copy to jj", () => {
+  // arrange
+  const planning = snapshot({ mode: AgentMode.Planning });
+  const exploring = snapshot({ mode: AgentMode.Exploring });
+  const execution = snapshot({ mode: AgentMode.Execution });
+
+  // act
+  const planningContent = renderSnapshot(planning);
+  const exploringContent = renderSnapshot(exploring);
+  const executionContent = renderSnapshot(execution);
+
+  // assert
+  assert.match(planningContent, /--ignore-working-copy/);
+  assert.match(exploringContent, /--ignore-working-copy/);
+  assert.doesNotMatch(executionContent, /--ignore-working-copy/);
+});
+
 test("the execution snapshot revokes both modes' instructions and ignores mode-only inputs", () => {
   // arrange
   const plain = snapshot({ mode: AgentMode.Execution });
