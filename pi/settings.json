@@ -55,6 +55,9 @@
   "exploreMode": {
     "alwaysOn": true
   },
+  "sidebar": {
+    "enabled": true
+  },
   "extensionChangelogVersions": {
     "{\"source\":\"npm:pi-web-access\",\"scope\":\"user\"}": "0.47.0"
   }
