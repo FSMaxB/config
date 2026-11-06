@@ -34,6 +34,7 @@ import { registerToolWithGuidelines } from "../lib/register-tool.ts";
 import { isSandboxActive } from "../lib/sandbox-state.ts";
 import { sessionTemporaryDirectory, TEMPORARY_DIRECTORY_ENV } from "../lib/session-temporary-directory.ts";
 import { type AgentConfig, discoverAgents, THINKING_LEVELS } from "./agents.ts";
+import { EXIT_GRACE_MILLISECONDS, phaseAfterEvent, type ChildPhase } from "./exit-watchdog.ts";
 import { guidanceTable, loadPolicyConfig, resolveSubagentModel, type SubagentModelConfig } from "./model-policy.ts";
 import { ChildToolVerdict, childToolVerdict, effectiveChildTools, restrictedModeAllowedTools, type PersistedModeDecisions } from "./mode-restrictions.ts";
 import { emptyUsage, finalizedMessageUsage, isFailedResult, subagentOutcome, sumUsage } from "./results.ts";
@@ -263,7 +264,7 @@ export default function (pi: ExtensionAPI) {
         };
       }
       return {
-        content: [{ type: "text", text: getFinalOutput(result.messages) || "(no output)" }],
+        content: [{ type: "text", text: getResultOutput(result) }],
         details: { mode: "single", results: [result] },
         ...subagentOutcome([result]),
       };
@@ -454,6 +455,8 @@ interface SingleResult {
   thinkingLevel?: ModelThinkingLevel;
   stopReason?: string;
   errorMessage?: string;
+  // Set when the child did not exit on its own after finishing and the watchdog terminated it.
+  terminationNote?: string;
 }
 
 interface SubagentDetails {
@@ -573,6 +576,8 @@ async function runSingleAgent(
         env: childEnvironment(dispatch),
       });
       const completedToolCalls = new Set<string>();
+      let phase: ChildPhase = "working";
+      let exitTimer: NodeJS.Timeout | undefined;
       const processLine = (line: string) => {
         let event: any;
         try {
@@ -581,6 +586,7 @@ async function runSingleAgent(
           return;
         }
 
+        trackPhase(event);
         if ((event.type === "message_end" || event.type === "tool_result_end") && event.message) {
           const message = event.message as Message;
           if (message.role === "toolResult" && completedToolCalls.has(message.toolCallId)) return;
@@ -606,6 +612,27 @@ async function runSingleAgent(
         }
       };
 
+      const trackPhase = (event: any) => {
+        const next = phaseAfterEvent(phase, event);
+        if (next === phase) return;
+        phase = next;
+        clearTimeout(exitTimer);
+        if (phase === "finished") exitTimer = setTimeout(terminateLingeringChild, EXIT_GRACE_MILLISECONDS);
+      };
+
+      const terminateLingeringChild = () => {
+        currentResult.terminationNote =
+          `The subagent finished but its process did not exit within ${EXIT_GRACE_MILLISECONDS / 1000} s, so it was terminated. Its output is complete; the lingering process points to a handle leak in an extension.`;
+        terminateChild();
+      };
+
+      const terminateChild = () => {
+        child.kill("SIGTERM");
+        setTimeout(() => {
+          if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+        }, 5000);
+      };
+
       const splitter = createLineSplitter(processLine);
       child.stdout.on("data", (data) => splitter.push(data.toString()));
 
@@ -615,6 +642,11 @@ async function runSingleAgent(
 
       child.on("close", (code, terminationSignal) => {
         splitter.flush();
+        clearTimeout(exitTimer);
+        if (currentResult.terminationNote) {
+          resolve(0);
+          return;
+        }
         if (code === null) {
           currentResult.stderr += terminationSignal
             ? `Subagent terminated by ${terminationSignal}.`
@@ -633,10 +665,7 @@ async function runSingleAgent(
       if (signal) {
         const killChild = () => {
           wasAborted = true;
-          child.kill("SIGTERM");
-          setTimeout(() => {
-            if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-          }, 5000);
+          terminateChild();
         };
         if (signal.aborted) killChild();
         else signal.addEventListener("abort", killChild, { once: true });
@@ -782,7 +811,9 @@ function getResultOutput(result: SingleResult): string {
   if (isFailedResult(result)) {
     return result.errorMessage || result.stderr || getFinalOutput(result.messages) || "(no output)";
   }
-  return getFinalOutput(result.messages) || "(no output)";
+  const output = getFinalOutput(result.messages) || "(no output)";
+  if (!result.terminationNote) return output;
+  return `${output}\n\n[${result.terminationNote}]`;
 }
 
 function truncateParallelOutput(output: string): string {
