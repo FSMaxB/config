@@ -10,7 +10,7 @@ const measure: TextMeasure = {
   truncate: (text, maxWidth, ellipsis) => truncateToWidth(text, maxWidth, ellipsis),
 };
 
-type Overlay = { handle?: OverlayHandle; close(): void; requestRender(): void };
+type Overlay = { handle?: OverlayHandle; requestRender(): void };
 
 export default function sidebarExtension(pi: ExtensionAPI) {
   let visibility: Visibility = Visibility.On;
@@ -22,7 +22,7 @@ export default function sidebarExtension(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, context) => restore(context));
   pi.on("session_tree", async (_event, context) => restore(context));
   pi.on("session_shutdown", async () => {
-    overlay?.close();
+    overlay?.handle?.hide();
     overlay = undefined;
   });
 
@@ -73,34 +73,28 @@ export default function sidebarExtension(pi: ExtensionAPI) {
   }
 
   function openOverlay(context: ExtensionContext): Overlay {
-    const state: Overlay = { close: () => {}, requestRender: () => {} };
-    let panelWidth = () => 20;
-    void context.ui.custom<void>(
-      (tui, theme, _keybindings, done) => {
-        state.close = () => done();
-        state.requestRender = () => tui.requestRender();
-        const panel = new SidebarPanel(theme, measure, visibleSections);
-        panelWidth = () => panel.width(tui.terminal.columns);
-        return panel;
-      },
-      {
-        overlay: true,
-        overlayOptions: () => ({
-          nonCapturing: true,
-          anchor: "top-right",
-          // pi calls overlayOptions once, when the overlay opens, but pi-tui keeps this object and
-          // reads `width` on every render, so a getter lets the box follow its content.
-          get width() {
-            return panelWidth();
-          },
-          margin: { top: 1, right: 1 },
-          visible: (termWidth: number) => termWidth >= MIN_TERMINAL_WIDTH,
-        }),
-        onHandle: (handle) => {
-          state.handle = handle;
+    const state: Overlay = { requestRender: () => {} };
+    // pi counts an open ui.custom call as a pending prompt and reports no prompt nested inside it, so an
+    // overlay kept open through ui.custom silenced notify-ask for the rest of the session. ui.custom is the
+    // only way to reach the TUI: the panel is shown with tui.showOverlay, and done() runs before the
+    // factory returns, which makes pi skip its own overlay and settle the call right away.
+    void context.ui.custom<void>((tui, theme, _keybindings, done) => {
+      const panel = new SidebarPanel(theme, measure, visibleSections);
+      state.requestRender = () => tui.requestRender();
+      state.handle = tui.showOverlay(panel, {
+        nonCapturing: true,
+        anchor: "top-right",
+        // pi-tui keeps this object and reads `width` on every render, so a getter lets the box follow
+        // its content.
+        get width() {
+          return panel.width(tui.terminal.columns);
         },
-      },
-    );
+        margin: { top: 1, right: 1 },
+        visible: (termWidth: number) => termWidth >= MIN_TERMINAL_WIDTH,
+      });
+      done();
+      return panel;
+    });
     return state;
   }
 }
