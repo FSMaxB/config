@@ -1,6 +1,6 @@
 ---
 name: code-style
-description: Use whenever you write or edit code in any language.
+description: Use whenever you write, edit or propose code or architecture in any language, including code snippets, pseudo-code, types, signatures and design decisions in plans and reviews.
 ---
 
 # Code style / Architecture

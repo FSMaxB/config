@@ -22,8 +22,8 @@
 
 ## Code style / Architecture
 
-- Before writing or editing code, read the `code-style` skill and follow it.
-- Before writing or editing Rust code, also read the `rust-style` skill and follow it.
+- Before writing, editing or proposing code or architecture (including snippets, pseudo-code, types and signatures in plans), read the `code-style` skill and follow it.
+- Before writing, editing or proposing Rust code (including in plans), also read the `rust-style` skill and follow it.
 - Pi only: Run bazel commands or commands that run bazel internally with unsandboxed bash
 
 ## Instruction loading (for harnesses without native support, e.g. OpenCode)
