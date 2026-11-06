@@ -10,6 +10,7 @@ description: Use in plan mode or whenever Max explicitly asks for a plan. Not fo
 - When in doubt (either during exploration or planning), prefer to ask me clarifying questions instead of extensive exploration. Ask about intent, preferences and priorities; explore when the answer is in the code.
 - When asking me questions, use the agent harness's question tool rather than plain text. If the harness has no question tool, ask in plain text.
 - Explicitly include verification steps in the plan you write
+- Before putting any code, pseudo-code, type, signature or architecture decision into the plan, read the `code-style` skill plus the style skill for every language the plan touches (`rust-style` for Rust, and matching repository skills such as `android-kotlin-code-style`). The plan's code and architecture must already follow them, because the implementer copies them as written.
 - Write a self-contained plan that a junior developer with no prior knowledge of this codebase could execute without asking questions or exploring on their own.
   - Do not defer decisions to the implementer, if multiple approaches exist, discuss them with me first and then include the chosen approach.
   - When describing concrete code changes, prefer small code examples or pseudo-code over bullet points.

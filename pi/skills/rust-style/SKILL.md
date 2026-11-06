@@ -1,6 +1,6 @@
 ---
 name: rust-style
-description: Rust code style rules for writing or editing Rust code. Use whenever you add or change Rust code.
+description: Use whenever you write, edit or propose Rust code, including Rust snippets, types and signatures in plans and reviews.
 ---
 
 # Rust style
