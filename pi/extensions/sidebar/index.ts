@@ -74,12 +74,13 @@ export default function sidebarExtension(pi: ExtensionAPI) {
 
   function openOverlay(context: ExtensionContext): Overlay {
     const state: Overlay = { close: () => {}, requestRender: () => {} };
-    let panel: SidebarPanel | undefined;
+    let panelWidth = () => 20;
     void context.ui.custom<void>(
       (tui, theme, _keybindings, done) => {
         state.close = () => done();
         state.requestRender = () => tui.requestRender();
-        panel = new SidebarPanel(theme, measure, visibleSections);
+        const panel = new SidebarPanel(theme, measure, visibleSections);
+        panelWidth = () => panel.width(tui.terminal.columns);
         return panel;
       },
       {
@@ -87,7 +88,11 @@ export default function sidebarExtension(pi: ExtensionAPI) {
         overlayOptions: () => ({
           nonCapturing: true,
           anchor: "top-right",
-          width: panel?.width() ?? 20,
+          // pi calls overlayOptions once, when the overlay opens, but pi-tui keeps this object and
+          // reads `width` on every render, so a getter lets the box follow its content.
+          get width() {
+            return panelWidth();
+          },
           margin: { top: 1, right: 1 },
           visible: (termWidth: number) => termWidth >= MIN_TERMINAL_WIDTH,
         }),
