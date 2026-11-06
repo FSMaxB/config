@@ -12,7 +12,7 @@
 
 ## VCS
 
-- Before reading VCS status or history, making changes in a repository, committing or creating fixup commits, read the `vcs` skill and follow it.
+- Before your first file edit in a session, and before reading VCS status or history, committing or creating fixup commits, read the `vcs` skill and follow it.
 
 ## Verification
 
