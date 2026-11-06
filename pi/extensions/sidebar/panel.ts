@@ -1,7 +1,8 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 
-export const MAX_WIDTH = 32;
+/** The box never takes more than this share of the terminal width. */
+export const MAX_TERMINAL_SHARE = 1 / 3;
 export const MIN_TERMINAL_WIDTH = 100;
 
 export type PanelSection = { title: string; items: readonly string[] };
@@ -27,8 +28,8 @@ export class SidebarPanel implements Component {
     this.sections = sections;
   }
 
-  width(): number {
-    return panelWidth(this.sections(), this.measure);
+  width(terminalWidth: number): number {
+    return panelWidth(this.sections(), this.measure, terminalWidth);
   }
 
   render(width: number): string[] {
@@ -42,11 +43,11 @@ export class SidebarPanel implements Component {
   invalidate(): void {}
 }
 
-/** Box width for the non-empty sections: widest row plus borders and padding, capped. */
-export function panelWidth(sections: readonly PanelSection[], measure: TextMeasure): number {
+/** Box width for the non-empty sections: widest row plus borders and padding, capped by the terminal width. */
+export function panelWidth(sections: readonly PanelSection[], measure: TextMeasure, terminalWidth: number): number {
   const rows = sections.flatMap((section) => [section.title, ...section.items.map((item) => ` ${item}`)]);
   const widest = Math.max(0, ...rows.map((row) => measure.width(row)));
-  return Math.min(widest + 4, MAX_WIDTH);
+  return Math.min(widest + 4, Math.floor(terminalWidth * MAX_TERMINAL_SHARE));
 }
 
 export function renderPanel(

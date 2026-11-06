@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { MAX_WIDTH, type PanelStyle, panelWidth, renderPanel, type TextMeasure } from "./panel.ts";
+import { MAX_TERMINAL_SHARE, type PanelStyle, panelWidth, renderPanel, type TextMeasure } from "./panel.ts";
 
 const plain: PanelStyle = { border: (text) => text, title: (text) => text };
 const measure: TextMeasure = {
@@ -10,13 +10,14 @@ const measure: TextMeasure = {
 };
 const skills = { title: "Skills", items: ["planning", "code-style"] };
 const other = { title: "Other", items: ["item"] };
+const terminalWidth = 120;
 
 test("renderPanel draws one section as a box", () => {
   // arrange
   const sections = [skills];
 
   // act
-  const lines = renderPanel(sections, panelWidth(sections, measure), plain, measure);
+  const lines = renderPanel(sections, panelWidth(sections, measure, terminalWidth), plain, measure);
 
   // assert
   assert.deepEqual(lines, [
@@ -33,7 +34,7 @@ test("renderPanel separates sections with a divider", () => {
   const sections = [skills, other];
 
   // act
-  const lines = renderPanel(sections, panelWidth(sections, measure), plain, measure);
+  const lines = renderPanel(sections, panelWidth(sections, measure, terminalWidth), plain, measure);
 
   // assert
   assert.deepEqual(lines, [
@@ -51,7 +52,7 @@ test("renderPanel separates sections with a divider", () => {
 test("renderPanel makes every line exactly as wide as asked", () => {
   // arrange
   const sections = [skills, other, { title: "Long", items: ["x".repeat(80)] }];
-  const width = panelWidth(sections, measure);
+  const width = panelWidth(sections, measure, terminalWidth);
 
   // act
   const lines = renderPanel(sections, width, plain, measure);
@@ -68,19 +69,30 @@ test("renderPanel truncates long items with an ellipsis", () => {
   const sections = [{ title: "Skills", items: ["x".repeat(80)] }];
 
   // act
-  const lines = renderPanel(sections, panelWidth(sections, measure), plain, measure);
+  const lines = renderPanel(sections, panelWidth(sections, measure, terminalWidth), plain, measure);
 
   // assert
   assert.match(lines[2], /… │$/);
 });
 
-test("panelWidth caps at MAX_WIDTH", () => {
+test("panelWidth caps at a share of the terminal width", () => {
   // arrange
   const sections = [{ title: "Skills", items: ["x".repeat(80)] }];
 
   // act
-  const width = panelWidth(sections, measure);
+  const width = panelWidth(sections, measure, terminalWidth);
 
   // assert
-  assert.equal(width, MAX_WIDTH);
+  assert.equal(width, Math.floor(terminalWidth * MAX_TERMINAL_SHARE));
+});
+
+test("panelWidth grows past the old fixed cap on wide terminals", () => {
+  // arrange
+  const sections = [{ title: "Skills", items: ["x".repeat(36)] }];
+
+  // act
+  const width = panelWidth(sections, measure, 200);
+
+  // assert
+  assert.equal(width, 41);
 });
