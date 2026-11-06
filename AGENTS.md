@@ -6,6 +6,8 @@ Personal dotfiles/config repo, installed by symlinking files into `$HOME`.
 
 `install.sh` symlinks most top-level files and directories into `$HOME`, so edits in this repo take effect immediately on the installed system.
 
+The reverse also holds: `~/.claude/CLAUDE.md` is `INSTALL-AGENTS.md`, and `~/.pi/agent/skills`, `~/.pi/agent/extensions` and the other symlinked `~/.pi/agent` entries point into `pi/`. Editing them through their `$HOME` paths is a change to this repository.
+
 ## install.sh
 
 Symlinks configs into `$HOME`, sets global git config, and syncs vim (vim-plug) and nvim (lazy.nvim) plugins. The repo must live at `~/config`. Do NOT run it — it is only run manually.
