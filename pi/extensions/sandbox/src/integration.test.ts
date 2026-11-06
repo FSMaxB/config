@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import { exact, glob, tree, type PathSelector } from "../../lib/path-permission-rules.ts";
 import { filesystemConfig } from "./policy.ts";
@@ -255,6 +256,28 @@ test("a jj session works inside the sandbox without violations", { skip: !enable
   assert.deepEqual(pathViolations((await collectViolations(commandId)).map(({ line }) => line)), []);
 });
 
+test("the process exits once the sandbox is reset", { skip: !enabled }, async () => {
+  // arrange
+  const fixture = runTeardownFixture("reset");
+
+  // act
+  const outcome = await fixture.outcome;
+
+  // assert
+  assert.deepEqual(outcome, { kind: "exited", code: 0 });
+});
+
+test("an initialized sandbox keeps the process alive", { skip: !enabled }, async () => {
+  // arrange
+  const fixture = runTeardownFixture("keep");
+
+  // act
+  const outcome = await fixture.outcome;
+
+  // assert
+  assert.deepEqual(outcome, { kind: "alive" });
+});
+
 function vcsEnvironmentVariables(): Record<string, string> {
   return {
     HOME: join(root, "vcs-home"),
@@ -321,4 +344,25 @@ async function runSandboxed(command: string, filesystem = policyFilesystem(), cw
   } finally {
     SandboxManager.cleanupAfterCommand();
   }
+}
+
+// Long enough for initialize() and reset() on a slow CI runner, short enough to keep the suite fast.
+const TEARDOWN_EXIT_TIMEOUT_MILLISECONDS = 15_000;
+
+type TeardownOutcome = { kind: "exited"; code: number | null } | { kind: "alive" };
+
+function runTeardownFixture(teardown: "reset" | "keep"): { outcome: Promise<TeardownOutcome> } {
+  const fixture = fileURLToPath(new URL("./teardown-fixture.ts", import.meta.url));
+  const child = spawn(process.execPath, [fixture, teardown], { stdio: "inherit" });
+  const outcome = new Promise<TeardownOutcome>((resolve) => {
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      resolve({ kind: "alive" });
+    }, TEARDOWN_EXIT_TIMEOUT_MILLISECONDS);
+    child.on("exit", (code) => {
+      clearTimeout(timer);
+      resolve({ kind: "exited", code });
+    });
+  });
+  return { outcome };
 }

@@ -47,6 +47,7 @@ interface Runtime {
   setActiveContext(context: ExtensionContext): void;
   authorizeBypass(command: string, context: ExtensionContext): Promise<BypassAuthorization>;
   restoreGrants(sessionManager: { getEntries(): readonly unknown[] }): void;
+  shutdown(): Promise<void>;
 }
 
 type SandboxManagerType = typeof import("@anthropic-ai/sandbox-runtime")["SandboxManager"];
@@ -61,6 +62,9 @@ export default function (pi: ExtensionAPI) {
   markSandboxActive();
   const runtime = createRuntime(pi);
   pi.on("session_start", (_event, context) => runtime.restoreGrants(context.sessionManager));
+  // srt's proxies and macOS log monitor keep the event loop alive, so without this a `pi -p`
+  // subagent child that ran bash never exits.
+  pi.on("session_shutdown", () => runtime.shutdown());
   registerToolWithGuidelines(pi, sandboxedBash(cwd, runtime));
 }
 
@@ -143,6 +147,14 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     restoreGrants(sessionManager) {
       grants = parseGrants(latestCustomData(sessionManager, NETWORK_ENTRY_TYPE));
       applyNetwork();
+    },
+    async shutdown() {
+      const pending = initialization;
+      initialization = undefined;
+      if (!pending) return;
+      // A failed initialization can still have started proxies or the log monitor.
+      await pending.catch(() => undefined);
+      await sandboxManager?.reset();
     },
   };
 
