@@ -143,7 +143,7 @@ test("Linux reports a write that the read-deny tmpfs discarded", { skip: !enable
     await new Promise((resolve) => setTimeout(resolve, 250));
     violations = store.getViolationsForCommand(commandId);
   }
-  const discarded = discardedWrites(pathViolations(violations.map(({ line }) => line)), policyFilesystem());
+  const discarded = discardedWrites(pathViolations(violations.map(({ line }) => line)), policyFilesystem(), "linux");
   assert.ok(discarded.some((violation) => violation.mode === "write" && violation.path === target), `the monitor must record the tmpfs write: ${JSON.stringify(discarded)}`);
 });
 

@@ -47,10 +47,11 @@ function outcomeLine(outcome: ViolationOutcome, step: NextStep, agentMode: Agent
 export function successViolationReport(
   violations: PathViolation[],
   filesystem: Pick<FilesystemConfig, "denyRead" | "allowWrite">,
+  platform: "darwin" | "linux",
   agentMode: AgentMode,
 ): string {
   if (violations.length === 0) return "";
-  const discarded = discardedWrites(violations, filesystem);
+  const discarded = discardedWrites(violations, filesystem, platform);
   const lines = violations.map((violation) => {
     if (discarded.includes(violation)) {
       return `${violation.path} is not covered by the write path rules; the write was discarded and nothing reached the real filesystem.`;

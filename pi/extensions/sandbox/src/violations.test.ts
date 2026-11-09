@@ -68,7 +68,7 @@ test("a write inside a read-denied tree and outside every write allow is a disca
   const filesystem = { denyRead: ["/home", "/home/max"], allowWrite: ["/home/max/repo"] };
 
   // act
-  const reported = discardedWrites([{ mode: "write", path: "/home/max/notes.txt" }], filesystem);
+  const reported = discardedWrites([{ mode: "write", path: "/home/max/notes.txt" }], filesystem, "linux");
 
   // assert
   assert.deepEqual(reported, [{ mode: "write", path: "/home/max/notes.txt" }]);
@@ -84,7 +84,18 @@ test("writes outside the read-denied tree, inside a write allow, and reads are n
     { mode: "write", path: "/dev/null" },
     { mode: "write", path: "/tmp/claude/x" },
     { mode: "read", path: "/home/max/x" },
-  ], filesystem);
+  ], filesystem, "linux");
+
+  // assert
+  assert.deepEqual(reported, []);
+});
+
+test("macOS never reports a discarded write", () => {
+  // arrange
+  const filesystem = { denyRead: ["/Users", "/Users/max"], allowWrite: ["/Users/max/repo"] };
+
+  // act
+  const reported = discardedWrites([{ mode: "write", path: "/Users/max/notes.txt" }], filesystem, "darwin");
 
   // assert
   assert.deepEqual(reported, []);

@@ -181,7 +181,12 @@ function createRuntime(pi: ExtensionAPI): Runtime {
         const violations = process.platform === "linux"
           ? await readViolationsAfterOneWait(commandId)
           : await collectViolations(commandId);
-        const report = successViolationReport(pathViolations(violations.map(({ line }) => line)), filesystem, currentAgentMode());
+        const report = successViolationReport(
+          pathViolations(violations.map(({ line }) => line)),
+          filesystem,
+          process.platform as PolicyOptions["platform"],
+          currentAgentMode(),
+        );
         if (report) options.onData(Buffer.from(report));
         return { result, step: { kind: "return" }, promptsUsed: 0 };
       }
