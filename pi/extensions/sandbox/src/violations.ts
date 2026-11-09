@@ -36,6 +36,14 @@ export function discardedWrites(
     mode === "write" && denied.some((root) => contains(root, path)) && !writable.some((root) => contains(root, path)));
 }
 
+// After deleting a file, jj also tries to remove the file's parent directory, the repository root included. On
+// macOS only the root's entries are writable, not the root itself, so Seatbelt denies that unlink. The root is never
+// empty, so the removal fails either way and jj ignores the error. Linux reports syscall names, never this one.
+export function isRepositoryRootRemoval(line: string, repositoryRoot: string): boolean {
+  const match = VIOLATION.exec(line);
+  return match?.[1] === "file-write-unlink" && match[2] === repositoryRoot;
+}
+
 export function isSecretPath(path: string, secrets: string[]): boolean {
   return secrets.some((secret) => contains(secret, path));
 }
