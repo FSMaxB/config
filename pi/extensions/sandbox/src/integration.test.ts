@@ -10,7 +10,7 @@ import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import { exact, glob, tree, type PathSelector } from "../../lib/path-permission-rules.ts";
 import { filesystemConfig } from "./policy.ts";
 import { scanVcsLayout, vcsWriteRules } from "./vcs-policy.ts";
-import { discardedWrites, pathViolations } from "./violations.ts";
+import { discardedWrites, isRepositoryRootRemoval, pathViolations } from "./violations.ts";
 
 const enabled = process.env.SANDBOX_INTEGRATION === "1";
 
@@ -254,6 +254,25 @@ test("a jj session works inside the sandbox without violations", { skip: !enable
   // assert
   assert.equal(exitCode, 0, output);
   assert.deepEqual(pathViolations((await collectViolations(commandId)).map(({ line }) => line)), []);
+});
+
+// On Linux the repository root stays writable and the rmdir just fails with ENOTEMPTY, so only macOS reports it. jj tries
+// the unlink on every checkout (the unified log shows it every time), but srt's log observer only captures it about half
+// of the time, so the test cannot require the line; it requires that nothing else is reported.
+test("a jj checkout that deletes a top-level file only reports the unlink of the repository root", { skip: !enabled || !jjAvailable }, async () => {
+  // arrange
+  const repository = join(workDirectory, "jj-checkout-repo");
+  await mkdir(repository);
+  execFileSync("jj", ["git", "init", "--colocate", repository], { env: { ...process.env, ...vcsEnvironmentVariables() }, stdio: "pipe" });
+  const script = "set -e\necho f > f.txt && jj commit -m add\njj new 'root()'";
+
+  // act
+  const { exitCode, output, commandId } = await runInRepository(repository, `${vcsEnvironment()}\n${script}`);
+
+  // assert
+  assert.equal(exitCode, 0, output);
+  const lines = (await collectViolations(commandId)).map(({ line }) => line);
+  assert.deepEqual(pathViolations(lines.filter((line) => !isRepositoryRootRemoval(line, repository))), []);
 });
 
 test("the process exits once the sandbox is reset", { skip: !enabled }, async () => {

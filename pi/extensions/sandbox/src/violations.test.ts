@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { discardedWrites, isSecretPath, isSecretPathThroughSymlinks, pathViolations } from "./violations.ts";
+import { discardedWrites, isRepositoryRootRemoval, isSecretPath, isSecretPathThroughSymlinks, pathViolations } from "./violations.ts";
 
 test("macOS read and write violations parse", () => {
   // arrange
@@ -99,6 +99,23 @@ test("macOS never reports a discarded write", () => {
 
   // assert
   assert.deepEqual(reported, []);
+});
+
+test("only an unlink of the repository root itself is a repository root removal", () => {
+  // arrange
+  const root = "/Users/max/repo";
+
+  // act
+  const rootUnlink = isRepositoryRootRemoval(`Sandbox: jj(1) deny(1) file-write-unlink ${root}`, root);
+  const entryUnlink = isRepositoryRootRemoval(`Sandbox: jj(1) deny(1) file-write-unlink ${root}/a.txt`, root);
+  const rootCreate = isRepositoryRootRemoval(`Sandbox: jj(1) deny(1) file-write-create ${root}`, root);
+  const linuxLine = isRepositoryRootRemoval(`deny unlinkat ${root}`, root);
+
+  // assert
+  assert.equal(rootUnlink, true);
+  assert.equal(entryUnlink, false);
+  assert.equal(rootCreate, false);
+  assert.equal(linuxLine, false);
 });
 
 test("a secret path matches itself and nested paths only", () => {

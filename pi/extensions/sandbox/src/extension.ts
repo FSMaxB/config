@@ -19,7 +19,7 @@ import { NETWORK_ENTRY_TYPE, emptyGrants, networkConfig, parseGrants, recordGran
 import { filesystemConfig, secretPaths, type PolicyOptions } from "./policy.ts";
 import { loadSettings, updateDomainLists, type Settings } from "./settings.ts";
 import { scanVcsLayout, vcsWriteRules, type VcsWriteRules } from "./vcs-policy.ts";
-import { isSecretPath, pathViolations, type PathViolation } from "./violations.ts";
+import { isRepositoryRootRemoval, isSecretPath, pathViolations, type PathViolation } from "./violations.ts";
 import { nextStep, successViolationReport, violationReport, type NextStep, type ViolationOutcome } from "./violation-outcomes.ts";
 
 const SANDBOX_NOTE =
@@ -182,7 +182,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
           ? await readViolationsAfterOneWait(commandId)
           : await collectViolations(commandId);
         const report = successViolationReport(
-          pathViolations(violations.map(({ line }) => line)),
+          pathViolations(reportable(violations, vcs.repositoryRoot).map(({ line }) => line)),
           filesystem,
           process.platform as PolicyOptions["platform"],
           currentAgentMode(),
@@ -190,7 +190,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
         if (report) options.onData(Buffer.from(report));
         return { result, step: { kind: "return" }, promptsUsed: 0 };
       }
-      const violations = await collectViolations(commandId);
+      const violations = reportable(await collectViolations(commandId), vcs.repositoryRoot);
       if (violations.length === 0) return { result, step: { kind: "return" }, promptsUsed: 0 };
       options.onData(Buffer.from(manager().annotateStderrWithSandboxFailures(commandId, "")));
       const { outcomes, promptsUsed } = await resolveViolations(violations, promptsLeft);
@@ -333,6 +333,10 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     if (outcome.kind === "allowed-once") return { kind: "allowed-once", mode, path, grant: outcome.grant };
     return { kind: outcome.kind, mode, path };
   }
+}
+
+function reportable<Violation extends { line: string }>(violations: Violation[], repositoryRoot: string): Violation[] {
+  return violations.filter(({ line }) => !isRepositoryRootRemoval(line, repositoryRoot));
 }
 
 type ExecOptions = Parameters<BashOperations["exec"]>[2];
