@@ -37,7 +37,7 @@ const EMPTY_SPEC: DirectorySpec = { trees: [], lockedFiles: [], files: [], tempo
 // entry shows up as a <sandbox_violations> report, not as silent breakage.
 const GIT_DIRECTORY: DirectorySpec = {
   ...EMPTY_SPEC,
-  trees: ["objects", "refs", "logs", "reftable", "rr-cache", "rebase-merge", "rebase-apply", "sequencer"],
+  trees: ["objects", "refs", "logs", "reftable", "rr-cache", "rebase-merge", "rebase-apply", "sequencer", "lfs"],
   lockedFiles: [
     "HEAD", "ORIG_HEAD", "FETCH_HEAD", "MERGE_HEAD", "MERGE_MSG", "MERGE_MODE", "MERGE_RR", "MERGE_AUTOSTASH",
     "AUTO_MERGE", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD", "COMMIT_EDITMSG", "TAG_EDITMSG", "SQUASH_MSG",
