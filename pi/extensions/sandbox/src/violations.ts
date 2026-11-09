@@ -21,8 +21,14 @@ export function pathViolations(lines: string[]): PathViolation[] {
 }
 
 // Linux masks each read-denied directory with a writable tmpfs, so a write there succeeds and is thrown away
-// when the sandbox exits. Glob entries are skipped: srt drops write globs on Linux and a read-deny glob is a user rule.
-export function discardedWrites(violations: PathViolation[], filesystem: Pick<FilesystemConfig, "denyRead" | "allowWrite">): PathViolation[] {
+// when the sandbox exits. macOS refuses the write outright, so nothing is ever discarded there. Glob entries are
+// skipped: srt drops write globs on Linux and a read-deny glob is a user rule.
+export function discardedWrites(
+  violations: PathViolation[],
+  filesystem: Pick<FilesystemConfig, "denyRead" | "allowWrite">,
+  platform: "darwin" | "linux",
+): PathViolation[] {
+  if (platform !== "linux") return [];
   const literal = (entries: readonly string[]) => entries.filter((entry) => !/[*?[\]]/.test(entry));
   const denied = literal(filesystem.denyRead);
   const writable = literal(filesystem.allowWrite ?? []);
