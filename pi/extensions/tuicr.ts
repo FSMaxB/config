@@ -54,7 +54,7 @@ export default function (pi: ExtensionAPI) {
     promptSnippet: "Open tuicr in a new pane for the user to review",
     promptGuidelines: [
       "After tuicr_open, call tuicr_wait to receive the user's comments; do not poll tuicr yourself through bash.",
-      "Do not add your own review comments to a session the user is reviewing unless they ask.",
+      "Do not add your own review findings to a session the user is reviewing unless they ask. Replying to the user's comments with tuicr_comment is expected.",
     ],
     executionMode: "sequential",
     parameters: Type.Object({
@@ -133,6 +133,7 @@ export default function (pi: ExtensionAPI) {
     promptSnippet: "Wait for the user's tuicr comments",
     promptGuidelines: [
       "Treat the returned comments as review feedback: fix issues first, consider suggestions or say why not, answer notes, praise needs no action.",
+      "Reply to every comment you addressed with tuicr_comment, on the same file and line, saying what changed or why not. A reply in chat alone does not count.",
       "If tuicr_wait reports that tuicr is still open after you addressed the comments, call it again; only stop when tuicr has exited or the user says the review is done.",
     ],
     executionMode: "sequential",
@@ -228,7 +229,7 @@ export default function (pi: ExtensionAPI) {
       "can tell them from their own.",
     promptSnippet: "Add agent comments to the current tuicr review",
     promptGuidelines: [
-      "Only add tuicr comments when the user asked you to review a patch; never comment on a review the user is writing themselves.",
+      "Do not add review findings of your own unless the user asked you to review a patch. Always use this tool to reply to the user's comments after addressing them.",
     ],
     parameters: Type.Object({
       comments: Type.Array(
