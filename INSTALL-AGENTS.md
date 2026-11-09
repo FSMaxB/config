@@ -18,7 +18,7 @@
 
 - After implementing a plan and after committing, ask me with a tool whether I want to do a review with tuicr. Use the harness's tuicr tools or skill; if it has neither, skip the tuicr review and say so.
 - Put fixes for tuicr or crit review comments into fixup commits (see the `vcs` skill).
-- Address tuicr comments by doing what was asked and responding to the comment.
+- Address tuicr comments by doing what was asked and replying to each comment with the tuicr comment tool (`tuicr_comment` in Pi), not only in chat. This overrides the tuicr skill's "do not add your own review comments", which covers findings, not replies.
 
 ## Code style / Architecture
 
