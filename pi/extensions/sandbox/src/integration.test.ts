@@ -179,6 +179,7 @@ test("an exit-0 command can still carry violations on macOS", { skip: !enabled |
 });
 
 const jjAvailable = spawnSync("jj", ["--version"]).error === undefined;
+const gitLfsAvailable = spawnSync("git", ["lfs", "version"]).status === 0;
 
 const GIT_BATTERY = [
   "set -e",
@@ -273,6 +274,31 @@ test("a jj checkout that deletes a top-level file only reports the unlink of the
   assert.equal(exitCode, 0, output);
   const lines = (await collectViolations(commandId)).map(({ line }) => line);
   assert.deepEqual(pathViolations(lines.filter((line) => !isRepositoryRootRemoval(line, repository))), []);
+});
+
+// git lfs install runs outside the sandbox: it writes .git/hooks and .git/config, which stay denied.
+test("git-lfs stores and checks out objects inside the sandbox without violations", { skip: !enabled || !gitLfsAvailable }, async () => {
+  // arrange
+  const repository = join(workDirectory, "lfs-repo");
+  execFileSync("git", ["init", "--quiet", "--template=", "-b", "main", repository]);
+  await mkdir(join(repository, ".git", "info"));
+  await writeFile(join(repository, ".git", "info", "exclude"), "");
+  execFileSync("git", ["lfs", "install", "--local"], { cwd: repository, env: { ...process.env, ...vcsEnvironmentVariables() }, stdio: "pipe" });
+  const script = [
+    "set -e",
+    "git lfs track '*.bin' > /dev/null",
+    "head -c 1024 /dev/urandom > blob.bin",
+    "git add .gitattributes blob.bin && git commit -q -m lfs",
+    "rm blob.bin && git lfs checkout blob.bin",
+    "test -s blob.bin",
+  ].join("\n");
+
+  // act
+  const { exitCode, output, commandId } = await runInRepository(repository, `${vcsEnvironment()}\n${script}`);
+
+  // assert
+  assert.equal(exitCode, 0, output);
+  assert.deepEqual(pathViolations((await collectViolations(commandId)).map(({ line }) => line)), []);
 });
 
 test("the process exits once the sandbox is reset", { skip: !enabled }, async () => {

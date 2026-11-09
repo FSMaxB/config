@@ -25,7 +25,7 @@ function layoutOf(tree: Tree, repoRoot = REPO): VcsLayout {
 const COLOCATED: Tree = {
   ".git": {
     HEAD: "file", config: "file", description: "file", index: "file", "index.lock": "file", "packed-refs": "file",
-    hooks: {}, info: { exclude: "file", refs: "file" }, objects: {}, refs: {}, logs: {},
+    hooks: {}, info: { exclude: "file", refs: "file" }, objects: {}, refs: {}, logs: {}, lfs: {},
   },
   ".jj": {
     ".gitignore": "file",
@@ -59,7 +59,7 @@ test("what git and jj write during normal operation is not denied", () => {
 
   // assert
   for (const path of [
-    ".git/objects", ".git/refs", ".git/HEAD", ".git/index", ".git/index.lock", ".git/packed-refs", ".git/info/refs", ".jj/repo/op_store",
+    ".git/objects", ".git/refs", ".git/HEAD", ".git/index", ".git/index.lock", ".git/packed-refs", ".git/info/refs", ".git/lfs", ".jj/repo/op_store",
     ".jj/repo/op_heads", ".jj/repo/index", ".jj/repo/store/extra", ".jj/working_copy/checkout", ".jj/working_copy/tree_state",
     ".jj/working_copy/.tmpAbc123", ".jj/working_copy/working_copy.lock", ".jj/repo",
   ]) {
