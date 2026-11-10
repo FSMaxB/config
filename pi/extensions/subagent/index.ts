@@ -37,7 +37,17 @@ import { type AgentConfig, discoverAgents, THINKING_LEVELS } from "./agents.ts";
 import { EXIT_GRACE_MILLISECONDS, phaseAfterEvent, type ChildPhase } from "./exit-watchdog.ts";
 import { guidanceTable, loadPolicyConfig, resolveSubagentModel, type SubagentModelConfig } from "./model-policy.ts";
 import { ChildToolVerdict, childToolVerdict, effectiveChildTools, restrictedModeAllowedTools, type PersistedModeDecisions } from "./mode-restrictions.ts";
-import { emptyUsage, finalizedMessageUsage, isFailedResult, subagentOutcome, sumUsage } from "./results.ts";
+import {
+  emptyUsage,
+  failureEvidence,
+  finalizedMessageUsage,
+  isFailedResult,
+  isRunningResult,
+  RUNNING_EXIT_CODE,
+  subagentOutcome,
+  sumUsage,
+  truncateTaskOutput,
+} from "./results.ts";
 
 const EXTENSION_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 
@@ -175,7 +185,7 @@ export default function (pi: ExtensionAPI) {
           allResults[i] = {
             agent: taskItem.agent,
             task: taskItem.task,
-            exitCode: -1, // -1 = still running
+            exitCode: RUNNING_EXIT_CODE,
             messages: [],
             stderr: "",
             usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
@@ -187,8 +197,8 @@ export default function (pi: ExtensionAPI) {
 
         const emitParallelUpdate = () => {
           if (onUpdate) {
-            const running = allResults.filter((result) => result.exitCode === -1).length;
-            const done = allResults.filter((result) => result.exitCode !== -1).length;
+            const running = allResults.filter((result) => isRunningResult(result)).length;
+            const done = allResults.filter((result) => !isRunningResult(result)).length;
             onUpdate({
               content: [
                 { type: "text", text: `Parallel: ${done}/${allResults.length} done, ${running} running...` },
@@ -223,7 +233,7 @@ export default function (pi: ExtensionAPI) {
 
         const successCount = results.filter((result) => !isFailedResult(result)).length;
         const summaries = results.map((result) => {
-          const output = truncateParallelOutput(getResultOutput(result));
+          const output = truncateTaskOutput(getResultOutput(result), PER_TASK_OUTPUT_CAP);
           const status = isFailedResult(result)
             ? `failed${result.stopReason && result.stopReason !== "end" ? ` (${result.stopReason})` : ""}`
             : "completed";
@@ -256,7 +266,7 @@ export default function (pi: ExtensionAPI) {
         "single",
       );
       if (isFailedResult(result)) {
-        const errorMessage = getResultOutput(result);
+        const errorMessage = truncateTaskOutput(getResultOutput(result), PER_TASK_OUTPUT_CAP);
         return {
           content: [{ type: "text", text: `Agent ${result.stopReason || "failed"}: ${errorMessage}` }],
           details: { mode: "single", results: [result] },
@@ -264,7 +274,7 @@ export default function (pi: ExtensionAPI) {
         };
       }
       return {
-        content: [{ type: "text", text: getResultOutput(result) }],
+        content: [{ type: "text", text: truncateTaskOutput(getResultOutput(result), PER_TASK_OUTPUT_CAP) }],
         details: { mode: "single", results: [result] },
         ...subagentOutcome([result]),
       };
@@ -307,8 +317,13 @@ export default function (pi: ExtensionAPI) {
 
       if (details.mode === "single") {
         const single = details.results[0];
+        const running = isRunningResult(single);
         const isError = isFailedResult(single);
-        const icon = isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
+        const icon = running
+          ? theme.fg("warning", "⏳")
+          : isError
+            ? theme.fg("error", "✗")
+            : theme.fg("success", "✓");
         let text =
           `${icon} ${theme.fg("toolTitle", theme.bold(single.agent))}` +
           formatAgentConfiguration(single.model, single.thinkingLevel, "unresolved", theme);
@@ -323,7 +338,7 @@ export default function (pi: ExtensionAPI) {
 
         const displayItems = getDisplayItems(single.messages);
         if (isError && single.errorMessage) text += `\n${theme.fg("error", `Error: ${single.errorMessage}`)}`;
-        else if (displayItems.length === 0) text += `\n${theme.fg("muted", "(no output)")}`;
+        else if (displayItems.length === 0) text += `\n${theme.fg("muted", running ? "(running...)" : "(no output)")}`;
         else {
           text += `\n${renderCollapsedItems(displayItems, COLLAPSED_ITEM_COUNT, expanded, theme)}`;
           if (displayItems.length > COLLAPSED_ITEM_COUNT) text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
@@ -333,9 +348,9 @@ export default function (pi: ExtensionAPI) {
         return new Text(text, 0, 0);
       }
 
-      const running = details.results.filter((item) => item.exitCode === -1).length;
-      const successCount = details.results.filter((item) => item.exitCode !== -1 && !isFailedResult(item)).length;
-      const failCount = details.results.filter((item) => item.exitCode !== -1 && isFailedResult(item)).length;
+      const running = details.results.filter((item) => isRunningResult(item)).length;
+      const successCount = details.results.filter((item) => !isRunningResult(item) && !isFailedResult(item)).length;
+      const failCount = details.results.filter((item) => !isRunningResult(item) && isFailedResult(item)).length;
       const isRunning = running > 0;
       const icon = isRunning
         ? theme.fg("warning", "⏳")
@@ -378,7 +393,7 @@ export default function (pi: ExtensionAPI) {
       let text = `${icon} ${theme.fg("toolTitle", theme.bold("parallel "))}${theme.fg("accent", status)}`;
       for (const item of details.results) {
         const itemIcon =
-          item.exitCode === -1
+          isRunningResult(item)
             ? theme.fg("warning", "⏳")
             : isFailedResult(item)
               ? theme.fg("error", "✗")
@@ -389,7 +404,7 @@ export default function (pi: ExtensionAPI) {
           formatAgentConfiguration(item.model, item.thinkingLevel, "unresolved", theme) +
           ` ${itemIcon}`;
         if (displayItems.length === 0)
-          text += `\n${theme.fg("muted", item.exitCode === -1 ? "(running...)" : "(no output)")}`;
+          text += `\n${theme.fg("muted", isRunningResult(item) ? "(running...)" : "(no output)")}`;
         else text += `\n${renderCollapsedItems(displayItems, 5, expanded, theme)}`;
       }
       if (!isRunning) {
@@ -539,7 +554,7 @@ async function runSingleAgent(
   const currentResult: SingleResult = {
     agent: agentName,
     task,
-    exitCode: 0,
+    exitCode: RUNNING_EXIT_CODE,
     messages: [],
     stderr: "",
     usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
@@ -809,24 +824,15 @@ function getFinalOutput(messages: Message[]): string {
 
 function getResultOutput(result: SingleResult): string {
   if (isFailedResult(result)) {
-    return result.errorMessage || result.stderr || getFinalOutput(result.messages) || "(no output)";
+    return failureEvidence({
+      errorMessage: result.errorMessage,
+      stderr: result.stderr,
+      assistantOutput: getFinalOutput(result.messages),
+    });
   }
   const output = getFinalOutput(result.messages) || "(no output)";
   if (!result.terminationNote) return output;
   return `${output}\n\n[${result.terminationNote}]`;
-}
-
-function truncateParallelOutput(output: string): string {
-  const byteLength = Buffer.byteLength(output, "utf8");
-  if (byteLength <= PER_TASK_OUTPUT_CAP) return output;
-
-  let truncated = output.slice(0, PER_TASK_OUTPUT_CAP);
-  while (Buffer.byteLength(truncated, "utf8") > PER_TASK_OUTPUT_CAP) {
-    truncated = truncated.slice(0, -1);
-  }
-  // The byte-trimming loop above can stop right after a lone high surrogate.
-  if (/[\uD800-\uDBFF]$/.test(truncated)) truncated = truncated.slice(0, -1);
-  return `${truncated}\n\n[Output truncated: ${byteLength - Buffer.byteLength(truncated, "utf8")} bytes omitted. Full output preserved in tool details.]`;
 }
 
 async function mapWithConcurrencyLimit<TIn, TOut>(
