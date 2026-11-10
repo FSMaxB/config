@@ -2,9 +2,8 @@
 // Extracted from index.ts so tests can import without activating the extension.
 
 export const FABLE_5_2_MODEL_ID = "claude-fable-5-2";
-export const FABLE_5_1_MODEL_ID = "claude-fable-5-1";
 // Opus 4.8 is both a selectable model and the configured safety-fallback target for the Claude 5
-// primaries whose classifiers can decline a turn (Fable 5.2, Fable 5.1, Opus 5.5).
+// primaries whose classifiers can decline a turn (Fable 5.2, Opus 5.5).
 export const FABLE_FALLBACK_MODEL_ID = "claude-opus-4-8";
 // Not selectable: Claude Code reroutes bio and frontier_llm refusals of those primaries to Opus 5 on
 // its own, so it only needs a label for the fallback notice.
@@ -18,7 +17,7 @@ export const HAIKU_5_5_MODEL_ID = "claude-haiku-5-5";
 export const HAIKU_4_5_MODEL_ID = "claude-haiku-4-5";
 
 export function fallbackModelForPrimaryModel(modelId: string): string | undefined {
-	if (modelId === FABLE_5_2_MODEL_ID || modelId === FABLE_5_1_MODEL_ID || modelId === OPUS_5_5_MODEL_ID) {
+	if (modelId === FABLE_5_2_MODEL_ID || modelId === OPUS_5_5_MODEL_ID) {
 		return FABLE_FALLBACK_MODEL_ID;
 	}
 	if (modelId === SONNET_5_5_MODEL_ID) {
@@ -32,7 +31,6 @@ export function fallbackModelForPrimaryModel(modelId: string): string | undefine
 
 export const MODEL_IDS_IN_ORDER = [
 	FABLE_5_2_MODEL_ID,
-	FABLE_5_1_MODEL_ID,
 	OPUS_5_5_MODEL_ID,
 	FABLE_FALLBACK_MODEL_ID,
 	SONNET_5_5_MODEL_ID,
@@ -55,15 +53,6 @@ const FALLBACK_MODELS: Record<string, BridgeModelMetadata> = {
 	[FABLE_5_2_MODEL_ID]: {
 		id: FABLE_5_2_MODEL_ID,
 		name: "Claude Fable 5.2",
-		reasoning: true,
-		thinkingLevelMap: { xhigh: "xhigh", max: "max" },
-		input: ["text", "image"],
-		contextWindow: 1000000,
-		maxTokens: 128000,
-	},
-	[FABLE_5_1_MODEL_ID]: {
-		id: FABLE_5_1_MODEL_ID,
-		name: "Claude Fable 5.1",
 		reasoning: true,
 		thinkingLevelMap: { xhigh: "xhigh", max: "max" },
 		input: ["text", "image"],
