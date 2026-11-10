@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { emptyUsage, finalizedMessageUsage, isFailedResult, subagentOutcome, sumUsage } from "./results.ts";
+import {
+  emptyUsage,
+  failureEvidence,
+  finalizedMessageUsage,
+  isFailedResult,
+  isRunningResult,
+  RUNNING_EXIT_CODE,
+  subagentOutcome,
+  sumUsage,
+  truncateTaskOutput,
+} from "./results.ts";
 
 test("native usage sums token and cost components without double-counting subsets", () => {
   // arrange
@@ -53,4 +63,69 @@ test("single and mixed parallel outcomes report failures while retaining success
   assert.equal(isFailedResult({ exitCode: 0, stopReason: "error" }), true);
   assert.equal(isFailedResult({ exitCode: 0, stopReason: "aborted" }), true);
   assert.equal(isFailedResult({ exitCode: 0, stopReason: "stop" }), false);
+});
+
+test("a running result is neither failed nor finished, while an aborted one stays failed", () => {
+  // arrange
+  const running = { exitCode: RUNNING_EXIT_CODE };
+  const aborted = { exitCode: 0, stopReason: "aborted" };
+
+  // act
+  const runningFailed = isFailedResult(running);
+  const runningState = isRunningResult(running);
+  const abortedFailed = isFailedResult(aborted);
+
+  // assert
+  assert.equal(runningFailed, false);
+  assert.equal(runningState, true);
+  assert.equal(abortedFailed, true);
+});
+
+test("a failure with a single evidence source shows it unlabelled", () => {
+  // act
+  const evidence = failureEvidence({ stderr: " policy rejected ", assistantOutput: "" });
+
+  // assert
+  assert.equal(evidence, "policy rejected");
+});
+
+test("a failure with several distinct evidence sources labels each of them", () => {
+  // act
+  const evidence = failureEvidence({
+    errorMessage: "boom",
+    stderr: "trace",
+    assistantOutput: "I could not finish",
+  });
+
+  // assert
+  assert.equal(evidence, "Error: boom\n\nstderr: trace\n\nAssistant output: I could not finish");
+});
+
+test("duplicate evidence appears once and loses its label when it is the only source", () => {
+  // act
+  const duplicated = failureEvidence({ errorMessage: "boom", stderr: " boom\n", assistantOutput: "other" });
+  const only = failureEvidence({ errorMessage: "boom", stderr: " boom\n", assistantOutput: "" });
+
+  // assert
+  assert.equal(duplicated, "Error: boom\n\nAssistant output: other");
+  assert.equal(only, "boom");
+});
+
+test("a failure without any evidence reports no output", () => {
+  // act
+  const evidence = failureEvidence({ stderr: "  ", assistantOutput: "" });
+
+  // assert
+  assert.equal(evidence, "(no output)");
+});
+
+test("task output within the cap is unchanged and longer output is cut with a note", () => {
+  // act
+  const short = truncateTaskOutput("abc", 10);
+  const long = truncateTaskOutput("x".repeat(20), 10);
+
+  // assert
+  assert.equal(short, "abc");
+  assert.ok(long.startsWith("x".repeat(10)));
+  assert.ok(long.endsWith("[Output truncated: 10 bytes omitted. Full output preserved in tool details.]"));
 });
