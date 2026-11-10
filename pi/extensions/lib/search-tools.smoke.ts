@@ -1,6 +1,7 @@
-// Runnable smoke test for the rg/fd-backed executes. There is no test runner for extensions,
-// so this is plain node: `node pi/extensions/lib/search-tools.smoke.ts` (see the plan for the
-// transient node_modules symlink that makes the bare pi import resolve).
+// Runnable smoke test for the rg/fd-backed executes. There is no test runner for extensions, so
+// this is plain node, with a transient symlink that makes the bare pi import resolve:
+//   ln -s ~/.pi/agent/install/releases/<version>/node_modules pi/extensions/node_modules
+//   node pi/extensions/lib/search-tools.smoke.ts; rm pi/extensions/node_modules
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -103,11 +104,54 @@ try {
     });
 
     // assert
-    // The fixture file ends with a newline, so the 1-line context window after line 2 includes
-    // the trailing empty "line 3" that content.split("\n") produces; that is pre-existing behavior.
+    assert.equal(text, "alpha.ts\n  1- const transactor = 1;\n  2: export { transactor };");
+  }
+
+  {
+    // arrange / act
+    const { text } = await run(grep, { pattern: "export", glob: "nested/*.ts" });
+
+    // assert
+    assert.equal(text, "nested/gamma.ts\n  1: export const x = 1;");
+  }
+
+  {
+    // arrange / act
+    const { text } = await run(grep, { pattern: "export", glob: "./nested/*.ts" });
+
+    // assert
+    assert.equal(text, "nested/gamma.ts\n  1: export const x = 1;");
+  }
+
+  {
+    // arrange / act
+    const { text } = await run(grep, { pattern: "transactor", limit: 3 });
+
+    // assert
+    assert.ok(!text.includes("limit reached"), `false limit notice: ${text}`);
+  }
+
+  {
+    // arrange / act
+    const { text } = await run(grep, { pattern: "transactor", filesOnly: true, limit: 2 });
+
+    // assert
+    assert.ok(!text.includes("limit reached"), `false limit notice: ${text}`);
+  }
+
+  {
+    // arrange / act
+    const { text } = await run(grep, {
+      pattern: "transactor",
+      path: "alpha.ts",
+      limit: 1,
+      context: 1,
+    });
+
+    // assert
     assert.equal(
       text,
-      "alpha.ts\n  1- const transactor = 1;\n  2: export { transactor };\n  3- ",
+      "alpha.ts\n  1: const transactor = 1;\n  2- export { transactor };\n\n[1 matches limit reached. Use limit=2 for more, or refine pattern]",
     );
   }
 
@@ -192,6 +236,25 @@ try {
 
     // assert
     assert.match(text, /results limit reached/);
+  }
+
+  {
+    // arrange
+    const count = flattenFind((await run(find, { pattern: "**" })).text).length;
+
+    // act
+    const { text } = await run(find, { pattern: "**", limit: count });
+
+    // assert
+    assert.ok(!text.includes("results limit reached"), `false limit notice: ${text}`);
+  }
+
+  {
+    // arrange / act
+    const { text } = await run(find, { pattern: "./nested/*.ts" });
+
+    // assert
+    assert.deepEqual(flattenFind(text), ["nested/gamma.ts"]);
   }
 
   {
