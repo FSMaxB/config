@@ -63,10 +63,8 @@ export function piUserDir(): string {
  * Isolated mode (`CLAUDE_BRIDGE_ISOLATED=1`) : a host app embedding the bridge
  * declares that nothing outside its explicitly configured dirs may be read.
  * Disables every cwd/home discovery fallback — all AGENTS.md discovery,
- * project `.pi/claude-bridge.json`,
- * project APPEND_SYSTEM.md, and the `$PATH` claude executable search. Bridge
- * configuration comes only from `piUserDir()/claude-bridge.json` and any
- * explicitly configured executable path.
+ * project `.pi/claude-bridge.json` and project APPEND_SYSTEM.md. Bridge
+ * configuration comes only from `piUserDir()/claude-bridge.json`.
  * Default (unset) behavior for normal pi CLI users is unchanged.
  */
 export function isolatedFromEnv(): boolean {

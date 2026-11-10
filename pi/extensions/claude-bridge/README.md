@@ -22,14 +22,15 @@ Differences from upstream:
 - Signed thinking from Pi's native Anthropic provider (`api: "anthropic-messages"`) is replayed as thinking on a rebuild, and its messages get no provenance prefix. Upstream only recognizes `api: "anthropic"`, which Pi no longer uses, so that thinking was dropped.
 - A request with `cacheRetention: "none"` (Pi's compaction and summary one-shots, pi-web-access's answer mode) always runs as its own query in a private request lane, even when it carries the session id of a conversation whose query is running. Upstream routes it into that conversation's lane, where it is taken for a tool-result callback of the running query, never answered, and releasing the lane deletes the conversation's session state.
 - Every Claude Code refusal fallback is announced. Claude Code picks the fallback model per refusal category (for example Opus 5 for bio refusals of Fable 5.2), so upstream's rule of announcing only the bridge's own pairing hid most reroutes.
+- Claude Code always runs from the binary bundled with the Claude Agent SDK unless `pathToClaudeCodeExecutable` names another one. Upstream prefers a `claude` found on `PATH`, which can be older than the SDK and not know newer models: Claude Code 2.1.319 gives an unknown Fable 5.2 a 200k window instead of 1M, so long sessions fail with "Prompt is too long".
 
 ## Install
 
-The extension lives in `~/config/pi/extensions/claude-bridge/`, which `install.sh` symlinks into `~/.pi/agent/extensions/`. Run `npm ci` in this directory once so `node_modules/` exists (`install.sh` does this when it is missing), then restart Pi. A Claude Code login is required. Make `claude` available on `PATH` or set its executable path below.
+The extension lives in `~/config/pi/extensions/claude-bridge/`, which `install.sh` symlinks into `~/.pi/agent/extensions/`. Run `npm ci` in this directory once so `node_modules/` exists (`install.sh` does this when it is missing), then restart Pi. A Claude Code login is required. The bridge runs the Claude Code binary bundled with the SDK; a `claude` on `PATH` is not used.
 
 `npm test` runs offline unit tests and `npm run typecheck` runs `tsc`. `npm run test:int` is separate; it needs a logged-in Claude account and the `pi` binary on `PATH`. Restart Pi after changing extension files.
 
-Fable 5.2 requires [Claude Code 2.1.322 or later](https://code.claude.com/docs/en/model-config#work-with-fable) (2.1.319 does not know the model); the bundled CLI of SDK 0.3.322 is 2.1.322. This includes any executable chosen through `pathToClaudeCodeExecutable` or found on `PATH`, which takes precedence over the SDK's bundled CLI. Account access and usage-credit requirements still apply.
+Fable 5.2 requires [Claude Code 2.1.322 or later](https://code.claude.com/docs/en/model-config#work-with-fable) (2.1.319 does not know the model and gives it a 200k window); the bundled CLI of SDK 0.3.322 is 2.1.322. An executable chosen through `pathToClaudeCodeExecutable` must meet the same minimum. Account access and usage-credit requirements still apply.
 
 ## Features
 
@@ -64,7 +65,7 @@ Write nested JSON to `<piUserDir>/claude-bridge.json` (normally `~/.pi/agent/cla
 }
 ```
 
-All fields are optional. `enabled: false` hides the provider after a Pi restart. `appendSystemPrompt` defaults to true and forwards AGENTS and skills; `includeAppendSystemPromptMd` opts into forwarding global and project `.pi/APPEND_SYSTEM.md` with XML escaping. `forceEffort` and `modelEffortOverrides` accept `low`, `medium`, `high`, `xhigh` or `max`; override keys may be bare model ids, `pi-claude/<id>` or `*`, and a per-model entry wins. The executable override is optional; normal executable discovery still applies.
+All fields are optional. `enabled: false` hides the provider after a Pi restart. `appendSystemPrompt` defaults to true and forwards AGENTS and skills; `includeAppendSystemPromptMd` opts into forwarding global and project `.pi/APPEND_SYSTEM.md` with XML escaping. `forceEffort` and `modelEffortOverrides` accept `low`, `medium`, `high`, `xhigh` or `max`; override keys may be bare model ids, `pi-claude/<id>` or `*`, and a per-model entry wins. The executable override is optional; without it the SDK's bundled binary runs.
 
 When `appendSystemPrompt` is true, the SDK reads no filesystem setting sources even if `settingSources` is configured. When false, it uses the configured list or defaults to `["user", "project"]`. MCP discovery remains blocked by mandatory strict MCP configuration; only the Pi bridge server can be registered. Filesystem settings may still affect other Claude Code settings, including environment values, so select `project` or `local` only for trusted directories.
 
