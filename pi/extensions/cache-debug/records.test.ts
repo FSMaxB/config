@@ -27,6 +27,7 @@ test("a request, its response and its message emit one completed record", () => 
     version: 1,
     kind: "request",
     ...identity,
+    purpose: "turn",
     startedAt: new Date(1000).toISOString(),
     completedAt: new Date(2000).toISOString(),
     payload,
@@ -109,4 +110,44 @@ test("the message provider and model override the request values", () => {
   assert.ok(record?.kind === "request");
   assert.equal(record.provider, "mistral");
   assert.equal(record.model, "large");
+});
+
+test("a request that starts right after a warm decision is tagged as a cache warm", () => {
+  // arrange
+  const { records, tracker } = arrange();
+
+  // act
+  tracker.expectCacheWarm(new Date(1000));
+  tracker.request({ ...identity, at: new Date(2000) });
+  tracker.request({ ...identity, at: new Date(3000) });
+
+  // assert
+  assert.equal(records[0]?.kind === "request" ? records[0].purpose : undefined, "cache-warm");
+});
+
+test("a warm decision whose refresh never starts expires", () => {
+  // arrange
+  const { records, tracker } = arrange();
+
+  // act
+  tracker.expectCacheWarm(new Date(1000));
+  tracker.request({ ...identity, at: new Date(10_000) });
+  tracker.request({ ...identity, at: new Date(11_000) });
+
+  // assert
+  assert.equal(records[0]?.kind === "request" ? records[0].purpose : undefined, "turn");
+});
+
+test("a warm decision labels only the first request after it", () => {
+  // arrange
+  const { records, tracker } = arrange();
+
+  // act
+  tracker.expectCacheWarm(new Date(1000));
+  tracker.request({ ...identity, at: new Date(2000) });
+  tracker.request({ ...identity, at: new Date(3000) });
+  tracker.request({ ...identity, at: new Date(4000) });
+
+  // assert
+  assert.equal(records[1]?.kind === "request" ? records[1].purpose : undefined, "turn");
 });

@@ -9,6 +9,12 @@ export const Outcome = {
 } as const;
 export type Outcome = (typeof Outcome)[keyof typeof Outcome];
 
+export const RequestPurpose = {
+  Turn: "turn",
+  CacheWarm: "cache-warm", // pi re-sent the previous request to keep its prompt cache alive
+} as const;
+export type RequestPurpose = (typeof RequestPurpose)[keyof typeof RequestPurpose];
+
 export const MarkerEvent = {
   SessionStart: "session_start",
   Compaction: "compaction",
@@ -31,6 +37,7 @@ export interface RequestRecord {
   provider: string;
   model: string;
   api: string;
+  purpose?: RequestPurpose; // absent in records written before cache-warm tagging; read as Turn
   startedAt: string;
   completedAt?: string;
   payload?: PayloadFingerprint; // absent when the provider never exposes its payload (pi-claude)
@@ -73,19 +80,30 @@ interface AssistantMessageEnd {
   at: Date;
 }
 
+const CACHE_WARM_WINDOW_MILLISECONDS = 5_000;
+
 // Requests within one pi process are sequential, so one pending record is enough.
 export class RequestTracker {
   private pending: RequestRecord | undefined;
+  private cacheWarmDecidedAt: Date | undefined;
   private readonly emit: (record: LogRecord) => void;
 
   constructor(emit: (record: LogRecord) => void) {
     this.emit = emit;
   }
 
+  // pi decides on a refresh right before sending it, so a request that starts shortly after a "warm"
+  // decision is that refresh. A decision whose refresh is never sent (the transcript moved on)
+  // expires instead of labelling the next real request.
+  expectCacheWarm(at: Date): void {
+    this.cacheWarmDecidedAt = at;
+  }
+
   request(start: RequestStart): void {
     this.flush(Outcome.Superseded);
     const { at, ...identity } = start;
-    this.pending = { version: RECORD_VERSION, kind: "request", ...identity, startedAt: at.toISOString(), outcome: Outcome.Superseded };
+    const purpose = this.purposeOfRequestAt(at);
+    this.pending = { version: RECORD_VERSION, kind: "request", ...identity, purpose, startedAt: at.toISOString(), outcome: Outcome.Superseded };
   }
 
   response(status: number, headers: Record<string, string>): void {
@@ -97,7 +115,7 @@ export class RequestTracker {
   assistantMessage(end: AssistantMessageEnd): void {
     const { at, usage, stopReason, responseId, ...identity } = end;
     const completedAt = at.toISOString();
-    const base: RequestRecord = this.pending ?? { version: RECORD_VERSION, kind: "request", ...identity, startedAt: completedAt, outcome: Outcome.Completed };
+    const base: RequestRecord = this.pending ?? { version: RECORD_VERSION, kind: "request", ...identity, purpose: RequestPurpose.Turn, startedAt: completedAt, outcome: Outcome.Completed };
     this.pending = undefined;
     this.emit({ ...base, ...identity, completedAt, usage: pickUsage(usage), stopReason, ...(responseId ? { responseId } : {}), outcome: Outcome.Completed });
   }
@@ -110,6 +128,13 @@ export class RequestTracker {
     if (!this.pending) return;
     this.emit({ ...this.pending, outcome });
     this.pending = undefined;
+  }
+
+  private purposeOfRequestAt(at: Date): RequestPurpose {
+    const decidedAt = this.cacheWarmDecidedAt;
+    this.cacheWarmDecidedAt = undefined;
+    if (!decidedAt) return RequestPurpose.Turn;
+    return at.getTime() - decidedAt.getTime() <= CACHE_WARM_WINDOW_MILLISECONDS ? RequestPurpose.CacheWarm : RequestPurpose.Turn;
   }
 }
 

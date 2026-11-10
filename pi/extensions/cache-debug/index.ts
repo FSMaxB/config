@@ -34,6 +34,13 @@ export default function (pi: ExtensionAPI) {
     void pruneLogs(directory).catch(() => undefined);
   });
 
+  pi.on("cache_warming_decision", async (event) => {
+    safely(() => {
+      if (event.action === "warm") tracker.expectCacheWarm(new Date());
+    });
+    return undefined;
+  });
+
   pi.on("before_provider_request", async (event, context) => {
     safely(() =>
       tracker.request({

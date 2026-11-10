@@ -1,11 +1,12 @@
 import type { PayloadFingerprint } from "./fingerprint.ts";
 import { SectionKind } from "./fingerprint.ts";
-import { MarkerEvent, type LogRecord, type RequestRecord, type Usage } from "./records.ts";
+import { MarkerEvent, RequestPurpose, type LogRecord, type RequestRecord, type Usage } from "./records.ts";
 
 export const Verdict = {
   First: "first", // nothing to compare with: first request, or after session start/compaction
+  CacheWarm: "cache-warm", // a refresh pi sent to keep the cache warm; it reports no usage
   ModelChanged: "model-changed",
-  NoUsage: "no-usage", // payload logged without usage: cache warm, retry, compaction request
+  NoUsage: "no-usage", // payload logged without usage: untagged cache warm, retry, compaction request
   Ok: "ok",
   NoPayload: "no-payload", // missed, but no payload to compare (pi-claude)
   PrefixChanged: "prefix-changed", // pi sent different content before the end of the previous request
@@ -40,6 +41,7 @@ interface WalkState {
   previous?: RequestRecord;
   previousWithUsage?: RequestRecord;
   reportedCache: boolean;
+  lastActivityAt?: number; // the end of the last record of any purpose
 }
 
 // Same floor as pi's own cache-miss notice (cache-stats.js): smaller misses are breakpoint granularity.
@@ -56,11 +58,18 @@ export function analyze(records: readonly LogRecord[]): Finding[] {
       continue;
     }
     findings.push(classify(record, state));
-    state = {
-      previous: record,
-      previousWithUsage: record.usage ? record : state.previousWithUsage,
-      reportedCache: state.reportedCache || (record.usage !== undefined && cachedTokens(record.usage) > 0),
-    };
+    const lastActivityAt = Date.parse(record.completedAt ?? record.startedAt);
+    // A refresh keeps the cache alive, so idle time counts from it, but the next request is still
+    // compared with the last real one.
+    state =
+      record.purpose === RequestPurpose.CacheWarm
+        ? { ...state, lastActivityAt }
+        : {
+            previous: record,
+            previousWithUsage: record.usage ? record : state.previousWithUsage,
+            reportedCache: state.reportedCache || (record.usage !== undefined && cachedTokens(record.usage) > 0),
+            lastActivityAt,
+          };
   }
   return findings;
 }
@@ -69,11 +78,12 @@ function resetsComparison(event: MarkerEvent): boolean {
   return event !== MarkerEvent.ModelSelect;
 }
 
-function classify(record: RequestRecord, { previous, previousWithUsage, reportedCache }: WalkState): Finding {
+function classify(record: RequestRecord, { previous, previousWithUsage, reportedCache, lastActivityAt }: WalkState): Finding {
   const comparison = record.payload && previous?.payload ? comparePayloads(previous.payload, record.payload) : undefined;
-  const idleMs = previous ? Date.parse(record.startedAt) - Date.parse(previous.completedAt ?? previous.startedAt) : undefined;
+  const idleMs = lastActivityAt === undefined ? undefined : Date.parse(record.startedAt) - lastActivityAt;
   const base = { record, changedParameters: comparison?.changedParameters ?? [], ...(idleMs === undefined ? {} : { idleMs }) };
 
+  if (record.purpose === RequestPurpose.CacheWarm) return { ...base, verdict: Verdict.CacheWarm };
   if (!previous) return { ...base, verdict: Verdict.First };
   if (previous.provider !== record.provider || previous.model !== record.model) return { ...base, verdict: Verdict.ModelChanged };
   const { usage } = record;
@@ -161,8 +171,9 @@ function renderHeader(findings: readonly Finding[]): string {
     .sort((left, right) => right.count - left.count)
     .map(({ verdict, count }) => `${count} ${verdict}`);
   const noUsage = findings.filter(({ verdict }) => verdict === Verdict.NoUsage).length;
+  const warms = findings.filter(({ verdict }) => verdict === Verdict.CacheWarm).length;
   const summary = `${findings.length} requests · ${misses.length} misses (${formatNumber(missedTokens)} tokens)`;
-  return [counts.length > 0 ? `${summary}: ${counts.join(", ")}` : summary, ...(noUsage > 0 ? [`${noUsage} no-usage`] : [])].join(" · ");
+  return [counts.length > 0 ? `${summary}: ${counts.join(", ")}` : summary, ...(noUsage > 0 ? [`${noUsage} no-usage`] : []), ...(warms > 0 ? [`${warms} cache-warm`] : [])].join(" · ");
 }
 
 function renderFinding({ record, verdict, promptTokens, missedTokens, idleMs, firstChange, estimatedChangeTokens, changedParameters }: Finding): string {
