@@ -29,9 +29,7 @@ The extension lives in `~/config/pi/extensions/claude-bridge/`, which `install.s
 
 `npm test` runs offline unit tests and `npm run typecheck` runs `tsc`. `npm run test:int` is separate; it needs a logged-in Claude account and the `pi` binary on `PATH`. Restart Pi after changing extension files.
 
-Fable 5.1 requires [Claude Code 2.1.255 or later](https://code.claude.com/docs/en/model-config#work-with-fable). This includes any executable chosen through `pathToClaudeCodeExecutable` or found on `PATH`, which takes precedence over the SDK's bundled CLI. Account access and usage-credit requirements still apply.
-
-Fable 5.2 requires Claude Code 2.1.322 or later (2.1.319 does not know the model); the bundled CLI of SDK 0.3.322 is 2.1.322. The same `PATH` precedence applies.
+Fable 5.2 requires [Claude Code 2.1.322 or later](https://code.claude.com/docs/en/model-config#work-with-fable) (2.1.319 does not know the model); the bundled CLI of SDK 0.3.322 is 2.1.322. This includes any executable chosen through `pathToClaudeCodeExecutable` or found on `PATH`, which takes precedence over the SDK's bundled CLI. Account access and usage-credit requirements still apply.
 
 ## Features
 
