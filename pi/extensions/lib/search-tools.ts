@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
@@ -10,6 +10,7 @@ import {
   truncateHead,
   truncateLine,
 } from "@earendil-works/pi-coding-agent";
+import { GrepCollector, GrepRowKind, LineOutcome, parseRipgrepEvent } from "./grep-collector.ts";
 import { insideGitRepository, locateBinary } from "./search-binaries.ts";
 
 // The built-in grep/find tools cannot express "files with matches" or "only directories", and
@@ -35,14 +36,14 @@ export function createGrepExecute(
   const DEFAULT_LIMIT = 100;
   const MAX_LINE_LENGTH = 500;
 
-  return async (_toolCallId, params, signal) => {
+  return async (_toolCallId, params, signal, _onUpdate, toolContext) => {
     const {
       pattern,
       path: searchDir,
       glob,
       ignoreCase,
       literal,
-      context,
+      context: contextLines,
       limit,
       filesOnly,
       output,
@@ -50,7 +51,7 @@ export function createGrepExecute(
 
     if (signal?.aborted) throw new Error("Operation aborted");
     const ripgrep = locateBinary("rg");
-    const searchPath = resolvePath(searchDir || ".", cwd);
+    const searchPath = resolvePath(searchDir || ".", toolContext?.cwd || cwd);
     const isDirectory = await stat(searchPath).then(
       (stats) => stats.isDirectory(),
       () => {
@@ -58,15 +59,17 @@ export function createGrepExecute(
       },
     );
 
-    const contextValue = context && context > 0 ? context : 0;
+    // Clamped so String() never yields exponent notation, which rg rejects.
+    const contextValue =
+      contextLines && contextLines > 0
+        ? Math.min(Math.floor(contextLines), Number.MAX_SAFE_INTEGER)
+        : 0;
     const countOnly = output === "count";
-    const effectiveLimit = countOnly
-      ? Number.POSITIVE_INFINITY
-      : Math.max(1, limit ?? DEFAULT_LIMIT);
+    const effectiveLimit = Math.max(1, Math.floor(limit ?? DEFAULT_LIMIT));
 
     const formatPath = (filePath: string) => {
       if (isDirectory) {
-        const relative = path.relative(searchPath, filePath);
+        const relative = path.relative(searchPath, path.resolve(searchPath, filePath));
         if (relative && !relative.startsWith("..")) {
           return relative.replace(/\\/g, "/");
         }
@@ -74,136 +77,80 @@ export function createGrepExecute(
       return path.basename(filePath);
     };
 
-    const fileCache = new Map<string, string[]>();
-    const getFileLines = async (filePath: string) => {
-      let lines = fileCache.get(filePath);
-      if (!lines) {
-        try {
-          const content = await readFile(filePath, "utf-8");
-          lines = content
-            .replace(/\r\n/g, "\n")
-            .replace(/\r/g, "\n")
-            .split("\n");
-        } catch {
-          lines = [];
-        }
-        fileCache.set(filePath, lines);
-      }
-      return lines;
-    };
-
+    // --no-config keeps the tool contract independent of RIPGREP_CONFIG_PATH.
     const args = filesOnly
-      ? ["--files-with-matches", "--color=never", "--hidden"]
-      : ["--json", "--line-number", "--color=never", "--hidden"];
+      ? ["--no-config", "--files-with-matches", "--color=never", "--hidden"]
+      : ["--no-config", "--json", "--line-number", "--color=never", "--hidden"];
     if (ignoreCase) args.push("--ignore-case");
     if (literal) args.push("--fixed-strings");
-    if (glob) args.push("--glob", glob);
+    if (glob) args.push("--glob", withoutLeadingDotSlash(glob));
+    if (!filesOnly && !countOnly && contextValue > 0) {
+      args.push("--context", String(contextValue));
+    }
     if (!insideGitRepository(searchPath)) args.push("--no-require-git");
-    args.push("--", pattern, searchPath);
+    // rg roots --glob at its own working directory, so a directory search runs inside searchPath.
+    // It searches "." because rg canonicalizes its working directory: with an absolute path, a
+    // symlinked searchPath (macOS /tmp) would no longer lie under the glob root.
+    args.push("--", pattern, isDirectory ? "." : searchPath);
+    const spawnOptions = { cwd: isDirectory ? searchPath : undefined, signal };
 
-    let matchCount = 0;
-    const matchedPaths: string[] = [];
-    const matches: { filePath: string; lineNumber: number; lineText?: string }[] = [];
-
-    const run = await runLines("ripgrep", ripgrep, args, signal, (line) => {
-      if (filesOnly) {
+    if (filesOnly) {
+      const matchedPaths: string[] = [];
+      let fileCount = 0;
+      const run = await runLines("ripgrep", ripgrep, args, spawnOptions, (line) => {
         const filePath = line.replace(/\r$/, "").trim();
         if (!filePath) return LineOutcome.Continue;
-        matchCount++;
+        fileCount++;
+        // One file past the limit proves that the limit cut results off.
+        if (!countOnly && fileCount > effectiveLimit) return LineOutcome.Stop;
         if (!countOnly) matchedPaths.push(formatPath(filePath));
-      } else {
-        let event: any;
-        try {
-          event = JSON.parse(line);
-        } catch {
-          return LineOutcome.Continue;
-        }
-        if (event.type !== "match") return LineOutcome.Continue;
-        matchCount++;
-        const filePath = event.data?.path?.text;
-        const lineNumber = event.data?.line_number;
-        const lineText = event.data?.lines?.text;
-        if (!countOnly && filePath && typeof lineNumber === "number") {
-          matches.push({ filePath, lineNumber, lineText });
-        }
-      }
-      return matchCount >= effectiveLimit ? LineOutcome.Stop : LineOutcome.Continue;
-    });
-
-    if (!run.stoppedEarly && run.code !== 0 && run.code !== 1) {
-      throw new Error(run.stderr.trim() || `ripgrep exited with code ${run.code}`);
+        return LineOutcome.Continue;
+      });
+      throwOnRipgrepFailure(run);
+      if (countOnly) return textResult(`${fileCount} files with matches`);
+      if (fileCount === 0) return textResult("No matches found");
+      return searchResult(
+        matchedPaths.join("\n"),
+        run.stoppedEarly ? [limitNotice(effectiveLimit, "files")] : [],
+      );
     }
+
     if (countOnly) {
-      return textResult(`${matchCount} ${filesOnly ? "files with matches" : "matches"}`);
+      let matchCount = 0;
+      const run = await runLines("ripgrep", ripgrep, args, spawnOptions, (line) => {
+        if (parseRipgrepEvent(line)?.type === "match") matchCount++;
+        return LineOutcome.Continue;
+      });
+      throwOnRipgrepFailure(run);
+      return textResult(`${matchCount} matches`);
     }
-    if (matchCount === 0) return textResult("No matches found");
 
-    const outputLines: string[] = [];
+    const collector = new GrepCollector(effectiveLimit, contextValue);
+    const run = await runLines("ripgrep", ripgrep, args, spawnOptions, (line) => {
+      const event = parseRipgrepEvent(line);
+      return event ? collector.accept(event) : LineOutcome.Continue;
+    });
+    throwOnRipgrepFailure(run);
+    if (collector.matchCount === 0) return textResult("No matches found");
+
     let linesTruncated = false;
-    if (filesOnly) {
-      outputLines.push(...matchedPaths);
-    } else {
-      const rowsByFile = new Map<string, string[]>();
-      const rowsFor = (relativePath: string) => {
-        let rows = rowsByFile.get(relativePath);
-        if (!rows) {
-          rows = [];
-          rowsByFile.set(relativePath, rows);
-        }
-        return rows;
-      };
-
-      for (const { filePath, lineNumber, lineText } of matches) {
-        const rows = rowsFor(formatPath(filePath));
-        if (contextValue === 0 && lineText !== undefined) {
-          const sanitized = lineText
-            .replace(/\r\n/g, "\n")
-            .replace(/\r/g, "")
-            .replace(/\n$/, "");
-          const { text, wasTruncated } = truncateLine(sanitized);
-          if (wasTruncated) linesTruncated = true;
-          rows.push(`  ${lineNumber}: ${text}`);
-          continue;
-        }
-
-        const lines = await getFileLines(filePath);
-        if (!lines.length) {
-          rows.push(`  ${lineNumber}: (unable to read file)`);
-          continue;
-        }
-        const start =
-          contextValue > 0
-            ? Math.max(1, lineNumber - contextValue)
-            : lineNumber;
-        const end =
-          contextValue > 0
-            ? Math.min(lines.length, lineNumber + contextValue)
-            : lineNumber;
-        for (let current = start; current <= end; current++) {
-          const sanitized = (lines[current - 1] ?? "").replace(/\r/g, "");
-          const { text, wasTruncated } = truncateLine(sanitized);
-          if (wasTruncated) linesTruncated = true;
-          rows.push(
-            current === lineNumber
-              ? `  ${current}: ${text}`
-              : `  ${current}- ${text}`,
-          );
-        }
-      }
-
-      // Grouping by file prints each path once; rg already emits a file's matches contiguously,
-      // but the map keeps that true even if it ever interleaves.
-      for (const [relativePath, rows] of rowsByFile)
-        outputLines.push(relativePath, ...rows);
+    // Grouping by file prints each path once; rg emits a file's lines contiguously, but the map
+    // keeps that true even if it ever interleaves.
+    const rowsByFile = new Map<string, string[]>();
+    for (const { filePath, lineNumber, text, kind } of collector.rows) {
+      const { text: shown, wasTruncated } = truncateLine(text);
+      if (wasTruncated) linesTruncated = true;
+      const relativePath = formatPath(filePath);
+      const rows = rowsByFile.get(relativePath) ?? [];
+      rows.push(
+        kind === GrepRowKind.Match ? `  ${lineNumber}: ${shown}` : `  ${lineNumber}- ${shown}`,
+      );
+      rowsByFile.set(relativePath, rows);
     }
+    const outputLines = [...rowsByFile].flatMap(([relativePath, rows]) => [relativePath, ...rows]);
 
     const notices: Notice[] = [];
-    if (run.stoppedEarly) {
-      notices.push({
-        text: `${effectiveLimit} ${filesOnly ? "files" : "matches"} limit reached. Use limit=${effectiveLimit * 2} for more, or refine pattern`,
-        detail: ["matchLimitReached", effectiveLimit],
-      });
-    }
+    if (collector.limitReached) notices.push(limitNotice(effectiveLimit, "matches"));
     if (linesTruncated) {
       notices.push({
         text: `Some lines truncated to ${MAX_LINE_LENGTH} chars. Use read tool to see full lines`,
@@ -234,7 +181,7 @@ export function createFindExecute(
   const DEFAULT_LIMIT = 1000;
   const FD_TYPES = { file: "f", directory: "d", symlink: "l" } as const;
 
-  return async (_toolCallId, params, signal) => {
+  return async (_toolCallId, params, signal, _onUpdate, toolContext) => {
     const {
       pattern,
       path: searchDir,
@@ -245,34 +192,36 @@ export function createFindExecute(
 
     if (signal?.aborted) throw new Error("Operation aborted");
     const fd = locateBinary("fd", ["fdfind"]);
-    const searchPath = resolvePath(searchDir || ".", cwd);
+    const searchPath = resolvePath(searchDir || ".", toolContext?.cwd || cwd);
     const countOnly = output === "count";
-    const effectiveLimit = Math.max(1, limit ?? DEFAULT_LIMIT);
+    const effectiveLimit = Math.max(1, Math.floor(limit ?? DEFAULT_LIMIT));
+    const requestedPattern = withoutLeadingDotSlash(pattern);
 
     const args = ["--glob", "--color=never", "--hidden"];
     if (!insideGitRepository(searchPath)) args.push("--no-require-git");
 
     if (type) args.push("--type", FD_TYPES[type]);
-    if (!countOnly) args.push("--max-results", String(effectiveLimit));
+    // One result past the limit proves that the limit cut results off.
+    if (!countOnly) args.push("--max-results", String(effectiveLimit + 1));
 
     // fd --glob matches against the basename unless --full-path is set; in --full-path
     // mode it matches against the absolute candidate path, so a path-containing
     // pattern like 'src/**/*.spec.ts' needs a leading '**/' to match anything.
-    let effectivePattern = pattern;
-    if (pattern.includes("/")) {
+    let effectivePattern = requestedPattern;
+    if (requestedPattern.includes("/")) {
       args.push("--full-path");
       if (
-        !pattern.startsWith("/") &&
-        !pattern.startsWith("**/") &&
-        pattern !== "**"
+        !requestedPattern.startsWith("/") &&
+        !requestedPattern.startsWith("**/") &&
+        requestedPattern !== "**"
       ) {
-        effectivePattern = `**/${pattern}`;
+        effectivePattern = `**/${requestedPattern}`;
       }
     }
     args.push("--", effectivePattern, searchPath);
 
     const results: string[] = [];
-    const run = await runLines("fd", fd, args, signal, (rawLine) => {
+    const run = await runLines("fd", fd, args, { signal }, (rawLine) => {
       const line = rawLine.replace(/\r$/, "").trim();
       if (line) results.push(line);
       return LineOutcome.Continue;
@@ -285,25 +234,48 @@ export function createFindExecute(
     if (countOnly) return textResult(`${results.length} matching entries`);
     if (results.length === 0) return textResult("No files found matching pattern");
 
-    const relativized = results.map((line) => relativizeResultPath(line, searchPath));
-    const notices: Notice[] = [];
-    if (relativized.length >= effectiveLimit) {
-      notices.push({
-        text: `${effectiveLimit} results limit reached. Use limit=${effectiveLimit * 2} for more, or refine pattern`,
-        detail: ["resultLimitReached", effectiveLimit],
-      });
-    }
+    const limitReached = results.length > effectiveLimit;
+    const relativized = results
+      .slice(0, effectiveLimit)
+      .map((line) => relativizeResultPath(line, searchPath));
+    const notices: Notice[] = limitReached
+      ? [
+          {
+            text: `${effectiveLimit} results limit reached. Use limit=${effectiveLimit * 2} for more, or refine pattern`,
+            detail: ["resultLimitReached", effectiveLimit],
+          },
+        ]
+      : [];
     return searchResult(groupByDirectory(relativized), notices);
   };
 }
 
-const LineOutcome = { Continue: "continue", Stop: "stop" } as const;
-type LineOutcome = (typeof LineOutcome)[keyof typeof LineOutcome];
+function throwOnRipgrepFailure(run: RunOutcome): void {
+  if (run.stoppedEarly || run.code === 0 || run.code === 1) return;
+  throw new Error(run.stderr.trim() || `ripgrep exited with code ${run.code}`);
+}
+
+function limitNotice(limit: number, unit: "matches" | "files"): Notice {
+  return {
+    text: `${limit} ${unit} limit reached. Use limit=${limit * 2} for more, or refine pattern`,
+    detail: ["matchLimitReached", limit],
+  };
+}
+
+// rg and fd never match a leading "./" ("./src/*.ts" finds nothing); "!" negates an rg glob.
+function withoutLeadingDotSlash(glob: string): string {
+  return glob.replace(/^(!?)(?:\.\/)+/, "$1");
+}
 
 interface RunOutcome {
   code: number | null;
   stderr: string;
   stoppedEarly: boolean;
+}
+
+interface SpawnOptions {
+  cwd?: string;
+  signal?: AbortSignal;
 }
 
 // Streams stdout line by line. A handler returning Stop kills the process once it has enough,
@@ -312,7 +284,7 @@ function runLines(
   name: string,
   command: string,
   args: string[],
-  signal: AbortSignal | undefined,
+  { cwd, signal }: SpawnOptions,
   onLine: (line: string) => LineOutcome,
 ): Promise<RunOutcome> {
   return new Promise((resolve, reject) => {
@@ -320,7 +292,7 @@ function runLines(
       reject(new Error("Operation aborted"));
       return;
     }
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
     const lineReader = createInterface({ input: child.stdout });
     let stderr = "";
     let stoppedEarly = false;
