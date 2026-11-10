@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { analyze, parseReportArguments, renderReport, ReportVerbosity, Verdict } from "./analysis.ts";
 import { fingerprintPayload } from "./fingerprint.ts";
-import { MarkerEvent, Outcome, RECORD_VERSION, type LogRecord, type Usage } from "./records.ts";
+import { MarkerEvent, Outcome, RECORD_VERSION, RequestPurpose, type LogRecord, type Usage } from "./records.ts";
 
 interface RequestOptions {
   messages: string[];
@@ -11,9 +11,10 @@ interface RequestOptions {
   model?: string;
   maxTokens?: number;
   withPayload?: boolean;
+  purpose?: RequestPurpose;
 }
 
-function request({ messages, at, usage, model = "large", maxTokens = 4096, withPayload = true }: RequestOptions): LogRecord {
+function request({ messages, at, usage, model = "large", maxTokens = 4096, withPayload = true, purpose }: RequestOptions): LogRecord {
   const payload = withPayload ? fingerprintPayload({ model, messages: messages.map((content) => ({ role: "user", content })), maxTokens }) : undefined;
   return {
     version: RECORD_VERSION,
@@ -22,6 +23,7 @@ function request({ messages, at, usage, model = "large", maxTokens = 4096, withP
     provider: "mistral",
     model,
     api: "mistral-conversations",
+    ...(purpose ? { purpose } : {}),
     startedAt: new Date(at).toISOString(),
     completedAt: new Date(at + 1000).toISOString(),
     ...(payload ? { payload } : {}),
@@ -106,6 +108,38 @@ test("a cache warm between two requests is no-usage and only changes parameters"
   assert.equal(warm?.verdict, Verdict.NoUsage);
   assert.equal(next?.verdict, Verdict.Ok);
   assert.deepEqual(next?.changedParameters, ["maxTokens"]);
+});
+
+test("a tagged cache warm is reported as such and neither becomes the comparison baseline nor hides the idle time", () => {
+  // arrange
+  const records = [
+    request({ messages: [turn], at: 0, usage: usageOf(0, 20_000) }),
+    request({ messages: [turn], at: 10_000, maxTokens: 1, purpose: RequestPurpose.CacheWarm }),
+    request({ messages: [turn, turn], at: 20_000, usage: usageOf(0, 30_000) }),
+  ];
+
+  // act
+  const [, warm, next] = analyze(records);
+
+  // assert
+  assert.equal(warm?.verdict, Verdict.CacheWarm);
+  assert.deepEqual(next?.changedParameters, []);
+  assert.equal(next?.idleMs, 9_000);
+});
+
+test("the report counts tagged cache warms", () => {
+  // arrange
+  const records = [
+    request({ messages: [turn], at: 0, usage: usageOf(0, 20_000) }),
+    request({ messages: [turn], at: 10_000, maxTokens: 1, purpose: RequestPurpose.CacheWarm }),
+    request({ messages: [turn, turn], at: 20_000, usage: usageOf(0, 30_000) }),
+  ];
+
+  // act
+  const report = renderReport(analyze(records), ReportVerbosity.Problems);
+
+  // assert
+  assert.ok(report.includes("1 cache-warm"), report);
 });
 
 test("a cache warm followed by a miss on an exact prefix is a provider miss, not a prefix change", () => {
