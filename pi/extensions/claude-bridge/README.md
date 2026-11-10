@@ -21,6 +21,7 @@ Differences from upstream:
 - A user abort interrupts Claude Code instead of killing it. Claude Code records the interruption itself (a rejected result for each pending tool call, or the partial message) and exits by itself, and the next turn resumes the same Claude session with a warm prompt cache. Upstream rebuilt and rotated the session after every abort. The bridge still rebuilds when the child ignores the interrupt, when queued user input was dropped, or when the transcript lacks a result for an interrupted call; only a child that is still running after the 3 s grace rotates the id. Limitation: after an aborted parallel batch Claude sees every call of the batch as rejected, including a sibling that finished before the abort.
 - Signed thinking from Pi's native Anthropic provider (`api: "anthropic-messages"`) is replayed as thinking on a rebuild, and its messages get no provenance prefix. Upstream only recognizes `api: "anthropic"`, which Pi no longer uses, so that thinking was dropped.
 - A request with `cacheRetention: "none"` (Pi's compaction and summary one-shots, pi-web-access's answer mode) always runs as its own query in a private request lane, even when it carries the session id of a conversation whose query is running. Upstream routes it into that conversation's lane, where it is taken for a tool-result callback of the running query, never answered, and releasing the lane deletes the conversation's session state.
+- Every Claude Code refusal fallback is announced. Claude Code picks the fallback model per refusal category (for example Opus 5 for bio refusals of Fable 5.2), so upstream's rule of announcing only the bridge's own pairing hid most reroutes.
 
 ## Install
 
@@ -29,6 +30,8 @@ The extension lives in `~/config/pi/extensions/claude-bridge/`, which `install.s
 `npm test` runs offline unit tests and `npm run typecheck` runs `tsc`. `npm run test:int` is separate; it needs a logged-in Claude account and the `pi` binary on `PATH`. Restart Pi after changing extension files.
 
 Fable 5.1 requires [Claude Code 2.1.255 or later](https://code.claude.com/docs/en/model-config#work-with-fable). This includes any executable chosen through `pathToClaudeCodeExecutable` or found on `PATH`, which takes precedence over the SDK's bundled CLI. Account access and usage-credit requirements still apply.
+
+Fable 5.2 requires Claude Code 2.1.322 or later (2.1.319 does not know the model); the bundled CLI of SDK 0.3.322 is 2.1.322. The same `PATH` precedence applies.
 
 ## Features
 
@@ -39,7 +42,7 @@ Fable 5.1 requires [Claude Code 2.1.255 or later](https://code.claude.com/docs/e
 
 ## How it works
 
-- You pick one of the `pi-claude` models in Pi's model menu; **Claude Fable 5.1** is `pi-claude/claude-fable-5-1`.
+- You pick one of the `pi-claude` models in Pi's model menu; **Claude Fable 5.2** is `pi-claude/claude-fable-5-2`.
 - The bridge starts Claude Code, or resumes it, through the Claude Agent SDK, Anthropic's library for driving Claude Code from another program.
 - It sends your prompt to Claude Code and offers it only Pi's tools, through the bridge MCP server. Claude Code built-ins, cloud connectors and other MCP servers cannot execute through this provider.
 - When Claude Code calls a tool, Pi runs the tool and sends the result back to Claude Code.
