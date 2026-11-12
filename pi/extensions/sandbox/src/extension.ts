@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createBashToolDefinition, createLocalBashOperations, getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { BashOperations, BashToolDetails, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { BashOperations, BashSpawnContext, BashToolDetails, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { ALLOW_ALWAYS, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWAYS, DENY_ONCE, DENY_SESSION, currentAgentMode, currentPolicy, grantPathAccess, type OnceGrant } from "../../lib/path-permissions.ts";
@@ -15,16 +15,21 @@ import { latestCustomData } from "../../lib/session-entries.ts";
 import { serialize } from "../../lib/ui-queue.ts";
 import { bypassOutcome, bypassPrompt, resolveChoice, type BypassAuthorization, type SessionDecision } from "./bypass.ts";
 import { credentialEnvVars } from "./credentials.ts";
-import { NETWORK_ENTRY_TYPE, emptyGrants, networkConfig, parseGrants, recordGrant, serializeGrants, type NetworkGrants } from "./network-grants.ts";
+import { NETWORK_ENTRY_TYPE, emptyGrants, networkConfig, parseGrants, recordGrant, recordOnceGrant, releaseOnceGrants, rememberedDecision, serializeGrants, type NetworkDecision, type NetworkGrants, type OnceNetworkGrants } from "./network-grants.ts";
 import { filesystemConfig, secretPaths, type PolicyOptions } from "./policy.ts";
+import { exportSessionScratch, withSessionScratch } from "./scratch.ts";
 import { loadSettings, updateDomainLists, type Settings } from "./settings.ts";
 import { scanVcsLayout, vcsWriteRules, type VcsWriteRules } from "./vcs-policy.ts";
-import { isSecretPath, pathViolations, type PathViolation } from "./violations.ts";
-import { nextStep, successViolationReport, violationReport, type NextStep, type ViolationOutcome } from "./violation-outcomes.ts";
+import { isRepositoryRootRemoval, isSecretPath, pathViolations, type PathViolation } from "./violations.ts";
+import { startViolationCollector, type ViolationCollector } from "./violation-collector.ts";
+import { nextStep, rawViolationBlock, successViolationReport, violationReport, type NextStep, type ViolationOutcome } from "./violation-outcomes.ts";
 
 const SANDBOX_NOTE =
   "Commands run inside an OS sandbox that enforces the same read/write path rules as the file tools, with no network except allowed hosts. Denied paths are reported in a <sandbox_violations> block and the user is asked to grant them; after a grant the command has to be rerun, unless the user allowed it once: then the sandbox reruns it itself and the rerun's output follows the report. Never try to work around a denial. " +
   "Set unsandboxed to true only for a command the sandbox itself breaks (ssh git remotes, programs that ignore proxy variables, listening sockets); the user confirms every unsandboxed command first, and subagents cannot use it.";
+
+const SCRATCH_GUIDELINE =
+  "For scratch files use mktemp (or a path under $TMPDIR), never a fixed /tmp/<name> path: /tmp is not writable in the sandbox and is shared between sessions. $TMPDIR is a per-session directory the file tools can read and write without prompting.";
 
 const INSTALL_HINT =
   "Install with: sudo pacman -S bubblewrap socat ripgrep (Arch) or apt install bubblewrap socat ripgrep (Debian/Ubuntu, plus sysctl kernel.apparmor_restrict_unprivileged_userns=0 and apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict). Set PI_SANDBOX=0 to run without the sandbox.";
@@ -47,6 +52,7 @@ interface Runtime {
   setActiveContext(context: ExtensionContext): void;
   authorizeBypass(command: string, context: ExtensionContext): Promise<BypassAuthorization>;
   restoreGrants(sessionManager: { getEntries(): readonly unknown[] }): void;
+  shutdown(): Promise<void>;
 }
 
 type SandboxManagerType = typeof import("@anthropic-ai/sandbox-runtime")["SandboxManager"];
@@ -61,18 +67,23 @@ export default function (pi: ExtensionAPI) {
   markSandboxActive();
   const runtime = createRuntime(pi);
   pi.on("session_start", (_event, context) => runtime.restoreGrants(context.sessionManager));
+  // srt's proxies and macOS log monitor keep the event loop alive, so without this a `pi -p`
+  // subagent child that ran bash never exits.
+  pi.on("session_shutdown", () => runtime.shutdown());
   registerToolWithGuidelines(pi, sandboxedBash(cwd, runtime));
 }
 
 function sandboxedBash(cwd: string, runtime: Runtime) {
-  const sandboxed = createBashToolDefinition(cwd, { operations: runtime.operations });
-  const unsandboxed = createBashToolDefinition(cwd);
+  const spawnHook = (context: BashSpawnContext) => withSessionScratch(context, process.platform);
+  const sandboxed = createBashToolDefinition(cwd, { operations: runtime.operations, spawnHook });
+  const unsandboxed = createBashToolDefinition(cwd, { spawnHook });
   const parameters = Type.Object({
     ...sandboxed.parameters.properties,
     unsandboxed: Type.Optional(Type.Boolean({ description: "Run outside the sandbox after the user confirms; only for a command the sandbox itself breaks" })),
   });
   const definition: ToolDefinition<typeof parameters, BashToolDetails | undefined, BashRenderState> = {
     ...withSandboxNote(sandboxed),
+    promptGuidelines: [...(sandboxed.promptGuidelines ?? []), SCRATCH_GUIDELINE],
     parameters,
     async execute(toolCallId, params, signal, onUpdate, context) {
       if (params.unsandboxed !== true) {
@@ -124,6 +135,11 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   // Deliberately not persisted in the session: a resumed session asks again before bypassing the sandbox.
   let bypassDecision: SessionDecision | undefined;
   let warnedAboutConfigIds = false;
+  let collector: ViolationCollector | undefined;
+  const onceNetworkGrants: OnceNetworkGrants = new Map();
+  // One id per bash call, shared by its reruns: once-answers to network prompts are scoped to these.
+  const runningExecutions = new Set<number>();
+  let nextExecution = 0;
 
   const operations: BashOperations = {
     async exec(command, cwd, options) {
@@ -132,7 +148,14 @@ function createRuntime(pi: ExtensionAPI): Runtime {
         throw error;
       });
       await initialization;
-      return await runSandboxed(command, cwd, options, [], MAX_PATH_PROMPTS_PER_COMMAND);
+      const execution = nextExecution++;
+      runningExecutions.add(execution);
+      try {
+        return await runSandboxed(command, cwd, options, [], MAX_PATH_PROMPTS_PER_COMMAND);
+      } finally {
+        runningExecutions.delete(execution);
+        releaseOnceGrants(onceNetworkGrants, execution);
+      }
     },
   };
 
@@ -143,6 +166,16 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     restoreGrants(sessionManager) {
       grants = parseGrants(latestCustomData(sessionManager, NETWORK_ENTRY_TYPE));
       applyNetwork();
+    },
+    async shutdown() {
+      const pending = initialization;
+      initialization = undefined;
+      if (!pending) return;
+      // A failed initialization can still have started proxies or the log monitor.
+      await pending.catch(() => undefined);
+      collector?.stop();
+      collector = undefined;
+      await sandboxManager?.reset();
     },
   };
 
@@ -156,11 +189,12 @@ function createRuntime(pi: ExtensionAPI): Runtime {
 
   async function runOnce(command: string, cwd: string, options: ExecOptions, onceGrants: OnceGrant[], promptsLeft: number): Promise<{ result: ExecResult; step: NextStep; promptsUsed: number }> {
     const commandId = randomUUID();
+    violationCollector().track(commandId);
     const vcs = await vcsRules();
     const filesystem = filesystemConfig(await currentPolicy(onceGrants), policyOptions(vcs));
     warnAboutMissingConfigIds(vcs, filesystem.denyWrite);
     try {
-      const wrapped = await manager().wrapWithSandbox(command, undefined, { filesystem }, options.signal, { commandId, commandText: command });
+      const wrapped = await manager().wrapWithSandbox(exportSessionScratch(command, options.env), undefined, { filesystem }, options.signal, { commandId, commandText: command });
       const result = await stock.exec(wrapped, cwd, options);
       if (result.exitCode === 0) {
         // Linux events arrive over the monitor socket and are best-effort after exit, so the success
@@ -169,19 +203,25 @@ function createRuntime(pi: ExtensionAPI): Runtime {
         const violations = process.platform === "linux"
           ? await readViolationsAfterOneWait(commandId)
           : await collectViolations(commandId);
-        const report = successViolationReport(pathViolations(violations.map(({ line }) => line)), filesystem, currentAgentMode());
+        const report = successViolationReport(
+          pathViolations(reportable(violations, vcs.repositoryRoot).map(({ line }) => line)),
+          filesystem,
+          process.platform as PolicyOptions["platform"],
+          currentAgentMode(),
+        );
         if (report) options.onData(Buffer.from(report));
         return { result, step: { kind: "return" }, promptsUsed: 0 };
       }
-      const violations = await collectViolations(commandId);
+      const violations = reportable(await collectViolations(commandId), vcs.repositoryRoot);
       if (violations.length === 0) return { result, step: { kind: "return" }, promptsUsed: 0 };
-      options.onData(Buffer.from(manager().annotateStderrWithSandboxFailures(commandId, "")));
+      options.onData(Buffer.from(rawViolationBlock(violations.map(({ line }) => line))));
       const { outcomes, promptsUsed } = await resolveViolations(violations, promptsLeft);
       const step = nextStep(outcomes);
       options.onData(Buffer.from(violationReport(outcomes, step, currentAgentMode())));
       return { result, step, promptsUsed };
     } finally {
       manager().cleanupAfterCommand();
+      violationCollector().release(commandId);
     }
   }
 
@@ -205,6 +245,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
       askNetwork,
       true,
     );
+    collector = startViolationCollector(process.platform as PolicyOptions["platform"], manager().getSandboxViolationStore());
   }
 
   function policyOptions(vcs: VcsWriteRules): PolicyOptions {
@@ -231,6 +272,11 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     return sandboxManager;
   }
 
+  function violationCollector(): ViolationCollector {
+    if (!collector) throw new Error("Sandbox violation collector is not running.");
+    return collector;
+  }
+
   function applyNetwork(): void {
     if (!sandboxManager || !settings) return;
     const config = sandboxManager.getConfig();
@@ -242,19 +288,18 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   // it pays one poll interval instead of waiting for the count to settle like a failed command does.
   async function readViolationsAfterOneWait(commandId: string) {
     await new Promise((resolve) => setTimeout(resolve, VIOLATION_POLL_MILLISECONDS));
-    return manager().getSandboxViolationStore().getViolationsForCommand(commandId);
+    return violationCollector().violationsFor(commandId);
   }
 
   async function collectViolations(commandId: string) {
-    const store = manager().getSandboxViolationStore();
     let previousCount = -1;
     for (let poll = 0; poll < VIOLATION_MAX_POLLS; poll += 1) {
       await new Promise((resolve) => setTimeout(resolve, VIOLATION_POLL_MILLISECONDS));
-      const count = store.getViolationsForCommand(commandId).length;
+      const count = violationCollector().violationsFor(commandId).length;
       if (count === previousCount) break;
       previousCount = count;
     }
-    return store.getViolationsForCommand(commandId);
+    return violationCollector().violationsFor(commandId);
   }
 
   async function authorizeBypass(command: string, context: ExtensionContext): Promise<BypassAuthorization> {
@@ -267,27 +312,38 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   }
 
   async function askNetwork({ host, port }: { host: string; port: number | undefined }): Promise<boolean> {
+    const remembered = rememberedDecision(grants, onceNetworkGrants, host);
+    if (remembered) return remembered === "allow";
     const context = activeContext;
     if (!context?.hasUI) return false;
     const destination = port === undefined ? host : `${host}:${port}`;
-    const choice = await serialize(() =>
-      context.ui.select(`Sandbox: allow network access to ${destination}?\n\n  Allowing grants ${host} (all ports)`, [ALLOW_ONCE, ALLOW_SESSION, ALLOW_ALWAYS, DENY_ONCE, DENY_SESSION, DENY_ALWAYS]),
-    );
-    if (choice === ALLOW_ONCE) return true;
+    return await serialize(async () => {
+      // Every connection to an unknown host lands here; the first answer settles the ones queued behind it.
+      const latest = rememberedDecision(grants, onceNetworkGrants, host);
+      if (latest) return latest === "allow";
+      const choice = await context.ui.select(`Sandbox: allow network access to ${destination}?\n\n  Allowing grants ${host} (all ports)`, [ALLOW_ONCE, ALLOW_SESSION, ALLOW_ALWAYS, DENY_ONCE, DENY_SESSION, DENY_ALWAYS]);
+      return await applyNetworkChoice(choice, host);
+    });
+  }
+
+  // A dismissed prompt counts as "Deny once"; otherwise every queued connection would prompt again after Esc.
+  async function applyNetworkChoice(choice: string | undefined, host: string): Promise<boolean> {
+    if (choice === ALLOW_ONCE) { recordOnceGrant(onceNetworkGrants, "allow", host, runningExecutions); return true; }
     if (choice === ALLOW_SESSION) { rememberNetwork("allow", host); return true; }
     if (choice === ALLOW_ALWAYS) { rememberNetwork("allow", host); await persistNetwork("allow", host); return true; }
     if (choice === DENY_SESSION) { rememberNetwork("deny", host); return false; }
     if (choice === DENY_ALWAYS) { rememberNetwork("deny", host); await persistNetwork("deny", host); return false; }
+    recordOnceGrant(onceNetworkGrants, "deny", host, runningExecutions);
     return false;
   }
 
-  function rememberNetwork(decision: "allow" | "deny", host: string): void {
+  function rememberNetwork(decision: NetworkDecision, host: string): void {
     recordGrant(grants, decision, host);
     pi.appendEntry(NETWORK_ENTRY_TYPE, serializeGrants(grants));
     applyNetwork();
   }
 
-  async function persistNetwork(decision: "allow" | "deny", host: string): Promise<void> {
+  async function persistNetwork(decision: NetworkDecision, host: string): Promise<void> {
     await updateDomainLists(SETTINGS_FILE, ({ allowedDomains, deniedDomains }) => {
       const [added, removed] = decision === "allow" ? [allowedDomains, deniedDomains] : [deniedDomains, allowedDomains];
       added.add(host);
@@ -316,6 +372,10 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     if (outcome.kind === "allowed-once") return { kind: "allowed-once", mode, path, grant: outcome.grant };
     return { kind: outcome.kind, mode, path };
   }
+}
+
+function reportable<Violation extends { line: string }>(violations: Violation[], repositoryRoot: string): Violation[] {
+  return violations.filter(({ line }) => !isRepositoryRootRemoval(line, repositoryRoot));
 }
 
 type ExecOptions = Parameters<BashOperations["exec"]>[2];
