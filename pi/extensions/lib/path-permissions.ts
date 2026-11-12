@@ -127,10 +127,17 @@ async function protectedWritePaths(): Promise<PathSelector[]> {
 }
 
 async function ensureAllowed(path: string, mode: AccessMode, context: ExtensionContext, layers: Awaited<ReturnType<typeof effectiveLayers>>): Promise<void> {
-  const verdict = () => evaluate(path, mode, layers);
-  if (verdict() === "deny") throw deniedError(path, mode);
-  if (verdict() === "allow") return;
-  await serialize(async () => { if (verdict() === "deny") throw deniedError(path, mode); if (verdict() === "allow") return; await requestAccess(path, mode, context, layers.protected); });
+  const verdict = evaluate(path, mode, layers);
+  if (verdict === "deny") throw deniedError(path, mode);
+  if (verdict === "allow") return;
+  await serialize(async () => {
+    // A prompt answered while this call waited in the queue may already cover the path.
+    const latest = await effectiveLayers(mode);
+    const latestVerdict = evaluate(path, mode, latest);
+    if (latestVerdict === "deny") throw deniedError(path, mode);
+    if (latestVerdict === "allow") return;
+    await requestAccess(path, mode, context, latest.protected);
+  });
 }
 
 async function requestAccess(resolved: string, mode: AccessMode, context: ExtensionContext, protectedSelectors: PathSelector[] = []): Promise<AccessGrant> {
