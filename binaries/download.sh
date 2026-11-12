@@ -5,13 +5,13 @@ set -euxo pipefail
 STARSHIP_VERSION="1.27.0"
 STARSHIP_BASE_URL="https://github.com/starship/starship/releases/download/v${STARSHIP_VERSION}"
 
-ZELLIJ_VERSION="0.45.1"
+ZELLIJ_VERSION="0.46.0"
 ZELLIJ_BASE_URL="https://github.com/zellij-org/zellij/releases/download/v${ZELLIJ_VERSION}"
 
 BAT_VERSION="0.26.1"
 BAT_BASE_URL="https://github.com/sharkdp/bat/releases/download/v${BAT_VERSION}"
 
-JJ_VERSION="0.46.0"
+JJ_VERSION="0.47.1"
 JJ_BASE_URL="https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}"
 
 JQ_VERSION="1.8.2"
@@ -21,10 +21,10 @@ TUICR_VERSION="0.28.0"
 TUICR_BASE_URL="https://github.com/agavra/tuicr/releases/download/v${TUICR_VERSION}"
 TUICR_RAW_URL="https://raw.githubusercontent.com/agavra/tuicr/v${TUICR_VERSION}/skills/tuicr"
 
-CRIT_VERSION="0.23.0"
+CRIT_VERSION="0.23.2"
 CRIT_BASE_URL="https://github.com/tomasz-tomczyk/crit/releases/download/v${CRIT_VERSION}"
 
-FZF_VERSION="0.74.5"
+FZF_VERSION="0.75.0"
 FZF_BASE_URL="https://github.com/junegunn/fzf/releases/download/v${FZF_VERSION}"
 
 # Every tool spells the same platform differently, and bat, jj and tuicr publish no
@@ -40,7 +40,7 @@ function download_platform() {
 			CRIT_NAME="linux-arm64"
 			FZF_NAME="linux_arm64"
 			BAT_SHA256="6369242c584065f195fb20cb36fbd7cb63ae690605bbe89868a7596b596c2c23"
-			JJ_SHA256="80e28f7501c11e50e0ca06cd6a1fa1d982cff9cc59bfe4411a9d36aa501d867e"
+			JJ_SHA256="0f300e1576de8dabe0a9dedf0b87ae44f8accea5cf54d9a342a51061c1fb1bcd"
 			TUICR_SHA256="c5f60e3846733c3f6f676f0b5b44a6c1cec148e2d1132f3bd107833cf5f7fc0e"
 			;;
 		Linux/x86_64)
@@ -49,7 +49,7 @@ function download_platform() {
 			CRIT_NAME="linux-amd64"
 			FZF_NAME="linux_amd64"
 			BAT_SHA256="0dcd8ac79732c0d5b136f11f4ee00e581440e16a44eab5b3105b611bbf2cf191"
-			JJ_SHA256="fce0271158e665ceb82dc66c5eb95b1728649094e9133074f3b5baece345fc08"
+			JJ_SHA256="d4b657f622ee50929c8916466dfa3d6a6c17a0a32b50e7b2c793707ec9ebcad7"
 			TUICR_SHA256="0e6be65458e83bf3f917a30660d029b7f4dc5f9b6d203adc10f11a93a30c22f2"
 			;;
 		Darwin/arm64)
@@ -58,7 +58,7 @@ function download_platform() {
 			CRIT_NAME="darwin-arm64"
 			FZF_NAME="darwin_arm64"
 			BAT_SHA256="e30beff26779c9bf60bb541e1d79046250cb74378f2757f8eb250afddb19e114"
-			JJ_SHA256="43daa37ce0f9716cdf6fb65a29cbcae74a3160aef048cf3cb3d166d41cb4ab58"
+			JJ_SHA256="50129b527f7cd6aef82aebd4bb2b670bb56766adc509ef3279c4327aa3592255"
 			TUICR_SHA256="4138f2d243422aff68b32ec52fb1524cbadffcf6763b34fc180f25f0ac971674"
 			;;
 		*)
