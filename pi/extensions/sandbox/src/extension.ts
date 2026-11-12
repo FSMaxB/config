@@ -15,7 +15,7 @@ import { latestCustomData } from "../../lib/session-entries.ts";
 import { serialize } from "../../lib/ui-queue.ts";
 import { bypassOutcome, bypassPrompt, resolveChoice, type BypassAuthorization, type SessionDecision } from "./bypass.ts";
 import { credentialEnvVars } from "./credentials.ts";
-import { NETWORK_ENTRY_TYPE, emptyGrants, networkConfig, parseGrants, recordGrant, serializeGrants, type NetworkGrants } from "./network-grants.ts";
+import { NETWORK_ENTRY_TYPE, emptyGrants, networkConfig, parseGrants, recordGrant, recordOnceGrant, releaseOnceGrants, rememberedDecision, serializeGrants, type NetworkDecision, type NetworkGrants, type OnceNetworkGrants } from "./network-grants.ts";
 import { filesystemConfig, secretPaths, type PolicyOptions } from "./policy.ts";
 import { loadSettings, updateDomainLists, type Settings } from "./settings.ts";
 import { scanVcsLayout, vcsWriteRules, type VcsWriteRules } from "./vcs-policy.ts";
@@ -130,6 +130,10 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   let bypassDecision: SessionDecision | undefined;
   let warnedAboutConfigIds = false;
   let collector: ViolationCollector | undefined;
+  const onceNetworkGrants: OnceNetworkGrants = new Map();
+  // One id per bash call, shared by its reruns: once-answers to network prompts are scoped to these.
+  const runningExecutions = new Set<number>();
+  let nextExecution = 0;
 
   const operations: BashOperations = {
     async exec(command, cwd, options) {
@@ -138,7 +142,14 @@ function createRuntime(pi: ExtensionAPI): Runtime {
         throw error;
       });
       await initialization;
-      return await runSandboxed(command, cwd, options, [], MAX_PATH_PROMPTS_PER_COMMAND);
+      const execution = nextExecution++;
+      runningExecutions.add(execution);
+      try {
+        return await runSandboxed(command, cwd, options, [], MAX_PATH_PROMPTS_PER_COMMAND);
+      } finally {
+        runningExecutions.delete(execution);
+        releaseOnceGrants(onceNetworkGrants, execution);
+      }
     },
   };
 
@@ -295,27 +306,38 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   }
 
   async function askNetwork({ host, port }: { host: string; port: number | undefined }): Promise<boolean> {
+    const remembered = rememberedDecision(grants, onceNetworkGrants, host);
+    if (remembered) return remembered === "allow";
     const context = activeContext;
     if (!context?.hasUI) return false;
     const destination = port === undefined ? host : `${host}:${port}`;
-    const choice = await serialize(() =>
-      context.ui.select(`Sandbox: allow network access to ${destination}?\n\n  Allowing grants ${host} (all ports)`, [ALLOW_ONCE, ALLOW_SESSION, ALLOW_ALWAYS, DENY_ONCE, DENY_SESSION, DENY_ALWAYS]),
-    );
-    if (choice === ALLOW_ONCE) return true;
+    return await serialize(async () => {
+      // Every connection to an unknown host lands here; the first answer settles the ones queued behind it.
+      const latest = rememberedDecision(grants, onceNetworkGrants, host);
+      if (latest) return latest === "allow";
+      const choice = await context.ui.select(`Sandbox: allow network access to ${destination}?\n\n  Allowing grants ${host} (all ports)`, [ALLOW_ONCE, ALLOW_SESSION, ALLOW_ALWAYS, DENY_ONCE, DENY_SESSION, DENY_ALWAYS]);
+      return await applyNetworkChoice(choice, host);
+    });
+  }
+
+  // A dismissed prompt counts as "Deny once"; otherwise every queued connection would prompt again after Esc.
+  async function applyNetworkChoice(choice: string | undefined, host: string): Promise<boolean> {
+    if (choice === ALLOW_ONCE) { recordOnceGrant(onceNetworkGrants, "allow", host, runningExecutions); return true; }
     if (choice === ALLOW_SESSION) { rememberNetwork("allow", host); return true; }
     if (choice === ALLOW_ALWAYS) { rememberNetwork("allow", host); await persistNetwork("allow", host); return true; }
     if (choice === DENY_SESSION) { rememberNetwork("deny", host); return false; }
     if (choice === DENY_ALWAYS) { rememberNetwork("deny", host); await persistNetwork("deny", host); return false; }
+    recordOnceGrant(onceNetworkGrants, "deny", host, runningExecutions);
     return false;
   }
 
-  function rememberNetwork(decision: "allow" | "deny", host: string): void {
+  function rememberNetwork(decision: NetworkDecision, host: string): void {
     recordGrant(grants, decision, host);
     pi.appendEntry(NETWORK_ENTRY_TYPE, serializeGrants(grants));
     applyNetwork();
   }
 
-  async function persistNetwork(decision: "allow" | "deny", host: string): Promise<void> {
+  async function persistNetwork(decision: NetworkDecision, host: string): Promise<void> {
     await updateDomainLists(SETTINGS_FILE, ({ allowedDomains, deniedDomains }) => {
       const [added, removed] = decision === "allow" ? [allowedDomains, deniedDomains] : [deniedDomains, allowedDomains];
       added.add(host);
