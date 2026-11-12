@@ -12,7 +12,18 @@ test("the session temporary directory lives under the system temp dir", () => {
   const directory = sessionTemporaryDirectory(sessionId, {});
 
   // assert
-  assert.equal(directory, join(tmpdir(), "pi-sessions", "abc123ef"));
+  assert.equal(directory, join(tmpdir(), "pi", "abc123ef"));
+});
+
+test("only the random tail of a UUIDv7 session id names the directory", () => {
+  // arrange
+  const sessionId = "01a1cfbf-1586-7514-9c42-4b6b53c37159";
+
+  // act
+  const directory = sessionTemporaryDirectory(sessionId, {});
+
+  // assert
+  assert.equal(directory, join(tmpdir(), "pi", "4b6b53c37159"));
 });
 
 test("unsafe characters in the session id are replaced", () => {
@@ -23,7 +34,7 @@ test("unsafe characters in the session id are replaced", () => {
   const directory = sessionTemporaryDirectory(sessionId, {});
 
   // assert
-  assert.equal(directory, join(tmpdir(), "pi-sessions", ".._evil_id"));
+  assert.equal(directory, join(tmpdir(), "pi", "_evil_id"));
 });
 
 test("an inherited directory from the environment wins over the session id", () => {

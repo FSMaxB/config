@@ -21,6 +21,11 @@ export function nextStep(outcomes: ViolationOutcome[]): NextStep {
   return grants.length === 0 || blocked ? { kind: "return" } : { kind: "rerun", grants };
 }
 
+// The raw lines, for the model to see what else the command ran into besides the path denials below them.
+export function rawViolationBlock(lines: string[]): string {
+  return `\n<sandbox_violations>\n${lines.join("\n")}\n</sandbox_violations>`;
+}
+
 export function violationReport(outcomes: ViolationOutcome[], step: NextStep, agentMode: AgentMode): string {
   const lines = outcomes.map((outcome) => outcomeLine(outcome, step, agentMode));
   const footer = step.kind === "rerun" ? ["Rerunning the command with these grants; the rerun's output follows."] : [];
@@ -47,10 +52,11 @@ function outcomeLine(outcome: ViolationOutcome, step: NextStep, agentMode: Agent
 export function successViolationReport(
   violations: PathViolation[],
   filesystem: Pick<FilesystemConfig, "denyRead" | "allowWrite">,
+  platform: "darwin" | "linux",
   agentMode: AgentMode,
 ): string {
   if (violations.length === 0) return "";
-  const discarded = discardedWrites(violations, filesystem);
+  const discarded = discardedWrites(violations, filesystem, platform);
   const lines = violations.map((violation) => {
     if (discarded.includes(violation)) {
       return `${violation.path} is not covered by the write path rules; the write was discarded and nothing reached the real filesystem.`;

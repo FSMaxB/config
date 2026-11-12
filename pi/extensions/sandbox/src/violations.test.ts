@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { discardedWrites, isSecretPath, isSecretPathThroughSymlinks, pathViolations } from "./violations.ts";
+import { discardedWrites, isRepositoryRootRemoval, isSecretPath, isSecretPathThroughSymlinks, pathViolations } from "./violations.ts";
 
 test("macOS read and write violations parse", () => {
   // arrange
@@ -68,7 +68,7 @@ test("a write inside a read-denied tree and outside every write allow is a disca
   const filesystem = { denyRead: ["/home", "/home/max"], allowWrite: ["/home/max/repo"] };
 
   // act
-  const reported = discardedWrites([{ mode: "write", path: "/home/max/notes.txt" }], filesystem);
+  const reported = discardedWrites([{ mode: "write", path: "/home/max/notes.txt" }], filesystem, "linux");
 
   // assert
   assert.deepEqual(reported, [{ mode: "write", path: "/home/max/notes.txt" }]);
@@ -84,10 +84,38 @@ test("writes outside the read-denied tree, inside a write allow, and reads are n
     { mode: "write", path: "/dev/null" },
     { mode: "write", path: "/tmp/claude/x" },
     { mode: "read", path: "/home/max/x" },
-  ], filesystem);
+  ], filesystem, "linux");
 
   // assert
   assert.deepEqual(reported, []);
+});
+
+test("macOS never reports a discarded write", () => {
+  // arrange
+  const filesystem = { denyRead: ["/Users", "/Users/max"], allowWrite: ["/Users/max/repo"] };
+
+  // act
+  const reported = discardedWrites([{ mode: "write", path: "/Users/max/notes.txt" }], filesystem, "darwin");
+
+  // assert
+  assert.deepEqual(reported, []);
+});
+
+test("only an unlink of the repository root itself is a repository root removal", () => {
+  // arrange
+  const root = "/Users/max/repo";
+
+  // act
+  const rootUnlink = isRepositoryRootRemoval(`Sandbox: jj(1) deny(1) file-write-unlink ${root}`, root);
+  const entryUnlink = isRepositoryRootRemoval(`Sandbox: jj(1) deny(1) file-write-unlink ${root}/a.txt`, root);
+  const rootCreate = isRepositoryRootRemoval(`Sandbox: jj(1) deny(1) file-write-create ${root}`, root);
+  const linuxLine = isRepositoryRootRemoval(`deny unlinkat ${root}`, root);
+
+  // assert
+  assert.equal(rootUnlink, true);
+  assert.equal(entryUnlink, false);
+  assert.equal(rootCreate, false);
+  assert.equal(linuxLine, false);
 });
 
 test("a secret path matches itself and nested paths only", () => {

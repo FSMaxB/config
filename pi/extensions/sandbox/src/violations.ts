@@ -21,13 +21,27 @@ export function pathViolations(lines: string[]): PathViolation[] {
 }
 
 // Linux masks each read-denied directory with a writable tmpfs, so a write there succeeds and is thrown away
-// when the sandbox exits. Glob entries are skipped: srt drops write globs on Linux and a read-deny glob is a user rule.
-export function discardedWrites(violations: PathViolation[], filesystem: Pick<FilesystemConfig, "denyRead" | "allowWrite">): PathViolation[] {
+// when the sandbox exits. macOS refuses the write outright, so nothing is ever discarded there. Glob entries are
+// skipped: srt drops write globs on Linux and a read-deny glob is a user rule.
+export function discardedWrites(
+  violations: PathViolation[],
+  filesystem: Pick<FilesystemConfig, "denyRead" | "allowWrite">,
+  platform: "darwin" | "linux",
+): PathViolation[] {
+  if (platform !== "linux") return [];
   const literal = (entries: readonly string[]) => entries.filter((entry) => !/[*?[\]]/.test(entry));
   const denied = literal(filesystem.denyRead);
   const writable = literal(filesystem.allowWrite ?? []);
   return violations.filter(({ mode, path }) =>
     mode === "write" && denied.some((root) => contains(root, path)) && !writable.some((root) => contains(root, path)));
+}
+
+// After deleting a file, jj also tries to remove the file's parent directory, the repository root included. On
+// macOS only the root's entries are writable, not the root itself, so Seatbelt denies that unlink. The root is never
+// empty, so the removal fails either way and jj ignores the error. Linux reports syscall names, never this one.
+export function isRepositoryRootRemoval(line: string, repositoryRoot: string): boolean {
+  const match = VIOLATION.exec(line);
+  return match?.[1] === "file-write-unlink" && match[2] === repositoryRoot;
 }
 
 export function isSecretPath(path: string, secrets: string[]): boolean {

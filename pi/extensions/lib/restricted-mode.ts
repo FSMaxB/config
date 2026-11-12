@@ -102,8 +102,6 @@ const UNGATED_TOOLS = new Set([
   // Safe under a restricted mode by construction: the subagent extension caps child
   // tools at what the mode leaves ungated or granted.
   "subagent",
-  // Creates only the session scratch directory, which the path rules allow in restricted modes.
-  "temp_dir",
   // They reject themselves outside plan mode.
   ...PLAN_TOOLS,
 ]);

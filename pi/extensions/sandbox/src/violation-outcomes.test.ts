@@ -80,10 +80,23 @@ test("a successful command without violations gets no report", () => {
   const filesystem = { denyRead: ["/home/max"], allowWrite: ["/home/max/repo"] };
 
   // act
-  const report = successViolationReport([], filesystem, AgentMode.Execution);
+  const report = successViolationReport([], filesystem, "linux", AgentMode.Execution);
 
   // assert
   assert.equal(report, "");
+});
+
+test("a denied write on macOS is reported as denied, not discarded", () => {
+  // arrange
+  const filesystem = { denyRead: ["/Users/max"], allowWrite: [] };
+  const violations = [{ mode: "write" as const, path: "/Users/max/repo" }];
+
+  // act
+  const report = successViolationReport(violations, filesystem, "darwin", AgentMode.Execution);
+
+  // assert
+  assert.ok(report.includes("write access to /Users/max/repo was denied by the sandbox; the command still exited 0."));
+  assert.ok(!report.includes("discarded"));
 });
 
 test("a discarded write on a successful command is reported, with the explore-mode notice", () => {
@@ -92,7 +105,7 @@ test("a discarded write on a successful command is reported, with the explore-mo
   const violations = [{ mode: "write" as const, path: "/home/max/notes.txt" }];
 
   // act
-  const report = successViolationReport(violations, filesystem, AgentMode.Exploring);
+  const report = successViolationReport(violations, filesystem, "linux", AgentMode.Exploring);
 
   // assert
   assert.ok(report.startsWith("\n<sandbox_violations>\n"));
@@ -110,7 +123,7 @@ test("a non-discarded violation on a successful command is reported as denied bu
   ];
 
   // act
-  const report = successViolationReport(violations, filesystem, AgentMode.Execution);
+  const report = successViolationReport(violations, filesystem, "linux", AgentMode.Execution);
 
   // assert
   assert.ok(report.includes("read access to /home/max/.ssh/config was denied by the sandbox; the command still exited 0."));
@@ -128,7 +141,7 @@ test("a successful command can mix discarded and plainly denied violations in on
   ];
 
   // act
-  const report = successViolationReport(violations, filesystem, AgentMode.Planning);
+  const report = successViolationReport(violations, filesystem, "linux", AgentMode.Planning);
 
   // assert
   assert.ok(report.includes("/home/max/notes.txt is not covered by the write path rules; the write was discarded and nothing reached the real filesystem."));

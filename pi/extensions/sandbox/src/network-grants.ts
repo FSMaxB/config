@@ -7,6 +7,15 @@ export interface NetworkGrants {
   deny: Set<string>;
 }
 
+export type NetworkDecision = "allow" | "deny";
+
+export interface OnceNetworkGrant {
+  decision: NetworkDecision;
+  holders: Set<number>;
+}
+
+export type OnceNetworkGrants = Map<string, OnceNetworkGrant>;
+
 export interface NetworkLists {
   allowedDomains: string[];
   deniedDomains: string[];
@@ -32,10 +41,31 @@ export function parseGrants(value: unknown): NetworkGrants {
 }
 
 // The latest decision for a host wins, so granting one side revokes the other.
-export function recordGrant(grants: NetworkGrants, decision: "allow" | "deny", host: string): void {
+export function recordGrant(grants: NetworkGrants, decision: NetworkDecision, host: string): void {
   const opposite = decision === "allow" ? "deny" : "allow";
   grants[decision].add(host);
   grants[opposite].delete(host);
+}
+
+// The answer a prompt for host would repeat: session grants first, then a once-answer still held by a running command.
+export function rememberedDecision(grants: NetworkGrants, once: OnceNetworkGrants, host: string): NetworkDecision | undefined {
+  if (grants.deny.has(host)) return "deny";
+  if (grants.allow.has(host)) return "allow";
+  return once.get(host)?.decision;
+}
+
+// srt asks once per connection and does not say which command opened it, so a once-answer holds until every
+// command that was running when it was given has exited. With nothing running it covers only the asking request.
+export function recordOnceGrant(once: OnceNetworkGrants, decision: NetworkDecision, host: string, running: ReadonlySet<number>): void {
+  if (running.size === 0) return;
+  once.set(host, { decision, holders: new Set(running) });
+}
+
+export function releaseOnceGrants(once: OnceNetworkGrants, execution: number): void {
+  for (const [host, grant] of once) {
+    grant.holders.delete(execution);
+    if (grant.holders.size === 0) once.delete(host);
+  }
 }
 
 // Subagents get no network at all: an empty allowlist plus a deny-all entry, and no local sockets.
