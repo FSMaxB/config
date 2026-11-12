@@ -11,6 +11,7 @@ on:
       - ".shellrc-common"
       - ".ansi-colors"
       - ".git_template/hooks/**"
+      - "pi/extensions/sandbox/bin/**"
       - ".github/scripts/shellcheck.sh"
       - ".github/workflows/shellcheck.yml"
   pull_request:

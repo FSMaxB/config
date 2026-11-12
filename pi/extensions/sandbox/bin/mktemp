@@ -1,0 +1,9 @@
+#!/bin/sh
+# macOS mktemp ignores TMPDIR and creates its files in the per-user temp directory, which the sandbox
+# denies. Default to -p "$TMPDIR" unless the caller picked a directory or passed a template.
+[ -n "$TMPDIR" ] || exec /usr/bin/mktemp "$@"
+while getopts ":dp:qt:u" option; do
+  [ "$option" = p ] && exec /usr/bin/mktemp "$@"
+done
+[ "$#" -ge "$OPTIND" ] && exec /usr/bin/mktemp "$@"
+exec /usr/bin/mktemp -p "$TMPDIR" "$@"

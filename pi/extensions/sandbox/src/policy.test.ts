@@ -5,6 +5,7 @@ import test from "node:test";
 import { exact, glob, tree } from "../../lib/path-permission-rules.ts";
 import type { EffectivePolicy } from "../../lib/path-permissions.ts";
 import { filesystemConfig, secretPaths, type PolicyOptions } from "./policy.ts";
+import { mktempShimDirectory } from "./scratch.ts";
 import { vcsWriteRules, type VcsLayout } from "./vcs-policy.ts";
 
 const HOME = "/Users/max";
@@ -30,6 +31,19 @@ test("the repository tree is readable and writable", () => {
   // assert
   assert.ok(config.allowRead?.includes(`${HOME}/repo`));
   assert.deepEqual(config.allowWrite, [`${HOME}/repo`]);
+});
+
+test("the mktemp shim is readable on macOS but not added on Linux", () => {
+  // arrange
+  const effective = policy();
+
+  // act
+  const darwin = filesystemConfig(effective, options({ platform: "darwin" }));
+  const linux = filesystemConfig(effective, options({ platform: "linux" }));
+
+  // assert
+  assert.ok(darwin.allowRead?.includes(mktempShimDirectory()));
+  assert.ok(!linux.allowRead?.includes(mktempShimDirectory()));
 });
 
 test("the home directory and the user roots are unreadable by default", () => {

@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createBashToolDefinition, createLocalBashOperations, getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { BashOperations, BashToolDetails, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { BashOperations, BashSpawnContext, BashToolDetails, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { ALLOW_ALWAYS, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWAYS, DENY_ONCE, DENY_SESSION, currentAgentMode, currentPolicy, grantPathAccess, type OnceGrant } from "../../lib/path-permissions.ts";
@@ -17,6 +17,7 @@ import { bypassOutcome, bypassPrompt, resolveChoice, type BypassAuthorization, t
 import { credentialEnvVars } from "./credentials.ts";
 import { NETWORK_ENTRY_TYPE, emptyGrants, networkConfig, parseGrants, recordGrant, recordOnceGrant, releaseOnceGrants, rememberedDecision, serializeGrants, type NetworkDecision, type NetworkGrants, type OnceNetworkGrants } from "./network-grants.ts";
 import { filesystemConfig, secretPaths, type PolicyOptions } from "./policy.ts";
+import { exportSessionScratch, withSessionScratch } from "./scratch.ts";
 import { loadSettings, updateDomainLists, type Settings } from "./settings.ts";
 import { scanVcsLayout, vcsWriteRules, type VcsWriteRules } from "./vcs-policy.ts";
 import { isRepositoryRootRemoval, isSecretPath, pathViolations, type PathViolation } from "./violations.ts";
@@ -26,6 +27,9 @@ import { nextStep, rawViolationBlock, successViolationReport, violationReport, t
 const SANDBOX_NOTE =
   "Commands run inside an OS sandbox that enforces the same read/write path rules as the file tools, with no network except allowed hosts. Denied paths are reported in a <sandbox_violations> block and the user is asked to grant them; after a grant the command has to be rerun, unless the user allowed it once: then the sandbox reruns it itself and the rerun's output follows the report. Never try to work around a denial. " +
   "Set unsandboxed to true only for a command the sandbox itself breaks (ssh git remotes, programs that ignore proxy variables, listening sockets); the user confirms every unsandboxed command first, and subagents cannot use it.";
+
+const SCRATCH_GUIDELINE =
+  "For scratch files use mktemp (or a path under $TMPDIR), never a fixed /tmp/<name> path: /tmp is not writable in the sandbox and is shared between sessions. $TMPDIR is a per-session directory the file tools can read and write without prompting.";
 
 const INSTALL_HINT =
   "Install with: sudo pacman -S bubblewrap socat ripgrep (Arch) or apt install bubblewrap socat ripgrep (Debian/Ubuntu, plus sysctl kernel.apparmor_restrict_unprivileged_userns=0 and apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict). Set PI_SANDBOX=0 to run without the sandbox.";
@@ -70,14 +74,16 @@ export default function (pi: ExtensionAPI) {
 }
 
 function sandboxedBash(cwd: string, runtime: Runtime) {
-  const sandboxed = createBashToolDefinition(cwd, { operations: runtime.operations });
-  const unsandboxed = createBashToolDefinition(cwd);
+  const spawnHook = (context: BashSpawnContext) => withSessionScratch(context, process.platform);
+  const sandboxed = createBashToolDefinition(cwd, { operations: runtime.operations, spawnHook });
+  const unsandboxed = createBashToolDefinition(cwd, { spawnHook });
   const parameters = Type.Object({
     ...sandboxed.parameters.properties,
     unsandboxed: Type.Optional(Type.Boolean({ description: "Run outside the sandbox after the user confirms; only for a command the sandbox itself breaks" })),
   });
   const definition: ToolDefinition<typeof parameters, BashToolDetails | undefined, BashRenderState> = {
     ...withSandboxNote(sandboxed),
+    promptGuidelines: [...(sandboxed.promptGuidelines ?? []), SCRATCH_GUIDELINE],
     parameters,
     async execute(toolCallId, params, signal, onUpdate, context) {
       if (params.unsandboxed !== true) {
@@ -188,7 +194,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     const filesystem = filesystemConfig(await currentPolicy(onceGrants), policyOptions(vcs));
     warnAboutMissingConfigIds(vcs, filesystem.denyWrite);
     try {
-      const wrapped = await manager().wrapWithSandbox(command, undefined, { filesystem }, options.signal, { commandId, commandText: command });
+      const wrapped = await manager().wrapWithSandbox(exportSessionScratch(command, options.env), undefined, { filesystem }, options.signal, { commandId, commandText: command });
       const result = await stock.exec(wrapped, cwd, options);
       if (result.exitCode === 0) {
         // Linux events arrive over the monitor socket and are best-effort after exit, so the success
