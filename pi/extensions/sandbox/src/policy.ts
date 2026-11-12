@@ -4,6 +4,7 @@ import type { FilesystemConfig } from "@anthropic-ai/sandbox-runtime";
 import type { EffectivePolicy } from "../../lib/path-permissions.ts";
 import { exact, type PathSelector } from "../../lib/path-permission-rules.ts";
 import { contains } from "../../lib/repo.ts";
+import { mktempShimDirectory } from "./scratch.ts";
 import type { VcsWriteRules } from "./vcs-policy.ts";
 
 export interface PolicyOptions {
@@ -27,6 +28,7 @@ export function filesystemConfig(policy: EffectivePolicy, options: PolicyOptions
       ...policy.read.allow.filter(keepsSecretsDenied).map(selectorPath),
       ...toolchainRead.filter((path) => keepsSecretsDenied(exact(path))),
       sandboxRuntimeDirectory(),
+      ...(platform === "darwin" ? [mktempShimDirectory()] : []),
     ]),
     allowWrite: unique(writeAllow.map(selectorPath)),
     denyWrite: unique([...secrets, ...vcsDeny(writeAllow, options.vcs), ...[...policy.write.deny, ...policy.write.protected].map((selector) => writeDenyPath(selector, platform))]),

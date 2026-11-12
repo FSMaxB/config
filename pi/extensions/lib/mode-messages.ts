@@ -81,8 +81,8 @@ export function renderSnapshot({ mode, plansDirectory, sandbox, denials }: ModeS
     "",
     planning ? "Plan mode is active." : "Explore mode is active. It exists for exploring the codebase before anything is implemented.",
     "",
-    `- The file tools (${FILE_TOOLS.join(", ")}) check every path against ${pathRules}. Reading anywhere in the repository and in the memory, skill, plan and crit directories and the session's temp_dir works without asking.`,
-    `- ${label} is read-only by default: writing inside the repository prompts the user for each path. The memory directory, the plans directory (${plansDirectory}) and the session's temp_dir stay writable.`,
+    `- The file tools (${FILE_TOOLS.join(", ")}) check every path against ${pathRules}. Reading anywhere in the repository and in the memory, skill, plan and crit directories and the session's scratch directory ($TMPDIR in bash) works without asking.`,
+    `- ${label} is read-only by default: writing inside the repository prompts the user for each path. The memory directory, the plans directory (${plansDirectory}) and the session's scratch directory ($TMPDIR in bash) stay writable.`,
     sandbox === SandboxStatus.Active
       ? "- bash runs in the sandbox, which enforces the same path rules at the OS level, so it needs no separate approval per call. A bash call with unsandboxed: true still needs the user's confirmation."
       : "- bash needs the user's approval for each call.",

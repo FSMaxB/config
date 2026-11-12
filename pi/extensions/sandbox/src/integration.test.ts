@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import { exact, glob, tree, type PathSelector } from "../../lib/path-permission-rules.ts";
 import { filesystemConfig } from "./policy.ts";
+import { mktempShimDirectory } from "./scratch.ts";
 import { scanVcsLayout, vcsWriteRules } from "./vcs-policy.ts";
 import { startViolationCollector, type ViolationCollector } from "./violation-collector.ts";
 import { discardedWrites, isRepositoryRootRemoval, pathViolations } from "./violations.ts";
@@ -258,6 +259,21 @@ test("a git session works inside the sandbox without violations", { skip: !enabl
 
   // assert
   assert.equal(exitCode, 0, output);
+  assert.deepEqual(pathViolations((await collectViolations(commandId)).map(({ line }) => line)), []);
+});
+
+test("mktemp creates its files in TMPDIR through the shim", { skip: !enabled || process.platform !== "darwin" }, async () => {
+  // arrange
+  const command = `export TMPDIR='${workDirectory}' PATH='${mktempShimDirectory()}':"$PATH"; mktemp; mktemp -d; mktemp -t prefix; mktemp '${workDirectory}/named.XXXXXX'`;
+
+  // act
+  const { exitCode, output, commandId } = await runSandboxed(command);
+
+  // assert
+  assert.equal(exitCode, 0, output);
+  const created = output.trim().split("\n");
+  assert.equal(created.length, 4, output);
+  for (const path of created) assert.ok(path.startsWith(`${workDirectory}/`), path);
   assert.deepEqual(pathViolations((await collectViolations(commandId)).map(({ line }) => line)), []);
 });
 
