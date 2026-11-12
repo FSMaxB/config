@@ -10,6 +10,7 @@ import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import { exact, glob, tree, type PathSelector } from "../../lib/path-permission-rules.ts";
 import { filesystemConfig } from "./policy.ts";
 import { scanVcsLayout, vcsWriteRules } from "./vcs-policy.ts";
+import { startViolationCollector, type ViolationCollector } from "./violation-collector.ts";
 import { discardedWrites, isRepositoryRootRemoval, pathViolations } from "./violations.ts";
 
 const enabled = process.env.SANDBOX_INTEGRATION === "1";
@@ -17,6 +18,7 @@ const enabled = process.env.SANDBOX_INTEGRATION === "1";
 let root: string;
 let workDirectory: string;
 let fakeHome: string;
+let collector: ViolationCollector;
 
 before(async () => {
   if (!enabled) return;
@@ -34,10 +36,12 @@ before(async () => {
     async () => false,
     true,
   );
+  collector = startViolationCollector(process.platform as "darwin" | "linux", SandboxManager.getSandboxViolationStore());
 });
 
 after(async () => {
   if (!enabled) return;
+  collector.stop();
   await SandboxManager.reset();
   await rm(root, { recursive: true, force: true });
 });
@@ -137,11 +141,10 @@ test("Linux reports a write that the read-deny tmpfs discarded", { skip: !enable
 
   // assert
   assert.equal(exitCode, 0);
-  const store = SandboxManager.getSandboxViolationStore();
-  let violations = store.getViolationsForCommand(commandId);
+  let violations = collector.violationsFor(commandId);
   for (let poll = 0; poll < 6 && violations.length === 0; poll += 1) {
     await new Promise((resolve) => setTimeout(resolve, 250));
-    violations = store.getViolationsForCommand(commandId);
+    violations = collector.violationsFor(commandId);
   }
   const discarded = discardedWrites(pathViolations(violations.map(({ line }) => line)), policyFilesystem(), "linux");
   assert.ok(discarded.some((violation) => violation.mode === "write" && violation.path === target), `the monitor must record the tmpfs write: ${JSON.stringify(discarded)}`);
@@ -163,6 +166,22 @@ test("a denied read is recorded on macOS but masked silently on Linux", { skip: 
   } else {
     assert.deepEqual(violations, []);
   }
+});
+
+// srt's own monitor keeps one violation per `log stream` chunk, which is what the collector replaces.
+test("a burst of denied writes is reported in full on macOS", { skip: !enabled || process.platform !== "darwin" }, async () => {
+  // arrange
+  const command = `for i in $(seq 1 30); do : > '${fakeHome}/burst-'$i; done; true`;
+
+  // act
+  const { exitCode, commandId } = await runSandboxed(command);
+  const violations = pathViolations((await collectViolations(commandId)).map(({ line }) => line));
+
+  // assert
+  assert.equal(exitCode, 0);
+  const paths = new Set(violations.filter(({ mode }) => mode === "write").map(({ path }) => path));
+  assert.equal(paths.size, 30, JSON.stringify([...paths]));
+  assert.ok([...paths].every((path) => path.startsWith(`${fakeHome}/burst-`)));
 });
 
 test("an exit-0 command can still carry violations on macOS", { skip: !enabled || process.platform !== "darwin" }, async () => {
@@ -354,12 +373,11 @@ async function runInRepository(repository: string, command: string) {
 }
 
 async function collectViolations(commandId: string) {
-  const store = SandboxManager.getSandboxViolationStore();
   let previousCount = -1;
-  let violations = store.getViolationsForCommand(commandId);
+  let violations = collector.violationsFor(commandId);
   for (let poll = 0; poll < 6; poll += 1) {
     await new Promise((resolve) => setTimeout(resolve, 250));
-    violations = store.getViolationsForCommand(commandId);
+    violations = collector.violationsFor(commandId);
     if (violations.length === previousCount) break;
     previousCount = violations.length;
   }
@@ -376,6 +394,7 @@ function policyFilesystem(extraReadAllow: PathSelector[] = []) {
 
 async function runSandboxed(command: string, filesystem = policyFilesystem(), cwd = workDirectory): Promise<{ exitCode: number | null; output: string; commandId: string }> {
   const commandId = `${Date.now()}-${Math.random()}`;
+  collector.track(commandId);
   const wrapped = await SandboxManager.wrapWithSandbox(command, undefined, { filesystem }, undefined, { commandId, commandText: command });
   try {
     return await new Promise((resolve, reject) => {

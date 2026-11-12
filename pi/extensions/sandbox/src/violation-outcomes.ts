@@ -21,6 +21,11 @@ export function nextStep(outcomes: ViolationOutcome[]): NextStep {
   return grants.length === 0 || blocked ? { kind: "return" } : { kind: "rerun", grants };
 }
 
+// The raw lines, for the model to see what else the command ran into besides the path denials below them.
+export function rawViolationBlock(lines: string[]): string {
+  return `\n<sandbox_violations>\n${lines.join("\n")}\n</sandbox_violations>`;
+}
+
 export function violationReport(outcomes: ViolationOutcome[], step: NextStep, agentMode: AgentMode): string {
   const lines = outcomes.map((outcome) => outcomeLine(outcome, step, agentMode));
   const footer = step.kind === "rerun" ? ["Rerunning the command with these grants; the rerun's output follows."] : [];

@@ -20,7 +20,8 @@ import { filesystemConfig, secretPaths, type PolicyOptions } from "./policy.ts";
 import { loadSettings, updateDomainLists, type Settings } from "./settings.ts";
 import { scanVcsLayout, vcsWriteRules, type VcsWriteRules } from "./vcs-policy.ts";
 import { isRepositoryRootRemoval, isSecretPath, pathViolations, type PathViolation } from "./violations.ts";
-import { nextStep, successViolationReport, violationReport, type NextStep, type ViolationOutcome } from "./violation-outcomes.ts";
+import { startViolationCollector, type ViolationCollector } from "./violation-collector.ts";
+import { nextStep, rawViolationBlock, successViolationReport, violationReport, type NextStep, type ViolationOutcome } from "./violation-outcomes.ts";
 
 const SANDBOX_NOTE =
   "Commands run inside an OS sandbox that enforces the same read/write path rules as the file tools, with no network except allowed hosts. Denied paths are reported in a <sandbox_violations> block and the user is asked to grant them; after a grant the command has to be rerun, unless the user allowed it once: then the sandbox reruns it itself and the rerun's output follows the report. Never try to work around a denial. " +
@@ -128,6 +129,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   // Deliberately not persisted in the session: a resumed session asks again before bypassing the sandbox.
   let bypassDecision: SessionDecision | undefined;
   let warnedAboutConfigIds = false;
+  let collector: ViolationCollector | undefined;
 
   const operations: BashOperations = {
     async exec(command, cwd, options) {
@@ -154,6 +156,8 @@ function createRuntime(pi: ExtensionAPI): Runtime {
       if (!pending) return;
       // A failed initialization can still have started proxies or the log monitor.
       await pending.catch(() => undefined);
+      collector?.stop();
+      collector = undefined;
       await sandboxManager?.reset();
     },
   };
@@ -168,6 +172,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
 
   async function runOnce(command: string, cwd: string, options: ExecOptions, onceGrants: OnceGrant[], promptsLeft: number): Promise<{ result: ExecResult; step: NextStep; promptsUsed: number }> {
     const commandId = randomUUID();
+    violationCollector().track(commandId);
     const vcs = await vcsRules();
     const filesystem = filesystemConfig(await currentPolicy(onceGrants), policyOptions(vcs));
     warnAboutMissingConfigIds(vcs, filesystem.denyWrite);
@@ -192,13 +197,14 @@ function createRuntime(pi: ExtensionAPI): Runtime {
       }
       const violations = reportable(await collectViolations(commandId), vcs.repositoryRoot);
       if (violations.length === 0) return { result, step: { kind: "return" }, promptsUsed: 0 };
-      options.onData(Buffer.from(manager().annotateStderrWithSandboxFailures(commandId, "")));
+      options.onData(Buffer.from(rawViolationBlock(violations.map(({ line }) => line))));
       const { outcomes, promptsUsed } = await resolveViolations(violations, promptsLeft);
       const step = nextStep(outcomes);
       options.onData(Buffer.from(violationReport(outcomes, step, currentAgentMode())));
       return { result, step, promptsUsed };
     } finally {
       manager().cleanupAfterCommand();
+      violationCollector().release(commandId);
     }
   }
 
@@ -222,6 +228,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
       askNetwork,
       true,
     );
+    collector = startViolationCollector(process.platform as PolicyOptions["platform"], manager().getSandboxViolationStore());
   }
 
   function policyOptions(vcs: VcsWriteRules): PolicyOptions {
@@ -248,6 +255,11 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     return sandboxManager;
   }
 
+  function violationCollector(): ViolationCollector {
+    if (!collector) throw new Error("Sandbox violation collector is not running.");
+    return collector;
+  }
+
   function applyNetwork(): void {
     if (!sandboxManager || !settings) return;
     const config = sandboxManager.getConfig();
@@ -259,19 +271,18 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   // it pays one poll interval instead of waiting for the count to settle like a failed command does.
   async function readViolationsAfterOneWait(commandId: string) {
     await new Promise((resolve) => setTimeout(resolve, VIOLATION_POLL_MILLISECONDS));
-    return manager().getSandboxViolationStore().getViolationsForCommand(commandId);
+    return violationCollector().violationsFor(commandId);
   }
 
   async function collectViolations(commandId: string) {
-    const store = manager().getSandboxViolationStore();
     let previousCount = -1;
     for (let poll = 0; poll < VIOLATION_MAX_POLLS; poll += 1) {
       await new Promise((resolve) => setTimeout(resolve, VIOLATION_POLL_MILLISECONDS));
-      const count = store.getViolationsForCommand(commandId).length;
+      const count = violationCollector().violationsFor(commandId).length;
       if (count === previousCount) break;
       previousCount = count;
     }
-    return store.getViolationsForCommand(commandId);
+    return violationCollector().violationsFor(commandId);
   }
 
   async function authorizeBypass(command: string, context: ExtensionContext): Promise<BypassAuthorization> {
