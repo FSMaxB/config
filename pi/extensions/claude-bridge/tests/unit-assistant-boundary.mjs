@@ -271,7 +271,7 @@ describe("assistant tool-use boundary fallback", () => {
 
 	it("updates the Pi assistant model when Claude Code switches models at message_start", () => {
 		const c = ctx();
-		c.resetTurnState({ ...model, id: "claude-fable-5-1" });
+		c.resetTurnState({ ...model, id: "claude-fable-5-2" });
 		installFakeStream();
 
 		processStreamEvent({
@@ -291,7 +291,7 @@ describe("assistant tool-use boundary fallback", () => {
 
 	it("records fallback assistant blocks without rendering them as text", () => {
 		const c = ctx();
-		c.resetTurnState({ ...model, id: "claude-fable-5-1" });
+		c.resetTurnState({ ...model, id: "claude-fable-5-2" });
 		installFakeStream();
 
 		processAssistantMessage({
@@ -300,7 +300,7 @@ describe("assistant tool-use boundary fallback", () => {
 				model: "claude-opus-4-8",
 				content: [{
 					type: "fallback",
-					from: { model: "claude-fable-5-1" },
+					from: { model: "claude-fable-5-2" },
 					to: { model: "claude-opus-4-8" },
 				}],
 			},

@@ -9,7 +9,7 @@ import { ensureTurnStarted, processAssistantMessage, processStreamEvent, updateT
 import { getExtensionApi, safeNotify } from "./bridge-state.js";
 import { type Config } from "./config.js";
 import { debug } from "./debug.js";
-import { fallbackModelForPrimaryModel, modelDisplayName } from "./models.js";
+import { refusalFallbackNotice } from "./models.js";
 import { type QueryContext } from "./query-state.js";
 import { RATE_LIMIT_AUTO_RESUME_EVENT, RATE_LIMIT_TOKEN, formatAllowedRateLimitWarning, formatResetTimestamp, isUsageLimitMessage, uniqueNonEmptyLines } from "./rate-limit.js";
 import { activeStreamIdleWatchdogs } from "./stream-idle-watchdog.js";
@@ -179,14 +179,8 @@ export async function consumeQuery(
 					const fallbackModel = (message as any).fallback_model;
 					updateTurnOutputModel(fallbackModel, queryCtx);
 					debug("consumeQuery: model_refusal_fallback", JSON.stringify({ originalModel, fallbackModel }));
-					// Notify only for reroutes we configured, so an unexpected pairing from
-					// Claude Code is still logged above but not announced as one of ours.
-					if (typeof fallbackModel === "string" && typeof originalModel === "string" && fallbackModelForPrimaryModel(originalModel) === fallbackModel) {
-						safeNotify(
-							`Pi Claude switched ${modelDisplayName(originalModel)} to ${modelDisplayName(fallbackModel)} after Claude Code safety fallback.`,
-							"info",
-						);
-					}
+					const notice = refusalFallbackNotice(originalModel, fallbackModel);
+					if (notice) safeNotify(notice, "info");
 				}
 				break;
 			case "user":

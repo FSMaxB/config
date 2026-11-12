@@ -28,7 +28,7 @@ Pi advertises tools from the current transcript manifest through `src/index.ts::
 
 ## Embedding hosts
 
-- `CLAUDE_BRIDGE_ISOLATED=1` (`src/config.ts::isolatedFromEnv`) suppresses cwd-ancestor AGENTS, project configuration and project `APPEND_SYSTEM.md` discovery, plus the `PATH` executable search. Settings come only from `<piUserDir>/claude-bridge.json`; logs still resolve under `PI_CODING_AGENT_DIR`. `tests/unit-isolation.mjs`.
+- `CLAUDE_BRIDGE_ISOLATED=1` (`src/config.ts::isolatedFromEnv`) suppresses cwd-ancestor AGENTS, project configuration and project `APPEND_SYSTEM.md` discovery. Settings come only from `<piUserDir>/claude-bridge.json`; logs still resolve under `PI_CODING_AGENT_DIR`. `tests/unit-isolation.mjs`.
 - Startup preflight (`src/claude-executable.ts::preflightClaudeExecutable`) preserves `code`, `errno`, `syscall`, `path`, `cwd` and the detected executable file type on the error it hands the SDK.
 
 ## Session persistence

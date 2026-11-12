@@ -4,9 +4,8 @@
  *
  * Isolated mode is the contract for host apps that embed the bridge and own
  * every config dir explicitly (PI_CODING_AGENT_DIR + CLAUDE_CONFIG_DIR) : no
- * cwd-ancestor discovery, no $PATH executable fallback, nothing read from the
- * real home directory. Default (unset) behavior must be byte-identical to the
- * pre-isolation bridge.
+ * cwd-ancestor discovery, nothing read from the real home directory. Default
+ * (unset) behavior must be byte-identical to the pre-isolation bridge.
  */
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -388,26 +387,34 @@ describe("readAppendSystemPromptFiles isolation", () => {
 	}));
 });
 
-describe("resolveClaudeExecutable isolation", () => {
+describe("resolveClaudeExecutable", () => {
 	it("a configured path always wins", () => {
 		withEnv({ CLAUDE_BRIDGE_ISOLATED: "1" }, () => {
 			assert.equal(resolveClaudeExecutable("/opt/app/bin/claude"), "/opt/app/bin/claude");
 		});
 	});
 
-	it("default mode falls back to $PATH; isolated mode never does", () => withTempDir((dir) => {
+	it("a blank configured path selects the bundled binary", () => {
+		// act
+		const resolved = resolveClaudeExecutable("   ");
+
+		// assert
+		assert.equal(resolved, undefined);
+	});
+
+	it("never searches $PATH, isolated or not", () => withTempDir((dir) => {
+		// arrange
 		const bin = join(dir, "bin");
 		mkdirSync(bin, { recursive: true });
 		const fakeClaude = join(bin, "claude");
 		writeFileSync(fakeClaude, "#!/bin/sh\nexit 0\n");
 		chmodSync(fakeClaude, 0o755);
-		withEnv({ PATH: bin }, () => {
-			withEnv({ CLAUDE_BRIDGE_ISOLATED: undefined }, () => {
-				assert.equal(resolveClaudeExecutable(undefined), fakeClaude);
-			});
-			withEnv({ CLAUDE_BRIDGE_ISOLATED: "1" }, () => {
-				assert.equal(resolveClaudeExecutable(undefined), undefined);
-			});
-		});
+
+		// act
+		const resolved = withEnv({ PATH: bin }, () => [undefined, "1"].map((isolated) =>
+			withEnv({ CLAUDE_BRIDGE_ISOLATED: isolated }, () => resolveClaudeExecutable(undefined))));
+
+		// assert
+		assert.deepEqual(resolved, [undefined, undefined]);
 	}));
 });

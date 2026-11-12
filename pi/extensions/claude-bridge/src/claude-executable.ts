@@ -1,32 +1,14 @@
 import { type SpawnOptions, type SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 import { spawn as spawnProcess } from "child_process";
 import { accessSync, constants as fsConstants, readFileSync, realpathSync, statSync } from "fs";
-import { delimiter, join } from "path";
-import { isolatedFromEnv } from "./config.js";
 import { DEBUG, debug } from "./debug.js";
 
-function executableFromPath(name: string): string | undefined {
-	const paths = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
-	for (const dir of paths) {
-		const candidate = join(dir, name);
-		try {
-			accessSync(candidate, fsConstants.X_OK);
-			return candidate;
-		} catch {
-			// keep searching
-		}
-	}
-	return undefined;
-}
-
+// Without a configured path the SDK runs the Claude Code binary it bundles, which
+// matches the SDK version. A `claude` on PATH can be older and not know newer
+// models, and Claude Code gives an unknown model a 200k window instead of its real one.
 export function resolveClaudeExecutable(configured?: string): string | undefined {
 	const trimmed = configured?.trim();
-	if (trimmed) return trimmed;
-	// Isolated mode: never run whatever `claude` happens to be on $PATH — the
-	// host app either pins an executable in config or gets the SDK's bundled
-	// default, which ships inside the host bundle.
-	if (isolatedFromEnv()) return undefined;
-	return executableFromPath("claude") ?? executableFromPath("claude-code");
+	return trimmed ? trimmed : undefined;
 }
 
 export type ClaudeExecutableFileType = "elf" | "mach-o" | "pe" | "shebang-script" | "empty" | "unknown";
