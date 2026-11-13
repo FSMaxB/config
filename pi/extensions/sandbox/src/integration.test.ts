@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
@@ -8,8 +9,10 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import { exact, glob, tree, type PathSelector } from "../../lib/path-permission-rules.ts";
+import { INITIAL_LOG_STREAM_STATE, parseLogStreamChunk, type LogStreamFormat } from "./log-stream.ts";
 import { filesystemConfig } from "./policy.ts";
 import { mktempShimDirectory } from "./scratch.ts";
+import { traceProfile } from "./trace-profile.ts";
 import { scanVcsLayout, vcsWriteRules } from "./vcs-policy.ts";
 import { startViolationCollector, type ViolationCollector } from "./violation-collector.ts";
 import { discardedWrites, isRepositoryRootRemoval, pathViolations } from "./violations.ts";
@@ -70,6 +73,55 @@ test("writes outside the writable directory never reach the real filesystem", { 
 
   // assert
   assert.equal(existsSync(target), false);
+});
+
+test("a profile write grant makes a directory outside the defaults writable", { skip: !enabled }, async () => {
+  // arrange
+  const profileDirectory = join(root, "profile-cache");
+  await mkdir(profileDirectory);
+  const target = join(profileDirectory, "granted");
+  const denied = join(profileDirectory, "denied");
+
+  // act
+  await runSandboxed(`touch '${denied}'`);
+  const { exitCode, output } = await runSandboxed(`touch '${target}'`, policyFilesystem([], [tree(profileDirectory)]));
+
+  // assert
+  assert.equal(existsSync(denied), false);
+  assert.equal(exitCode, 0, output);
+  assert.ok(existsSync(target));
+});
+
+// The trace profile allows everything and reports what the normal sandbox would deny, tagged for `log stream`.
+test("the trace profile reports a read the normal sandbox would deny", { skip: !enabled || process.platform !== "darwin" }, async () => {
+  // arrange
+  const tag = `PIREC_${randomUUID().replaceAll("-", "")}_END`;
+  const format: LogStreamFormat = { action: "allow", tag: /^(PIREC_\w+_END)/ };
+  const lines: string[] = [];
+  const stream = spawn("log", ["stream", "--predicate", `eventMessage CONTAINS "${tag}"`, "--style", "compact"], { stdio: ["ignore", "pipe", "ignore"] });
+  stream.stdout.setEncoding("utf8");
+  let state = INITIAL_LOG_STREAM_STATE;
+  const started = new Promise<void>((resolve) => {
+    stream.stdout.on("data", (chunk: string) => {
+      const parsed = parseLogStreamChunk(state, chunk, format);
+      state = parsed.state;
+      lines.push(...parsed.entries.map(({ line }) => line));
+      resolve();
+    });
+    setTimeout(resolve, 3000);
+  });
+  await started;
+  const profile = traceProfile(policyFilesystem(), tag);
+  const target = join(fakeHome, "notes.txt");
+
+  // act
+  const { status } = spawnSync("/usr/bin/sandbox-exec", ["-p", profile, "/bin/cat", target]);
+  for (let poll = 0; poll < 20 && !lines.some((line) => line.includes(target)); poll += 1) await new Promise((resolve) => setTimeout(resolve, 250));
+  stream.kill("SIGTERM");
+
+  // assert
+  assert.equal(status, 0);
+  assert.ok(lines.some((line) => / allow file-read-data /.test(line) && line.includes(target)), lines.join("\n"));
 });
 
 test("secrets under the home directory are unreadable", { skip: !enabled }, async () => {
@@ -400,10 +452,10 @@ async function collectViolations(commandId: string) {
   return violations;
 }
 
-function policyFilesystem(extraReadAllow: PathSelector[] = []) {
+function policyFilesystem(extraReadAllow: PathSelector[] = [], extraWriteAllow: PathSelector[] = []) {
   const policy = {
     read: { allow: [tree(workDirectory), ...extraReadAllow], deny: [], protected: [] },
-    write: { allow: [tree(workDirectory)], deny: [], protected: [] },
+    write: { allow: [tree(workDirectory), ...extraWriteAllow], deny: [], protected: [] },
   };
   return filesystemConfig(policy, { platform: process.platform as "darwin" | "linux", homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [] });
 }
