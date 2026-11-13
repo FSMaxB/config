@@ -3,6 +3,7 @@ import { hostname } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { expandHome } from "../../lib/path-resolution.ts";
+import { parseActivationDecisions, parseProfileDefinition, parseProfiles, serializeActivationDecisions, type ActivationDecisions, type Profile, type ProfileDefinition } from "./profiles.ts";
 
 export interface SettingsFile {
   network: { allowedDomains: string[]; deniedDomains: string[]; deniedDomainReasons: Record<string, string>; allowUnixSockets: string[]; allowLocalBinding: boolean };
@@ -81,12 +82,7 @@ export function parseSettingsFile(value: unknown): SettingsFile {
 
 // Rewrites only the network domain lists and keeps every other key of the file as the user wrote it.
 export async function updateDomainLists(filePath: string, mutate: (lists: DomainLists) => void): Promise<void> {
-  await withLock(filePath, async () => {
-    const text = await readFile(filePath, "utf8").catch((error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT") return "{}";
-      throw error;
-    });
-    const raw = asRecord(JSON.parse(text), "settings");
+  await rewriteSettings(filePath, (raw) => {
     const { network } = parseSettingsFile(raw);
     const lists: DomainLists = {
       allowedDomains: new Set(network.allowedDomains),
@@ -97,9 +93,68 @@ export async function updateDomainLists(filePath: string, mutate: (lists: Domain
     const rawNetwork = asRecord(raw.network ?? {}, "network");
     // The reasons key stays out of files that never had one.
     const reasons = lists.deniedDomainReasons.size > 0 || "deniedDomainReasons" in rawNetwork ? { deniedDomainReasons: Object.fromEntries(lists.deniedDomainReasons) } : {};
-    const updated = { ...raw, network: { ...rawNetwork, allowedDomains: [...lists.allowedDomains], deniedDomains: [...lists.deniedDomains], ...reasons } };
-    await writeAtomically(filePath, `${JSON.stringify(updated, null, 2)}\n`);
+    return { ...raw, network: { ...rawNetwork, allowedDomains: [...lists.allowedDomains], deniedDomains: [...lists.deniedDomains], ...reasons } };
   });
+}
+
+// Profiles are read on every call, so hand edits apply without a restart.
+export async function loadProfiles(filePath: string): Promise<Profile[]> {
+  return parseProfiles((await readRawSettings(filePath)).profiles);
+}
+
+// Rewrites only profiles.<name>; returning undefined deletes it, together with its activation decision.
+export async function updateProfile(filePath: string, name: string, mutate: (current: ProfileDefinition | undefined) => ProfileDefinition | undefined): Promise<void> {
+  await rewriteSettings(filePath, (raw) => {
+    const profiles = asRecord(raw.profiles ?? {}, "profiles");
+    const current = name in profiles ? parseProfileDefinition(profiles[name], name) : undefined;
+    const updated = mutate(current);
+    if (updated === undefined) {
+      const { [name]: _removed, ...remaining } = profiles;
+      return withoutActivation({ ...raw, profiles: remaining }, name);
+    }
+    return { ...raw, profiles: { ...profiles, [name]: parseProfileDefinition(updated, name) } };
+  });
+}
+
+export async function loadActivationDecisions(filePath: string): Promise<ActivationDecisions> {
+  return parseActivationDecisions((await readRawSettings(filePath)).profileActivation);
+}
+
+// Rewrites only profileActivation. The key is written once a decision exists, and stays out of files that never had one.
+export async function updateActivationDecisions(filePath: string, mutate: (decisions: ActivationDecisions) => void): Promise<void> {
+  await rewriteSettings(filePath, (raw) => {
+    const decisions = parseActivationDecisions(raw.profileActivation);
+    mutate(decisions);
+    if (decisions.allowed.size === 0 && decisions.denied.size === 0 && !("profileActivation" in raw)) return raw;
+    return { ...raw, profileActivation: serializeActivationDecisions(decisions) };
+  });
+}
+
+async function readRawSettings(filePath: string): Promise<Record<string, unknown>> {
+  const text = await readFile(filePath, "utf8").catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return "{}";
+    throw error;
+  });
+  try {
+    return asRecord(JSON.parse(text), "settings");
+  } catch (error) {
+    throw new Error(`Invalid sandbox settings in ${filePath}: ${(error as Error).message}`);
+  }
+}
+
+async function rewriteSettings(filePath: string, mutate: (raw: Record<string, unknown>) => Record<string, unknown>): Promise<void> {
+  await withLock(filePath, async () => {
+    const raw = await readRawSettings(filePath);
+    await writeAtomically(filePath, `${JSON.stringify(mutate(raw), null, 2)}\n`);
+  });
+}
+
+function withoutActivation(raw: Record<string, unknown>, name: string): Record<string, unknown> {
+  if (!("profileActivation" in raw)) return raw;
+  const decisions = parseActivationDecisions(raw.profileActivation);
+  decisions.allowed.delete(name);
+  decisions.denied.delete(name);
+  return { ...raw, profileActivation: serializeActivationDecisions(decisions) };
 }
 
 interface DomainLists {
