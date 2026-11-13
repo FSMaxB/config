@@ -1,4 +1,5 @@
 import { AgentMode, isRestricted, MODE_IDENTITIES, type RestrictedMode } from "./agent-mode.ts";
+import { userReason } from "./permission-prompt.ts";
 import type { ToolPermission } from "./tool-permission-policy.ts";
 
 // The decisions restricted-mode.ts makes, kept free of pi imports so they run under plain node
@@ -100,7 +101,7 @@ export function deniedReason(mode: RestrictedMode, toolName: string, cause: stri
   const reason =
     `${MODE_IDENTITIES[mode].label} is active and ${cause}, so ${toolName} did not run. ` +
     "Do not retry it.";
-  if (note) return `${reason} Do this instead: ${note}`;
+  if (note) return `${reason}${userReason(note)}`;
   const next = mode === AgentMode.Planning
     ? "or call submit_plan if the plan is ready."
     : "or finish the exploration and report your findings.";

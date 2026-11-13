@@ -320,7 +320,7 @@ it("keeps explicit denials declared but blocked and announced in the agent-mode 
 		assert.ok(declared().includes("target_fixture"));
 		assert.ok(!deniedInSnapshot("target_fixture"));
 		// arrange
-		choices.push("Deny in session");
+		choices.push("Deny with reason…", "This session");
 		// act
 		const denied = await fixture.call("approval_fixture");
 		await fixture.session.prompt("Inspect declarations after a denial.");

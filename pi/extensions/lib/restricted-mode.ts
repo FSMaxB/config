@@ -23,13 +23,7 @@ import {
   transitionNotice,
 } from "./mode-policy.ts";
 import {
-  ALLOW_ALWAYS,
-  ALLOW_ONCE,
-  ALLOW_SESSION,
   clearPathRules,
-  DENY_ALWAYS,
-  DENY_ONCE,
-  DENY_SESSION,
   initPathPermissions,
   listPathRules,
   restoreSessionPathRules,
@@ -37,6 +31,8 @@ import {
 } from "./path-permissions.ts";
 import type { PathRule } from "./path-permission-rules.ts";
 import { addPathRuleInteractively, CLEAR_ALL, DONE, pathRuleEntries, type DecisionEntry } from "./path-rule-commands.ts";
+import { ALL_DURATIONS, askPermission, Duration, type LastingDuration } from "./permission-prompt.ts";
+import { permissionUI } from "./permission-ui.ts";
 import { plansDirectory } from "./plan-file.ts";
 import { PLAN_TOOLS } from "./plan-tools.ts";
 import { isSandboxActive } from "./sandbox-state.ts";
@@ -111,12 +107,9 @@ const MODE_UNGATED_TOOLS: Record<RestrictedMode, ReadonlySet<string>> = {
 
 type Decision = "allow-session" | "allow-always" | "deny-session" | "deny-always";
 
-const CHOICE_DECISIONS: Record<string, Decision | undefined> = {
-  [ALLOW_SESSION]: "allow-session",
-  [ALLOW_ALWAYS]: "allow-always",
-  [DENY_SESSION]: "deny-session",
-  [DENY_ALWAYS]: "deny-always",
-};
+// Once-answers are never recorded, so only the lasting durations map to a stored decision.
+const ALLOW_DECISIONS = { session: "allow-session", always: "allow-always" } as const satisfies Record<LastingDuration, Decision>;
+const DENY_DECISIONS = { session: "deny-session", always: "deny-always" } as const satisfies Record<LastingDuration, Decision>;
 
 interface DecisionStores {
   sessionGrants: Set<string>;
@@ -305,23 +298,23 @@ class Engine {
 
     const { mode } = this;
     if (!isRestricted(mode)) return undefined;
-    const choice = await context.ui.select(
-      `${MODE_IDENTITIES[mode].label} — allow ${event.toolName}?\n\n  ${summarizeInput(event)}`,
-      [ALLOW_ONCE, ALLOW_SESSION, ALLOW_ALWAYS, DENY_ONCE, DENY_SESSION, DENY_ALWAYS],
-    );
-
-    if (choice === ALLOW_ONCE) return undefined;
-    const decision = choice === undefined ? undefined : CHOICE_DECISIONS[choice];
-    if (decision === "allow-session" || decision === "allow-always") {
-      await this.record(mode, event.toolName, decision, context);
+    const answer = await askPermission(permissionUI(context.ui), {
+      title: `${MODE_IDENTITIES[mode].label} — allow ${event.toolName}?\n\n  ${summarizeInput(event)}`,
+      subject: event.toolName,
+      scope: event.toolName,
+      narrower: [],
+      durations: ALL_DURATIONS,
+    });
+    if (answer.decision === "allow") {
+      if (answer.duration !== Duration.Once) await this.record(mode, event.toolName, ALLOW_DECISIONS[answer.duration], context);
       return undefined;
     }
-
-    // Dismissing the prompt denies the call without stopping to ask for a note.
-    const note = choice === undefined ? undefined : await askDenyNote(context);
-    if (decision) await this.record(mode, event.toolName, decision, context, note);
-    const cause = decision ? DENIAL_CAUSES[decision] : "the user denied this call";
-    return { block: true, reason: deniedReason(mode, event.toolName, cause, note) };
+    if (answer.duration === Duration.Once) {
+      return { block: true, reason: deniedReason(mode, event.toolName, "the user denied this call", answer.note) };
+    }
+    const decision = DENY_DECISIONS[answer.duration];
+    await this.record(mode, event.toolName, decision, context, answer.note);
+    return { block: true, reason: deniedReason(mode, event.toolName, DENIAL_CAUSES[decision], answer.note) };
   }
 
   // The most recent decision wins outright, so a tool never sits in two stores and
@@ -462,11 +455,6 @@ class Engine {
 
 function emptyStores(): DecisionStores {
   return { sessionGrants: new Set(), alwaysGrants: new Set(), sessionDenials: new Map(), alwaysDenials: new Map() };
-}
-
-async function askDenyNote(context: ExtensionContext): Promise<string | undefined> {
-  const note = await context.ui.input("What should the agent do instead?", "Optional — leave empty to just deny");
-  return note?.trim() || undefined;
 }
 
 function modeBanner(theme: Theme, mode: AgentMode, pending: AgentMode | undefined): string[] | undefined {
