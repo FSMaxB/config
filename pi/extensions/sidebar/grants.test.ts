@@ -8,6 +8,7 @@ test("rows are grouped by kind in a fixed order", () => {
   const grants: SessionGrant[] = [
     { kind: "network", decision: "allow", host: "example.com" },
     { kind: "unsandboxed", decision: "allow" },
+    { kind: "profile", decision: "allow", name: "bazel" },
     { kind: "tool", decision: "deny", name: "fetch_content" },
     { kind: "path", decision: "allow", access: "read", target: "/home/u/x/**" },
   ];
@@ -16,7 +17,7 @@ test("rows are grouped by kind in a fixed order", () => {
   const rows = grantRows(grants, "/home/u");
 
   // assert
-  assert.deepEqual(rows, ["✓ read ~/x/**", "✗ tool fetch_content", "✓ net example.com", "✓ unsandboxed bash"]);
+  assert.deepEqual(rows, ["✓ read ~/x/**", "✗ tool fetch_content", "✓ net example.com", "✓ profile bazel", "✓ unsandboxed bash"]);
 });
 
 test("grants of the same kind keep their input order", () => {

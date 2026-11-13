@@ -92,6 +92,8 @@ const UNGATED_TOOLS = new Set([
   // File tools are gated per path by lib/path-permissions.ts rather than per call.
   ...FILE_TOOLS,
   "question",
+  // Asks the user itself before activating anything.
+  "sandbox_profile",
   // Safe under a restricted mode by construction: the subagent extension caps child
   // tools at what the mode leaves ungated or granted.
   "subagent",
