@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { destinationKey, effectiveNetwork, emptyGrants, networkConfig, networkDenialNote, networkSessionGrants, parseGrants, recordGrant, recordOnceGrant, releaseOnceGrants, rememberedDecision, serializeGrants, type OnceNetworkGrants } from "./network-grants.ts";
+import { destinationKey, effectiveNetwork, emptyGrants, networkConfig, NO_PROFILE_NETWORK, networkDenialNote, networkSessionGrants, parseGrants, recordGrant, recordOnceGrant, releaseOnceGrants, rememberedDecision, serializeGrants, type OnceNetworkGrants } from "./network-grants.ts";
 import type { Settings } from "./settings.ts";
 
 const settings: Settings = {
@@ -19,7 +19,7 @@ test("subagents get no network even when settings and grants allow hosts and soc
   recordGrant(grants, "allow", "example.com", undefined);
 
   // act
-  const config = networkConfig(settings, grants, true);
+  const config = networkConfig(settings, grants, true, NO_PROFILE_NETWORK);
 
   // assert
   assert.deepEqual(config, { allowedDomains: [], deniedDomains: ["*"], allowUnixSockets: [], allowLocalBinding: false });
@@ -31,7 +31,7 @@ test("the main session gets the effective lists and the settings' socket flags",
   recordGrant(grants, "allow", "example.com", undefined);
 
   // act
-  const config = networkConfig(settings, grants, false);
+  const config = networkConfig(settings, grants, false, NO_PROFILE_NETWORK);
 
   // assert
   assert.deepEqual(config, { ...effectiveNetwork(settings, grants), allowUnixSockets: ["/tmp/agent.sock"], allowLocalBinding: true });
@@ -193,4 +193,32 @@ test("a denial note for host and port is found before the one for the whole host
   // assert
   assert.equal(onPort, "port only");
   assert.equal(elsewhere, "whole host");
+});
+
+test("profile network adds hosts and sockets and ORs local binding, but a session deny wins", () => {
+  // arrange
+  const grants = emptyGrants();
+  grants.deny.set("blocked.example", undefined);
+  const profile = { allowedDomains: ["bcr.example", "blocked.example"], allowLocalBinding: true, allowUnixSockets: ["/profile.sock"] };
+  const quiet = { ...settings, allowLocalBinding: false };
+
+  // act
+  const config = networkConfig(quiet, grants, false, profile);
+
+  // assert
+  assert.deepEqual(config.allowedDomains, ["github.com", "bcr.example"]);
+  assert.ok(config.deniedDomains.includes("blocked.example"));
+  assert.deepEqual(config.allowUnixSockets, ["/tmp/agent.sock", "/profile.sock"]);
+  assert.equal(config.allowLocalBinding, true);
+});
+
+test("subagents ignore profile network", () => {
+  // arrange
+  const profile = { allowedDomains: ["bcr.example"], allowLocalBinding: true, allowUnixSockets: ["/profile.sock"] };
+
+  // act
+  const config = networkConfig(settings, emptyGrants(), true, profile);
+
+  // assert
+  assert.deepEqual(config, { allowedDomains: [], deniedDomains: ["*"], allowUnixSockets: [], allowLocalBinding: false });
 });

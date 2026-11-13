@@ -17,8 +17,9 @@ import { announceSessionGrantsChanged, provideSessionGrants, type SessionGrant }
 import { serialize } from "../../lib/ui-queue.ts";
 import { BYPASS_DURATIONS, bypassOutcome, bypassPrompt, bypassSessionGrants, resolveAnswer, type BypassAuthorization, type SessionDecision } from "./bypass.ts";
 import { credentialEnvVars } from "./credentials.ts";
-import { NETWORK_ENTRY_TYPE, destinationKey, emptyGrants, networkConfig, networkDenialNote, parseGrants, recordGrant, recordOnceGrant, releaseOnceGrants, rememberedDecision, networkSessionGrants, serializeGrants, type NetworkDecision, type NetworkGrants, type OnceNetworkGrants } from "./network-grants.ts";
+import { NETWORK_ENTRY_TYPE, NO_PROFILE_NETWORK, destinationKey, emptyGrants, networkConfig, networkDenialNote, parseGrants, recordGrant, recordOnceGrant, releaseOnceGrants, rememberedDecision, networkSessionGrants, serializeGrants, type NetworkDecision, type NetworkGrants, type OnceNetworkGrants } from "./network-grants.ts";
 import { filesystemConfig, secretPaths, type PolicyOptions } from "./policy.ts";
+import type { ProfileNetwork } from "./profiles.ts";
 import { exportSessionScratch, withSessionScratch } from "./scratch.ts";
 import { loadSettings, updateDomainLists, type Settings } from "./settings.ts";
 import { scanVcsLayout, vcsWriteRules, type VcsWriteRules } from "./vcs-policy.ts";
@@ -136,6 +137,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   // startup ~40 ms although only a bash command needs it.
   let sandboxManager: SandboxManagerType | undefined;
   let grants: NetworkGrants = emptyGrants();
+  let profileNetwork: ProfileNetwork = NO_PROFILE_NETWORK;
   // Deliberately not persisted in the session: a resumed session asks again before bypassing the sandbox.
   let bypassDecision: SessionDecision | undefined;
   let warnedAboutConfigIds = false;
@@ -250,7 +252,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     if (problems.length > 0) throw new Error(`Sandboxed bash is unavailable: ${problems.join("; ")}. ${INSTALL_HINT}`);
     await manager().initialize(
       {
-        network: networkConfig(settings, grants, subagent),
+        network: networkConfig(settings, grants, subagent, profileNetwork),
         filesystem: filesystemConfig(await currentPolicy(), policyOptions(await vcsRules())),
         credentials: { envVars: credentialEnvVars() },
         allowPty: false,
@@ -294,7 +296,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     if (!sandboxManager || !settings) return;
     const config = sandboxManager.getConfig();
     if (!config) return;
-    sandboxManager.updateConfig({ ...config, network: { ...config.network, ...networkConfig(settings, grants, subagent) } });
+    sandboxManager.updateConfig({ ...config, network: { ...config.network, ...networkConfig(settings, grants, subagent, profileNetwork) } });
   }
 
   // The success-path report is best effort on Linux, where events arrive over the monitor socket, so
