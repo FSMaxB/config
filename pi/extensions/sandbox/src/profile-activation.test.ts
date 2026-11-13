@@ -3,7 +3,7 @@ import test from "node:test";
 import { AgentMode } from "../../lib/agent-mode.ts";
 import { ALLOW_ONCE, ALLOW_SESSION } from "../../lib/permission-choices.ts";
 import { Duration } from "../../lib/permission-prompt.ts";
-import { activationOutcome, activationPrompt, ActivationScope, emptyProfileState, parseProfileState, profileSessionGrants, resolveActivationAnswer, serializeProfileState, type ActivationSituation } from "./profile-activation.ts";
+import { activationOutcome, activationPrompt, ActivationScope, emptyProfileState, parseProfileState, profileSessionGrants, resolveActivationAnswer, serializeProfileState, settledResolution, type ActivationSituation } from "./profile-activation.ts";
 import { emptyActivationDecisions, emptyProfileDefinition, type Profile } from "./profiles.ts";
 
 const profile: Profile = { name: "bazel", ...emptyProfileDefinition() };
@@ -195,4 +195,18 @@ test("session grants list active profiles before denied ones", () => {
     { kind: "profile", decision: "allow", name: "b" },
     { kind: "profile", decision: "deny", name: "c" },
   ]);
+});
+
+test("a settled outcome resolves like an answer without persistence", () => {
+  // arrange
+  const refusal = { kind: "refuse", reason: "no" } as const;
+  const activation = { kind: "activate", scope: ActivationScope.Session } as const;
+
+  // act
+  const refused = settledResolution(refusal);
+  const activated = settledResolution(activation);
+
+  // assert
+  assert.deepEqual(refused, { kind: "refuse", reason: "no", remember: undefined, persist: undefined });
+  assert.deepEqual(activated, { kind: "activate", scope: ActivationScope.Session, remember: { decision: "allow" }, persist: undefined });
 });

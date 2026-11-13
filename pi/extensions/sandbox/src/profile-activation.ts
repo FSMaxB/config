@@ -52,6 +52,12 @@ export function activationOutcome(profile: Profile, state: ProfileSessionState, 
   return { kind: "ask", preselected: isRestricted(agentMode) ? ALLOW_ONCE : ALLOW_SESSION };
 }
 
+// An outcome that needs no prompt, in the shape an answered prompt resolves to. Activation from stored decisions lasts for the session.
+export function settledResolution(outcome: Exclude<ActivationOutcome, { kind: "ask" }>): ActivationResolution {
+  if (outcome.kind === "refuse") return { kind: "refuse", reason: outcome.reason, remember: undefined, persist: undefined };
+  return { kind: "activate", scope: outcome.scope, remember: { decision: "allow" }, persist: undefined };
+}
+
 export function resolveActivationAnswer(profile: Profile, answer: PermissionAnswer<string>): ActivationResolution {
   if (answer.decision === "allow") {
     const scope = answer.duration === Duration.Once ? ActivationScope.Once : ActivationScope.Session;
