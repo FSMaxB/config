@@ -179,3 +179,42 @@ test("a successful command can mix discarded and plainly denied violations in on
   assert.ok(report.includes("read access to /home/max/other.txt was denied by the sandbox; the command still exited 0."));
   assert.ok(report.includes("Plan mode is on, so the repository is read-only until the user approves a plan."));
 });
+
+test("a path added to a profile alone triggers a rerun without grants", () => {
+  // arrange
+  const outcomes: ViolationOutcome[] = [{ kind: "added-to-profile", mode: "write", path: "/cache/a", profile: "bazel" }];
+
+  // act
+  const step = nextStep(outcomes);
+
+  // assert
+  assert.deepEqual(step, { kind: "rerun", grants: [] });
+});
+
+test("a path added to a profile does not rerun while another path is blocked", () => {
+  // arrange
+  const outcomes: ViolationOutcome[] = [
+    { kind: "added-to-profile", mode: "write", path: "/cache/a", profile: "bazel" },
+    { kind: "denied", mode: "read", path: "/other", note: undefined },
+  ];
+
+  // act
+  const step = nextStep(outcomes);
+
+  // assert
+  assert.deepEqual(step, { kind: "return" });
+});
+
+test("the report says a path was added to the profile and when to rerun", () => {
+  // arrange
+  const outcomes: ViolationOutcome[] = [{ kind: "added-to-profile", mode: "write", path: "/cache/a", profile: "bazel" }];
+
+  // act
+  const rerun = violationReport(outcomes, { kind: "rerun", grants: [] }, AgentMode.Execution);
+  const returned = violationReport(outcomes, { kind: "return" }, AgentMode.Execution);
+
+  // assert
+  assert.match(rerun, /write access to \/cache\/a was added to profile bazel\./);
+  assert.doesNotMatch(rerun, /rerun the command\./);
+  assert.match(returned, /was added to profile bazel; rerun the command\./);
+});
