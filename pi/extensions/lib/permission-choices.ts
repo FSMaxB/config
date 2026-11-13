@@ -6,3 +6,5 @@ export const ALLOW_ALWAYS = "Allow always";
 export const DENY_ONCE = "Deny once";
 export const DENY_SESSION = "Deny in session";
 export const DENY_ALWAYS = "Deny always";
+export const ALLOW_NARROWER = "Allow narrower…";
+export const DENY_WITH_REASON = "Deny with reason…";
