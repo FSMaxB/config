@@ -4,7 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { AgentMode } from "./agent-mode.ts";
-import { parseChildPathPolicy } from "./path-permission-snapshot.ts";
+import { inheritedRules, parseChildPathPolicy, serializeChildPathPolicy } from "./path-permission-snapshot.ts";
 import { resolveThroughSymlinks } from "./path-resolution.ts";
 import {
   covers,
@@ -109,7 +109,7 @@ test("a new opposite rule removes the identical rule from the other tier", () =>
   // arrange
   const session = emptyRules();
   const always = emptyRules();
-  always.read.deny.add(selectorKey(tree("/tmp")));
+  always.read.deny.set(selectorKey(tree("/tmp")), "no tmp");
 
   // act
   const changed = recordRule(
@@ -124,7 +124,7 @@ test("a new opposite rule removes the identical rule from the other tier", () =>
 
   assert.deepEqual(changed, new Set(["session", "always"]));
   assert.deepEqual(session.read.allow, new Set([selectorKey(tree("/tmp"))]));
-  assert.deepEqual(always.read.deny, new Set());
+  assert.deepEqual(always.read.deny, new Map());
 });
 
 test("deny rules win over allows and defaults", () => {
@@ -132,7 +132,7 @@ test("deny rules win over allows and defaults", () => {
   const always = emptyRules();
   const session = emptyRules();
   always.read.allow.add(selectorKey(tree("/repo")));
-  session.read.deny.add(selectorKey(tree("/repo/private")));
+  session.read.deny.set(selectorKey(tree("/repo/private")), undefined);
 
   // act
   const verdict = evaluate("/repo/private/key.txt", "read", {
@@ -343,7 +343,7 @@ test("an explicit allow beats protection and a deny beats both", () => {
   const allowing = emptyRules();
   allowing.write.allow.add(selectorKey(tree("/repo/pi/extensions")));
   const denying = emptyRules();
-  denying.write.deny.add(selectorKey(tree("/repo/pi/extensions")));
+  denying.write.deny.set(selectorKey(tree("/repo/pi/extensions")), undefined);
   const protectedSelectors = [tree("/repo/pi/extensions")];
 
   // act
@@ -489,6 +489,20 @@ test("a child path policy with malformed rules is rejected", () => {
   assert.equal(globWithoutPattern, null);
 });
 
+test("a child keeps the deny notes of its parent's session rules", () => {
+  // arrange
+  const session = emptyRules();
+  recordRule({ mode: "read", kind: "deny", tier: "session", selector: tree("/repo/private"), note: "keys inside" }, { session, always: emptyRules() });
+  const encoded = serializeChildPathPolicy({ version: 1, session: serializeRules(session), readDefaults: [], writeDefaults: [] });
+
+  // act
+  const policy = parseChildPathPolicy(encoded);
+  const rules = inheritedRules(policy!);
+
+  // assert
+  assert.equal(rules.read.deny.get(selectorKey(tree("/repo/private"))), "keys inside");
+});
+
 test("a child path policy with absolute selectors parses", () => {
   // arrange
   const policy = { version: 1, session: serializeRules(emptyRules()), readDefaults: [{ kind: "tree", path: "/abs" }], writeDefaults: [] };
@@ -503,8 +517,8 @@ test("a child path policy with absolute selectors parses", () => {
 test("session grants list read before write and allow before deny with readable targets", () => {
   // arrange
   const rules = emptyRules();
-  rules.write.deny.add(selectorKey(exact("/b")));
-  rules.read.deny.add(selectorKey(glob("/c", "*.md")));
+  rules.write.deny.set(selectorKey(exact("/b")), undefined);
+  rules.read.deny.set(selectorKey(glob("/c", "*.md")), undefined);
   rules.read.allow.add(selectorKey(tree("/a")));
 
   // act

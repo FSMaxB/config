@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { covers, coveredProtectedSelectors, defaultAllowed, emptyRules, emptyStoredRules, evaluate, exact, glob, matchesRule, parseStoredRules, readOnlyRepositoryNotice, recordRule, selectorFromKey, selectorKey, selectorLabel, serializeRules, serializeStoredRules, sessionGrantsFromRules, tree, type AccessMode, type PathSelector, type PathRule, type RuleSets, type RuleTier, type SerializedStoredRules, type StoredRules, type Verdict } from "./path-permission-rules.ts";
+import { covers, coveredProtectedSelectors, defaultAllowed, denyNote, emptyRules, emptyStoredRules, EntryKind, evaluate, exact, glob, matchesRule, narrowerSelectors, parseStoredRules, readOnlyRepositoryNotice, recordRule, selectorFromKey, selectorKey, selectorLabel, serializeRules, serializeStoredRules, sessionGrantsFromRules, tree, type AccessMode, type PathSelector, type PathRule, type RuleSets, type RuleTier, type SerializedStoredRules, type StoredRules } from "./path-permission-rules.ts";
 import { AgentMode, type PathRuleStore, storeForMode } from "./agent-mode.ts";
 import { expandHome } from "./path-resolution.ts";
 import { readStoredRules, transaction } from "./path-rule-store.ts";
@@ -11,7 +11,8 @@ import { contains, findRepoRoot, isVcsInternal, memoryDirectory, resolveThroughS
 import { latestCustomData } from "./session-entries.ts";
 import { serialize } from "./ui-queue.ts";
 import { inheritedRules, parseChildPathPolicy, type ChildPathPolicy } from "./path-permission-snapshot.ts";
-import { ALLOW_ALWAYS, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWAYS, DENY_ONCE, DENY_SESSION } from "./permission-choices.ts";
+import { ALL_DURATIONS, askPermission, Duration, userReason, type ScopeChoice } from "./permission-prompt.ts";
+import { permissionUI } from "./permission-ui.ts";
 import { announceSessionGrantsChanged, type SessionGrant } from "./session-grants.ts";
 export { ALLOW_ALWAYS, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWAYS, DENY_ONCE, DENY_SESSION } from "./permission-choices.ts";
 const RULES_FILE = join(getAgentDir(), "path-permissions.json");
@@ -57,7 +58,7 @@ export async function authorizeRoot(target: string, mode: AccessMode, context: E
   const checkedPaths = [...new Set([resolved, operationPath])];
   for (const path of checkedPaths) assertWritablePath(path, mode);
   const layers = await effectiveLayers(mode);
-  for (const path of checkedPaths) if (evaluate(path, mode, layers) === "deny") throw deniedError(path, mode);
+  for (const path of checkedPaths) if (evaluate(path, mode, layers) === "deny") throw deniedError(path, mode, denyNote(path, mode, layers));
   for (const path of checkedPaths) await ensureAllowed(path, mode, context, layers);
   const { defaults, session, always, protected: protectedSelectors } = layers;
   return { operationPath, checkedPaths, mode, context, defaults, session, always, protected: protectedSelectors };
@@ -75,32 +76,36 @@ export async function currentPolicy(onceGrants: OnceGrant[] = []): Promise<Effec
 // Used by the sandbox after a command was denied. "Allow once" records nothing: the sandbox reruns the command with the returned grant.
 export async function grantPathAccess(path: string, mode: AccessMode, context: ExtensionContext): Promise<PathAccessOutcome> {
   const resolved = await resolveThroughSymlinks(path);
-  const verdict = async () => evaluate(resolved, mode, await effectiveLayers(mode));
-  const settled = (current: Verdict): PathAccessOutcome | undefined =>
-    current === "prompt" ? undefined : current === "allow" ? { kind: "allowed" } : { kind: "denied" };
-  const immediate = settled(await verdict());
+  const settled = async (): Promise<PathAccessOutcome | undefined> => {
+    const layers = await effectiveLayers(mode);
+    const verdict = evaluate(resolved, mode, layers);
+    if (verdict === "prompt") return undefined;
+    return verdict === "allow" ? { kind: "allowed" } : { kind: "denied", note: denyNote(resolved, mode, layers) };
+  };
+  const immediate = await settled();
   if (immediate) return immediate;
   return await serialize(async () => {
-    const latest = settled(await verdict());
+    const latest = await settled();
     if (latest) return latest;
     const { protected: protectedSelectors } = await effectiveLayers(mode);
     try {
-      const grant = await requestAccess(resolved, mode, context, protectedSelectors);
-      return grant.kind === "once" ? { kind: "allowed-once", grant: { mode, selector: grant.selector } } : { kind: "allowed" };
+      const answer = await requestAccess(resolved, mode, context, protectedSelectors);
+      if (answer.kind === "once") return { kind: "allowed-once", grant: { mode, selector: answer.selector } };
+      return answer.kind === "rule" ? { kind: "allowed" } : { kind: "denied", note: answer.note };
     } catch {
-      return { kind: "denied" };
+      return { kind: "denied", note: undefined };
     }
   });
 }
 
 export interface OnceGrant { mode: AccessMode; selector: PathSelector }
-export type PathAccessOutcome = { kind: "allowed" } | { kind: "allowed-once"; grant: OnceGrant } | { kind: "denied" };
+export type PathAccessOutcome = { kind: "allowed" } | { kind: "allowed-once"; grant: OnceGrant } | { kind: "denied"; note: string | undefined };
 
 async function modePolicy(mode: AccessMode, onceGrants: OnceGrant[]): Promise<ModePolicy> {
   const { defaults, always, session, protected: protectedSelectors } = await effectiveLayers(mode);
   const onceAllow = onceGrants.filter((grant) => grant.mode === mode).map(({ selector }) => selector);
   const explicitAllow = [...[...always[mode].allow, ...session[mode].allow].map(selectorFromKey), ...onceAllow];
-  const deny = [...always[mode].deny, ...session[mode].deny].map(selectorFromKey);
+  const deny = [...always[mode].deny.keys(), ...session[mode].deny.keys()].map(selectorFromKey);
   const uncovered = protectedSelectors.filter((target) => !explicitAllow.some((grant) => covers(grant, target)));
   return { allow: [...defaults, ...explicitAllow], deny, protected: uncovered };
 }
@@ -125,37 +130,58 @@ async function protectedWritePaths(): Promise<PathSelector[]> {
 
 async function ensureAllowed(path: string, mode: AccessMode, context: ExtensionContext, layers: Awaited<ReturnType<typeof effectiveLayers>>): Promise<void> {
   const verdict = evaluate(path, mode, layers);
-  if (verdict === "deny") throw deniedError(path, mode);
+  if (verdict === "deny") throw deniedError(path, mode, denyNote(path, mode, layers));
   if (verdict === "allow") return;
   await serialize(async () => {
     // A prompt answered while this call waited in the queue may already cover the path.
     const latest = await effectiveLayers(mode);
     const latestVerdict = evaluate(path, mode, latest);
-    if (latestVerdict === "deny") throw deniedError(path, mode);
+    if (latestVerdict === "deny") throw deniedError(path, mode, denyNote(path, mode, latest));
     if (latestVerdict === "allow") return;
-    await requestAccess(path, mode, context, latest.protected);
+    const answer = await requestAccess(path, mode, context, latest.protected);
+    if (answer.kind === "denied") throw deniedError(path, mode, answer.note);
   });
 }
 
-async function requestAccess(resolved: string, mode: AccessMode, context: ExtensionContext, protectedSelectors: PathSelector[] = []): Promise<AccessGrant> {
+async function requestAccess(resolved: string, mode: AccessMode, context: ExtensionContext, protectedSelectors: PathSelector[] = []): Promise<AccessAnswer> {
   if (!context.hasUI) throw new Error(`${resolved} is not covered by the ${mode} path rules and there is no interactive UI to ask. Stay inside the repository.${readOnlyRepositoryNotice(mode, currentAgentMode())}`);
   // A protected path is granted as its own protected root, so approving one extension file does not open the whole repository.
   const protectedMatch = protectedSelectors.find((candidate) => matchesRule(resolved, candidate));
   const selector = protectedMatch ?? tree(await grantRootFor(resolved));
-  const label = selectorLabel(selector), verb = mode === "read" ? "Read" : "Write";
+  const verb = mode === "read" ? "Read" : "Write";
+  const subject = `${mode} access to ${selectorLabel(selector)}`;
   const covered = coveredProtectedSelectors(selector, protectedSelectors).filter((target) => target !== protectedMatch);
   const warning = covered.length === 0 ? "" :
     `\n  Warning: this also grants ${mode} access to protected paths:\n${covered.map((target) => `  - ${selectorLabel(target)}`).join("\n")}`;
-  const choice = await context.ui.select(`${verb} ${resolved}?\n\n  Allowing grants ${mode} access to ${label}\n  Denying blocks ${mode} access to ${label}${warning}`, [ALLOW_ONCE, ALLOW_SESSION, ALLOW_ALWAYS, DENY_ONCE, DENY_SESSION, DENY_ALWAYS]);
-  if (choice === ALLOW_ONCE) return { kind: "once", selector };
-  if (choice === ALLOW_SESSION) { await addPathRule({ mode, kind: "allow", tier: "session", selector }); return { kind: "rule" }; }
-  if (choice === ALLOW_ALWAYS) { await addPathRule({ mode, kind: "allow", tier: "always", selector }); return { kind: "rule" }; }
-  if (choice === DENY_SESSION) { await addPathRule({ mode, kind: "deny", tier: "session", selector }); throw deniedError(resolved, mode); }
-  if (choice === DENY_ALWAYS) { await addPathRule({ mode, kind: "deny", tier: "always", selector }); throw deniedError(resolved, mode); }
-  throw deniedError(resolved, mode);
+  const answer = await askPermission(permissionUI(context.ui), {
+    title: `${verb} ${resolved}?\n\n  Allowing grants ${subject}\n  Denying blocks ${subject}${warning}`,
+    subject,
+    scope: selector,
+    narrower: await narrowerScopes(resolved, selector, mode, protectedSelectors),
+    durations: ALL_DURATIONS,
+  });
+  if (answer.decision === "deny") {
+    // A deny always uses the default selector, as the prompt promises; only allows can be narrowed.
+    if (answer.duration !== Duration.Once) await addPathRule({ mode, kind: "deny", tier: answer.duration, selector, note: answer.note });
+    return { kind: "denied", note: answer.note };
+  }
+  if (answer.duration === Duration.Once) return { kind: "once", selector: answer.scope };
+  await addPathRule({ mode, kind: "allow", tier: answer.duration, selector: answer.scope });
+  return { kind: "rule" };
 }
 
-type AccessGrant = { kind: "once"; selector: PathSelector } | { kind: "rule" };
+type AccessAnswer = { kind: "once"; selector: PathSelector } | { kind: "rule" } | { kind: "denied"; note: string | undefined };
+
+async function narrowerScopes(resolved: string, broad: PathSelector, mode: AccessMode, protectedSelectors: PathSelector[]): Promise<ScopeChoice<PathSelector>[]> {
+  const stats = await stat(resolved).catch(() => undefined);
+  const entry = stats?.isDirectory() ? EntryKind.Directory : EntryKind.File;
+  return narrowerSelectors(resolved, entry, broad).map((candidate) => ({ label: scopeLabel(candidate, mode, protectedSelectors), scope: candidate }));
+}
+
+function scopeLabel(selector: PathSelector, mode: AccessMode, protectedSelectors: PathSelector[]): string {
+  const warning = coveredProtectedSelectors(selector, protectedSelectors).length > 0 ? " (also covers protected paths)" : "";
+  return `${mode} access to ${selectorLabel(selector)}${warning}`;
+}
 
 async function grantRootFor(path: string): Promise<string> { const stats = await stat(path).catch(() => undefined); return findRepoRoot(stats?.isDirectory() ? path : dirname(path)); }
 async function currentDefaults(mode: AccessMode): Promise<ReturnType<typeof defaultAllowed>> {
@@ -187,7 +213,7 @@ async function resolvedSkillRoots(repoRoot: string): Promise<string[]> {
 }
 function anchorTarget(target: string, cwd: string): string { const expanded = expandHome(target); return isAbsolute(expanded) ? expanded : resolve(cwd, expanded); }
 function assertWritablePath(path: string, mode: AccessMode): void { if (mode === "write" && isVcsInternal(path)) throw new Error(`${path} is inside a version control directory. Reading and searching .git and .jj is fine, but writing to them is not.`); }
-function deniedError(path: string, mode: AccessMode): Error { return new Error(`${path} is denied for ${mode} access by the path rules. Do not retry this path and do not route around it with a different tool.${readOnlyRepositoryNotice(mode, currentAgentMode())}`); }
+function deniedError(path: string, mode: AccessMode, note: string | undefined): Error { return new Error(`${path} is denied for ${mode} access by the path rules.${userReason(note)} Do not retry this path and do not route around it with a different tool.${readOnlyRepositoryNotice(mode, currentAgentMode())}`); }
 
 export async function removePathRule(rule: PathRule, store: PathRuleStore = activePathRuleStore()): Promise<void> {
   const { selector } = rule;
@@ -214,7 +240,7 @@ export async function listPathRules(store: PathRuleStore = activePathRuleStore()
   return tiers.flatMap(([tier, sets]) =>
     (["read", "write"] as const).flatMap((mode) =>
       (["allow", "deny"] as const).flatMap((kind) =>
-        [...sets[mode][kind]].sort().map((key) => ({ mode, kind, tier, selector: selectorFromKey(key) })),
+        [...sets[mode][kind].keys()].sort().map((key) => ({ mode, kind, tier, selector: selectorFromKey(key), note: kind === "deny" ? sets[mode].deny.get(key) : undefined })),
       ),
     ),
   );
@@ -234,8 +260,8 @@ function mergeInheritedSession(session: RuleSets, inherited: ChildPathPolicy | n
   if (!inherited) return session;
   const parent = inheritedRules(inherited);
   return {
-    read: { allow: new Set([...parent.read.allow, ...session.read.allow]), deny: new Set([...parent.read.deny, ...session.read.deny]) },
-    write: { allow: new Set([...parent.write.allow, ...session.write.allow]), deny: new Set([...parent.write.deny, ...session.write.deny]) },
+    read: { allow: new Set([...parent.read.allow, ...session.read.allow]), deny: new Map([...parent.read.deny, ...session.read.deny]) },
+    write: { allow: new Set([...parent.write.allow, ...session.write.allow]), deny: new Map([...parent.write.deny, ...session.write.deny]) },
   };
 }
 

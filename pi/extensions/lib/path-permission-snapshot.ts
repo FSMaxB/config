@@ -31,6 +31,9 @@ export function parseChildPathPolicy(value: string | undefined): ChildPathPolicy
 }
 export function inheritedRules(policy: ChildPathPolicy): RuleSets {
   const rules = emptyRules();
-  for (const mode of ["read", "write"] as const) for (const kind of ["allow", "deny"] as const) for (const selector of policy.session[mode][kind]) rules[mode][kind].add(selectorKey(selector));
+  for (const mode of ["read", "write"] as const) {
+    for (const selector of policy.session[mode].allow) rules[mode].allow.add(selectorKey(selector));
+    for (const entry of policy.session[mode].deny) rules[mode].deny.set(selectorKey(entry), entry.note);
+  }
   return rules;
 }

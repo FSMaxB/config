@@ -2,6 +2,7 @@ import type { FilesystemConfig } from "@anthropic-ai/sandbox-runtime";
 import type { AgentMode } from "../../lib/agent-mode.ts";
 import { readOnlyRepositoryNotice, type AccessMode } from "../../lib/path-permission-rules.ts";
 import type { OnceGrant } from "../../lib/path-permissions.ts";
+import { userReason } from "../../lib/permission-prompt.ts";
 import { discardedWrites, type PathViolation } from "./violations.ts";
 
 export type ViolationOutcome =
@@ -10,7 +11,7 @@ export type ViolationOutcome =
   | { kind: "not-asked"; mode: AccessMode; path: string }
   | { kind: "allowed"; mode: AccessMode; path: string }
   | { kind: "allowed-once"; mode: AccessMode; path: string; grant: OnceGrant }
-  | { kind: "denied"; mode: AccessMode; path: string };
+  | { kind: "denied"; mode: AccessMode; path: string; note: string | undefined };
 
 export type NextStep = { kind: "rerun"; grants: OnceGrant[] } | { kind: "return" };
 
@@ -43,7 +44,7 @@ function outcomeLine(outcome: ViolationOutcome, step: NextStep, agentMode: Agent
     case "allowed-once": return step.kind === "rerun"
       ? `${mode} access to ${path} was allowed for one rerun.`
       : `${mode} access to ${path} was allowed once, but the command was not rerun because other paths are still blocked.`;
-    case "denied": return `${mode} access to ${path} was denied; do not retry it.${notice}`;
+    case "denied": return `${mode} access to ${path} was denied; do not retry it.${userReason(outcome.note)}${notice}`;
   }
 }
 

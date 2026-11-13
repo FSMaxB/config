@@ -64,7 +64,7 @@ export async function addPathRuleInteractively(
 
 export function pathRuleEntries(rules: PathRule[], store: PathRuleStore): DecisionEntry[] {
   return rules.map((rule) => ({
-    label: `${rule.mode} ${rule.kind} ${selectorLabel(rule.selector)} — path (${rule.tier})`,
+    label: `${rule.mode} ${rule.kind} ${selectorLabel(rule.selector)} — path (${rule.tier})${rule.note ? `: ${rule.note}` : ""}`,
     remove: () => removePathRule(rule, store),
   }));
 }

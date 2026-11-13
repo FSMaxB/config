@@ -20,7 +20,7 @@ test("reruns with the once grants when every denied path was granted", () => {
 
 test("does not rerun when another path was denied", () => {
   // arrange
-  const outcomes: ViolationOutcome[] = [allowedOnce, { kind: "denied", mode: "write", path: "/repo/b" }];
+  const outcomes: ViolationOutcome[] = [allowedOnce, { kind: "denied", mode: "write", path: "/repo/b", note: undefined }];
 
   // act
   const step = nextStep(outcomes);
@@ -62,6 +62,17 @@ test("the rerun report announces the rerun output", () => {
   assert.ok(report.includes("was allowed for one rerun."));
   assert.ok(report.endsWith("the rerun's output follows.\n"));
   assert.ok(!report.includes("rerun the command."));
+});
+
+test("a denied path with a note repeats the user's reason", () => {
+  // arrange
+  const outcomes: ViolationOutcome[] = [{ kind: "denied", mode: "read", path: "/repo/private/key", note: "keys inside" }];
+
+  // act
+  const report = violationReport(outcomes, { kind: "return" }, AgentMode.Execution);
+
+  // assert
+  assert.ok(report.includes("read access to /repo/private/key was denied; do not retry it. The user's reason: keys inside"));
 });
 
 test("a persistent grant alone tells the agent to rerun", () => {

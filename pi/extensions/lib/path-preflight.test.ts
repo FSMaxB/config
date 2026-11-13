@@ -35,7 +35,7 @@ test("a denied real descendant fails the preflight and is named in the error", a
   await mkdir(denied, { recursive: true });
   await writeFile(join(denied, "key.txt"), "secret\n");
   const session = emptyRules();
-  session.read.deny.add(selectorKey(tree(denied)));
+  session.read.deny.set(selectorKey(tree(denied)), undefined);
 
   try {
     // act & assert
@@ -55,7 +55,7 @@ test("a denied directory is reported without fd's trailing slash", async () => {
   const denied = join(root, "src", "private");
   await mkdir(denied, { recursive: true });
   const session = emptyRules();
-  session.read.deny.add(selectorKey(exact(denied)));
+  session.read.deny.set(selectorKey(exact(denied)), undefined);
 
   try {
     // act & assert
@@ -72,7 +72,7 @@ test("the children scope does not descend into subdirectories", async () => {
   const denied = join(root, "src", "private");
   await mkdir(denied, { recursive: true });
   const session = emptyRules();
-  session.read.deny.add(selectorKey(tree(denied)));
+  session.read.deny.set(selectorKey(tree(denied)), undefined);
 
   try {
     // act & assert
@@ -92,7 +92,7 @@ test("gitignored entries are not evaluated", async () => {
   await writeFile(join(root, ".gitignore"), "/build\n");
   await writeFile(join(ignored, "secret.txt"), "generated\n");
   const session = emptyRules();
-  session.read.deny.add(selectorKey(tree(ignored)));
+  session.read.deny.set(selectorKey(tree(ignored)), undefined);
 
   try {
     // act & assert
@@ -111,7 +111,7 @@ test("a .gitignore outside any repository is honored too", async () => {
   await writeFile(join(root, ".gitignore"), "/build\n");
   await writeFile(join(ignored, "secret.txt"), "generated\n");
   const session = emptyRules();
-  session.read.deny.add(selectorKey(tree(ignored)));
+  session.read.deny.set(selectorKey(tree(ignored)), undefined);
 
   try {
     // act & assert
@@ -130,8 +130,8 @@ test("the recursive walk does not descend into version control internals", async
   await mkdir(gitObjects, { recursive: true });
   await mkdir(jjStore, { recursive: true });
   const session = emptyRules();
-  session.read.deny.add(selectorKey(tree(gitObjects)));
-  session.read.deny.add(selectorKey(tree(jjStore)));
+  session.read.deny.set(selectorKey(tree(gitObjects)), undefined);
+  session.read.deny.set(selectorKey(tree(jjStore)), undefined);
 
   try {
     // act & assert
@@ -148,7 +148,7 @@ test("denying a version control directory itself still fails the preflight", asy
   const gitDirectory = join(root, ".git");
   await mkdir(gitDirectory, { recursive: true });
   const session = emptyRules();
-  session.read.deny.add(selectorKey(tree(gitDirectory)));
+  session.read.deny.set(selectorKey(tree(gitDirectory)), undefined);
 
   try {
     // act & assert

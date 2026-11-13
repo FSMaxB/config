@@ -379,7 +379,8 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     if (!mayPrompt) return { kind: "not-asked", mode, path };
     const outcome = await grantPathAccess(path, mode, activeContext);
     if (outcome.kind === "allowed-once") return { kind: "allowed-once", mode, path, grant: outcome.grant };
-    return { kind: outcome.kind, mode, path };
+    if (outcome.kind === "denied") return { kind: "denied", mode, path, note: outcome.note };
+    return { kind: "allowed", mode, path };
   }
 }
 

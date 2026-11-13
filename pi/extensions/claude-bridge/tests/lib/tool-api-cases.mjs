@@ -17,13 +17,19 @@ import { cwdSlug } from "../../../lib/plan-naming.ts";
 
 // The lib modules sit outside this package, so plain Node neither resolves their `@earendil-works/*`
 // imports (pi aliases those through its own loader, which a direct import bypasses) nor loads them as
-// ESM, which the ESM-only pi packages require. Alias the one runtime import to this package's copy
-// and load the lib files as ESM.
-const piCodingAgentEntry = import.meta.resolve("@earendil-works/pi-coding-agent");
+// ESM, which the ESM-only pi packages require. Alias the runtime imports to this package's copies,
+// load the lib files as ESM and resolve every pi package import with the `import` condition: Node 22
+// resolves the imports of a lib file with `require` otherwise, which the ESM-only exports of
+// `@earendil-works/pi-ai` do not define.
+const aliased = new Map(["@earendil-works/pi-coding-agent", "@earendil-works/pi-tui"].map(name => [name, import.meta.resolve(name)]));
 const libDirectory = new URL("../../../lib/", import.meta.url).href;
 registerHooks({
 	resolve(specifier, context, nextResolve) {
-		if (specifier === "@earendil-works/pi-coding-agent") return { url: piCodingAgentEntry, shortCircuit: true };
+		const aliasedUrl = aliased.get(specifier);
+		if (aliasedUrl) return { url: aliasedUrl, shortCircuit: true };
+		if (specifier.startsWith("@earendil-works/")) {
+			return nextResolve(specifier, { ...context, conditions: ["import", ...context.conditions.filter(condition => condition !== "require")] });
+		}
 		const resolved = nextResolve(specifier, context);
 		if (resolved.url.startsWith(libDirectory) && resolved.url.endsWith(".ts")) return { ...resolved, format: "module" };
 		return resolved;
