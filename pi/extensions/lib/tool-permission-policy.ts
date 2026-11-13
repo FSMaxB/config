@@ -1,5 +1,6 @@
 import { realpathSync } from "node:fs";
 import type { ToolInfo } from "@earendil-works/pi-coding-agent";
+import type { SessionGrant } from "./session-grants.ts";
 
 export function planToolPermission(
   name: string,
@@ -37,6 +38,13 @@ export function isTrustedReadOnlyRegistration(
 ): boolean {
   return tool.readOnlyHint === true && tool.ownerPath !== undefined &&
     owners.get(tool.ownerPath)?.has(tool.name) === true;
+}
+
+export function toolDecisionGrants(grants: Iterable<string>, denials: Iterable<string>): SessionGrant[] {
+  return [
+    ...[...grants].sort().map((name) => ({ kind: "tool", decision: "allow", name }) as const),
+    ...[...denials].sort().map((name) => ({ kind: "tool", decision: "deny", name }) as const),
+  ];
 }
 
 function hasName(names: Iterable<string>, name: string): boolean {

@@ -41,7 +41,8 @@ import { plansDirectory } from "./plan-file.ts";
 import { PLAN_TOOLS } from "./plan-tools.ts";
 import { isSandboxActive } from "./sandbox-state.ts";
 import { serialize } from "./ui-queue.ts";
-import { planToolPermission, trustedReadOnlyToolNames, type ToolPermission } from "./tool-permission-policy.ts";
+import { announceSessionGrantsChanged, provideSessionGrants, type SessionGrant } from "./session-grants.ts";
+import { planToolPermission, toolDecisionGrants, trustedReadOnlyToolNames, type ToolPermission } from "./tool-permission-policy.ts";
 
 export interface ModeDefinition {
   identity: ModeIdentity;
@@ -165,6 +166,8 @@ class Engine {
       projection: (context) => context.sessionManager.buildSessionProjection().messages,
       prepare: (context) => this.flushPendingToggle(context),
     });
+    // activeStores() is empty outside the restricted modes, so execution mode shows no tool decisions.
+    provideSessionGrants(pi.events, () => this.sessionToolGrants());
     this.wire();
   }
 
@@ -199,6 +202,7 @@ class Engine {
     // Every switch records each mode, so the branch always says which one is enabled.
     for (const mode of RESTRICTED_MODES) this.persist(mode);
     this.messages.announce(context);
+    announceSessionGrantsChanged(this.pi.events);
   }
 
   flushPendingToggle(context: ExtensionContext): void {
@@ -270,6 +274,11 @@ class Engine {
 
   private activeStores(): DecisionStores {
     return isRestricted(this.mode) ? this.decisions[this.mode] : emptyStores();
+  }
+
+  private sessionToolGrants(): SessionGrant[] {
+    const { sessionGrants, sessionDenials } = this.activeStores();
+    return toolDecisionGrants(sessionGrants, sessionDenials.keys());
   }
 
   private gate(toolName: string, interaction: Interaction) {
@@ -346,6 +355,7 @@ class Engine {
       context.ui.notify(`${MODE_IDENTITIES[mode].label} decision applies to this session only, it was not saved: ${error.message}`, "error");
     });
     this.messages.announce(context);
+    announceSessionGrantsChanged(this.pi.events);
   }
 
   private persist(mode: RestrictedMode): void {
@@ -409,6 +419,7 @@ class Engine {
   private applyRestoredState(context: ExtensionContext): void {
     setAgentMode(this.mode);
     this.refreshIndicators(context);
+    announceSessionGrantsChanged(this.pi.events);
   }
 
   private async manageDecisions(identity: ModeIdentity, context: ExtensionContext): Promise<void> {

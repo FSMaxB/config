@@ -1,3 +1,4 @@
+import type { SessionGrant } from "../../lib/session-grants.ts";
 import type { Settings } from "./settings.ts";
 
 export const NETWORK_ENTRY_TYPE = "network-permissions";
@@ -38,6 +39,13 @@ export function parseGrants(value: unknown): NetworkGrants {
   if (typeof value !== "object" || value === null) return emptyGrants();
   const { allow, deny } = value as { allow?: unknown; deny?: unknown };
   return { allow: new Set(strings(allow)), deny: new Set(strings(deny)) };
+}
+
+export function networkSessionGrants(grants: NetworkGrants): SessionGrant[] {
+  return [
+    ...[...grants.allow].sort().map((host) => ({ kind: "network", decision: "allow", host }) as const),
+    ...[...grants.deny].sort().map((host) => ({ kind: "network", decision: "deny", host }) as const),
+  ];
 }
 
 // The latest decision for a host wins, so granting one side revokes the other.

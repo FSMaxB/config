@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { effectiveNetwork, emptyGrants, networkConfig, recordGrant, recordOnceGrant, releaseOnceGrants, rememberedDecision, type OnceNetworkGrants } from "./network-grants.ts";
+import { effectiveNetwork, emptyGrants, networkConfig, networkSessionGrants, recordGrant, recordOnceGrant, releaseOnceGrants, rememberedDecision, type OnceNetworkGrants } from "./network-grants.ts";
 import type { Settings } from "./settings.ts";
 
 const settings: Settings = {
@@ -80,4 +80,22 @@ test("a once-answer is held until the last command that was running exits", () =
   // assert
   assert.equal(afterFirst, "allow");
   assert.equal(afterLast, undefined);
+});
+
+test("network session grants list sorted allowed hosts before denied ones", () => {
+  // arrange
+  const grants = emptyGrants();
+  recordGrant(grants, "allow", "b.example");
+  recordGrant(grants, "allow", "a.example");
+  recordGrant(grants, "deny", "c.example");
+
+  // act
+  const result = networkSessionGrants(grants);
+
+  // assert
+  assert.deepEqual(result, [
+    { kind: "network", decision: "allow", host: "a.example" },
+    { kind: "network", decision: "allow", host: "b.example" },
+    { kind: "network", decision: "deny", host: "c.example" },
+  ]);
 });

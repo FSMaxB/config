@@ -23,6 +23,7 @@ import {
   selectorLabel,
   serializeRules,
   serializeStoredRules,
+  sessionGrantsFromRules,
   tree,
 } from "./path-permission-rules.ts";
 
@@ -497,4 +498,22 @@ test("a child path policy with absolute selectors parses", () => {
 
   // assert
   assert.equal(parsed?.readDefaults[0]?.path, "/abs");
+});
+
+test("session grants list read before write and allow before deny with readable targets", () => {
+  // arrange
+  const rules = emptyRules();
+  rules.write.deny.add(selectorKey(exact("/b")));
+  rules.read.deny.add(selectorKey(glob("/c", "*.md")));
+  rules.read.allow.add(selectorKey(tree("/a")));
+
+  // act
+  const grants = sessionGrantsFromRules(rules);
+
+  // assert
+  assert.deepEqual(grants, [
+    { kind: "path", decision: "allow", access: "read", target: "/a/**" },
+    { kind: "path", decision: "deny", access: "read", target: "/c/*.md" },
+    { kind: "path", decision: "deny", access: "write", target: "/b" },
+  ]);
 });

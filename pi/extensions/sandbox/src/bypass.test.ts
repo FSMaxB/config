@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { AgentMode } from "../../lib/agent-mode.ts";
 import { ALLOW_ONCE, ALLOW_SESSION, DENY_ONCE, DENY_SESSION } from "../../lib/permission-choices.ts";
-import { bypassOutcome, bypassPrompt, resolveChoice, type BypassSituation } from "./bypass.ts";
+import { bypassOutcome, bypassPrompt, bypassSessionGrants, resolveChoice, type BypassSituation } from "./bypass.ts";
 
 const interactive: BypassSituation = { agentMode: AgentMode.Execution, subagent: false, hasUI: true, sessionDecision: undefined };
 
@@ -92,4 +92,14 @@ test("the prompt shows the end of a long command", () => {
 
   // assert
   assert.match(prompt, /tail-marker-xyz/);
+});
+
+test("an unsandboxed bash session decision is listed as a grant", () => {
+  // act
+  const none = bypassSessionGrants(undefined);
+  const denied = bypassSessionGrants("deny");
+
+  // assert
+  assert.deepEqual(none, []);
+  assert.deepEqual(denied, [{ kind: "unsandboxed", decision: "deny" }]);
 });

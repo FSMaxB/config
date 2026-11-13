@@ -689,7 +689,7 @@ it("an always allow replaces a session deny for the same path", async () => {
 	// The rule state is shared through globalThis, so an earlier test's disposed session leaves a
 	// stale persistSession behind; point it at a no-op so this test's session-tier rule does not
 	// append to a session that no longer exists.
-	initPathPermissions({ appendEntry() {} });
+	initPathPermissions({ appendEntry() {}, events: { emit() {} } });
 	const selector = { kind: "tree", path: join(tmpdir(), "always-replaces-session") };
 	await addPathRule({ mode: "read", kind: "deny", tier: "session", selector });
 	try {

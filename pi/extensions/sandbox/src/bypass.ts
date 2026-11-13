@@ -1,5 +1,6 @@
 import { AgentMode, isRestricted } from "../../lib/agent-mode.ts";
 import { ALLOW_ONCE, ALLOW_SESSION, DENY_ONCE, DENY_SESSION } from "../../lib/permission-choices.ts";
+import type { SessionGrant } from "../../lib/session-grants.ts";
 
 export type SessionDecision = "allow" | "deny";
 
@@ -33,6 +34,10 @@ export function resolveChoice(choice: string | undefined): { authorization: Bypa
     authorization: { kind: "refuse", reason: `The user denied running this command outside the sandbox. ${RETRY_HINT}` },
     remember: choice === DENY_SESSION ? "deny" : undefined,
   };
+}
+
+export function bypassSessionGrants(decision: SessionDecision | undefined): SessionGrant[] {
+  return decision === undefined ? [] : [{ kind: "unsandboxed", decision }];
 }
 
 // The tail matters more than the head here: an unexpected suffix on a long command is where a payload hides.

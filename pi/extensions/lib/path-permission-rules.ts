@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { join, matchesGlob, relative, sep } from "node:path";
 import { AgentMode, isRestricted, PathRuleStore } from "./agent-mode.ts";
 import { contains } from "./repo.ts";
+import type { SessionGrant } from "./session-grants.ts";
 
 
 export type AccessMode = "read" | "write";
@@ -93,6 +94,14 @@ export function parseRules(value: unknown): RuleSets {
   const record = asRecord(value);
   if (record.version !== 2) throw new Error(`Unsupported path permission rules version: ${String(record.version)}`);
   return parseRuleSets(record);
+}
+
+export function sessionGrantsFromRules(rules: RuleSets): SessionGrant[] {
+  return (["read", "write"] as const).flatMap((access) =>
+    (["allow", "deny"] as const).flatMap((decision) =>
+      [...rules[access][decision]].sort().map((key) => ({ kind: "path", decision, access, target: selectorLabel(selectorFromKey(key)) }) as const),
+    ),
+  );
 }
 
 export function matchesRule(resolvedPath: string, selector: PathSelector): boolean {

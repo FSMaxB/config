@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { planToolPermission, trustedReadOnlyToolNames, isTrustedReadOnlyRegistration, type ToolPolicyInfo } from "./tool-permission-policy.ts";
+import { planToolPermission, toolDecisionGrants, trustedReadOnlyToolNames, isTrustedReadOnlyRegistration, type ToolPolicyInfo } from "./tool-permission-policy.ts";
 
 test("only exact local owner/name pairs with read-only hints receive trust", () => {
   // arrange
@@ -82,6 +82,22 @@ test("denials override grants, trusted hints, and special permissions", () => {
     .map(name => planToolPermission(name, decisions, special, trusted));
   // assert
   assert.deepEqual(results, ["allow", "allow", "allow", "allow", "deny", "deny", "approval"]);
+});
+
+test("tool decision grants list sorted allows before sorted denials", () => {
+  // arrange
+  const grants = new Set(["write", "bash"]);
+  const denials = new Map([["fetch_content", "reason"]]);
+
+  // act
+  const result = toolDecisionGrants(grants, denials.keys());
+
+  // assert
+  assert.deepEqual(result, [
+    { kind: "tool", decision: "allow", name: "bash" },
+    { kind: "tool", decision: "allow", name: "write" },
+    { kind: "tool", decision: "deny", name: "fetch_content" },
+  ]);
 });
 
 function tool(name: string, path: string): ToolPolicyInfo {

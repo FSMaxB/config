@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { covers, coveredProtectedSelectors, defaultAllowed, emptyRules, emptyStoredRules, evaluate, exact, glob, matchesRule, parseStoredRules, readOnlyRepositoryNotice, recordRule, selectorFromKey, selectorKey, selectorLabel, serializeRules, serializeStoredRules, tree, type AccessMode, type PathSelector, type PathRule, type RuleSets, type RuleTier, type SerializedStoredRules, type StoredRules, type Verdict } from "./path-permission-rules.ts";
+import { covers, coveredProtectedSelectors, defaultAllowed, emptyRules, emptyStoredRules, evaluate, exact, glob, matchesRule, parseStoredRules, readOnlyRepositoryNotice, recordRule, selectorFromKey, selectorKey, selectorLabel, serializeRules, serializeStoredRules, sessionGrantsFromRules, tree, type AccessMode, type PathSelector, type PathRule, type RuleSets, type RuleTier, type SerializedStoredRules, type StoredRules, type Verdict } from "./path-permission-rules.ts";
 import { AgentMode, type PathRuleStore, storeForMode } from "./agent-mode.ts";
 import { expandHome } from "./path-resolution.ts";
 import { readStoredRules, transaction } from "./path-rule-store.ts";
@@ -12,6 +12,7 @@ import { latestCustomData } from "./session-entries.ts";
 import { serialize } from "./ui-queue.ts";
 import { inheritedRules, parseChildPathPolicy, type ChildPathPolicy } from "./path-permission-snapshot.ts";
 import { ALLOW_ALWAYS, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWAYS, DENY_ONCE, DENY_SESSION } from "./permission-choices.ts";
+import { announceSessionGrantsChanged, type SessionGrant } from "./session-grants.ts";
 export { ALLOW_ALWAYS, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWAYS, DENY_ONCE, DENY_SESSION } from "./permission-choices.ts";
 const RULES_FILE = join(getAgentDir(), "path-permissions.json");
 const RULES_ENTRY_TYPE = "path-permissions";
@@ -24,10 +25,12 @@ export function currentAgentMode(): AgentMode { return state.inherited?.agentMod
 // A subagent is always in execution mode but must enforce the store its parent was using.
 export function activePathRuleStore(): PathRuleStore { return state.inherited?.ruleStore ?? storeForMode(state.agentMode); }
 export function setSessionTemporaryDirectory(path: string): void { state.temporaryDirectory = path; }
-export function initPathPermissions(pi: ExtensionAPI): void { state.persistSession = (snapshot) => pi.appendEntry(RULES_ENTRY_TYPE, snapshot); }
+export function initPathPermissions(pi: ExtensionAPI): void { state.persistSession = (snapshot) => { pi.appendEntry(RULES_ENTRY_TYPE, snapshot); announceSessionGrantsChanged(pi.events); }; }
 export function restoreSessionPathRules(sessionManager: { getEntries(): readonly unknown[] }): void {
   state.sessions = parseSession(latestCustomData(sessionManager, RULES_ENTRY_TYPE));
 }
+// Only the active mode's rules apply. A subagent's inherited rules are left out: subagents have no UI to show them.
+export function activeSessionPathGrants(): SessionGrant[] { return sessionGrantsFromRules(state.sessions[activePathRuleStore()]); }
 
 export const PathResolution = { Follow: "follow", PreserveFinalSymlink: "preserve-final-symlink" } as const;
 export type PathResolution = (typeof PathResolution)[keyof typeof PathResolution];

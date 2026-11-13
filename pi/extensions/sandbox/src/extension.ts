@@ -12,10 +12,11 @@ import { findRepoRoot, resolveThroughSymlinks } from "../../lib/repo.ts";
 import { markSandboxActive } from "../../lib/sandbox-state.ts";
 import { selectWithDefault } from "../../lib/select-with-default.ts";
 import { latestCustomData } from "../../lib/session-entries.ts";
+import { announceSessionGrantsChanged, provideSessionGrants, type SessionGrant } from "../../lib/session-grants.ts";
 import { serialize } from "../../lib/ui-queue.ts";
-import { bypassOutcome, bypassPrompt, resolveChoice, type BypassAuthorization, type SessionDecision } from "./bypass.ts";
+import { bypassOutcome, bypassPrompt, bypassSessionGrants, resolveChoice, type BypassAuthorization, type SessionDecision } from "./bypass.ts";
 import { credentialEnvVars } from "./credentials.ts";
-import { NETWORK_ENTRY_TYPE, emptyGrants, networkConfig, parseGrants, recordGrant, recordOnceGrant, releaseOnceGrants, rememberedDecision, serializeGrants, type NetworkDecision, type NetworkGrants, type OnceNetworkGrants } from "./network-grants.ts";
+import { NETWORK_ENTRY_TYPE, emptyGrants, networkConfig, parseGrants, recordGrant, recordOnceGrant, releaseOnceGrants, rememberedDecision, networkSessionGrants, serializeGrants, type NetworkDecision, type NetworkGrants, type OnceNetworkGrants } from "./network-grants.ts";
 import { filesystemConfig, secretPaths, type PolicyOptions } from "./policy.ts";
 import { exportSessionScratch, withSessionScratch } from "./scratch.ts";
 import { loadSettings, updateDomainLists, type Settings } from "./settings.ts";
@@ -52,6 +53,7 @@ interface Runtime {
   setActiveContext(context: ExtensionContext): void;
   authorizeBypass(command: string, context: ExtensionContext): Promise<BypassAuthorization>;
   restoreGrants(sessionManager: { getEntries(): readonly unknown[] }): void;
+  sessionGrants(): SessionGrant[];
   shutdown(): Promise<void>;
 }
 
@@ -66,6 +68,7 @@ export default function (pi: ExtensionAPI) {
   }
   markSandboxActive();
   const runtime = createRuntime(pi);
+  provideSessionGrants(pi.events, () => runtime.sessionGrants());
   pi.on("session_start", (_event, context) => runtime.restoreGrants(context.sessionManager));
   // srt's proxies and macOS log monitor keep the event loop alive, so without this a `pi -p`
   // subagent child that ran bash never exits.
@@ -163,9 +166,11 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     operations,
     setActiveContext(context) { activeContext = context; },
     authorizeBypass,
+    sessionGrants: () => [...networkSessionGrants(grants), ...bypassSessionGrants(bypassDecision)],
     restoreGrants(sessionManager) {
       grants = parseGrants(latestCustomData(sessionManager, NETWORK_ENTRY_TYPE));
       applyNetwork();
+      announceSessionGrantsChanged(pi.events);
     },
     async shutdown() {
       const pending = initialization;
@@ -307,7 +312,10 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     if (outcome.kind !== "ask") return outcome;
     const choice = await serialize(() => selectWithDefault(context.ui, bypassPrompt(command), outcome.choices, outcome.defaultChoice, "permission"));
     const { authorization, remember } = resolveChoice(choice);
-    if (remember) bypassDecision = remember;
+    if (remember) {
+      bypassDecision = remember;
+      announceSessionGrantsChanged(pi.events);
+    }
     return authorization;
   }
 
@@ -341,6 +349,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     recordGrant(grants, decision, host);
     pi.appendEntry(NETWORK_ENTRY_TYPE, serializeGrants(grants));
     applyNetwork();
+    announceSessionGrantsChanged(pi.events);
   }
 
   async function persistNetwork(decision: NetworkDecision, host: string): Promise<void> {
