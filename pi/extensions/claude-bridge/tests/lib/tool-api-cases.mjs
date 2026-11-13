@@ -908,7 +908,7 @@ async function withCritPlanSession(options, run) {
 		// (the first rendered line inside the border) and the options it offers.
 		custom: async factory => {
 			initTheme();
-			const selector = factory({ terminal: { rows: 40 } }, ui.theme, { matches: () => false }, () => {});
+			const selector = factory({ terminal: { rows: 40, columns: 80 } }, ui.theme, { matches: () => false }, () => {});
 			const title = selector.render(80).map(line => line.trim()).find(line => line && !line.startsWith("─"));
 			const { options: items } = selector;
 			dialogs.push({ title, items });
