@@ -12,11 +12,10 @@ import { permissionUI } from "../../lib/permission-ui.ts";
 import { registerToolWithGuidelines } from "../../lib/register-tool.ts";
 import { findRepoRoot, resolveThroughSymlinks } from "../../lib/repo.ts";
 import { markSandboxActive } from "../../lib/sandbox-state.ts";
-import { selectWithDefault } from "../../lib/select-with-default.ts";
 import { latestCustomData } from "../../lib/session-entries.ts";
 import { announceSessionGrantsChanged, provideSessionGrants, type SessionGrant } from "../../lib/session-grants.ts";
 import { serialize } from "../../lib/ui-queue.ts";
-import { bypassOutcome, bypassPrompt, bypassSessionGrants, resolveChoice, type BypassAuthorization, type SessionDecision } from "./bypass.ts";
+import { BYPASS_DURATIONS, bypassOutcome, bypassPrompt, bypassSessionGrants, resolveAnswer, type BypassAuthorization, type SessionDecision } from "./bypass.ts";
 import { credentialEnvVars } from "./credentials.ts";
 import { NETWORK_ENTRY_TYPE, destinationKey, emptyGrants, networkConfig, networkDenialNote, parseGrants, recordGrant, recordOnceGrant, releaseOnceGrants, rememberedDecision, networkSessionGrants, serializeGrants, type NetworkDecision, type NetworkGrants, type OnceNetworkGrants } from "./network-grants.ts";
 import { filesystemConfig, secretPaths, type PolicyOptions } from "./policy.ts";
@@ -319,8 +318,15 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   async function authorizeBypass(command: string, context: ExtensionContext): Promise<BypassAuthorization> {
     const outcome = bypassOutcome({ agentMode: currentAgentMode(), subagent, hasUI: context.hasUI, sessionDecision: bypassDecision });
     if (outcome.kind !== "ask") return outcome;
-    const choice = await serialize(() => selectWithDefault(context.ui, bypassPrompt(command), outcome.choices, outcome.defaultChoice, "permission"));
-    const { authorization, remember } = resolveChoice(choice);
+    const answer = await serialize(() => askPermission(permissionUI(context.ui), {
+      title: bypassPrompt(command),
+      subject: "unsandboxed commands",
+      scope: command,
+      narrower: [],
+      durations: BYPASS_DURATIONS,
+      preselected: outcome.preselected,
+    }));
+    const { authorization, remember } = resolveAnswer(answer);
     if (remember) {
       bypassDecision = remember;
       announceSessionGrantsChanged(pi.events);

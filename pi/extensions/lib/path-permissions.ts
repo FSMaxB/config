@@ -14,7 +14,6 @@ import { inheritedRules, parseChildPathPolicy, type ChildPathPolicy } from "./pa
 import { ALL_DURATIONS, askPermission, Duration, userReason, type ScopeChoice } from "./permission-prompt.ts";
 import { permissionUI } from "./permission-ui.ts";
 import { announceSessionGrantsChanged, type SessionGrant } from "./session-grants.ts";
-export { ALLOW_ALWAYS, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWAYS, DENY_ONCE, DENY_SESSION } from "./permission-choices.ts";
 const RULES_FILE = join(getAgentDir(), "path-permissions.json");
 const RULES_ENTRY_TYPE = "path-permissions";
 interface SharedState { sessions: StoredRules; agentMode: AgentMode; temporaryDirectory?: string; inherited?: ChildPathPolicy | null; persistSession?: (snapshot: SerializedStoredRules) => void }
