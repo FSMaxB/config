@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ALLOW_NARROWER, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWAYS, DENY_ONCE, DENY_SESSION, DENY_WITH_REASON } from "./permission-choices.ts";
+import { addToProfileLabel, ALLOW_NARROWER, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWAYS, DENY_ONCE, DENY_SESSION, DENY_WITH_REASON, profileDestinations } from "./permission-choices.ts";
 import { ALL_DURATIONS, askPermission, Duration, userReason, type PermissionRequest, type PermissionUI } from "./permission-prompt.ts";
 
 interface SelectCall { title: string; options: string[]; preselected: string | undefined }
@@ -154,4 +154,56 @@ test("userReason is empty without a note", () => {
   // assert
   assert.equal(text, "");
   assert.equal(userReason("use https"), " The user's reason: use https");
+});
+
+test("a destination in the main menu answers allow-to with the default scope", async () => {
+  // arrange
+  const destinations = profileDestinations(["bazel", "other"]);
+  const ui = scriptedUI([addToProfileLabel("bazel")]);
+
+  // act
+  const answer = await askPermission(ui, request({ destinations, narrower: [{ label: "the file", scope: "file" }] }));
+
+  // assert
+  assert.deepEqual(answer, { decision: "allow-to", destination: "bazel", scope: "broad" });
+  const { options } = ui.selects[0];
+  assert.deepEqual(options.slice(options.indexOf(ALLOW_ONCE), options.indexOf(DENY_ONCE)), [ALLOW_ONCE, ALLOW_SESSION, "Allow always", addToProfileLabel("bazel"), addToProfileLabel("other"), ALLOW_NARROWER]);
+});
+
+test("a destination after allow narrower answers allow-to with the narrower scope", async () => {
+  // arrange
+  const destinations = profileDestinations(["bazel"]);
+  const narrower = [{ label: "the file", scope: "file" }];
+  const ui = scriptedUI([ALLOW_NARROWER, addToProfileLabel("bazel")]);
+
+  // act
+  const answer = await askPermission(ui, request({ destinations, narrower }));
+
+  // assert
+  assert.deepEqual(answer, { decision: "allow-to", destination: "bazel", scope: "file" });
+  assert.deepEqual(ui.selects[1].options, ["Once", "This session", "Always", addToProfileLabel("bazel")]);
+});
+
+test("a duration after allow narrower still works when destinations exist", async () => {
+  // arrange
+  const destinations = profileDestinations(["bazel"]);
+  const narrower = [{ label: "the file", scope: "file" }];
+  const ui = scriptedUI([ALLOW_NARROWER, "This session"]);
+
+  // act
+  const answer = await askPermission(ui, request({ destinations, narrower }));
+
+  // assert
+  assert.deepEqual(answer, { decision: "allow", duration: Duration.Session, scope: "file" });
+});
+
+test("no destination options appear when none are passed", async () => {
+  // arrange
+  const ui = scriptedUI([undefined]);
+
+  // act
+  await askPermission(ui, request());
+
+  // assert
+  assert.ok(!ui.selects[0].options.some((option) => option.startsWith("Add to profile")));
 });
