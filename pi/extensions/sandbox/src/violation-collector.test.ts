@@ -80,6 +80,53 @@ test("a violation added after the store was cleared is still collected", () => {
   collector.stop();
 });
 
+test("a violation tagged with an adopted id also reaches the adopting command", () => {
+  // arrange
+  const store = new SandboxViolationStore();
+  const collector = startViolationCollector("linux", store);
+  collector.track("server-starter");
+  collector.release("server-starter");
+  collector.track("later", ["server-starter"]);
+
+  // act
+  addViolation(store, "server-starter", "file-write-create /tmp/from-server");
+
+  // assert
+  assert.deepEqual(collector.violationsFor("later"), [{ line: "file-write-create /tmp/from-server" }]);
+  collector.stop();
+});
+
+test("a violation is delivered once to a command that owns and adopts the same id", () => {
+  // arrange
+  const store = new SandboxViolationStore();
+  const collector = startViolationCollector("linux", store);
+  collector.track("self", ["other"]);
+
+  // act
+  addViolation(store, "other", "file-write-create /tmp/a");
+  addViolation(store, "self", "file-write-create /tmp/b");
+
+  // assert
+  assert.deepEqual(collector.violationsFor("self").map(({ line }) => line), ["file-write-create /tmp/a", "file-write-create /tmp/b"]);
+  collector.stop();
+});
+
+test("releasing an adopting command clears its adoptions", () => {
+  // arrange
+  const store = new SandboxViolationStore();
+  const collector = startViolationCollector("linux", store);
+  collector.track("later", ["server-starter"]);
+  collector.release("later");
+  collector.track("later", []);
+
+  // act
+  addViolation(store, "server-starter", "file-write-create /tmp/x");
+
+  // assert
+  assert.deepEqual(collector.violationsFor("later"), []);
+  collector.stop();
+});
+
 function addViolation(store: SandboxViolationStore, commandId: string, line: string): void {
   store.addViolation({ line, command: commandId, encodedCommand: Buffer.from(commandId).toString("base64"), timestamp: new Date() });
 }

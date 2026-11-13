@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import type { SandboxViolationStore } from "@anthropic-ai/sandbox-runtime";
-import { INITIAL_LOG_STREAM_STATE, parseLogStreamChunk } from "./log-stream.ts";
+import { INITIAL_LOG_STREAM_STATE, parseLogStreamChunk, SRT_VIOLATIONS } from "./log-stream.ts";
 import type { PolicyOptions } from "./policy.ts";
 
 export interface CollectedViolation {
@@ -9,8 +9,10 @@ export interface CollectedViolation {
 
 // Keeps every violation of the commands being tracked. srt's own store is a 100-entry ring shared by all commands,
 // and its macOS monitor keeps only the first violation of each `log stream` chunk.
+// A long-lived child, such as a bazel server, keeps the tag of the command that started it. A command that adopts
+// that command's id receives the child's violations too.
 export interface ViolationCollector {
-  track(commandId: string): void;
+  track(commandId: string, adoptedCommandIds?: readonly string[]): void;
   violationsFor(commandId: string): CollectedViolation[];
   release(commandId: string): void;
   stop(): void;
@@ -18,15 +20,31 @@ export interface ViolationCollector {
 
 export function startViolationCollector(platform: PolicyOptions["platform"], store: SandboxViolationStore): ViolationCollector {
   const byCommand = new Map<string, CollectedViolation[]>();
+  // adopted command id → the command ids that also receive its violations
+  const adopters = new Map<string, Set<string>>();
   const record: RecordViolation = (encodedCommand, line) => {
     if (encodedCommand === undefined) return;
-    byCommand.get(decodeCommandKey(encodedCommand))?.push({ line });
+    const commandId = decodeCommandKey(encodedCommand);
+    for (const owner of [commandId, ...(adopters.get(commandId) ?? [])]) byCommand.get(owner)?.push({ line });
   };
   const stop = startSources(platform, store, record);
   return {
-    track(commandId) { byCommand.set(commandId, []); },
+    track(commandId, adoptedCommandIds = []) {
+      byCommand.set(commandId, []);
+      for (const adopted of adoptedCommandIds) {
+        const holders = adopters.get(adopted) ?? new Set();
+        holders.add(commandId);
+        adopters.set(adopted, holders);
+      }
+    },
     violationsFor(commandId) { return [...(byCommand.get(commandId) ?? [])]; },
-    release(commandId) { byCommand.delete(commandId); },
+    release(commandId) {
+      byCommand.delete(commandId);
+      for (const [adopted, holders] of adopters) {
+        holders.delete(commandId);
+        if (holders.size === 0) adopters.delete(adopted);
+      }
+    },
     stop,
   };
 }
@@ -55,9 +73,9 @@ function streamMacOSViolations(record: RecordViolation): () => void {
   child.stdout.setEncoding("utf8");
   let state = INITIAL_LOG_STREAM_STATE;
   child.stdout.on("data", (chunk: string) => {
-    const parsed = parseLogStreamChunk(state, chunk);
+    const parsed = parseLogStreamChunk(state, chunk, SRT_VIOLATIONS);
     state = parsed.state;
-    for (const { line, encodedCommand } of parsed.violations) record(encodedCommand, line);
+    for (const { line, tag } of parsed.entries) record(tag, line);
   });
   return () => { child.kill("SIGTERM"); };
 }

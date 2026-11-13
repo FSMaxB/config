@@ -1,18 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { INITIAL_LOG_STREAM_STATE, parseLogStreamChunk } from "./log-stream.ts";
+import { INITIAL_LOG_STREAM_STATE, parseLogStreamChunk, SRT_VIOLATIONS, type LogStreamFormat } from "./log-stream.ts";
 
 test("a chunk with several violation pairs yields every one of them", () => {
   // arrange
   const chunk = [1, 2, 3].map((index) => violationPair(index)).join("");
 
   // act
-  const { violations } = parseLogStreamChunk(INITIAL_LOG_STREAM_STATE, chunk);
+  const { entries } = parseLogStreamChunk(INITIAL_LOG_STREAM_STATE, chunk, SRT_VIOLATIONS);
 
   // assert
-  assert.deepEqual(violations, [1, 2, 3].map((index) => ({
+  assert.deepEqual(entries, [1, 2, 3].map((index) => ({
     line: `bash(41718) deny(1) file-write-create /Users/maxbruckner/srt-burst-${index}`,
-    encodedCommand: ENCODED_COMMAND,
+    tag: ENCODED_COMMAND,
   })));
 });
 
@@ -24,14 +24,14 @@ test("a pair split mid-line and between the violation and its tag still yields o
 
   // act
   let state = INITIAL_LOG_STREAM_STATE;
-  const violations = chunks.flatMap((chunk) => {
-    const parsed = parseLogStreamChunk(state, chunk);
+  const entries = chunks.flatMap((chunk) => {
+    const parsed = parseLogStreamChunk(state, chunk, SRT_VIOLATIONS);
     state = parsed.state;
-    return parsed.violations;
+    return parsed.entries;
   });
 
   // assert
-  assert.deepEqual(violations, [{ line: "bash(41718) deny(1) file-write-create /Users/maxbruckner/srt-burst-1", encodedCommand: ENCODED_COMMAND }]);
+  assert.deepEqual(entries, [{ line: "bash(41718) deny(1) file-write-create /Users/maxbruckner/srt-burst-1", tag: ENCODED_COMMAND }]);
 });
 
 test("headers, allowed operations and tags without a violation yield nothing", () => {
@@ -46,10 +46,10 @@ test("headers, allowed operations and tags without a violation yield nothing", (
   ].join("\n");
 
   // act
-  const { violations } = parseLogStreamChunk(INITIAL_LOG_STREAM_STATE, chunk);
+  const { entries } = parseLogStreamChunk(INITIAL_LOG_STREAM_STATE, chunk, SRT_VIOLATIONS);
 
   // assert
-  assert.deepEqual(violations, []);
+  assert.deepEqual(entries, []);
 });
 
 test("angle brackets and control characters in the path do not survive", () => {
@@ -58,10 +58,43 @@ test("angle brackets and control characters in the path do not survive", () => {
     `CMD64_${ENCODED_COMMAND}_END__oeiv48gas_SBX\n`;
 
   // act
-  const { violations } = parseLogStreamChunk(INITIAL_LOG_STREAM_STATE, chunk);
+  const { entries } = parseLogStreamChunk(INITIAL_LOG_STREAM_STATE, chunk, SRT_VIOLATIONS);
 
   // assert
-  assert.deepEqual(violations.map(({ line }) => line), ["bash(1) deny(1) file-write-create /tmp/a b"]);
+  assert.deepEqual(entries.map(({ line }) => line), ["bash(1) deny(1) file-write-create /tmp/a b"]);
+});
+
+test("the allow format keeps allowed operations with the recorder tag and ignores denials", () => {
+  // arrange
+  const allow: LogStreamFormat = { action: "allow", tag: /^(PIREC_\w+_END)/ };
+  const chunk = [
+    "2026-11-12 12:57:43.498 E  kernel[0:800e4] (Sandbox) Sandbox: cat(66048) allow file-read-data /private/etc/shells",
+    "PIREC_abc123_END",
+    "2026-11-12 12:57:43.499 E  kernel[0:800e4] (Sandbox) Sandbox: cat(66048) deny(1) file-read-data /private/etc/other",
+    "PIREC_abc123_END",
+    "",
+  ].join("\n");
+
+  // act
+  const { entries } = parseLogStreamChunk(INITIAL_LOG_STREAM_STATE, chunk, allow);
+
+  // assert
+  assert.deepEqual(entries, [{ line: "cat(66048) allow file-read-data /private/etc/shells", tag: "PIREC_abc123_END" }]);
+});
+
+test("a path that contains deny does not turn an allow line into a denial", () => {
+  // arrange
+  const chunk = [
+    "2026-11-12 12:57:43.498 E  kernel[0:800e4] (Sandbox) Sandbox: cat(7) allow file-read-data /tmp/deny(1)/x",
+    `CMD64_${ENCODED_COMMAND}_END__oeiv48gas_SBX`,
+    "",
+  ].join("\n");
+
+  // act
+  const { entries } = parseLogStreamChunk(INITIAL_LOG_STREAM_STATE, chunk, SRT_VIOLATIONS);
+
+  // assert
+  assert.deepEqual(entries, []);
 });
 
 const ENCODED_COMMAND = "YThhYzM0MmItZTQ3MS00Mzc2LWE3ODYtOGZiMjMyMzM2OTY2";
