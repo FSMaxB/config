@@ -6,7 +6,9 @@ import { createBashToolDefinition, createLocalBashOperations, getAgentDir } from
 import type { BashOperations, BashSpawnContext, BashToolDetails, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { ALLOW_ALWAYS, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWAYS, DENY_ONCE, DENY_SESSION, currentAgentMode, currentPolicy, grantPathAccess, type OnceGrant } from "../../lib/path-permissions.ts";
+import { currentAgentMode, currentPolicy, grantPathAccess, type OnceGrant } from "../../lib/path-permissions.ts";
+import { ALL_DURATIONS, askPermission, Duration, type PermissionAnswer } from "../../lib/permission-prompt.ts";
+import { permissionUI } from "../../lib/permission-ui.ts";
 import { registerToolWithGuidelines } from "../../lib/register-tool.ts";
 import { findRepoRoot, resolveThroughSymlinks } from "../../lib/repo.ts";
 import { markSandboxActive } from "../../lib/sandbox-state.ts";
@@ -16,14 +18,14 @@ import { announceSessionGrantsChanged, provideSessionGrants, type SessionGrant }
 import { serialize } from "../../lib/ui-queue.ts";
 import { bypassOutcome, bypassPrompt, bypassSessionGrants, resolveChoice, type BypassAuthorization, type SessionDecision } from "./bypass.ts";
 import { credentialEnvVars } from "./credentials.ts";
-import { NETWORK_ENTRY_TYPE, emptyGrants, networkConfig, parseGrants, recordGrant, recordOnceGrant, releaseOnceGrants, rememberedDecision, networkSessionGrants, serializeGrants, type NetworkDecision, type NetworkGrants, type OnceNetworkGrants } from "./network-grants.ts";
+import { NETWORK_ENTRY_TYPE, destinationKey, emptyGrants, networkConfig, networkDenialNote, parseGrants, recordGrant, recordOnceGrant, releaseOnceGrants, rememberedDecision, networkSessionGrants, serializeGrants, type NetworkDecision, type NetworkGrants, type OnceNetworkGrants } from "./network-grants.ts";
 import { filesystemConfig, secretPaths, type PolicyOptions } from "./policy.ts";
 import { exportSessionScratch, withSessionScratch } from "./scratch.ts";
 import { loadSettings, updateDomainLists, type Settings } from "./settings.ts";
 import { scanVcsLayout, vcsWriteRules, type VcsWriteRules } from "./vcs-policy.ts";
 import { isRepositoryRootRemoval, isSecretPath, pathViolations, type PathViolation } from "./violations.ts";
 import { startViolationCollector, type ViolationCollector } from "./violation-collector.ts";
-import { nextStep, rawViolationBlock, successViolationReport, violationReport, type NextStep, type ViolationOutcome } from "./violation-outcomes.ts";
+import { networkDenialReport, nextStep, rawViolationBlock, successViolationReport, violationReport, type NextStep, type ViolationOutcome } from "./violation-outcomes.ts";
 
 const SANDBOX_NOTE =
   "Commands run inside an OS sandbox that enforces the same read/write path rules as the file tools, with no network except allowed hosts. Denied paths are reported in a <sandbox_violations> block and the user is asked to grant them; after a grant the command has to be rerun, unless the user allowed it once: then the sandbox reruns it itself and the rerun's output follows the report. Never try to work around a denial. " +
@@ -208,21 +210,28 @@ function createRuntime(pi: ExtensionAPI): Runtime {
         const violations = process.platform === "linux"
           ? await readViolationsAfterOneWait(commandId)
           : await collectViolations(commandId);
+        const lines = reportable(violations, vcs.repositoryRoot).map(({ line }) => line);
         const report = successViolationReport(
-          pathViolations(reportable(violations, vcs.repositoryRoot).map(({ line }) => line)),
+          pathViolations(lines),
           filesystem,
           process.platform as PolicyOptions["platform"],
           currentAgentMode(),
         );
         if (report) options.onData(Buffer.from(report));
+        const denials = networkDenialReport(lines, networkNote);
+        if (denials) options.onData(Buffer.from(denials));
         return { result, step: { kind: "return" }, promptsUsed: 0 };
       }
       const violations = reportable(await collectViolations(commandId), vcs.repositoryRoot);
       if (violations.length === 0) return { result, step: { kind: "return" }, promptsUsed: 0 };
-      options.onData(Buffer.from(rawViolationBlock(violations.map(({ line }) => line))));
+      const lines = violations.map(({ line }) => line);
+      options.onData(Buffer.from(rawViolationBlock(lines)));
       const { outcomes, promptsUsed } = await resolveViolations(violations, promptsLeft);
       const step = nextStep(outcomes);
-      options.onData(Buffer.from(violationReport(outcomes, step, currentAgentMode())));
+      // A command that only hit network denials has no path outcomes to report.
+      if (outcomes.length > 0) options.onData(Buffer.from(violationReport(outcomes, step, currentAgentMode())));
+      const denials = networkDenialReport(lines, networkNote);
+      if (denials) options.onData(Buffer.from(denials));
       return { result, step, promptsUsed };
     } finally {
       manager().cleanupAfterCommand();
@@ -320,44 +329,64 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   }
 
   async function askNetwork({ host, port }: { host: string; port: number | undefined }): Promise<boolean> {
-    const remembered = rememberedDecision(grants, onceNetworkGrants, host);
+    const remembered = rememberedDecision(grants, onceNetworkGrants, host, port);
     if (remembered) return remembered === "allow";
     const context = activeContext;
     if (!context?.hasUI) return false;
-    const destination = port === undefined ? host : `${host}:${port}`;
+    const destination = port === undefined ? host : destinationKey(host, port);
     return await serialize(async () => {
       // Every connection to an unknown host lands here; the first answer settles the ones queued behind it.
-      const latest = rememberedDecision(grants, onceNetworkGrants, host);
+      const latest = rememberedDecision(grants, onceNetworkGrants, host, port);
       if (latest) return latest === "allow";
-      const choice = await context.ui.select(`Sandbox: allow network access to ${destination}?\n\n  Allowing grants ${host} (all ports)`, [ALLOW_ONCE, ALLOW_SESSION, ALLOW_ALWAYS, DENY_ONCE, DENY_SESSION, DENY_ALWAYS]);
-      return await applyNetworkChoice(choice, host);
+      const answer = await askPermission(permissionUI(context.ui), {
+        title: `Sandbox: allow network access to ${destination}?\n\n  Allowing grants ${host} (all ports)`,
+        subject: `network access to ${host}`,
+        scope: host,
+        narrower: port === undefined ? [] : [{ label: `network access to ${destination}`, scope: destination }],
+        durations: ALL_DURATIONS,
+      });
+      return await applyNetworkAnswer(answer, host);
     });
   }
 
-  // A dismissed prompt counts as "Deny once"; otherwise every queued connection would prompt again after Esc.
-  async function applyNetworkChoice(choice: string | undefined, host: string): Promise<boolean> {
-    if (choice === ALLOW_ONCE) { recordOnceGrant(onceNetworkGrants, "allow", host, runningExecutions); return true; }
-    if (choice === ALLOW_SESSION) { rememberNetwork("allow", host); return true; }
-    if (choice === ALLOW_ALWAYS) { rememberNetwork("allow", host); await persistNetwork("allow", host); return true; }
-    if (choice === DENY_SESSION) { rememberNetwork("deny", host); return false; }
-    if (choice === DENY_ALWAYS) { rememberNetwork("deny", host); await persistNetwork("deny", host); return false; }
-    recordOnceGrant(onceNetworkGrants, "deny", host, runningExecutions);
+  async function applyNetworkAnswer(answer: PermissionAnswer<string>, host: string): Promise<boolean> {
+    if (answer.decision === "allow") {
+      if (answer.duration === Duration.Once) {
+        recordOnceGrant(onceNetworkGrants, "allow", answer.scope, runningExecutions, undefined);
+        return true;
+      }
+      rememberNetwork("allow", answer.scope, undefined);
+      if (answer.duration === Duration.Always) await persistNetwork("allow", answer.scope, undefined);
+      return true;
+    }
+    if (answer.duration === Duration.Once) {
+      recordOnceGrant(onceNetworkGrants, "deny", host, runningExecutions, answer.note);
+      return false;
+    }
+    rememberNetwork("deny", host, answer.note);
+    if (answer.duration === Duration.Always) await persistNetwork("deny", host, answer.note);
     return false;
   }
 
-  function rememberNetwork(decision: NetworkDecision, host: string): void {
-    recordGrant(grants, decision, host);
+  function rememberNetwork(decision: NetworkDecision, pattern: string, note: string | undefined): void {
+    recordGrant(grants, decision, pattern, note);
     pi.appendEntry(NETWORK_ENTRY_TYPE, serializeGrants(grants));
     applyNetwork();
     announceSessionGrantsChanged(pi.events);
   }
 
-  async function persistNetwork(decision: NetworkDecision, host: string): Promise<void> {
-    await updateDomainLists(SETTINGS_FILE, ({ allowedDomains, deniedDomains }) => {
+  async function persistNetwork(decision: NetworkDecision, pattern: string, note: string | undefined): Promise<void> {
+    await updateDomainLists(SETTINGS_FILE, ({ allowedDomains, deniedDomains, deniedDomainReasons }) => {
       const [added, removed] = decision === "allow" ? [allowedDomains, deniedDomains] : [deniedDomains, allowedDomains];
-      added.add(host);
-      removed.delete(host);
+      added.add(pattern);
+      removed.delete(pattern);
+      if (decision === "deny" && note) deniedDomainReasons.set(pattern, note);
+      else deniedDomainReasons.delete(pattern);
     });
+  }
+
+  function networkNote(host: string, port: number): string | undefined {
+    return networkDenialNote({ grants, once: onceNetworkGrants, settingsReasons: settings?.deniedDomainReasons ?? new Map() }, host, port);
   }
 
   async function resolveViolations(violations: { line: string }[], promptsLeft: number): Promise<{ outcomes: ViolationOutcome[]; promptsUsed: number }> {

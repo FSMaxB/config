@@ -121,9 +121,9 @@ test("session grants override the settings lists", () => {
   // arrange
   const settings = resolveSettings(parseSettingsFile({ network: { allowedDomains: ["stored-allow.com"], deniedDomains: ["stored-deny.com"] } }));
   const grants = emptyGrants();
-  recordGrant(grants, "deny", "stored-allow.com");
-  recordGrant(grants, "allow", "stored-deny.com");
-  recordGrant(grants, "allow", "new.com");
+  recordGrant(grants, "deny", "stored-allow.com", undefined);
+  recordGrant(grants, "allow", "stored-deny.com", undefined);
+  recordGrant(grants, "allow", "new.com", undefined);
 
   // act
   const { allowedDomains, deniedDomains } = effectiveNetwork(settings, grants);
@@ -139,8 +139,8 @@ test("session grants override the settings lists", () => {
 test("grants survive a serialization round trip", () => {
   // arrange
   const grants = emptyGrants();
-  recordGrant(grants, "allow", "a.com");
-  recordGrant(grants, "deny", "b.com");
+  recordGrant(grants, "allow", "a.com", undefined);
+  recordGrant(grants, "deny", "b.com", undefined);
 
   // act
   const restored = parseGrants(serializeGrants(grants));
@@ -148,17 +148,67 @@ test("grants survive a serialization round trip", () => {
 
   // assert
   assert.deepEqual([...restored.allow], ["a.com"]);
-  assert.deepEqual([...restored.deny], ["b.com"]);
+  assert.deepEqual([...restored.deny], [["b.com", undefined]]);
   assert.equal(fromGarbage.allow.size, 0);
+});
+
+test("deniedDomainReasons parses and rejects non-strings", () => {
+  // arrange
+  const valid = { network: { deniedDomainReasons: { "example.com:80": "use https" } } };
+  const invalid = { network: { deniedDomainReasons: { "example.com": 5 } } };
+
+  // act
+  const parsed = parseSettingsFile(valid);
+  const parseInvalid = () => parseSettingsFile(invalid);
+
+  // assert
+  assert.deepEqual(parsed.network.deniedDomainReasons, { "example.com:80": "use https" });
+  assert.throws(parseInvalid, /network\.deniedDomainReasons must be an object of strings/);
+  assert.deepEqual(resolveSettings(parsed).deniedDomainReasons, new Map([["example.com:80", "use https"]]));
+});
+
+test("updating the domain lists writes deny reasons and keeps other keys", async () => {
+  await withDirectory(async (directory) => {
+    // arrange
+    const filePath = join(directory, "sandbox.json");
+    await writeFile(filePath, JSON.stringify({ note: "keep", network: { allowLocalBinding: true, deniedDomainReasons: { "old.com": "old reason" }, deniedDomains: ["old.com"] } }));
+
+    // act
+    await updateDomainLists(filePath, ({ deniedDomains, deniedDomainReasons }) => {
+      deniedDomains.add("new.com");
+      deniedDomainReasons.set("new.com", "new reason");
+    });
+
+    // assert
+    const written = JSON.parse(await readFile(filePath, "utf8"));
+    assert.equal(written.note, "keep");
+    assert.equal(written.network.allowLocalBinding, true);
+    assert.deepEqual(written.network.deniedDomainReasons, { "old.com": "old reason", "new.com": "new reason" });
+  });
+});
+
+test("updating the domain lists adds no reasons key to files without one", async () => {
+  await withDirectory(async (directory) => {
+    // arrange
+    const filePath = join(directory, "sandbox.json");
+    await writeFile(filePath, JSON.stringify({ network: {} }));
+
+    // act
+    await updateDomainLists(filePath, ({ allowedDomains }) => { allowedDomains.add("good.com"); });
+
+    // assert
+    const written = JSON.parse(await readFile(filePath, "utf8"));
+    assert.equal("deniedDomainReasons" in written.network, false);
+  });
 });
 
 test("a later decision for the same host replaces the earlier one", () => {
   // arrange
   const grants = emptyGrants();
-  recordGrant(grants, "allow", "a.com");
+  recordGrant(grants, "allow", "a.com", undefined);
 
   // act
-  recordGrant(grants, "deny", "a.com");
+  recordGrant(grants, "deny", "a.com", undefined);
 
   // assert
   assert.equal(grants.allow.has("a.com"), false);

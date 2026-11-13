@@ -5,13 +5,15 @@ import { randomUUID } from "node:crypto";
 import { expandHome } from "../../lib/path-resolution.ts";
 
 export interface SettingsFile {
-  network: { allowedDomains: string[]; deniedDomains: string[]; allowUnixSockets: string[]; allowLocalBinding: boolean };
+  network: { allowedDomains: string[]; deniedDomains: string[]; deniedDomainReasons: Record<string, string>; allowUnixSockets: string[]; allowLocalBinding: boolean };
   filesystem: { denyRead: string[]; allowRead: string[] };
 }
 
 export interface Settings {
   allowedDomains: string[];
   deniedDomains: string[];
+  // The user's reasons for denied domains, keyed by exact host or host:port, repeated to the agent on a denial.
+  deniedDomainReasons: ReadonlyMap<string, string>;
   allowUnixSockets: string[];
   allowLocalBinding: boolean;
   toolchainRead: string[];
@@ -37,6 +39,7 @@ export function resolveSettings(file: SettingsFile): Settings {
   return {
     allowedDomains: unique([...DEFAULT_ALLOWED_DOMAINS, ...network.allowedDomains]),
     deniedDomains: unique(network.deniedDomains),
+    deniedDomainReasons: new Map(Object.entries(network.deniedDomainReasons)),
     allowUnixSockets: network.allowUnixSockets.map(expandHome),
     allowLocalBinding: network.allowLocalBinding,
     toolchainRead: unique([...DEFAULT_TOOLCHAIN_READ, ...filesystem.allowRead].map(expandHome)),
@@ -65,6 +68,7 @@ export function parseSettingsFile(value: unknown): SettingsFile {
     network: {
       allowedDomains: stringArray(network.allowedDomains, "network.allowedDomains"),
       deniedDomains: stringArray(network.deniedDomains, "network.deniedDomains"),
+      deniedDomainReasons: stringRecord(network.deniedDomainReasons, "network.deniedDomainReasons"),
       allowUnixSockets: stringArray(network.allowUnixSockets, "network.allowUnixSockets"),
       allowLocalBinding: boolean(network.allowLocalBinding, "network.allowLocalBinding"),
     },
@@ -76,7 +80,7 @@ export function parseSettingsFile(value: unknown): SettingsFile {
 }
 
 // Rewrites only the network domain lists and keeps every other key of the file as the user wrote it.
-export async function updateDomainLists(filePath: string, mutate: (lists: { allowedDomains: Set<string>; deniedDomains: Set<string> }) => void): Promise<void> {
+export async function updateDomainLists(filePath: string, mutate: (lists: DomainLists) => void): Promise<void> {
   await withLock(filePath, async () => {
     const text = await readFile(filePath, "utf8").catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return "{}";
@@ -84,11 +88,24 @@ export async function updateDomainLists(filePath: string, mutate: (lists: { allo
     });
     const raw = asRecord(JSON.parse(text), "settings");
     const { network } = parseSettingsFile(raw);
-    const lists = { allowedDomains: new Set(network.allowedDomains), deniedDomains: new Set(network.deniedDomains) };
+    const lists: DomainLists = {
+      allowedDomains: new Set(network.allowedDomains),
+      deniedDomains: new Set(network.deniedDomains),
+      deniedDomainReasons: new Map(Object.entries(network.deniedDomainReasons)),
+    };
     mutate(lists);
-    const updated = { ...raw, network: { ...asRecord(raw.network ?? {}, "network"), allowedDomains: [...lists.allowedDomains], deniedDomains: [...lists.deniedDomains] } };
+    const rawNetwork = asRecord(raw.network ?? {}, "network");
+    // The reasons key stays out of files that never had one.
+    const reasons = lists.deniedDomainReasons.size > 0 || "deniedDomainReasons" in rawNetwork ? { deniedDomainReasons: Object.fromEntries(lists.deniedDomainReasons) } : {};
+    const updated = { ...raw, network: { ...rawNetwork, allowedDomains: [...lists.allowedDomains], deniedDomains: [...lists.deniedDomains], ...reasons } };
     await writeAtomically(filePath, `${JSON.stringify(updated, null, 2)}\n`);
   });
+}
+
+interface DomainLists {
+  allowedDomains: Set<string>;
+  deniedDomains: Set<string>;
+  deniedDomainReasons: Map<string, string>;
 }
 
 async function withLock<T>(filePath: string, operation: () => Promise<T>): Promise<T> {
@@ -131,6 +148,13 @@ function stringArray(value: unknown, name: string): string[] {
   if (value === undefined) return [];
   if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) throw new Error(`${name} must be an array of strings`);
   return value;
+}
+
+function stringRecord(value: unknown, name: string): Record<string, string> {
+  if (value === undefined) return {};
+  const record = asRecord(value, name);
+  if (!Object.values(record).every((entry) => typeof entry === "string")) throw new Error(`${name} must be an object of strings`);
+  return record as Record<string, string>;
 }
 
 function boolean(value: unknown, name: string): boolean {

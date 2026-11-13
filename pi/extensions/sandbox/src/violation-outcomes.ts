@@ -48,6 +48,23 @@ function outcomeLine(outcome: ViolationOutcome, step: NextStep, agentMode: Agent
   }
 }
 
+// srt records each refused connection as `deny network-outbound <host>:<port> (<reason>)`.
+const NETWORK_DENIAL = /^deny network-outbound (.+):(\d+) \(/;
+
+// Only denials with a user reason get a line; the raw block already lists the others on a failed command.
+export function networkDenialReport(lines: string[], noteFor: (host: string, port: number) => string | undefined): string {
+  const reported = new Map<string, string>();
+  for (const line of lines) {
+    const match = NETWORK_DENIAL.exec(line);
+    if (!match) continue;
+    const [, host, port] = match;
+    const destination = `${host}:${port}`;
+    const note = noteFor(host, Number(port));
+    if (note && !reported.has(destination)) reported.set(destination, `Network access to ${destination} was denied by the user; do not retry it.${userReason(note)}`);
+  }
+  return reported.size === 0 ? "" : `\n${[...reported.values()].join("\n")}\n`;
+}
+
 // A command that exited 0 despite denials is only reported, never prompted or rerun: rerunning could
 // repeat side effects, and prompts happen after a failed command.
 export function successViolationReport(
