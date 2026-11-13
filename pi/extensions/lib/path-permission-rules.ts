@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join, matchesGlob, relative, sep } from "node:path";
-import { AgentMode, isRestricted } from "./agent-mode.ts";
+import { AgentMode, isRestricted, PathRuleStore } from "./agent-mode.ts";
 import { contains } from "./repo.ts";
 
 
@@ -26,11 +26,18 @@ export interface RuleSets {
   write: { allow: Set<string>; deny: Set<string> };
 }
 
-export interface SerializedRules {
-  version: 2;
+export interface SerializedRuleSets {
   read: { allow: PathSelector[]; deny: PathSelector[] };
   write: { allow: PathSelector[]; deny: PathSelector[] };
 }
+
+// One mode's rules, as the subagent path policy carries them.
+export interface SerializedRules extends SerializedRuleSets { version: 2 }
+
+export type StoredRules = Record<PathRuleStore, RuleSets>;
+
+// Every mode's rules, as the rules file and the session entry hold them.
+export type SerializedStoredRules = { version: 3 } & Record<PathRuleStore, SerializedRuleSets>;
 
 export interface DefaultAllowedOptions {
   agentMode: AgentMode;
@@ -47,6 +54,10 @@ export function emptyRules(): RuleSets {
   return { read: { allow: new Set(), deny: new Set() }, write: { allow: new Set(), deny: new Set() } };
 }
 
+export function emptyStoredRules(): StoredRules {
+  return { [PathRuleStore.Execution]: emptyRules(), [PathRuleStore.Plan]: emptyRules(), [PathRuleStore.Explore]: emptyRules() };
+}
+
 export function selectorKey(selector: PathSelector): string {
   return selector.kind === "glob"
     ? JSON.stringify([selector.kind, selector.base, selector.pattern])
@@ -57,20 +68,31 @@ export function selectorLabel(selector: PathSelector): string {
   return selector.kind === "exact" ? selector.path : selector.kind === "tree" ? `${selector.path}${sep}**` : `${selector.base}${sep}${selector.pattern}`;
 }
 
-export function serializeRules(rules: RuleSets): SerializedRules {
+export function serializeStoredRules(rules: StoredRules): SerializedStoredRules {
   return {
-    version: 2,
-    read: { allow: selectors(rules.read.allow), deny: selectors(rules.read.deny) },
-    write: { allow: selectors(rules.write.allow), deny: selectors(rules.write.deny) },
+    version: 3,
+    [PathRuleStore.Execution]: serializeRuleSets(rules[PathRuleStore.Execution]),
+    [PathRuleStore.Plan]: serializeRuleSets(rules[PathRuleStore.Plan]),
+    [PathRuleStore.Explore]: serializeRuleSets(rules[PathRuleStore.Explore]),
   };
 }
+
+export function parseStoredRules(value: unknown): StoredRules {
+  const record = asRecord(value);
+  if (record.version !== 3) throw new Error(`Unsupported path permission rules version: ${String(record.version)}`);
+  const rules = emptyStoredRules();
+  for (const store of Object.values(PathRuleStore)) rules[store] = parseRuleSets(record[store]);
+  return rules;
+}
+
+export function serializeRules(rules: RuleSets): SerializedRules {
+  return { version: 2, ...serializeRuleSets(rules) };
+}
+
 export function parseRules(value: unknown): RuleSets {
-  if (!value || typeof value !== "object") throw new Error("Invalid path permission rules");
-  const record = value as Record<string, unknown>;
+  const record = asRecord(value);
   if (record.version !== 2) throw new Error(`Unsupported path permission rules version: ${String(record.version)}`);
-  const read = parseModeRules(record.read), write = parseModeRules(record.write);
-  if (!read || !write) throw new Error("Invalid path permission rules");
-  return { read, write };
+  return parseRuleSets(record);
 }
 
 export function matchesRule(resolvedPath: string, selector: PathSelector): boolean {
@@ -140,6 +162,22 @@ export function selectorFromKey(key: string): PathSelector {
   return kind === "glob" ? glob(first, second ?? "") : { kind, path: first };
 }
 
+function serializeRuleSets(rules: RuleSets): SerializedRuleSets {
+  return {
+    read: { allow: selectors(rules.read.allow), deny: selectors(rules.read.deny) },
+    write: { allow: selectors(rules.write.allow), deny: selectors(rules.write.deny) },
+  };
+}
+function parseRuleSets(value: unknown): RuleSets {
+  const record = asRecord(value);
+  const read = parseModeRules(record.read), write = parseModeRules(record.write);
+  if (!read || !write) throw new Error("Invalid path permission rules");
+  return { read, write };
+}
+function asRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object") throw new Error("Invalid path permission rules");
+  return value as Record<string, unknown>;
+}
 function selectors(values: Set<string>): PathSelector[] {
   return [...values].map(selectorFromKey).sort((left, right) => selectorKey(left).localeCompare(selectorKey(right)));
 }

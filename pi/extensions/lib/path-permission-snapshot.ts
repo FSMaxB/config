@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import { isAbsolute } from "node:path";
-import { AgentMode, PathRuleStore } from "./agent-mode.ts";
+import { AgentMode, isPathRuleStore, type PathRuleStore } from "./agent-mode.ts";
 import { emptyRules, parseRules, selectorKey, type PathSelector, type RuleSets, type SerializedRules } from "./path-permission-rules.ts";
 
 // ruleStore and agentMode describe the parent; parents that predate them omit them.
@@ -19,7 +19,7 @@ export function parseChildPathPolicy(value: string | undefined): ChildPathPolicy
   try {
     const policy = JSON.parse(value) as ChildPathPolicy;
     if (policy.version !== 1 || !policy.session || !Array.isArray(policy.readDefaults) || !Array.isArray(policy.writeDefaults)) return null;
-    if (policy.ruleStore !== undefined && policy.ruleStore !== PathRuleStore.Shared && policy.ruleStore !== PathRuleStore.Explore) return null;
+    if (policy.ruleStore !== undefined && !isPathRuleStore(policy.ruleStore)) return null;
     if (policy.agentMode !== undefined && !Object.values(AgentMode).includes(policy.agentMode)) return null;
     parseRules(policy.session);
     parseRules({ version: 2, read: { allow: policy.readDefaults, deny: [] }, write: { allow: policy.writeDefaults, deny: [] } });

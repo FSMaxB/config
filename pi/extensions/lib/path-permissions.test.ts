@@ -10,16 +10,19 @@ import {
   covers,
   defaultAllowed,
   emptyRules,
+  emptyStoredRules,
   evaluate,
   exact,
   glob,
   matchesRule,
   parseRules,
+  parseStoredRules,
   readOnlyRepositoryNotice,
   recordRule,
   selectorKey,
   selectorLabel,
   serializeRules,
+  serializeStoredRules,
   tree,
 } from "./path-permission-rules.ts";
 
@@ -401,12 +404,55 @@ test("a child path policy keeps the parent's rule store and tolerates parents th
   // act
   const legacy = parseChildPathPolicy(JSON.stringify(policy));
   const exploring = parseChildPathPolicy(JSON.stringify({ ...policy, ruleStore: "explore" }));
+  const planning = parseChildPathPolicy(JSON.stringify({ ...policy, ruleStore: "plan" }));
   const unknown = parseChildPathPolicy(JSON.stringify({ ...policy, ruleStore: "other" }));
+  const formerShared = parseChildPathPolicy(JSON.stringify({ ...policy, ruleStore: "shared" }));
 
   // assert
   assert.equal(legacy?.ruleStore, undefined);
   assert.equal(exploring?.ruleStore, "explore");
+  assert.equal(planning?.ruleStore, "plan");
   assert.equal(unknown, null);
+  assert.equal(formerShared, null);
+});
+
+test("stored rules keep one rule set per agent mode through a serialize and parse round trip", () => {
+  // arrange
+  const rules = emptyStoredRules();
+  recordRule({ mode: "read", kind: "allow", tier: "always", selector: tree("/execution") }, { session: emptyRules(), always: rules.execution });
+  recordRule({ mode: "write", kind: "deny", tier: "always", selector: exact("/plan/file") }, { session: emptyRules(), always: rules.plan });
+  recordRule({ mode: "read", kind: "deny", tier: "always", selector: glob("/explore", "*.txt") }, { session: emptyRules(), always: rules.explore });
+
+  // act
+  const serialized = serializeStoredRules(rules);
+  const parsed = parseStoredRules(JSON.parse(JSON.stringify(serialized)));
+
+  // assert
+  assert.equal(serialized.version, 3);
+  assert.deepEqual(Object.keys(serialized).sort(), ["execution", "explore", "plan", "version"]);
+  assert.deepEqual(parsed, rules);
+});
+
+test("stored rules reject a version 2 object", () => {
+  // arrange
+  const legacy = serializeRules(emptyRules());
+
+  // act
+  const parse = () => parseStoredRules(legacy);
+
+  // assert
+  assert.throws(parse, /Unsupported path permission rules version: 2/);
+});
+
+test("stored rules reject a version 3 object that misses a mode", () => {
+  // arrange
+  const { plan: _plan, ...withoutPlan } = serializeStoredRules(emptyStoredRules());
+
+  // act
+  const parse = () => parseStoredRules(withoutPlan);
+
+  // assert
+  assert.throws(parse, /Invalid path permission rules/);
 });
 
 test("a child path policy keeps the parent's agent mode and rejects unknown modes", () => {

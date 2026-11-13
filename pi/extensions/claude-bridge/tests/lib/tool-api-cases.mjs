@@ -63,9 +63,10 @@ it("allows owned read-only tools without approval but rejects foreign hints and 
 		extensions: ["files.ts", "plan-mode.ts"].map(path => fileURLToPath(new URL(`../../../${path}`, import.meta.url))),
 		entries: directory => [
 			{ type: "plan-mode", data: { enabled: true, sessionGrants: [], sessionDenials: [] } },
-			{ type: "path-permissions", data: { version: 2,
-				read: { allow: [], deny: [{ kind: "exact", path: join(directory, "denied.txt") }] },
-				write: { allow: [], deny: [] } } },
+			{ type: "path-permissions", data: { version: 3,
+				execution: { read: { allow: [], deny: [] }, write: { allow: [], deny: [] } },
+				plan: { read: { allow: [], deny: [{ kind: "exact", path: join(directory, "denied.txt") }] }, write: { allow: [], deny: [] } },
+				explore: { read: { allow: [], deny: [] }, write: { allow: [], deny: [] } } } },
 		],
 		factories: [pi => pi.registerTool({ name: "foreign_reader", label: "Foreign reader", description: "Unverified hint",
 			annotations: { readOnlyHint: true }, parameters: Type.Object({}),

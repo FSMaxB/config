@@ -6,8 +6,8 @@ export type RestrictedMode = Exclude<AgentMode, typeof AgentMode.Execution>;
 export const READ_ONLY_JJ_NOTE =
   "The repository is read-only, so jj cannot snapshot the working copy: pass --ignore-working-copy to every jj command. jj then shows the working copy as of its last snapshot, which can miss the newest edits.";
 
-// Plan mode shares the path-rule store with normal execution; explore mode has its own.
-export const PathRuleStore = { Shared: "shared", Explore: "explore" } as const;
+// Each agent mode has its own path rules; the values are the sub-field names in the rules file and the session entry.
+export const PathRuleStore = { Execution: "execution", Plan: "plan", Explore: "explore" } as const;
 export type PathRuleStore = (typeof PathRuleStore)[keyof typeof PathRuleStore];
 
 export interface ModeIdentity {
@@ -18,7 +18,6 @@ export interface ModeIdentity {
   entryType: string;
   // Relative to the agent directory.
   decisionsFileName: string;
-  pathRuleStore: PathRuleStore;
   statusIcon: string;
 }
 
@@ -30,7 +29,6 @@ export const MODE_IDENTITIES: Record<RestrictedMode, ModeIdentity> = {
     command: "plan",
     entryType: "plan-mode",
     decisionsFileName: "plan-mode.json",
-    pathRuleStore: PathRuleStore.Shared,
     statusIcon: "📝",
   },
   [AgentMode.Exploring]: {
@@ -39,17 +37,26 @@ export const MODE_IDENTITIES: Record<RestrictedMode, ModeIdentity> = {
     command: "explore",
     entryType: "explore-mode",
     decisionsFileName: "explore-mode.json",
-    pathRuleStore: PathRuleStore.Explore,
     statusIcon: "🔍",
   },
 };
 
 export const RESTRICTED_MODES: readonly RestrictedMode[] = [AgentMode.Planning, AgentMode.Exploring];
 
-export function storeForMode(mode: AgentMode): PathRuleStore {
-  return mode === AgentMode.Exploring ? PathRuleStore.Explore : PathRuleStore.Shared;
-}
-
 export function isRestricted(mode: AgentMode): mode is RestrictedMode {
   return mode !== AgentMode.Execution;
+}
+
+const MODE_RULE_STORES: Record<AgentMode, PathRuleStore> = {
+  [AgentMode.Execution]: PathRuleStore.Execution,
+  [AgentMode.Planning]: PathRuleStore.Plan,
+  [AgentMode.Exploring]: PathRuleStore.Explore,
+};
+
+export function storeForMode(mode: AgentMode): PathRuleStore {
+  return MODE_RULE_STORES[mode];
+}
+
+export function isPathRuleStore(value: string | undefined): value is PathRuleStore {
+  return (Object.values(PathRuleStore) as (string | undefined)[]).includes(value);
 }

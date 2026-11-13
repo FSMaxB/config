@@ -5,7 +5,7 @@ import type {
   Theme,
   ToolCallEvent,
 } from "@earendil-works/pi-coding-agent";
-import { AgentMode, isRestricted, MODE_IDENTITIES, RESTRICTED_MODES, type ModeIdentity, type PathRuleStore, type RestrictedMode } from "./agent-mode.ts";
+import { AgentMode, isRestricted, MODE_IDENTITIES, RESTRICTED_MODES, storeForMode, type ModeIdentity, type PathRuleStore, type RestrictedMode } from "./agent-mode.ts";
 import { FILE_TOOLS } from "./file-tools.ts";
 import { readPersistedDecisions, writePersistedDecisions } from "./mode-decisions.ts";
 import { activeRestrictedMode, latestModeEntry, type ActiveRestrictedMode } from "./mode-entry.ts";
@@ -23,7 +23,6 @@ import {
   transitionNotice,
 } from "./mode-policy.ts";
 import {
-  addPathRule,
   ALLOW_ALWAYS,
   ALLOW_ONCE,
   ALLOW_SESSION,
@@ -33,12 +32,11 @@ import {
   DENY_SESSION,
   initPathPermissions,
   listPathRules,
-  normalizePathSelector,
-  removePathRule,
   restoreSessionPathRules,
   setAgentMode,
 } from "./path-permissions.ts";
-import { selectorLabel, type AccessMode, type PathRule, type RuleKind, type RuleTier } from "./path-permission-rules.ts";
+import type { PathRule } from "./path-permission-rules.ts";
+import { addPathRuleInteractively, CLEAR_ALL, DONE, pathRuleEntries, type DecisionEntry } from "./path-rule-commands.ts";
 import { plansDirectory } from "./plan-file.ts";
 import { PLAN_TOOLS } from "./plan-tools.ts";
 import { isSandboxActive } from "./sandbox-state.ts";
@@ -92,8 +90,6 @@ export function registerRestrictedMode(pi: ExtensionAPI, definition: ModeDefinit
 
 const DISCOVERY_CHANNEL = "config:restricted-mode:discover";
 const INDICATOR_KEY = "agent-mode";
-const CLEAR_ALL = "Clear all";
-const DONE = "Done";
 
 const UNGATED_TOOLS = new Set([
   // File tools are gated per path by lib/path-permissions.ts rather than per call.
@@ -189,7 +185,8 @@ class Engine {
     }
     const [subcommand, ...rest] = argument.split(/\s+/);
     if (subcommand === "allow" || subcommand === "deny") {
-      await addPathRuleInteractively(subcommand, rest.join(" "), definition.identity, context);
+      const { identity } = definition;
+      await addPathRuleInteractively(subcommand, rest.join(" "), storeForMode(identity.mode), `/${identity.command}`, context);
       return true;
     }
     return false;
@@ -415,7 +412,8 @@ class Engine {
   }
 
   private async manageDecisions(identity: ModeIdentity, context: ExtensionContext): Promise<void> {
-    const { label, mode, pathRuleStore } = identity;
+    const { label, mode } = identity;
+    const pathRuleStore = storeForMode(mode);
     if (!context.hasUI) {
       context.ui.notify(`Managing ${label.toLowerCase()} decisions needs an interactive UI.`, "error");
       return;
@@ -478,11 +476,6 @@ function modeBanner(theme: Theme, mode: AgentMode, pending: AgentMode | undefine
   return [title + theme.fg("dim", hint)];
 }
 
-interface DecisionEntry {
-  label: string;
-  remove: () => void | Promise<void>;
-}
-
 function listDecisions(stores: DecisionStores, pathRules: PathRule[], pathRuleStore: PathRuleStore): DecisionEntry[] {
   const grants: [Set<string>, string][] = [
     [stores.sessionGrants, "allow (session)"],
@@ -509,36 +502,8 @@ function listDecisions(stores: DecisionStores, pathRules: PathRule[], pathRuleSt
         };
       }),
     ),
-    ...pathRules.map((rule) => ({
-      label: `${rule.mode} ${rule.kind} ${selectorLabel(rule.selector)} — path (${rule.tier})`,
-      remove: () => removePathRule(rule, pathRuleStore),
-    })),
+    ...pathRuleEntries(pathRules, pathRuleStore),
   ];
-}
-
-async function addPathRuleInteractively(
-  kind: RuleKind,
-  pattern: string,
-  { command, pathRuleStore }: ModeIdentity,
-  context: ExtensionCommandContext,
-): Promise<void> {
-  if (!pattern) {
-    context.ui.notify(`Usage: /${command} ${kind} <path-or-glob>`, "error");
-    return;
-  }
-  if (!context.hasUI) {
-    context.ui.notify("Adding path rules needs an interactive UI.", "error");
-    return;
-  }
-  const modeChoice = await context.ui.select(`${kind} ${pattern} for which access?`, ["read", "write", "read and write"]);
-  if (modeChoice === undefined) return;
-  const tierChoice = await context.ui.select("For how long?", ["This session", "Always"]);
-  if (tierChoice === undefined) return;
-  const tier: RuleTier = tierChoice === "Always" ? "always" : "session";
-  const selector = await normalizePathSelector(pattern, context.cwd);
-  const modes: AccessMode[] = modeChoice === "read and write" ? ["read", "write"] : [modeChoice as AccessMode];
-  for (const mode of modes) await addPathRule({ mode, kind, tier, selector }, pathRuleStore);
-  context.ui.notify(`Path rule added: ${kind} ${modes.join("+")} ${selectorLabel(selector)} (${tier}).`);
 }
 
 function summarizeInput(event: ToolCallEvent): string {
