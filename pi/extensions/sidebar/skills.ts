@@ -94,8 +94,14 @@ export function skillItems(skills: readonly SkillOnBranch[], level: SkillLevel):
     .filter((entry) => entry.skill.level === level)
     .flatMap((entry) => [
       { text: entry.skill.name, depth: 0, tone: entry.state === SkillState.Loaded ? ItemTone.Normal : ItemTone.Dim },
-      ...entry.references.map((path) => ({ text: path, depth: 1, tone: ItemTone.Normal })),
+      ...entry.references.map((path) => ({ text: referenceLabel(path), depth: 1, tone: ItemTone.Normal })),
     ]);
+}
+
+/** The `references/` directory is the convention for a skill's reference files, so it adds no information to a row. */
+function referenceLabel(path: string): string {
+  const prefix = `references${sep}`;
+  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
 }
 
 function withSkillLoaded(skill: Skill, current: SkillOnBranch | undefined): SkillOnBranch | undefined {
