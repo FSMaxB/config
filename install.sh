@@ -53,10 +53,6 @@ if [[ ! -e ~/.claude/CLAUDE.md ]]; then
   mkdir -p ~/.claude
   ln -s ~/config/INSTALL-AGENTS.md ~/.claude/CLAUDE.md
 fi
-if [[ ! -e ~/.claude/skills/tuicr ]]; then
-  mkdir -p ~/.claude/skills
-  ln -s ~/config/tuicr-skill ~/.claude/skills/tuicr
-fi
 for skill in rust-style planning exploration vcs code-style jj-megamerge notes skill-writing; do
   if [[ ! -e ~/.claude/skills/$skill ]]; then
     mkdir -p ~/.claude/skills

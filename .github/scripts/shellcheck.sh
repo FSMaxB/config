@@ -8,7 +8,7 @@ cd "$(dirname "$0")/../.."
 files=""
 while IFS= read -r f; do
     case "$f" in
-        tuicr-skill/*|.vim/*) continue ;;
+        .vim/*) continue ;;
     esac
     case "$f" in
         *.sh) files="$files $f" ;;

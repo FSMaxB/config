@@ -56,7 +56,7 @@ Sandbox limitations (each a candidate for `unsandboxed: true`): programs that ig
 
 ## pi skills
 
-`pi/skills/` is symlinked to `~/.pi/agent/skills`, pi's global skill root. Each skill is `pi/skills/<name>/SKILL.md`. Skills meant for Claude Code as well go in `<name>-skill/` at the top level and are linked into `~/.claude/skills/` instead (see `tuicr-skill`). A skill for both lives in `pi/skills/<name>/` and `install.sh` links that directory into `~/.claude/skills/`; add its name to the `for skill in ...` loop there (see `rust-style`).
+`pi/skills/` is symlinked to `~/.pi/agent/skills`, pi's global skill root. Each skill is `pi/skills/<name>/SKILL.md`. A skill meant for Claude Code as well stays there, and `install.sh` links its directory into `~/.claude/skills/`; add its name to the `for skill in ...` loop there (see `rust-style`).
 
 ## pi themes
 
@@ -72,7 +72,7 @@ Sandbox limitations (each a candidate for `unsandboxed: true`): programs that ig
 
 Known gap: the `shellcheck` paths cover `.sh` files plus the extensionless shell files by name (`.ansi-colors`, `.shellrc-common`, `.git_template/hooks/`); a new extensionless shell script elsewhere won't trigger it on its own PR, so add its path to `shellcheck.yml`.
 
-`shellcheck.yml` (paths: shell files and `.github/scripts/shellcheck.sh`), `actionlint.yml` (paths: `.github/workflows/**`), `nvim.yml` (paths: `nvim/**`, `nvim-check.lua`), `vim.yml` (paths: `.vimrc`, `.vim/**`), `extensions.yml` (paths: `pi/extensions/**`, because `sandbox` imports from `pi/extensions/lib/`) and `binaries.yml` (paths: `binaries/download.sh`, `tuicr-skill/**`):
+`shellcheck.yml` (paths: shell files and `.github/scripts/shellcheck.sh`), `actionlint.yml` (paths: `.github/workflows/**`), `nvim.yml` (paths: `nvim/**`, `nvim-check.lua`), `vim.yml` (paths: `.vimrc`, `.vim/**`), `extensions.yml` (paths: `pi/extensions/**`, because `sandbox` imports from `pi/extensions/lib/`) and `binaries.yml` (paths: `binaries/download.sh`):
 
 - **shellcheck**: lints shell scripts. `.github/scripts/shellcheck.sh` auto-discovers every tracked file with a shell shebang or `.sh` suffix and runs the same way locally.
 - **actionlint**: lints the workflow files.

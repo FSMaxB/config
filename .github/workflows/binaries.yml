@@ -5,7 +5,6 @@ on:
     branches: [main]
     paths: &paths
       - "binaries/download.sh"
-      - "tuicr-skill/**"
       - ".github/workflows/binaries.yml"
   pull_request:
     paths: *paths
@@ -36,5 +35,3 @@ jobs:
           for tool in bat crit fzf jj jq starship tuicr zellij; do
             "$DIR/$tool" --version
           done
-      - name: Verify tuicr-skill matches pinned digests
-        run: git diff --exit-code tuicr-skill/

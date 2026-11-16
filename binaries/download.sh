@@ -19,7 +19,6 @@ JQ_BASE_URL="https://github.com/jqlang/jq/releases/download/jq-${JQ_VERSION}"
 
 TUICR_VERSION="0.28.0"
 TUICR_BASE_URL="https://github.com/agavra/tuicr/releases/download/v${TUICR_VERSION}"
-TUICR_RAW_URL="https://raw.githubusercontent.com/agavra/tuicr/v${TUICR_VERSION}/skills/tuicr"
 
 CRIT_VERSION="0.23.2"
 CRIT_BASE_URL="https://github.com/tomasz-tomczyk/crit/releases/download/v${CRIT_VERSION}"
@@ -198,19 +197,6 @@ function download_tuicr() {
 	tar --directory "${OUTDIR}" -xf "${TARBALL}" tuicr
 }
 
-# The tuicr release tarballs contain only the binary, so the Claude skill files
-# are fetched as raw files from the pinned tag instead. Raw files have no digest
-# assets, so their sha256 digests are pinned by hand below.
-function download_tuicr_skill() {
-	local FILE="$1"
-	local MODE="$2"
-	local SHA256="$3"
-	local DOWNLOAD="tuicr-skill-${FILE}"
-	curl -fL --output "${DOWNLOAD}" "${TUICR_RAW_URL}/${FILE}"
-	verify "${DOWNLOAD}" "${SHA256}"
-	install -m "${MODE}" "${DOWNLOAD}" "${BINARIES_DIR}/../tuicr-skill/${FILE}"
-}
-
 # Verify a downloaded file against its expected sha256 digest before we trust
 # it. Uses sha256sum on Linux and shasum on macOS.
 function verify() {
@@ -245,10 +231,3 @@ cd "${SCRATCH}"
 for PLATFORM in "${PLATFORMS[@]}"; do
 	download_platform "${PLATFORM}"
 done
-
-# The tuicr Claude skill is plain text and platform independent, so it is fetched once and
-# stays checked in.
-mkdir -p "${BINARIES_DIR}/../tuicr-skill"
-download_tuicr_skill SKILL.md 644 c97f2b6cc17549536de167ef0bd9dad17ee8be10f8213dd567523f593418fcda
-download_tuicr_skill tuicr-wrapper.sh 755 69ba7c046e36058a8c5431ac2df1258bf1547df8844ffbbf3c68112d7b546784
-download_tuicr_skill tuicr-wrapper-zellij.sh 755 e442e97902abaa4924ab295707de455a15371f0d72e89c1b76f0563bbf43125a
