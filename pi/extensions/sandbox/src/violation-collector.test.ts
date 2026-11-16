@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { SandboxViolationStore } from "@anthropic-ai/sandbox-runtime";
-import { isProxyViolation, startViolationCollector } from "./violation-collector.ts";
+import { isProxyViolation, isSystemNoise, startViolationCollector } from "./violation-collector.ts";
 
 test("every violation of a tracked command survives the store's 100-entry ring", () => {
   // arrange
@@ -143,4 +143,28 @@ test("proxy violations are recognized and seatbelt lines are not", () => {
   // assert
   assert.deepEqual(proxy, [true, true]);
   assert.equal(seatbelt, false);
+});
+
+test("system noise denials are recognized and other denials are not", () => {
+  // arrange
+  const noiseLines = [
+    "bash(9369) deny(1) sysctl-read kern.iossupportversion",
+    "jj(1776) deny(1) mach-lookup com.apple.diagnosticd",
+    "jj(1776) deny(1) mach-lookup com.apple.analyticsd",
+    "jj(1777) deny(1) system-info vfs.disk-space",
+  ];
+  const otherLines = [
+    "bash(1) deny(1) sysctl-read kern.bootuuid",
+    "bash(1) deny(1) sysctl-read kern.iossupportversion_other",
+    "jj(1777) deny(1) system-info vfs.disk-space-other",
+    "cat(1) deny(1) file-read-data /Users/max/kern.iossupportversion",
+  ];
+
+  // act
+  const noise = noiseLines.map(isSystemNoise);
+  const other = otherLines.map(isSystemNoise);
+
+  // assert
+  assert.deepEqual(noise, [true, true, true, true]);
+  assert.deepEqual(other, [false, false, false, false]);
 });
