@@ -1,6 +1,6 @@
 ---
 name: review-lookup
-description: Act as a read-only lookup assistant while the user reviews a branch, bookmark, or PR themselves. Use when the user says they are reviewing a change and will ask questions about it, asks "where/what/why does this change ..." about a specific branch, or explicitly says not to review it for them. Resolves the ref, reads code at the right revision, and answers with evidence instead of producing a review.
+description: Use when the user says they are reviewing a branch, bookmark or PR themselves and will ask questions about it, asks "where/what/why does this change ..." about a specific branch, or says not to review it for them.
 ---
 
 # Review Lookup

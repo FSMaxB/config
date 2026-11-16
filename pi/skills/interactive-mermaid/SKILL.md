@@ -1,6 +1,6 @@
 ---
 name: interactive-mermaid
-description: Build mermaid diagrams that render in Pi's interactive chat. Use when explaining architecture, control flow, data flow, dependencies between components or state machines, and when the user asks to "diagram this", "draw", "sketch" or "show me" how something works. Covers which diagram types Pi's terminal renderer draws, how to keep a diagram narrow enough to render, how to highlight and link nodes, and the text sketches to use for things that are not graphs.
+description: Use when explaining architecture, control flow, data flow, dependencies between components or state machines, before drawing any mermaid diagram, and when the user asks to "diagram this", "draw", "sketch" or "show me" how something works.
 ---
 
 # Interactive mermaid

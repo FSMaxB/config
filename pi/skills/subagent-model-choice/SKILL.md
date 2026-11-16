@@ -1,6 +1,6 @@
 ---
 name: subagent-model-choice
-description: Pick the model and thinking level for a subagent before dispatching it. Use whenever you call Pi's subagent tool and have to decide whether to inherit the session model, drop to a cheaper tier, or change the thinking level. Covers Anthropic, OpenAI, Google and local models, and the subagent tool's rules that limit the choice.
+description: Use before every call to Pi's subagent tool, and whenever choosing a model or thinking level for a subagent.
 ---
 
 # Subagent model and thinking level
