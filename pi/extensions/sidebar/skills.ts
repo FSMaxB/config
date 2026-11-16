@@ -1,8 +1,7 @@
-import { realpathSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { dirname, relative, sep } from "node:path";
 import { ItemTone, type PanelItem } from "./panel.ts";
 import type { BranchEntry } from "./section.ts";
+import { type RealPath, resolveToolPath, safeRealPath } from "./tool-path.ts";
 
 export const LOADED_SKILL_ENTRY = "loaded-skill";
 export const LOADED_SKILL_REFERENCE_ENTRY = "loaded-skill-reference";
@@ -27,8 +26,6 @@ export type SkillState = (typeof SkillState)[keyof typeof SkillState];
 export type SkillOnBranch = { skill: Skill; state: SkillState; references: readonly string[] };
 
 export type CommandInfo = { name: string; source: string; sourceInfo: { path: string; scope: string } };
-export type RealPath = (path: string) => string;
-
 export function buildSkillIndex(commands: readonly CommandInfo[], realPath: RealPath = safeRealPath): SkillIndex {
   const index: SkillIndex = new Map();
   for (const command of commands) {
@@ -49,7 +46,7 @@ export function skillLoadForReadPath(
   realPath: RealPath = safeRealPath,
 ): SkillLoad | undefined {
   if (typeof rawPath !== "string" || rawPath === "") return undefined;
-  const path = realPath(resolveReadPath(rawPath, cwd));
+  const path = realPath(resolveToolPath(rawPath, cwd));
   const skill = index.get(path);
   if (skill !== undefined) return { kind: "skill", skill };
   return referenceLoad(index, path);
@@ -155,22 +152,6 @@ function levelForScope(scope: string): SkillLevel {
 
 function findByName(index: SkillIndex, name: string): Skill | undefined {
   return [...index.values()].find((skill) => skill.name === name);
-}
-
-/** Mirrors the read tool: strips a leading `@`, expands `~`, resolves against cwd. */
-function resolveReadPath(rawPath: string, cwd: string): string {
-  const withoutAt = rawPath.startsWith("@") ? rawPath.slice(1) : rawPath;
-  const expanded =
-    withoutAt === "~" ? homedir() : withoutAt.startsWith("~/") ? homedir() + withoutAt.slice(1) : withoutAt;
-  return isAbsolute(expanded) ? expanded : resolve(cwd, expanded);
-}
-
-function safeRealPath(path: string): string {
-  try {
-    return realpathSync(path);
-  } catch {
-    return path;
-  }
 }
 
 function firstText(content: unknown): string {

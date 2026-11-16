@@ -7,7 +7,6 @@ import {
   type CommandInfo,
   LOADED_SKILL_ENTRY,
   LOADED_SKILL_REFERENCE_ENTRY,
-  type RealPath,
   type Skill,
   type SkillOnBranch,
   SkillState,
@@ -16,6 +15,7 @@ import {
   skillLoadFromUserContent,
   skillsOnBranch,
 } from "./skills.ts";
+import type { RealPath } from "./tool-path.ts";
 
 const links: Record<string, string> = {
   "/home/u/.pi/agent/skills/vcs/SKILL.md": "/home/u/config/pi/skills/vcs/SKILL.md",
