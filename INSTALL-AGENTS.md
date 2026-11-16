@@ -23,7 +23,6 @@
 ## Code style / Architecture
 
 - Before writing, editing or proposing code or architecture (including snippets, pseudo-code, types and signatures in plans), read the `code-style` skill and follow it.
-- Pi only: Run bazel commands or commands that run bazel internally with unsandboxed bash
 
 ## Instruction loading (for harnesses without native support, e.g. OpenCode)
 
