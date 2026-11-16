@@ -1,6 +1,6 @@
 ---
 name: review-style
-description: Review code or plans the way Max does. Use whenever you review a diff, commit, branch, pull request or plan for Max, or draft review comments on his behalf (GitHub, tuicr, crit). Covers comment format and tone, verdicts, change hygiene, what to hunt for, design and type feedback, comments, tests and plan reviews.
+description: Use whenever you review a diff, commit, branch, pull request or plan for Max, or draft review comments on Max's behalf (GitHub, tuicr, crit).
 ---
 
 # Review style
