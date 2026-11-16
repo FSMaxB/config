@@ -32,7 +32,7 @@ import { loadActivationDecisions, loadProfiles, loadSettings, updateActivationDe
 import { scanVcsLayout, vcsWriteRules, type VcsWriteRules } from "./vcs-policy.ts";
 import { isRepositoryRootRemoval, isSecretPath, pathViolations, type PathViolation } from "./violations.ts";
 import { startViolationCollector, type ViolationCollector } from "./violation-collector.ts";
-import { networkDenialReport, nextStep, rawViolationBlock, successViolationReport, violationReport, type NextStep, type ViolationOutcome } from "./violation-outcomes.ts";
+import { CommandExit, discardedWriteReport, networkDenialReport, nextStep, promptDurations, rawViolationBlock, violationReport, type NextStep, type ViolationOutcome } from "./violation-outcomes.ts";
 
 const SANDBOX_NOTE =
   "Commands run inside an OS sandbox that enforces the same read/write path rules as the file tools, with no network except allowed hosts. Denied paths are reported in a <sandbox_violations> block and the user is asked to grant them; after a grant the command has to be rerun, unless the user allowed it once: then the sandbox reruns it itself and the rerun's output follows the report. Never try to work around a denial. Sandbox profiles (extra permissions the user approved for tools such as bazel) activate on their own for matching commands, after the user confirms. " +
@@ -301,33 +301,22 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     try {
       const wrapped = await manager().wrapWithSandbox(exportSessionScratch(command, environment), undefined, { filesystem }, options.signal, { commandId, commandText: command });
       const result = await stock.exec(wrapped, cwd, { ...options, env: environment });
-      if (result.exitCode === 0) {
-        // Linux events arrive over the monitor socket and are best-effort after exit, so the success
-        // path pays one poll on Linux; macOS reports asynchronously via `log stream`, so it polls
-        // until the count settles like the failure path.
-        const violations = process.platform === "linux"
-          ? await readViolationsAfterOneWait(commandId)
-          : await collectViolations(commandId);
-        const lines = reportable(violations, vcs.repositoryRoot).map(({ line }) => line);
-        const report = successViolationReport(
-          pathViolations(lines),
-          filesystem,
-          process.platform as PolicyOptions["platform"],
-          currentAgentMode(),
-        );
-        if (report) options.onData(Buffer.from(report));
-        const denials = networkDenialReport(lines, networkNote);
-        if (denials) options.onData(Buffer.from(denials));
-        return { result, step: { kind: "return" }, promptsUsed: 0 };
-      }
-      const violations = reportable(await collectViolations(commandId), vcs.repositoryRoot);
+      const exit = result.exitCode === 0 ? CommandExit.Succeeded : CommandExit.Failed;
+      // Linux events arrive over the monitor socket and are best-effort after exit, so a successful command
+      // pays one poll there; macOS reports asynchronously via `log stream`, so it polls until the count settles.
+      const collected = exit === CommandExit.Succeeded && process.platform === "linux"
+        ? await readViolationsAfterOneWait(commandId)
+        : await collectViolations(commandId);
+      const violations = reportable(collected, vcs.repositoryRoot);
       if (violations.length === 0) return { result, step: { kind: "return" }, promptsUsed: 0 };
       const lines = violations.map(({ line }) => line);
       options.onData(Buffer.from(rawViolationBlock(lines)));
-      const { outcomes, promptsUsed } = await resolveViolations(violations, promptsLeft, profileNames);
-      const step = nextStep(outcomes);
+      const discarded = discardedWriteReport(pathViolations(lines), filesystem, process.platform as PolicyOptions["platform"]);
+      if (discarded) options.onData(Buffer.from(discarded));
+      const { outcomes, promptsUsed } = await resolveViolations(violations, promptsLeft, profileNames, promptDurations(exit));
+      const step = nextStep(outcomes, exit);
       // A command that only hit network denials has no path outcomes to report.
-      if (outcomes.length > 0) options.onData(Buffer.from(violationReport(outcomes, step, currentAgentMode())));
+      if (outcomes.length > 0) options.onData(Buffer.from(violationReport(outcomes, step, currentAgentMode(), exit)));
       const denials = networkDenialReport(lines, networkNote);
       if (denials) options.onData(Buffer.from(denials));
       return { result, step, promptsUsed };
@@ -517,24 +506,24 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     return networkDenialNote({ grants, once: onceNetworkGrants, settingsReasons: settings?.deniedDomainReasons ?? new Map() }, host, port);
   }
 
-  async function resolveViolations(violations: { line: string }[], promptsLeft: number, profileNames: readonly string[]): Promise<{ outcomes: ViolationOutcome[]; promptsUsed: number }> {
+  async function resolveViolations(violations: { line: string }[], promptsLeft: number, profileNames: readonly string[], durations: readonly Duration[]): Promise<{ outcomes: ViolationOutcome[]; promptsUsed: number }> {
     const secrets = secretPaths(homedir());
     const parsed = pathViolations(violations.map(({ line }) => line));
     const outcomes: ViolationOutcome[] = [];
     for (const [index, violation] of parsed.entries()) {
-      outcomes.push(await resolveViolation(violation, secrets, index < promptsLeft, profileNames));
+      outcomes.push(await resolveViolation(violation, secrets, index < promptsLeft, profileNames, durations));
     }
     return { outcomes, promptsUsed: Math.min(parsed.length, promptsLeft) };
   }
 
-  async function resolveViolation({ mode, path }: PathViolation, secrets: string[], mayPrompt: boolean, profileNames: readonly string[]): Promise<ViolationOutcome> {
+  async function resolveViolation({ mode, path }: PathViolation, secrets: string[], mayPrompt: boolean, profileNames: readonly string[], durations: readonly Duration[]): Promise<ViolationOutcome> {
     // Resolve before the secret check so a symlink into a secret tree short-circuits and the
     // report names the real secret path. grantPathAccess already resolves internally.
     const resolved = await resolveThroughSymlinks(path);
     if (isSecretPath(resolved, secrets)) return { kind: "secret", path: resolved };
     if (!activeContext?.hasUI) return { kind: "no-ui", mode, path };
     if (!mayPrompt) return { kind: "not-asked", mode, path };
-    const outcome = await grantPathAccess(path, mode, activeContext, profileNames);
+    const outcome = await grantPathAccess(path, mode, activeContext, profileNames, durations);
     if (outcome.kind === "add-to-profile") {
       const entry = selectorText(outcome.grant.selector, homedir());
       await updateProfile(SETTINGS_FILE, outcome.profile, (current) => current && addFilesystemEntry(current, mode, entry));

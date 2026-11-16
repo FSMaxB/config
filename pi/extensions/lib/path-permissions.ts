@@ -75,7 +75,8 @@ export async function currentPolicy(onceGrants: OnceGrant[] = []): Promise<Effec
 
 // Used by the sandbox after a command was denied. "Allow once" records nothing: the sandbox reruns the command with the returned grant.
 // Only the sandbox passes profiles, which adds an "Add to profile" choice; the file tools keep the plain prompt.
-export async function grantPathAccess(path: string, mode: AccessMode, context: ExtensionContext, profiles: readonly string[] = []): Promise<PathAccessOutcome> {
+// The sandbox passes LASTING_DURATIONS for a command that exited 0, which it never reruns.
+export async function grantPathAccess(path: string, mode: AccessMode, context: ExtensionContext, profiles: readonly string[] = [], durations: readonly Duration[] = ALL_DURATIONS): Promise<PathAccessOutcome> {
   const resolved = await resolveThroughSymlinks(path);
   const settled = async (): Promise<PathAccessOutcome | undefined> => {
     const layers = await effectiveLayers(mode);
@@ -90,7 +91,7 @@ export async function grantPathAccess(path: string, mode: AccessMode, context: E
     if (latest) return latest;
     const { protected: protectedSelectors } = await effectiveLayers(mode);
     try {
-      const answer = await requestAccess(resolved, mode, context, protectedSelectors, profiles);
+      const answer = await requestAccess(resolved, mode, context, protectedSelectors, profiles, durations);
       if (answer.kind === "once") return { kind: "allowed-once", grant: { mode, selector: answer.selector } };
       if (answer.kind === "profile") return { kind: "add-to-profile", profile: answer.profile, grant: { mode, selector: answer.selector } };
       return answer.kind === "rule" ? { kind: "allowed" } : { kind: "denied", note: answer.note };
@@ -150,7 +151,7 @@ async function ensureAllowed(path: string, mode: AccessMode, context: ExtensionC
   });
 }
 
-async function requestAccess(resolved: string, mode: AccessMode, context: ExtensionContext, protectedSelectors: PathSelector[] = [], profiles: readonly string[] = []): Promise<AccessAnswer> {
+async function requestAccess(resolved: string, mode: AccessMode, context: ExtensionContext, protectedSelectors: PathSelector[] = [], profiles: readonly string[] = [], durations: readonly Duration[] = ALL_DURATIONS): Promise<AccessAnswer> {
   if (!context.hasUI) throw new Error(`${resolved} is not covered by the ${mode} path rules and there is no interactive UI to ask. Stay inside the repository.${readOnlyRepositoryNotice(mode, currentAgentMode())}`);
   // A protected path is granted as its own protected root, so approving one extension file does not open the whole repository.
   const protectedMatch = protectedSelectors.find((candidate) => matchesRule(resolved, candidate));
@@ -165,7 +166,7 @@ async function requestAccess(resolved: string, mode: AccessMode, context: Extens
     subject,
     scope: selector,
     narrower: await narrowerScopes(resolved, selector, mode, protectedSelectors),
-    durations: ALL_DURATIONS,
+    durations,
     destinations: profileDestinations(profiles),
   });
   if (answer.decision === "allow-to") return { kind: "profile", profile: answer.destination, selector: answer.scope };

@@ -2,7 +2,7 @@ import type { FilesystemConfig } from "@anthropic-ai/sandbox-runtime";
 import type { AgentMode } from "../../lib/agent-mode.ts";
 import { readOnlyRepositoryNotice, type AccessMode } from "../../lib/path-permission-rules.ts";
 import type { OnceGrant } from "../../lib/path-permissions.ts";
-import { userReason } from "../../lib/permission-prompt.ts";
+import { ALL_DURATIONS, LASTING_DURATIONS, userReason, type Duration } from "../../lib/permission-prompt.ts";
 import { discardedWrites, type PathViolation } from "./violations.ts";
 
 export type ViolationOutcome =
@@ -16,9 +16,19 @@ export type ViolationOutcome =
 
 export type NextStep = { kind: "rerun"; grants: OnceGrant[] } | { kind: "return" };
 
+export const CommandExit = { Succeeded: "succeeded", Failed: "failed" } as const;
+export type CommandExit = (typeof CommandExit)[keyof typeof CommandExit];
+
+// A command that exited 0 is never rerun, so a once grant would have nothing to apply to.
+export function promptDurations(exit: CommandExit): readonly Duration[] {
+  return exit === CommandExit.Succeeded ? LASTING_DURATIONS : ALL_DURATIONS;
+}
+
 // A path that is still blocked would fail the rerun the same way, so a rerun needs every path granted. A path
-// added to a profile contributes no once grant: the rerun reloads the profile.
-export function nextStep(outcomes: ViolationOutcome[]): NextStep {
+// added to a profile contributes no once grant: the rerun reloads the profile. A command that exited 0 is never
+// rerun: its side effects already happened once.
+export function nextStep(outcomes: ViolationOutcome[], exit: CommandExit): NextStep {
+  if (exit === CommandExit.Succeeded) return { kind: "return" };
   const grants = outcomes.flatMap((outcome) => outcome.kind === "allowed-once" ? [outcome.grant] : []);
   const rerunnable = outcomes.some(({ kind }) => kind === "allowed-once" || kind === "added-to-profile");
   const blocked = outcomes.some(({ kind }) => kind !== "allowed" && kind !== "allowed-once" && kind !== "added-to-profile");
@@ -30,10 +40,15 @@ export function rawViolationBlock(lines: string[]): string {
   return `\n<sandbox_violations>\n${lines.join("\n")}\n</sandbox_violations>`;
 }
 
-export function violationReport(outcomes: ViolationOutcome[], step: NextStep, agentMode: AgentMode): string {
+export function violationReport(outcomes: ViolationOutcome[], step: NextStep, agentMode: AgentMode, exit: CommandExit): string {
   const lines = outcomes.map((outcome) => outcomeLine(outcome, step, agentMode));
-  const footer = step.kind === "rerun" ? ["Rerunning the command with these grants; the rerun's output follows."] : [];
-  return `\n${[...lines, ...footer].join("\n")}\n`;
+  return `\n${[...lines, ...reportFooter(step, exit)].join("\n")}\n`;
+}
+
+function reportFooter(step: NextStep, exit: CommandExit): string[] {
+  if (step.kind === "rerun") return ["Rerunning the command with these grants; the rerun's output follows."];
+  if (exit === CommandExit.Succeeded) return ["The command exited 0, but the denied operations did not take effect, so its result can be incomplete. It was not rerun."];
+  return [];
 }
 
 function outcomeLine(outcome: ViolationOutcome, step: NextStep, agentMode: AgentMode): string {
@@ -57,7 +72,7 @@ function outcomeLine(outcome: ViolationOutcome, step: NextStep, agentMode: Agent
 // srt records each refused connection as `deny network-outbound <host>:<port> (<reason>)`.
 const NETWORK_DENIAL = /^deny network-outbound (.+):(\d+) \(/;
 
-// Only denials with a user reason get a line; the raw block already lists the others on a failed command.
+// Only denials with a user reason get a line; the raw block already lists the others.
 export function networkDenialReport(lines: string[], noteFor: (host: string, port: number) => string | undefined): string {
   const reported = new Map<string, string>();
   for (const line of lines) {
@@ -71,21 +86,14 @@ export function networkDenialReport(lines: string[], noteFor: (host: string, por
   return reported.size === 0 ? "" : `\n${[...reported.values()].join("\n")}\n`;
 }
 
-// A command that exited 0 despite denials is only reported, never prompted or rerun: rerunning could
-// repeat side effects, and prompts happen after a failed command.
-export function successViolationReport(
+// Linux's read-deny tmpfs accepts writes and drops them when the sandbox exits, so the program believes they
+// succeeded; macOS refuses such writes, so it never reports any.
+export function discardedWriteReport(
   violations: PathViolation[],
   filesystem: Pick<FilesystemConfig, "denyRead" | "allowWrite">,
   platform: "darwin" | "linux",
-  agentMode: AgentMode,
 ): string {
-  if (violations.length === 0) return "";
   const discarded = discardedWrites(violations, filesystem, platform);
-  const lines = violations.map((violation) => {
-    if (discarded.includes(violation)) {
-      return `${violation.path} is not covered by the write path rules; the write was discarded and nothing reached the real filesystem.`;
-    }
-    return `${violation.mode} access to ${violation.path} was denied by the sandbox; the command still exited 0.`;
-  });
-  return `\n<sandbox_violations>\n${lines.join("\n")}${readOnlyRepositoryNotice("write", agentMode)}\n</sandbox_violations>\n`;
+  if (discarded.length === 0) return "";
+  return `\n${discarded.map(({ path }) => `The write to ${path} was discarded; nothing reached the real filesystem.`).join("\n")}\n`;
 }
