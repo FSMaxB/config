@@ -13,3 +13,7 @@ description: Use whenever you write, edit or propose code or architecture in any
 - Do not use `err`, `ctx`, `recv` or similar abbreviations. Use full words like `error`, `context` or `receive`.
 - Prefer explicit types (e.g. enum) instead of boolean when used as function arguments (a boolean return value is fine when it is only used in a condition).
 - Use early returns or equivalent where possible to prevent nesting the happy path.
+
+## Language references
+
+- Rust: read `references/rust.md`.

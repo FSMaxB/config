@@ -58,7 +58,7 @@ Sandbox profiles (`sandbox/src/profile-*.ts`, `profiles.ts`, `recorder.ts`, `rec
 
 ## pi skills
 
-`pi/skills/` is symlinked to `~/.pi/agent/skills`, pi's global skill root. Each skill is `pi/skills/<name>/SKILL.md`. A skill meant for Claude Code as well stays there, and `install.sh` links its directory into `~/.claude/skills/`; add its name to the `for skill in ...` loop there (see `rust-style`).
+`pi/skills/` is symlinked to `~/.pi/agent/skills`, pi's global skill root. Each skill is `pi/skills/<name>/SKILL.md`. A skill meant for Claude Code as well stays there, and `install.sh` links its directory into `~/.claude/skills/`; add its name to the `for skill in ...` loop there (see `code-style`).
 
 ## pi themes
 

@@ -5,7 +5,7 @@ description: Use whenever you review a diff, commit, branch, pull request or pla
 
 # Review style
 
-For Rust code, also apply the `rust-style` skill: every rule there is a review finding when violated.
+Also apply the `code-style` skill: every rule there is a review finding when violated.
 
 ## Comment format
 

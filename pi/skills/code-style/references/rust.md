@@ -1,9 +1,4 @@
----
-name: rust-style
-description: Use whenever you write, edit or propose Rust code, including Rust snippets, types and signatures in plans and reviews.
----
-
-# Rust style
+# Rust
 
 - Liberally use struct and enum destructuring, especially if it allows you to avoid an explicit type declaration of a let binding.
 - Inside modules that aren't reachable from outside the crate, use pub instead of pub(crate) or pub(super).
