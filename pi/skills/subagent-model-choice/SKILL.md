@@ -58,7 +58,7 @@ support is clamped to the nearest one it does.
 
 | Level | Anthropic (`effort`) | OpenAI (`reasoning.effort`) | Google (`thinking_level`) |
 | --- | --- | --- | --- |
-| `off` / `minimal` | Opus 5.5 and Fable 5.1 always think, so this clamps up. Haiku 5.5 and Sonnet 5.5 accept thinking off at `high` or below (`disabled` and `between_tools` respectively) | `none` (GPT-6.1 Terra, GPT-6 Sol and Luna; GPT-6.1 Sol and Astra require at least `low`) / `minimal` (supported GPT-5.x models; GPT-6 maps to `low`) | `minimal` (Flash-Lite, some Flash) |
+| `off` / `minimal` | Opus 5.5 and Fable 5.2 always think, so this clamps up. Haiku 5.5 and Sonnet 5.5 accept thinking off at `high` or below (`disabled` and `between_tools` respectively) | `none` (GPT-6.1 Terra, GPT-6 Sol and Luna; GPT-6.1 Sol and Astra require at least `low`) / `minimal` (supported GPT-5.x models; GPT-6 maps to `low`) | `minimal` (Flash-Lite, some Flash) |
 | `low` | Most efficient; "simpler tasks ... such as subagents". On Haiku 5.5: chat, short tool tasks, high-volume requests; in long agent prompts it may skip a search, stop early, or skip a check | Tool use, search, execution-oriented coding | `low` |
 | `medium` | Balanced; default on Opus 5.5 and Haiku 5.5 | Default for most workloads; agentic coding, research | `medium` (Flash default) |
 | `high` | Default on Fable, Sonnet, older Opus. On Haiku 5.5: knowledge work, longer agent tasks, strict instruction following | Hard reasoning, complex debugging | `high` (Pro default) |
@@ -76,7 +76,7 @@ to be a no-op unless the server exposes reasoning effort explicitly.
 
 ## Model tiers
 
-Prices are USD per million input / output tokens as published in October 2026.
+Prices are USD per million input / output tokens as published in November 2026.
 
 ### Anthropic
 
@@ -85,9 +85,9 @@ Prices are USD per million input / output tokens as published in October 2026.
 | cheap | Claude Haiku 5.5 (`claude-haiku-5-5`) | 0.10 / 0.50 (0.50 / 2.50 once the prompt exceeds 100K tokens) | Anthropic's named "sub-agent tasks" model. Adaptive thinking steered by effort; `medium` default; all five levels. 1M context, 128K output. |
 | mid | Claude Sonnet 5.5 (`claude-sonnet-5-5`) | 2 / 10 | "Everyday coding, agent workloads". For well-specified agentic tasks Anthropic recommends starting at `medium`. |
 | frontier | Claude Opus 5.5 (`claude-opus-5-5`) | 4 / 20 | "Most workloads start here". Adaptive thinking always on; `medium` default. |
-| frontier+ | Claude Fable 5.1 (`claude-fable-5-1`) | 10 / 50 | Hours-long agent sessions, deep research. Reserve for subagents that must reason as well as the main session. |
+| frontier+ | Claude Fable 5.2 (`claude-fable-5-2`) | 8 / 40 | Hours-long agent sessions, deep research. Reserve for subagents that must reason as well as the main session. |
 
-Haiku 5.5 costs a fortieth of Opus 5.5 and a hundredth of Fable 5.1 per token
+Haiku 5.5 costs a fortieth of Opus 5.5 and an eightieth of Fable 5.2 per token
 while the prompt stays under 100K tokens, and finishes faster. A file-heavy
 explore subagent crosses that line, after which every request bills at the
 higher rate; that is still a quarter of Sonnet 5.5 and an eighth of Opus 5.5.
@@ -185,7 +185,8 @@ only sensible "cheap" option, and the session model is the ceiling.
 
 ## Sources
 
-Anthropic sources checked 2026-10-08 (Haiku 5.5 release); OpenAI
+Anthropic sources checked 2026-10-08 (Haiku 5.5 release), models
+overview rechecked 2026-11-16 (Fable 5.2); OpenAI
 model selection and GPT-6.1 Terra sources checked 2026-10-27 (other OpenAI
 sources checked 2026-09-30); Google sources checked 2026-09-29.
 
