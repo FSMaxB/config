@@ -76,78 +76,18 @@ to be a no-op unless the server exposes reasoning effort explicitly.
 
 ## Model tiers
 
-Prices are USD per million input / output tokens as published in November 2026.
+Before picking a model, read the tier table for the session's provider
+(`echo $PI_PROVIDER`):
 
-### Anthropic
+- Anthropic, including the `pi-claude` bridge: `references/anthropic.md`
+- OpenAI: `references/openai.md`
+- Google: `references/google.md`
 
-| Tier | Model | Price | Notes |
-| --- | --- | --- | --- |
-| cheap | Claude Haiku 5.5 (`claude-haiku-5-5`) | 0.10 / 0.50 (0.50 / 2.50 once the prompt exceeds 100K tokens) | Anthropic's named "sub-agent tasks" model. Adaptive thinking steered by effort; `medium` default; all five levels. 1M context, 128K output. |
-| mid | Claude Sonnet 5.5 (`claude-sonnet-5-5`) | 2 / 10 | "Everyday coding, agent workloads". For well-specified agentic tasks Anthropic recommends starting at `medium`. |
-| frontier | Claude Opus 5.5 (`claude-opus-5-5`) | 4 / 20 | "Most workloads start here". Adaptive thinking always on; `medium` default. |
-| frontier+ | Claude Fable 5.2 (`claude-fable-5-2`) | 8 / 40 | Hours-long agent sessions, deep research. Reserve for subagents that must reason as well as the main session. |
-
-Haiku 5.5 costs a fortieth of Opus 5.5 and an eightieth of Fable 5.2 per token
-while the prompt stays under 100K tokens, and finishes faster. A file-heavy
-explore subagent crosses that line, after which every request bills at the
-higher rate; that is still a quarter of Sonnet 5.5 and an eighth of Opus 5.5.
-On GPQA Diamond, Anthropic measured Haiku 5.5 at about a twentieth of Opus
-5.5's cost per question for 85% against 91% accuracy, which is the gap to
-expect on judgment-heavy briefs. Haiku 5.5 uses the Claude 4.7+ tokenizer
-(about 30% more tokens than Haiku 4.5 for the same text), so price
-comparisons against the other current models are like for like.
-
-Claude Haiku 4.5 (`claude-haiku-4-5`, 1 / 5, 200K context, no effort
-parameter) is the previous generation. Use it only when Haiku 5.5 is not
-configured; Haiku 5.5's safety classifiers can decline a request, and the
-claude-bridge provider falls back to Haiku 4.5 on its own in that case.
-
-### OpenAI
-
-OpenAI publishes model x effort pairings rather than a per-model table.
-
-| Tier | Model | Suggested pairings |
-| --- | --- | --- |
-| cheap | GPT-6 Luna (`gpt-6-luna`), GPT-5.6 Luna | `low`: fine-grained edits, simple extraction. `medium`: coordinated updates from a clear brief. `xhigh`: cross-app context gathering with clear constraints. |
-| mid (efficient) | GPT-6.1 Terra (`gpt-6.1-terra`) | Try for scoped code fixes with regression tests, visual reasoning, precise computer use, and writing from supplied material. Start at `medium` (default); compare with Sol at the same effort and keep the lightest setting that passes verification. |
-| mid | GPT-6.1 Sol (`gpt-6.1-sol`) | Near-Astra performance at lower cost for complex coding, computer use, and professional work. Start at `medium` (default); use `low` for focused tasks, and evaluate `high` / `xhigh` for difficult analysis or review. Reserve `max` for measured gains over `xhigh`. |
-| frontier | GPT-6 Astra (`gpt-6-astra`) | `medium`: ambitious projects needing broad context. `xhigh`: demanding analysis. Does not accept `none`. Uses fewer output tokens per task than earlier models, so per-task cost can be lower than its per-token price suggests. |
-
-GPT-6.1 Terra costs $1 / $5 per million input / output tokens at standard
-rates. Prompts above 272K input tokens cost 2x input and 1.5x output for the
-full request. It supports `none`, `low`, `medium` (default), `high`, `xhigh`,
-and `max`; `none` allows non-reasoning runs. Use Terra as an efficient
-mid-tier option for well-specified, verifiable tasks, not as a blanket
-replacement for Luna's cheapest lookups or Sol's complex technical work.
-For code fixes, require regression tests; for computer use, verify saved
-state and the completion report rather than trusting the report alone.
-
-GPT-6.1 Sol supports `low`, `medium`, `high`, `xhigh`, and `max`, but not
-`none` or `minimal`: choose at least `thinkingLevel: "low"`. Both GPT-6.1
-Terra and Sol require the Responses API for tool calling. Confirm the
-configured provider uses Responses before dispatching a tool-using
-subagent with either model.
-
-Prefer GPT-6.1 Sol over GPT-6 Sol (`gpt-6-sol`) for new mid-tier dispatches
-when it is configured. Prefer GPT-6.1 Terra over GPT-5.6 Terra for
-Terra-suited tasks when configured. Older GPT-6 Sol and GPT-5.6 Terra remain fallbacks when the
-corresponding GPT-6.1 models are unavailable. Compare Sol 6.1 with Astra
-on the same task before paying for the frontier tier.
-
-### Google
-
-| Tier | Model | Default thinking |
-| --- | --- | --- |
-| cheap | Gemini Flash-Lite | `minimal` |
-| mid | Gemini Flash | `medium` |
-| frontier | Gemini Pro | `high` |
-
-### Other providers and local
-
-The `subagent` tool description lists the models valid for the current
-session with one-line guidance per model (from the extension's config).
-Trust that list over this file when they disagree: it reflects what is
-actually configured. For local models, the strongest local coder is the
+For other providers and local models, use the `subagent` tool
+description: it lists the models valid for the current session with
+one-line guidance per model (from the extension's config). Trust that list
+over the reference files when they disagree: it reflects what is actually
+configured. For local models, the strongest local coder is the
 only sensible "cheap" option, and the session model is the ceiling.
 
 ## Harness rules
