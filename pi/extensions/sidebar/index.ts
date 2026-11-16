@@ -3,7 +3,7 @@ import { type OverlayHandle, truncateToWidth, visibleWidth } from "@earendil-wor
 import { MIN_TERMINAL_WIDTH, type PanelSection, SidebarPanel, type TextMeasure } from "./panel.ts";
 import type { SidebarSection } from "./section.ts";
 import { createGrantsSection } from "./grants-section.ts";
-import { createSkillsSection } from "./skills-section.ts";
+import { createSkillsSections } from "./skills-section.ts";
 import { defaultVisibility, sessionVisibility, VISIBILITY_ENTRY, Visibility } from "./visibility.ts";
 
 const measure: TextMeasure = {
@@ -18,7 +18,7 @@ export default function sidebarExtension(pi: ExtensionAPI) {
   let overlay: Overlay | undefined;
 
   // State lives in this closure, not at module level: pi re-runs the factory for new sessions.
-  const sections: readonly SidebarSection[] = [createSkillsSection(pi, redraw), createGrantsSection(pi, redraw)];
+  const sections: readonly SidebarSection[] = [...createSkillsSections(pi, redraw), createGrantsSection(pi, redraw)];
 
   pi.on("session_start", async (_event, context) => restore(context));
   pi.on("session_tree", async (_event, context) => restore(context));

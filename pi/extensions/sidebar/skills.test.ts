@@ -4,6 +4,7 @@ import {
   buildSkillIndex,
   type CommandInfo,
   LOADED_SKILL_ENTRY,
+  type LoadedSkill,
   loadedSkillsOnBranch,
   type RealPath,
   skillForReadPath,
@@ -16,10 +17,25 @@ const links: Record<string, string> = {
 const realPath: RealPath = (path) => links[path] ?? path;
 
 const commands: CommandInfo[] = [
-  { name: "skill:vcs", source: "skill", sourceInfo: { path: "/home/u/.pi/agent/skills/vcs/SKILL.md" } },
-  { name: "skill:planning", source: "skill", sourceInfo: { path: "/home/u/config/pi/skills/planning/SKILL.md" } },
-  { name: "sidebar", source: "extension", sourceInfo: { path: "/home/u/config/pi/extensions/sidebar/index.ts" } },
+  {
+    name: "skill:vcs",
+    source: "skill",
+    sourceInfo: { path: "/home/u/.pi/agent/skills/vcs/SKILL.md", scope: "user" },
+  },
+  {
+    name: "skill:planning",
+    source: "skill",
+    sourceInfo: { path: "/home/u/config/pi/skills/planning/SKILL.md", scope: "project" },
+  },
+  {
+    name: "sidebar",
+    source: "extension",
+    sourceInfo: { path: "/home/u/config/pi/extensions/sidebar/index.ts", scope: "user" },
+  },
 ];
+
+const vcs: LoadedSkill = { name: "vcs", level: "user" };
+const planning: LoadedSkill = { name: "planning", level: "repo" };
 
 test("buildSkillIndex keeps only skills and strips the skill: prefix", () => {
   // arrange
@@ -32,10 +48,29 @@ test("buildSkillIndex keeps only skills and strips the skill: prefix", () => {
   assert.deepEqual(
     [...index],
     [
-      ["/home/u/config/pi/skills/vcs/SKILL.md", "vcs"],
-      ["/home/u/config/pi/skills/planning/SKILL.md", "planning"],
+      ["/home/u/config/pi/skills/vcs/SKILL.md", vcs],
+      ["/home/u/config/pi/skills/planning/SKILL.md", planning],
     ],
   );
+});
+
+test("buildSkillIndex maps project scope to repo and user and temporary scope to user", () => {
+  // arrange
+  const scoped = (scope: string): CommandInfo => ({
+    name: `skill:${scope}`,
+    source: "skill",
+    sourceInfo: { path: `/x/${scope}/SKILL.md`, scope },
+  });
+
+  // act
+  const levels = [...buildSkillIndex([scoped("project"), scoped("user"), scoped("temporary")], realPath).values()];
+
+  // assert
+  assert.deepEqual(levels, [
+    { name: "project", level: "repo" },
+    { name: "user", level: "user" },
+    { name: "temporary", level: "user" },
+  ]);
 });
 
 test("skillForReadPath matches absolute, relative, @-prefixed and symlinked paths", () => {
@@ -52,7 +87,7 @@ test("skillForReadPath matches absolute, relative, @-prefixed and symlinked path
   ];
 
   // assert
-  assert.deepEqual(matches, ["planning", "planning", "planning", "vcs"]);
+  assert.deepEqual(matches, [planning, planning, planning, vcs]);
 });
 
 test("skillForReadPath ignores other files and non-string paths", () => {
@@ -79,7 +114,7 @@ test("skillFromUserContent reads the name from string and text-block content", (
   const matches = [skillFromUserContent(index, block), skillFromUserContent(index, [{ type: "text", text: block }])];
 
   // assert
-  assert.deepEqual(matches, ["vcs", "vcs"]);
+  assert.deepEqual(matches, [vcs, vcs]);
 });
 
 test("skillFromUserContent ignores plain text and unknown skills", () => {
@@ -99,6 +134,7 @@ test("skillFromUserContent ignores plain text and unknown skills", () => {
 
 test("loadedSkillsOnBranch keeps order, drops duplicates and ignores other entries", () => {
   // arrange
+  const index = buildSkillIndex(commands, realPath);
   const entries = [
     { type: "custom", customType: LOADED_SKILL_ENTRY, data: { name: "vcs" } },
     { type: "custom", customType: "other", data: { name: "ignored" } },
@@ -109,8 +145,20 @@ test("loadedSkillsOnBranch keeps order, drops duplicates and ignores other entri
   ];
 
   // act
-  const names = loadedSkillsOnBranch(entries);
+  const skills = loadedSkillsOnBranch(entries, index);
 
   // assert
-  assert.deepEqual(names, ["vcs", "planning"]);
+  assert.deepEqual(skills, [vcs, planning]);
+});
+
+test("loadedSkillsOnBranch treats recorded skills missing from the index as user skills", () => {
+  // arrange
+  const index = buildSkillIndex(commands, realPath);
+  const entries = [{ type: "custom", customType: LOADED_SKILL_ENTRY, data: { name: "removed" } }];
+
+  // act
+  const skills = loadedSkillsOnBranch(entries, index);
+
+  // assert
+  assert.deepEqual(skills, [{ name: "removed", level: "user" }]);
 });
