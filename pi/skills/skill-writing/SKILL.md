@@ -30,13 +30,13 @@ The description is always in context and only decides whether the skill gets loa
 Bad, because it summarizes the content:
 
 ```yaml
-description: Review code or plans the way Max does. Covers comment format and tone, verdicts and what to hunt for.
+description: Review code or plans the way the user does. Covers comment format and tone, verdicts and what to hunt for.
 ```
 
 Good, because it names only the condition:
 
 ```yaml
-description: Use whenever you review a diff, commit, branch, pull request or plan for Max, or draft review comments on Max's behalf.
+description: Use whenever you review a diff, commit, branch, pull request or plan for the user, or draft review comments on the user's behalf.
 ```
 
 ## Body

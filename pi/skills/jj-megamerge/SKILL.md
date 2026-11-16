@@ -5,7 +5,7 @@ description: Use in a jj repository that has a `merge` bookmark, before reading 
 
 # jj megamerge
 
-Max keeps every open PR, every branch that will become a PR and every local-only change as a parallel **lane** between `main` and an empty octopus merge commit with the bookmark `merge`. Work that is unfinished or not assigned to a lane yet sits on top of `merge`.
+The user keeps every open PR, every branch that will become a PR and every local-only change as a parallel **lane** between `main` and an empty octopus merge commit with the bookmark `merge`. Work that is unfinished or not assigned to a lane yet sits on top of `merge`.
 
 The workflow applies when `jj log -r 'present(merge)'` shows a commit. When the working copy is read-only, pass `--ignore-working-copy` to every jj command.
 
@@ -32,7 +32,7 @@ The workflow applies when `jj log -r 'present(merge)'` shows a commit. When the 
 - **Lane**: a linear chain from a child of `main` to a parent of `merge`. Lanes are independent of each other.
 - **Lane head**: a parent of `merge`. Its bookmark is the branch of a PR.
 - **Stacked bookmarks**: a lane can carry several bookmarks. Each one is its own branch; the lower one lands first.
-- **Lane without a bookmark**: not PR-bound yet. Treat it like a local-only lane until Max names it.
+- **Lane without a bookmark**: not PR-bound yet. Treat it like a local-only lane until the user names it.
 - **Local-only lane**: its root is an empty commit `DO NOT PUSH: local only` directly on `main`, without a bookmark. Nothing in it is ever pushed.
 - **`DO NOT MERGE` commits**: local material (notes, analysis, agent docs). They must never end up in a PR: never push them and never move them into a bookmarked lane.
 - **LFS commit** (repositories that use git-lfs, i.e. `.gitattributes` contains `filter=lfs`): jj doesn't run git-lfs filters, so a single commit with the subject `LFS` in the local-only lane holds every LFS file's real content.
@@ -57,10 +57,10 @@ Always allowed, no request needed.
 
 ## Rules
 
-- Run a recipe only when Max asks for it. One request covers one recipe: a sync request does not cover an LFS refresh or abandoning landed lanes, so ask before those.
+- Run a recipe only when the user asks for it. One request covers one recipe: a sync request does not cover an LFS refresh or abandoning landed lanes, so ask before those.
 - The recipes are the only exception to the `vcs` skill's rule against rebasing and moving bookmarks.
-- Before each recipe, record the current operation: `jj op log -n 1 --no-graph -T 'id.short() ++ "\n"'`. If a step fails or the result looks wrong, stop, report what happened and give Max `jj op restore <id>`. Don't repair it yourself.
-- New work goes on top of the stack through the `vcs` skill's `jj new`/`jj commit` flow. It moves into a lane only when Max asks.
+- Before each recipe, record the current operation: `jj op log -n 1 --no-graph -T 'id.short() ++ "\n"'`. If a step fails or the result looks wrong, stop, report what happened and give the user `jj op restore <id>`. Don't repair it yourself.
+- New work goes on top of the stack through the `vcs` skill's `jj new`/`jj commit` flow. It moves into a lane only when the user asks.
 - Never describe, rebase, abandon or push `merge`, and never move or delete its bookmark. Only `jj simplify-parents` and lane recipes change its parents.
 - Always pair `-A main` with `-B merge`. `-A main` alone rebases every lane onto the inserted commits.
 - Push one named bookmark at a time with `jj git push -b <name>`. Never run bare `jj git push`, which pushes every bookmark between the remote and `@`. Never run `jj git push --deleted` unless asked.
@@ -100,14 +100,14 @@ jj simplify-parents -r merge
 
 ### Refresh the LFS commit
 
-Run it when the LFS commit is conflicted after a sync, or when Max asks.
+Run it when the LFS commit is conflicted after a sync, or when the user asks.
 
 ```sh
 jj log -r 'subject(exact:"LFS") & ::merge'   # exactly one commit: <lfs>
 jj new -B <lfs> -m LFS                        # @ = new empty LFS commit below the old one
 git lfs pull                                  # writes every LFS file's content into the working copy
 jj abandon -r <lfs>
-jj new 'exactly(heads(merge::), 1)'           # back to the top; errors if there are several heads, then ask Max
+jj new 'exactly(heads(merge::), 1)'           # back to the top; errors if there are several heads, then ask the user
 jj log -r 'conflicts() & mutable()'
 ```
 
@@ -129,8 +129,8 @@ jj bookmark create <name> -r <last>
 ```
 
 - Conflicts mean the work depends on another lane, so it belongs stacked in that lane. Report this and offer `jj op restore <id>`.
-- Name the bookmark like Max's existing bookmarks in the repo (`jj bookmark list`). Tell Max the name; it is cheap to rename until it is pushed.
-- If Max wants a lane that is not PR-bound yet, skip the bookmark.
+- Name the bookmark like the user's existing bookmarks in the repo (`jj bookmark list`). Tell the user the name; it is cheap to rename until it is pushed.
+- If the user wants a lane that is not PR-bound yet, skip the bookmark.
 
 ### Stack onto an existing lane
 
@@ -146,7 +146,7 @@ The rebase leaves the lane's bookmark on the old head. Then do one of the follow
 
 ### Move fixups into their lanes
 
-Fixups are named `fixup <change id>: <description>` (see the `vcs` skill). Max squashes them himself.
+Fixups are named `fixup <change id>: <description>` (see the `vcs` skill). The user squashes them.
 
 ```sh
 jj log -r 'merge+:: & subject(glob:"fixup *")'
@@ -164,7 +164,7 @@ jj log -r 'merge- & (description(substring:"DO NOT PUSH: local only")::)'   # <h
 jj rebase -r '<first>::<last>' -A <head> -B merge
 ```
 
-If there is no local-only lane yet, or Max wants a separate one, create the marker first. `jj new` prints the change ID of the new commit; that ID is `<marker>`.
+If there is no local-only lane yet, or the user wants a separate one, create the marker first. `jj new` prints the change ID of the new commit; that ID is `<marker>`.
 
 ```sh
 jj new --no-edit -A main -B merge -m 'DO NOT PUSH: local only'
@@ -186,7 +186,7 @@ If either prints a commit, stop and report it. Otherwise:
 jj git push -b <bookmark>
 ```
 
-If jj refuses to create the remote bookmark, pass its hint on to Max instead of trying other flags. Open a PR only when asked: the base is `main`, or the next bookmark down the lane for a stacked branch. Follow the repository's own PR instructions.
+If jj refuses to create the remote bookmark, pass its hint on to the user instead of trying other flags. Open a PR only when asked: the base is `main`, or the next bookmark down the lane for a stacked branch. Follow the repository's own PR instructions.
 
 ## Common mistakes
 

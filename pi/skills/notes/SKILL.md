@@ -1,17 +1,17 @@
 ---
 name: notes
-description: 'Use when Max asks to keep notes, a notes document or a running write-up, and whenever work continues on a topic that has a `DO NOT MERGE: notes on ...` commit.'
+description: 'Use when the user asks to keep notes, a notes document or a running write-up, and whenever work continues on a topic that has a `DO NOT MERGE: notes on ...` commit.'
 ---
 
 # Notes
 
-A notes document is a markdown file that records what a session established, so a later session can continue from it without re-deriving anything. It lives in its own `DO NOT MERGE: notes on <topic>` commit in the local-only lane of the megamerge stack (see the `jj-megamerge` skill), and every update is a fixup commit next to it. Max squashes the fixups himself.
+A notes document is a markdown file that records what a session established, so a later session can continue from it without re-deriving anything. It lives in its own `DO NOT MERGE: notes on <topic>` commit in the local-only lane of the megamerge stack (see the `jj-megamerge` skill), and every update is a fixup commit next to it. The user squashes the fixups.
 
-The workflow needs a `merge` bookmark (`jj log -r 'present(merge)'`) and `@` inside `merge::`, so the notes file is in the working copy. Otherwise, ask Max where the notes should live.
+The workflow needs a `merge` bookmark (`jj log -r 'present(merge)'`) and `@` inside `merge::`, so the notes file is in the working copy. Otherwise, ask the user where the notes should live.
 
 ## Keeping notes up to date
 
-- Update the notes automatically, in the same turn a fact is established. Never ask whether to add something; tell Max in one line what changed in the notes.
+- Update the notes automatically, in the same turn a fact is established. Never ask whether to add something; tell the user in one line what changed in the notes.
 - Asking is still required before acting on the notes, e.g. implementing an item from the TODO section.
 - Edit in place. When a finding supersedes an earlier statement, rewrite that statement instead of appending a contradiction. Strike through answered open questions (`~~...~~`) and point to the section that answers them.
 - Record evidence with each finding: `file:line`, commit hashes, PR links, the exact command and the numbers it printed. Mark what is verified, with the date, and what is only suspected.
@@ -21,7 +21,7 @@ The workflow needs a `merge` bookmark (`jj log -r 'present(merge)'`) and `@` ins
 
 ## Layout of a new notes file
 
-Put it at the repository root as `<topic>_notes.md`, unless Max names a path.
+Put it at the repository root as `<topic>_notes.md`, unless the user names a path.
 
 ```markdown
 # <Topic>: notes
@@ -31,7 +31,7 @@ Put it at the repository root as `<topic>_notes.md`, unless Max names a path.
 ## Prompt for a fresh agent
 
 > Read this document before working on <topic>. Treat the findings as verified;
-> re-check one only if Max disputes it or the code has moved since its date.
+> re-check one only if the user disputes it or the code has moved since its date.
 > Keep this document up to date automatically, without asking: record every
 > established finding, add or sharpen TODO items, strike through answered
 > questions. It lives in the `DO NOT MERGE: notes on <topic>` commit of the
@@ -57,11 +57,11 @@ jj log -r '(main..merge | merge::) & subject(glob:"DO NOT MERGE: notes*")'
 
 Below, `<notes>` is the 8-character change ID of the matching commit (`change_id.short(8)`). If several match, pick the one for the current topic or ask.
 
-If the notes commit sits on top of `merge` instead of in the local-only lane, ask Max before moving it there with the steps in "Starting notes". Until he answers, commit fixups on top of the stack with plain `jj commit <file> -m 'fixup <notes>: ...'`.
+If the notes commit sits on top of `merge` instead of in the local-only lane, ask the user before moving it there with the steps in "Starting notes". Until the user answers, commit fixups on top of the stack with plain `jj commit <file> -m 'fixup <notes>: ...'`.
 
 ## Starting notes
 
-Record the current operation first (`jj op log -n 1 --no-graph -T 'id.short() ++ "\n"'`); if a step fails or the result looks wrong, stop and give Max `jj op restore <id>`.
+Record the current operation first (`jj op log -n 1 --no-graph -T 'id.short() ++ "\n"'`); if a step fails or the result looks wrong, stop and give the user `jj op restore <id>`.
 
 ```sh
 jj status                                              # the notes file must be the only change you commit
@@ -92,5 +92,5 @@ jj log -r 'conflicts() & mutable()'
 - `<tip>` is the notes commit or its newest fixup in the lane, so fixups stay in order and each one applies cleanly.
 - `-A <tip>` without `-B` is safe here: `<tip>` is inside a lane, so its only child is the next lane commit or `merge`.
 - This rebase is the one exception to the `vcs` skill's rule against rebasing without asking. It covers notes fixups only.
-- If `jj diff <file>` shows edits that are not yours (Max or another agent writing the same file), ask before committing them.
-- If the rebase reports a conflict, stop and give Max `jj op restore <op>`.
+- If `jj diff <file>` shows edits that are not yours (the user or another agent writing the same file), ask before committing them.
+- If the rebase reports a conflict, stop and give the user `jj op restore <op>`.

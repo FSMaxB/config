@@ -1,6 +1,6 @@
 ---
 name: review-style
-description: Use whenever you review a diff, commit, branch, pull request or plan for Max, or draft review comments on Max's behalf (GitHub, tuicr, crit).
+description: Use whenever you review a diff, commit, branch, pull request or plan for the user, or draft review comments on the user's behalf (GitHub, tuicr, crit).
 ---
 
 # Review style

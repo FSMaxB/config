@@ -33,7 +33,7 @@ description: Use before reading VCS status or history, before making changes in 
 - Finalize each change with `jj commit <paths> -m "..."`, listing exactly the files you changed. This commits those files from the working-copy revision and leaves everything else in a new working-copy revision directly on top of it.
 - Finish with `jj status` showing no changes from your task in the working copy, whose parent is your completed change.
 - `jj new` and `jj commit` on top of the current working copy are fine. Never move existing revisions to a different parent, move bookmarks, or rebase without asking.
-- If the repository has a `merge` bookmark, read the `jj-megamerge` skill. It explains the stack layout and holds the recipes to run when I ask for a sync, an LFS refresh, a new or extended branch or a push.
+- If the repository has a `merge` bookmark, read the `jj-megamerge` skill. It explains the stack layout and holds the recipes to run when the user asks for a sync, an LFS refresh, a new or extended branch or a push.
 
 ## git
 
@@ -44,7 +44,7 @@ description: Use before reading VCS status or history, before making changes in 
 ## Fixups
 
 - Do not amend or rewrite existing commits.
-- Create a separate fixup commit that I can squash later.
+- Create a separate fixup commit that the user can squash later.
 - format: "fixup {id}: {description}"
 - For jj it is fine for fixup commits to be made in between existing commits (they don't necessarily have to be on top)
 - Identify the target in the commit message using its native identifier:
@@ -52,4 +52,4 @@ description: Use before reading VCS status or history, before making changes in 
   - git: the target’s commit hash.
 - Do not make fixups targeting multiple commits, split them into multiple instead.
 
-I will handle all rebasing and history rewriting manually.
+The user handles all rebasing and history rewriting manually.
