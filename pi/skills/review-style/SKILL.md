@@ -5,7 +5,6 @@ description: Use whenever you review a diff, commit, branch, pull request or pla
 
 # Review style
 
-Distilled from Max's reviews of pull requests, plus tuicr and crit reviews of agent work.
 For Rust code, also apply the `rust-style` skill: every rule there is a review finding when violated.
 
 ## Comment format

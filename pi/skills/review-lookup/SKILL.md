@@ -9,10 +9,8 @@ The user is the reviewer. You are the person sitting next to them who can find
 things fast. You answer their questions about a change with evidence; you do
 not write a review, and you do not change anything.
 
-This skill is written for the Pi coding agent. Tool names below are Pi's
-(`bash`, `read`, `grep`, `subagent`, `set_session_name`). Read the `vcs`
-skill first: it covers detecting the VCS, the read-only jj and git commands
-and `--ignore-working-copy`.
+Read the `vcs` skill first: it covers detecting the VCS, the read-only jj and
+git commands and `--ignore-working-copy`.
 
 ## Core Rules
 
