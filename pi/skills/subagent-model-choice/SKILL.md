@@ -9,9 +9,6 @@ A subagent gets its own context window and its own bill. The main session
 picks its model and thinking level, so every dispatch is a cost decision.
 The default is to inherit; deviate deliberately and for a reason you can name.
 
-Written for the Pi coding agent's `subagent` tool and its `model` and
-`thinkingLevel` parameters.
-
 ## Procedure
 
 1. Classify the task with the table in [Task classes](#task-classes).
@@ -27,15 +24,26 @@ Written for the Pi coding agent's `subagent` tool and its `model` and
 
 ## Task classes
 
-| Task | Tier | Thinking | Why |
-| --- | --- | --- | --- |
-| Mechanical fact-finding: where is X defined, who calls Y, list the files that match | cheap | `low` | Tool calls dominate; reasoning adds little. Anthropic and OpenAI both name "subagents" and "search / retrieval" as the `low` effort use case. When the list must be exhaustive, use `medium`: Haiku 5.5 at `low` is more likely to skip a search or stop early in a long agent prompt. |
-| Exploration that needs judgment: how does this subsystem work, which of these helpers fits, summarize the design | cheap, then mid | `high` on cheap, `medium` on mid | Needs synthesis across files. Anthropic's Haiku 5.5 guidance puts longer agent tasks and knowledge work at `high`; move to Sonnet 5.5 at `medium` when the report misses connections. Frontier models are wasted on reading. |
-| Scoped implementation with a clear spec and tests to run | mid | `medium` | OpenAI's `medium` row: "agentic coding ... delegating long-horizon work". Anthropic starts Haiku 5.5 at `medium` for agentic coding too; try it when tests judge the result, and tell it to run the check, since at `low` and `medium` it sometimes reports a change done without running one. Raise to `high` if the first attempt fails tests. |
-| Debugging, root-cause analysis, tricky refactor across modules | inherit | `high` | Anthropic and OpenAI both put "complex debugging, hard reasoning" at `high`. Do not save money here; a wrong answer costs more than the tokens. |
-| Review or verification of a change (correctness, security) | inherit | `high` or `xhigh` | OpenAI lists "security and code review" under `xhigh`; Anthropic's `xhigh` is for long-horizon agentic work. Use `xhigh` only when the model supports it natively. |
-| Long-running autonomous work (hours, many tool calls) | frontier | `high` / `xhigh` | Anthropic: Fable-class models for "agent sessions that run for hours". Only when the task genuinely needs it. |
-| Many parallel, independent lookups | cheap | `low` or `minimal` | Multi-agent runs use about 15x the tokens of a chat; keep each worker cheap. |
+| Task | Tier | Thinking |
+| --- | --- | --- |
+| Mechanical fact-finding: where is X defined, who calls Y, list the files that match | cheap | `low` |
+| Exploration that needs judgment: how does this subsystem work, which of these helpers fits, summarize the design | cheap, then mid | `high` on cheap, `medium` on mid |
+| Scoped implementation with a clear spec and tests to run | mid | `medium` |
+| Debugging, root-cause analysis, tricky refactor across modules | inherit | `high` |
+| Review or verification of a change (correctness, security) | inherit | `high` or `xhigh` |
+| Long-running autonomous work (hours, many tool calls) | frontier | `high` / `xhigh` |
+| Many parallel, independent lookups | cheap | `low` or `minimal` |
+
+- Fact-finding whose list must be exhaustive: use `medium`. At `low`, Haiku
+  5.5 is more likely to skip a search or stop early in a long agent prompt.
+- Exploration: move from the cheap tier to the mid tier at `medium` when the
+  report misses connections. Frontier models are wasted on reading.
+- Implementation judged by tests: the cheap tier at `medium` is worth a try.
+  Tell it to run the check, since it sometimes reports a change done without
+  running one. Raise to `high` if the first attempt fails tests.
+- Debugging: do not save money here; a wrong answer costs more than the tokens.
+- Review: use `xhigh` only when the model supports it natively.
+- Long-running autonomous work: only when the task genuinely needs it.
 
 Three overriding rules from Anthropic's measurements:
 
