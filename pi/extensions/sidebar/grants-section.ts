@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { collectSessionGrants, onSessionGrantsChanged } from "../lib/session-grants.ts";
 import { grantRows } from "./grants.ts";
+import { ItemTone } from "./panel.ts";
 import type { SectionChanged, SidebarSection } from "./section.ts";
 
 export function createGrantsSection(pi: ExtensionAPI, changed: SectionChanged): SidebarSection {
@@ -22,7 +23,7 @@ export function createGrantsSection(pi: ExtensionAPI, changed: SectionChanged): 
       context = restored;
       refresh();
     },
-    items: () => rows,
+    items: () => rows.map((text) => ({ text, depth: 0, tone: ItemTone.Normal })),
   };
 
   function refresh(): void {
