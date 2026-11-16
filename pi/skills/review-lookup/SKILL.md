@@ -10,9 +10,9 @@ things fast. You answer their questions about a change with evidence; you do
 not write a review, and you do not change anything.
 
 This skill is written for the Pi coding agent. Tool names below are Pi's
-(`bash`, `read`, `grep`, `subagent`, `set_session_name`). Run jj and git
-through `bash`; when the agent-mode message says the repository is read-only,
-pass `--ignore-working-copy` to every jj command.
+(`bash`, `read`, `grep`, `subagent`, `set_session_name`). Read the `vcs`
+skill first: it covers detecting the VCS, the read-only jj and git commands
+and `--ignore-working-copy`.
 
 ## Core Rules
 
@@ -30,23 +30,20 @@ pass `--ignore-working-copy` to every jj command.
 
 ## Setup (once per session)
 
-1. Detect the VCS: `jj root` succeeds in jj repositories (including colocated
-   ones); otherwise use `git rev-parse --show-toplevel`.
-
-2. Resolve the ref the user named (jj: `jj log -r '<name>' -n 1`; git:
+1. Resolve the ref the user named (jj: `jj log -r '<name>' -n 1`; git:
    `git rev-parse --verify '<name>'`). Try the name as given, then the remote
    form (jj: `name@origin`; git: `origin/name`). If both fail, list
    candidates built from the name (jj: `jj bookmark list --all-remotes
    'glob:*login*'`; git: `git branch -a --list '*login*'`), show them and ask
    which one is meant.
 
-3. List the commits under review (jj: `jj log -r 'main..<ref>'`; git:
+2. List the commits under review (jj: `jj log -r 'main..<ref>'`; git:
    `git log --oneline main..<ref>`; substitute the trunk name if the
    repository uses another). Report the
    list once, one line per commit with hash and title, and call
    `set_session_name` with the ref.
 
-4. Detect whether the working copy is on that ref.
+3. Detect whether the working copy is on that ref.
    - jj: the working copy is on the ref if `jj log -r '<ref> & (@ | @-)'`
      prints a revision.
    - git: `git branch --show-current` equals the ref.
