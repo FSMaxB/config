@@ -37,7 +37,7 @@ Written for the Pi coding agent's `subagent` tool and its `model` and
 | Long-running autonomous work (hours, many tool calls) | frontier | `high` / `xhigh` | Anthropic: Fable-class models for "agent sessions that run for hours". Only when the task genuinely needs it. |
 | Many parallel, independent lookups | cheap | `low` or `minimal` | Multi-agent runs use about 15x the tokens of a chat; keep each worker cheap. |
 
-Two overriding rules from Anthropic's measurements:
+Three overriding rules from Anthropic's measurements:
 
 - **Lowering thinking is the cheapest lever.** Tuning effort on the same
   model is usually better than switching models. Try a lower level before
