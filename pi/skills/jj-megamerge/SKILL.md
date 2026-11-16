@@ -72,12 +72,12 @@ Always allowed, no request needed.
 
 ```sh
 jj git fetch
-jj rebase -b @ -d main
+jj rebase -b @ -o main
 jj simplify-parents -r merge
 jj log -r 'conflicts() & mutable()'
 ```
 
-`-b @` moves every lane only while `@` is in `merge::`. If `@` is inside a lane, use `jj rebase -b merge -d main` instead.
+`-b @` moves every lane only while `@` is in `merge::`. If `@` is inside a lane, use `jj rebase -b merge -o main` instead.
 
 Then report:
 
