@@ -1,6 +1,6 @@
 ---
 name: subagent-model-choice
-description: Pick the model and thinking level for a subagent before dispatching it. Use whenever you call Pi's subagent tool and have to decide whether to inherit the session model, drop to a cheaper tier, or change the thinking level. Covers Anthropic, OpenAI, Google and local models, and the subagent tool's rules that limit the choice.
+description: Use before every call to Pi's subagent tool, and whenever choosing a model or thinking level for a subagent.
 ---
 
 # Subagent model and thinking level
@@ -8,9 +8,6 @@ description: Pick the model and thinking level for a subagent before dispatching
 A subagent gets its own context window and its own bill. The main session
 picks its model and thinking level, so every dispatch is a cost decision.
 The default is to inherit; deviate deliberately and for a reason you can name.
-
-Written for the Pi coding agent's `subagent` tool and its `model` and
-`thinkingLevel` parameters.
 
 ## Procedure
 
@@ -27,17 +24,28 @@ Written for the Pi coding agent's `subagent` tool and its `model` and
 
 ## Task classes
 
-| Task | Tier | Thinking | Why |
-| --- | --- | --- | --- |
-| Mechanical fact-finding: where is X defined, who calls Y, list the files that match | cheap | `low` | Tool calls dominate; reasoning adds little. Anthropic and OpenAI both name "subagents" and "search / retrieval" as the `low` effort use case. When the list must be exhaustive, use `medium`: Haiku 5.5 at `low` is more likely to skip a search or stop early in a long agent prompt. |
-| Exploration that needs judgment: how does this subsystem work, which of these helpers fits, summarize the design | cheap, then mid | `high` on cheap, `medium` on mid | Needs synthesis across files. Anthropic's Haiku 5.5 guidance puts longer agent tasks and knowledge work at `high`; move to Sonnet 5.5 at `medium` when the report misses connections. Frontier models are wasted on reading. |
-| Scoped implementation with a clear spec and tests to run | mid | `medium` | OpenAI's `medium` row: "agentic coding ... delegating long-horizon work". Anthropic starts Haiku 5.5 at `medium` for agentic coding too; try it when tests judge the result, and tell it to run the check, since at `low` and `medium` it sometimes reports a change done without running one. Raise to `high` if the first attempt fails tests. |
-| Debugging, root-cause analysis, tricky refactor across modules | inherit | `high` | Anthropic and OpenAI both put "complex debugging, hard reasoning" at `high`. Do not save money here; a wrong answer costs more than the tokens. |
-| Review or verification of a change (correctness, security) | inherit | `high` or `xhigh` | OpenAI lists "security and code review" under `xhigh`; Anthropic's `xhigh` is for long-horizon agentic work. Use `xhigh` only when the model supports it natively. |
-| Long-running autonomous work (hours, many tool calls) | frontier | `high` / `xhigh` | Anthropic: Fable-class models for "agent sessions that run for hours". Only when the task genuinely needs it. |
-| Many parallel, independent lookups | cheap | `low` or `minimal` | Multi-agent runs use about 15x the tokens of a chat; keep each worker cheap. |
+| Task | Tier | Thinking |
+| --- | --- | --- |
+| Mechanical fact-finding: where is X defined, who calls Y, list the files that match | cheap | `low` |
+| Exploration that needs judgment: how does this subsystem work, which of these helpers fits, summarize the design | cheap, then mid | `high` on cheap, `medium` on mid |
+| Scoped implementation with a clear spec and tests to run | mid | `medium` |
+| Debugging, root-cause analysis, tricky refactor across modules | inherit | `high` |
+| Review or verification of a change (correctness, security) | inherit | `high` or `xhigh` |
+| Long-running autonomous work (hours, many tool calls) | frontier | `high` / `xhigh` |
+| Many parallel, independent lookups | cheap | `low` or `minimal` |
 
-Two overriding rules from Anthropic's measurements:
+- Fact-finding whose list must be exhaustive: use `medium`. At `low`, Haiku
+  5.5 is more likely to skip a search or stop early in a long agent prompt.
+- Exploration: move from the cheap tier to the mid tier at `medium` when the
+  report misses connections. Frontier models are wasted on reading.
+- Implementation judged by tests: the cheap tier at `medium` is worth a try.
+  Tell it to run the check, since it sometimes reports a change done without
+  running one. Raise to `high` if the first attempt fails tests.
+- Debugging: do not save money here; a wrong answer costs more than the tokens.
+- Review: use `xhigh` only when the model supports it natively.
+- Long-running autonomous work: only when the task genuinely needs it.
+
+Three overriding rules from Anthropic's measurements:
 
 - **Lowering thinking is the cheapest lever.** Tuning effort on the same
   model is usually better than switching models. Try a lower level before
@@ -58,7 +66,7 @@ support is clamped to the nearest one it does.
 
 | Level | Anthropic (`effort`) | OpenAI (`reasoning.effort`) | Google (`thinking_level`) |
 | --- | --- | --- | --- |
-| `off` / `minimal` | Opus 5.5 and Fable 5.1 always think, so this clamps up. Haiku 5.5 and Sonnet 5.5 accept thinking off at `high` or below (`disabled` and `between_tools` respectively) | `none` (GPT-6.1 Terra, GPT-6 Sol and Luna; GPT-6.1 Sol and Astra require at least `low`) / `minimal` (supported GPT-5.x models; GPT-6 maps to `low`) | `minimal` (Flash-Lite, some Flash) |
+| `off` / `minimal` | Opus 5.5 and Fable 5.2 always think, so this clamps up. Haiku 5.5 and Sonnet 5.5 accept thinking off at `high` or below (`disabled` and `between_tools` respectively) | `none` (GPT-6.1 Terra, GPT-6 Sol and Luna; GPT-6.1 Sol and Astra require at least `low`) / `minimal` (supported GPT-5.x models; GPT-6 maps to `low`) | `minimal` (Flash-Lite, some Flash) |
 | `low` | Most efficient; "simpler tasks ... such as subagents". On Haiku 5.5: chat, short tool tasks, high-volume requests; in long agent prompts it may skip a search, stop early, or skip a check | Tool use, search, execution-oriented coding | `low` |
 | `medium` | Balanced; default on Opus 5.5 and Haiku 5.5 | Default for most workloads; agentic coding, research | `medium` (Flash default) |
 | `high` | Default on Fable, Sonnet, older Opus. On Haiku 5.5: knowledge work, longer agent tasks, strict instruction following | Hard reasoning, complex debugging | `high` (Pro default) |
@@ -76,78 +84,18 @@ to be a no-op unless the server exposes reasoning effort explicitly.
 
 ## Model tiers
 
-Prices are USD per million input / output tokens as published in October 2026.
+Before picking a model, read the tier table for the session's provider
+(`echo $PI_PROVIDER`):
 
-### Anthropic
+- Anthropic, including the `pi-claude` bridge: `references/anthropic.md`
+- OpenAI: `references/openai.md`
+- Google: `references/google.md`
 
-| Tier | Model | Price | Notes |
-| --- | --- | --- | --- |
-| cheap | Claude Haiku 5.5 (`claude-haiku-5-5`) | 0.10 / 0.50 (0.50 / 2.50 once the prompt exceeds 100K tokens) | Anthropic's named "sub-agent tasks" model. Adaptive thinking steered by effort; `medium` default; all five levels. 1M context, 128K output. |
-| mid | Claude Sonnet 5.5 (`claude-sonnet-5-5`) | 2 / 10 | "Everyday coding, agent workloads". For well-specified agentic tasks Anthropic recommends starting at `medium`. |
-| frontier | Claude Opus 5.5 (`claude-opus-5-5`) | 4 / 20 | "Most workloads start here". Adaptive thinking always on; `medium` default. |
-| frontier+ | Claude Fable 5.1 (`claude-fable-5-1`) | 10 / 50 | Hours-long agent sessions, deep research. Reserve for subagents that must reason as well as the main session. |
-
-Haiku 5.5 costs a fortieth of Opus 5.5 and a hundredth of Fable 5.1 per token
-while the prompt stays under 100K tokens, and finishes faster. A file-heavy
-explore subagent crosses that line, after which every request bills at the
-higher rate; that is still a quarter of Sonnet 5.5 and an eighth of Opus 5.5.
-On GPQA Diamond, Anthropic measured Haiku 5.5 at about a twentieth of Opus
-5.5's cost per question for 85% against 91% accuracy, which is the gap to
-expect on judgment-heavy briefs. Haiku 5.5 uses the Claude 4.7+ tokenizer
-(about 30% more tokens than Haiku 4.5 for the same text), so price
-comparisons against the other current models are like for like.
-
-Claude Haiku 4.5 (`claude-haiku-4-5`, 1 / 5, 200K context, no effort
-parameter) is the previous generation. Use it only when Haiku 5.5 is not
-configured; Haiku 5.5's safety classifiers can decline a request, and the
-claude-bridge provider falls back to Haiku 4.5 on its own in that case.
-
-### OpenAI
-
-OpenAI publishes model x effort pairings rather than a per-model table.
-
-| Tier | Model | Suggested pairings |
-| --- | --- | --- |
-| cheap | GPT-6 Luna (`gpt-6-luna`), GPT-5.6 Luna | `low`: fine-grained edits, simple extraction. `medium`: coordinated updates from a clear brief. `xhigh`: cross-app context gathering with clear constraints. |
-| mid (efficient) | GPT-6.1 Terra (`gpt-6.1-terra`) | Try for scoped code fixes with regression tests, visual reasoning, precise computer use, and writing from supplied material. Start at `medium` (default); compare with Sol at the same effort and keep the lightest setting that passes verification. |
-| mid | GPT-6.1 Sol (`gpt-6.1-sol`) | Near-Astra performance at lower cost for complex coding, computer use, and professional work. Start at `medium` (default); use `low` for focused tasks, and evaluate `high` / `xhigh` for difficult analysis or review. Reserve `max` for measured gains over `xhigh`. |
-| frontier | GPT-6 Astra (`gpt-6-astra`) | `medium`: ambitious projects needing broad context. `xhigh`: demanding analysis. Does not accept `none`. Uses fewer output tokens per task than earlier models, so per-task cost can be lower than its per-token price suggests. |
-
-GPT-6.1 Terra costs $1 / $5 per million input / output tokens at standard
-rates. Prompts above 272K input tokens cost 2x input and 1.5x output for the
-full request. It supports `none`, `low`, `medium` (default), `high`, `xhigh`,
-and `max`; `none` allows non-reasoning runs. Use Terra as an efficient
-mid-tier option for well-specified, verifiable tasks, not as a blanket
-replacement for Luna's cheapest lookups or Sol's complex technical work.
-For code fixes, require regression tests; for computer use, verify saved
-state and the completion report rather than trusting the report alone.
-
-GPT-6.1 Sol supports `low`, `medium`, `high`, `xhigh`, and `max`, but not
-`none` or `minimal`: choose at least `thinkingLevel: "low"`. Both GPT-6.1
-Terra and Sol require the Responses API for tool calling. Confirm the
-configured provider uses Responses before dispatching a tool-using
-subagent with either model.
-
-Prefer GPT-6.1 Sol over GPT-6 Sol (`gpt-6-sol`) for new mid-tier dispatches
-when it is configured. Prefer GPT-6.1 Terra over GPT-5.6 Terra for
-Terra-suited tasks when configured. Older GPT-6 Sol and GPT-5.6 Terra remain fallbacks when the
-corresponding GPT-6.1 models are unavailable. Compare Sol 6.1 with Astra
-on the same task before paying for the frontier tier.
-
-### Google
-
-| Tier | Model | Default thinking |
-| --- | --- | --- |
-| cheap | Gemini Flash-Lite | `minimal` |
-| mid | Gemini Flash | `medium` |
-| frontier | Gemini Pro | `high` |
-
-### Other providers and local
-
-The `subagent` tool description lists the models valid for the current
-session with one-line guidance per model (from the extension's config).
-Trust that list over this file when they disagree: it reflects what is
-actually configured. For local models, the strongest local coder is the
+For other providers and local models, use the `subagent` tool
+description: it lists the models valid for the current session with
+one-line guidance per model (from the extension's config). Trust that list
+over the reference files when they disagree: it reflects what is actually
+configured. For local models, the strongest local coder is the
 only sensible "cheap" option, and the session model is the ceiling.
 
 ## Harness rules
@@ -185,7 +133,8 @@ only sensible "cheap" option, and the session model is the ceiling.
 
 ## Sources
 
-Anthropic sources checked 2026-10-08 (Haiku 5.5 release); OpenAI
+Anthropic sources checked 2026-10-08 (Haiku 5.5 release), models
+overview rechecked 2026-11-16 (Fable 5.2); OpenAI
 model selection and GPT-6.1 Terra sources checked 2026-10-27 (other OpenAI
 sources checked 2026-09-30); Google sources checked 2026-09-29.
 
