@@ -22,7 +22,7 @@ export function startViolationCollector(platform: PolicyOptions["platform"], sto
     if (encodedCommand === undefined) return;
     byCommand.get(decodeCommandKey(encodedCommand))?.push({ line });
   };
-  const stop = platform === "darwin" ? streamMacOSViolations(record) : followStore(store, record);
+  const stop = startSources(platform, store, record);
   return {
     track(commandId) { byCommand.set(commandId, []); },
     violationsFor(commandId) { return [...(byCommand.get(commandId) ?? [])]; },
@@ -32,6 +32,19 @@ export function startViolationCollector(platform: PolicyOptions["platform"], sto
 }
 
 type RecordViolation = (encodedCommand: string | undefined, line: string) => void;
+
+// srt's proxies record network denials only in its store.
+export function isProxyViolation(line: string): boolean {
+  return /^deny (network-outbound|http-request) /.test(line);
+}
+
+function startSources(platform: PolicyOptions["platform"], store: SandboxViolationStore, record: RecordViolation): () => void {
+  if (platform !== "darwin") return followStore(store, record);
+  const stopStream = streamMacOSViolations(record);
+  // srt's own macOS monitor also stores filesystem violations, which the stream above already delivers in full.
+  const stopStore = followStore(store, (encodedCommand, line) => { if (isProxyViolation(line)) record(encodedCommand, line); });
+  return () => { stopStream(); stopStore(); };
+}
 
 // srt's tag suffix is private to its module, but every srt tag ends in `_SBX`. Violations of other srt users
 // (another pi, Claude Code) match too and are dropped because their command keys are not tracked here.

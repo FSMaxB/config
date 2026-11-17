@@ -104,7 +104,7 @@ test("in a restricted mode an explicit denial blocks before any grant or prompt"
 
     // assert
     assert.equal(result.kind, "block");
-    assert.match(result.kind === "block" ? result.reason : "", /you denied it for this session.*Do this instead: Use the docs/);
+    assert.match(result.kind === "block" ? result.reason : "", /you denied it for this session.*The user's reason: Use the docs/);
   }
 });
 
@@ -155,7 +155,7 @@ test("the denial text names the mode, and only plan mode points at submit_plan",
   assert.match(planning, /submit_plan/);
   assert.match(exploring, /^Explore mode is active/);
   assert.doesNotMatch(exploring, /submit_plan/);
-  assert.match(withNote, /Do this instead: Use grep$/);
+  assert.match(withNote, /The user's reason: Use grep$/);
 });
 
 test("transition notices say what changes and when", () => {

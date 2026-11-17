@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { AgentMode } from "../../lib/agent-mode.ts";
 import { tree } from "../../lib/path-permission-rules.ts";
-import { nextStep, successViolationReport, violationReport, type ViolationOutcome } from "./violation-outcomes.ts";
+import { networkDenialReport, nextStep, successViolationReport, violationReport, type ViolationOutcome } from "./violation-outcomes.ts";
 
 const grant = { mode: "read" as const, selector: tree("/outside") };
 const allowedOnce: ViolationOutcome = { kind: "allowed-once", mode: "read", path: "/outside/a", grant };
@@ -20,7 +20,7 @@ test("reruns with the once grants when every denied path was granted", () => {
 
 test("does not rerun when another path was denied", () => {
   // arrange
-  const outcomes: ViolationOutcome[] = [allowedOnce, { kind: "denied", mode: "write", path: "/repo/b" }];
+  const outcomes: ViolationOutcome[] = [allowedOnce, { kind: "denied", mode: "write", path: "/repo/b", note: undefined }];
 
   // act
   const step = nextStep(outcomes);
@@ -62,6 +62,37 @@ test("the rerun report announces the rerun output", () => {
   assert.ok(report.includes("was allowed for one rerun."));
   assert.ok(report.endsWith("the rerun's output follows.\n"));
   assert.ok(!report.includes("rerun the command."));
+});
+
+test("a denied path with a note repeats the user's reason", () => {
+  // arrange
+  const outcomes: ViolationOutcome[] = [{ kind: "denied", mode: "read", path: "/repo/private/key", note: "keys inside" }];
+
+  // act
+  const report = violationReport(outcomes, { kind: "return" }, AgentMode.Execution);
+
+  // assert
+  assert.ok(report.includes("read access to /repo/private/key was denied; do not retry it. The user's reason: keys inside"));
+});
+
+test("the network report has one line per denied destination that has a note", () => {
+  // arrange
+  const lines = [
+    "deny network-outbound example.com:80 (proxy)",
+    "deny network-outbound example.com:80 (proxy)",
+    "deny network-outbound other.example:443 (proxy)",
+    "deny http-request example.com:80 (proxy)",
+    "deny file-read-data /etc/passwd",
+  ];
+  const noteFor = (host: string, port: number) => host === "example.com" && port === 80 ? "use https" : undefined;
+
+  // act
+  const report = networkDenialReport(lines, noteFor);
+  const withoutNotes = networkDenialReport(lines, () => undefined);
+
+  // assert
+  assert.equal(report, "\nNetwork access to example.com:80 was denied by the user; do not retry it. The user's reason: use https\n");
+  assert.equal(withoutNotes, "");
 });
 
 test("a persistent grant alone tells the agent to rerun", () => {

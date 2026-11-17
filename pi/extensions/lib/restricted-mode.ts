@@ -5,7 +5,7 @@ import type {
   Theme,
   ToolCallEvent,
 } from "@earendil-works/pi-coding-agent";
-import { AgentMode, isRestricted, MODE_IDENTITIES, RESTRICTED_MODES, type ModeIdentity, type PathRuleStore, type RestrictedMode } from "./agent-mode.ts";
+import { AgentMode, isRestricted, MODE_IDENTITIES, RESTRICTED_MODES, storeForMode, type ModeIdentity, type PathRuleStore, type RestrictedMode } from "./agent-mode.ts";
 import { FILE_TOOLS } from "./file-tools.ts";
 import { readPersistedDecisions, writePersistedDecisions } from "./mode-decisions.ts";
 import { activeRestrictedMode, latestModeEntry, type ActiveRestrictedMode } from "./mode-entry.ts";
@@ -23,27 +23,22 @@ import {
   transitionNotice,
 } from "./mode-policy.ts";
 import {
-  addPathRule,
-  ALLOW_ALWAYS,
-  ALLOW_ONCE,
-  ALLOW_SESSION,
   clearPathRules,
-  DENY_ALWAYS,
-  DENY_ONCE,
-  DENY_SESSION,
   initPathPermissions,
   listPathRules,
-  normalizePathSelector,
-  removePathRule,
   restoreSessionPathRules,
   setAgentMode,
 } from "./path-permissions.ts";
-import { selectorLabel, type AccessMode, type PathRule, type RuleKind, type RuleTier } from "./path-permission-rules.ts";
+import type { PathRule } from "./path-permission-rules.ts";
+import { addPathRuleInteractively, CLEAR_ALL, DONE, pathRuleEntries, type DecisionEntry } from "./path-rule-commands.ts";
+import { ALL_DURATIONS, askPermission, Duration, type LastingDuration } from "./permission-prompt.ts";
+import { permissionUI } from "./permission-ui.ts";
 import { plansDirectory } from "./plan-file.ts";
 import { PLAN_TOOLS } from "./plan-tools.ts";
 import { isSandboxActive } from "./sandbox-state.ts";
 import { serialize } from "./ui-queue.ts";
-import { planToolPermission, trustedReadOnlyToolNames, type ToolPermission } from "./tool-permission-policy.ts";
+import { announceSessionGrantsChanged, provideSessionGrants, type SessionGrant } from "./session-grants.ts";
+import { planToolPermission, toolDecisionGrants, trustedReadOnlyToolNames, type ToolPermission } from "./tool-permission-policy.ts";
 
 export interface ModeDefinition {
   identity: ModeIdentity;
@@ -92,8 +87,6 @@ export function registerRestrictedMode(pi: ExtensionAPI, definition: ModeDefinit
 
 const DISCOVERY_CHANNEL = "config:restricted-mode:discover";
 const INDICATOR_KEY = "agent-mode";
-const CLEAR_ALL = "Clear all";
-const DONE = "Done";
 
 const UNGATED_TOOLS = new Set([
   // File tools are gated per path by lib/path-permissions.ts rather than per call.
@@ -114,12 +107,9 @@ const MODE_UNGATED_TOOLS: Record<RestrictedMode, ReadonlySet<string>> = {
 
 type Decision = "allow-session" | "allow-always" | "deny-session" | "deny-always";
 
-const CHOICE_DECISIONS: Record<string, Decision | undefined> = {
-  [ALLOW_SESSION]: "allow-session",
-  [ALLOW_ALWAYS]: "allow-always",
-  [DENY_SESSION]: "deny-session",
-  [DENY_ALWAYS]: "deny-always",
-};
+// Once-answers are never recorded, so only the lasting durations map to a stored decision.
+const ALLOW_DECISIONS = { session: "allow-session", always: "allow-always" } as const satisfies Record<LastingDuration, Decision>;
+const DENY_DECISIONS = { session: "deny-session", always: "deny-always" } as const satisfies Record<LastingDuration, Decision>;
 
 interface DecisionStores {
   sessionGrants: Set<string>;
@@ -169,6 +159,8 @@ class Engine {
       projection: (context) => context.sessionManager.buildSessionProjection().messages,
       prepare: (context) => this.flushPendingToggle(context),
     });
+    // activeStores() is empty outside the restricted modes, so execution mode shows no tool decisions.
+    provideSessionGrants(pi.events, () => this.sessionToolGrants());
     this.wire();
   }
 
@@ -189,7 +181,8 @@ class Engine {
     }
     const [subcommand, ...rest] = argument.split(/\s+/);
     if (subcommand === "allow" || subcommand === "deny") {
-      await addPathRuleInteractively(subcommand, rest.join(" "), definition.identity, context);
+      const { identity } = definition;
+      await addPathRuleInteractively(subcommand, rest.join(" "), storeForMode(identity.mode), `/${identity.command}`, context);
       return true;
     }
     return false;
@@ -202,6 +195,7 @@ class Engine {
     // Every switch records each mode, so the branch always says which one is enabled.
     for (const mode of RESTRICTED_MODES) this.persist(mode);
     this.messages.announce(context);
+    announceSessionGrantsChanged(this.pi.events);
   }
 
   flushPendingToggle(context: ExtensionContext): void {
@@ -275,6 +269,11 @@ class Engine {
     return isRestricted(this.mode) ? this.decisions[this.mode] : emptyStores();
   }
 
+  private sessionToolGrants(): SessionGrant[] {
+    const { sessionGrants, sessionDenials } = this.activeStores();
+    return toolDecisionGrants(sessionGrants, sessionDenials.keys());
+  }
+
   private gate(toolName: string, interaction: Interaction) {
     return toolGate(toolName, { mode: this.mode, denials: this.activeStores(), permission: this.permission(toolName), interaction });
   }
@@ -299,23 +298,23 @@ class Engine {
 
     const { mode } = this;
     if (!isRestricted(mode)) return undefined;
-    const choice = await context.ui.select(
-      `${MODE_IDENTITIES[mode].label} — allow ${event.toolName}?\n\n  ${summarizeInput(event)}`,
-      [ALLOW_ONCE, ALLOW_SESSION, ALLOW_ALWAYS, DENY_ONCE, DENY_SESSION, DENY_ALWAYS],
-    );
-
-    if (choice === ALLOW_ONCE) return undefined;
-    const decision = choice === undefined ? undefined : CHOICE_DECISIONS[choice];
-    if (decision === "allow-session" || decision === "allow-always") {
-      await this.record(mode, event.toolName, decision, context);
+    const answer = await askPermission(permissionUI(context.ui), {
+      title: `${MODE_IDENTITIES[mode].label} — allow ${event.toolName}?\n\n  ${summarizeInput(event)}`,
+      subject: event.toolName,
+      scope: event.toolName,
+      narrower: [],
+      durations: ALL_DURATIONS,
+    });
+    if (answer.decision === "allow") {
+      if (answer.duration !== Duration.Once) await this.record(mode, event.toolName, ALLOW_DECISIONS[answer.duration], context);
       return undefined;
     }
-
-    // Dismissing the prompt denies the call without stopping to ask for a note.
-    const note = choice === undefined ? undefined : await askDenyNote(context);
-    if (decision) await this.record(mode, event.toolName, decision, context, note);
-    const cause = decision ? DENIAL_CAUSES[decision] : "the user denied this call";
-    return { block: true, reason: deniedReason(mode, event.toolName, cause, note) };
+    if (answer.duration === Duration.Once) {
+      return { block: true, reason: deniedReason(mode, event.toolName, "the user denied this call", answer.note) };
+    }
+    const decision = DENY_DECISIONS[answer.duration];
+    await this.record(mode, event.toolName, decision, context, answer.note);
+    return { block: true, reason: deniedReason(mode, event.toolName, DENIAL_CAUSES[decision], answer.note) };
   }
 
   // The most recent decision wins outright, so a tool never sits in two stores and
@@ -349,6 +348,7 @@ class Engine {
       context.ui.notify(`${MODE_IDENTITIES[mode].label} decision applies to this session only, it was not saved: ${error.message}`, "error");
     });
     this.messages.announce(context);
+    announceSessionGrantsChanged(this.pi.events);
   }
 
   private persist(mode: RestrictedMode): void {
@@ -412,10 +412,12 @@ class Engine {
   private applyRestoredState(context: ExtensionContext): void {
     setAgentMode(this.mode);
     this.refreshIndicators(context);
+    announceSessionGrantsChanged(this.pi.events);
   }
 
   private async manageDecisions(identity: ModeIdentity, context: ExtensionContext): Promise<void> {
-    const { label, mode, pathRuleStore } = identity;
+    const { label, mode } = identity;
+    const pathRuleStore = storeForMode(mode);
     if (!context.hasUI) {
       context.ui.notify(`Managing ${label.toLowerCase()} decisions needs an interactive UI.`, "error");
       return;
@@ -455,11 +457,6 @@ function emptyStores(): DecisionStores {
   return { sessionGrants: new Set(), alwaysGrants: new Set(), sessionDenials: new Map(), alwaysDenials: new Map() };
 }
 
-async function askDenyNote(context: ExtensionContext): Promise<string | undefined> {
-  const note = await context.ui.input("What should the agent do instead?", "Optional — leave empty to just deny");
-  return note?.trim() || undefined;
-}
-
 function modeBanner(theme: Theme, mode: AgentMode, pending: AgentMode | undefined): string[] | undefined {
   if (!isRestricted(mode)) {
     if (pending === undefined || !isRestricted(pending)) return undefined;
@@ -476,11 +473,6 @@ function modeBanner(theme: Theme, mode: AgentMode, pending: AgentMode | undefine
     ? ` — switching to ${MODE_IDENTITIES[pending].label.toLowerCase()} at the next tool call`
     : " — ending at the next tool call";
   return [title + theme.fg("dim", hint)];
-}
-
-interface DecisionEntry {
-  label: string;
-  remove: () => void | Promise<void>;
 }
 
 function listDecisions(stores: DecisionStores, pathRules: PathRule[], pathRuleStore: PathRuleStore): DecisionEntry[] {
@@ -509,36 +501,8 @@ function listDecisions(stores: DecisionStores, pathRules: PathRule[], pathRuleSt
         };
       }),
     ),
-    ...pathRules.map((rule) => ({
-      label: `${rule.mode} ${rule.kind} ${selectorLabel(rule.selector)} — path (${rule.tier})`,
-      remove: () => removePathRule(rule, pathRuleStore),
-    })),
+    ...pathRuleEntries(pathRules, pathRuleStore),
   ];
-}
-
-async function addPathRuleInteractively(
-  kind: RuleKind,
-  pattern: string,
-  { command, pathRuleStore }: ModeIdentity,
-  context: ExtensionCommandContext,
-): Promise<void> {
-  if (!pattern) {
-    context.ui.notify(`Usage: /${command} ${kind} <path-or-glob>`, "error");
-    return;
-  }
-  if (!context.hasUI) {
-    context.ui.notify("Adding path rules needs an interactive UI.", "error");
-    return;
-  }
-  const modeChoice = await context.ui.select(`${kind} ${pattern} for which access?`, ["read", "write", "read and write"]);
-  if (modeChoice === undefined) return;
-  const tierChoice = await context.ui.select("For how long?", ["This session", "Always"]);
-  if (tierChoice === undefined) return;
-  const tier: RuleTier = tierChoice === "Always" ? "always" : "session";
-  const selector = await normalizePathSelector(pattern, context.cwd);
-  const modes: AccessMode[] = modeChoice === "read and write" ? ["read", "write"] : [modeChoice as AccessMode];
-  for (const mode of modes) await addPathRule({ mode, kind, tier, selector }, pathRuleStore);
-  context.ui.notify(`Path rule added: ${kind} ${modes.join("+")} ${selectorLabel(selector)} (${tier}).`);
 }
 
 function summarizeInput(event: ToolCallEvent): string {

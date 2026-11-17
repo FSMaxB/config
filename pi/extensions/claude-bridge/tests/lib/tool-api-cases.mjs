@@ -17,13 +17,19 @@ import { cwdSlug } from "../../../lib/plan-naming.ts";
 
 // The lib modules sit outside this package, so plain Node neither resolves their `@earendil-works/*`
 // imports (pi aliases those through its own loader, which a direct import bypasses) nor loads them as
-// ESM, which the ESM-only pi packages require. Alias the one runtime import to this package's copy
-// and load the lib files as ESM.
-const piCodingAgentEntry = import.meta.resolve("@earendil-works/pi-coding-agent");
+// ESM, which the ESM-only pi packages require. Alias the runtime imports to this package's copies,
+// load the lib files as ESM and resolve every pi package import with the `import` condition: Node 22
+// resolves the imports of a lib file with `require` otherwise, which the ESM-only exports of
+// `@earendil-works/pi-ai` do not define.
+const aliased = new Map(["@earendil-works/pi-coding-agent", "@earendil-works/pi-tui"].map(name => [name, import.meta.resolve(name)]));
 const libDirectory = new URL("../../../lib/", import.meta.url).href;
 registerHooks({
 	resolve(specifier, context, nextResolve) {
-		if (specifier === "@earendil-works/pi-coding-agent") return { url: piCodingAgentEntry, shortCircuit: true };
+		const aliasedUrl = aliased.get(specifier);
+		if (aliasedUrl) return { url: aliasedUrl, shortCircuit: true };
+		if (specifier.startsWith("@earendil-works/")) {
+			return nextResolve(specifier, { ...context, conditions: ["import", ...context.conditions.filter(condition => condition !== "require")] });
+		}
 		const resolved = nextResolve(specifier, context);
 		if (resolved.url.startsWith(libDirectory) && resolved.url.endsWith(".ts")) return { ...resolved, format: "module" };
 		return resolved;
@@ -63,9 +69,10 @@ it("allows owned read-only tools without approval but rejects foreign hints and 
 		extensions: ["files.ts", "plan-mode.ts"].map(path => fileURLToPath(new URL(`../../../${path}`, import.meta.url))),
 		entries: directory => [
 			{ type: "plan-mode", data: { enabled: true, sessionGrants: [], sessionDenials: [] } },
-			{ type: "path-permissions", data: { version: 2,
-				read: { allow: [], deny: [{ kind: "exact", path: join(directory, "denied.txt") }] },
-				write: { allow: [], deny: [] } } },
+			{ type: "path-permissions", data: { version: 3,
+				execution: { read: { allow: [], deny: [] }, write: { allow: [], deny: [] } },
+				plan: { read: { allow: [], deny: [{ kind: "exact", path: join(directory, "denied.txt") }] }, write: { allow: [], deny: [] } },
+				explore: { read: { allow: [], deny: [] }, write: { allow: [], deny: [] } } } },
 		],
 		factories: [pi => pi.registerTool({ name: "foreign_reader", label: "Foreign reader", description: "Unverified hint",
 			annotations: { readOnlyHint: true }, parameters: Type.Object({}),
@@ -313,7 +320,7 @@ it("keeps explicit denials declared but blocked and announced in the agent-mode 
 		assert.ok(declared().includes("target_fixture"));
 		assert.ok(!deniedInSnapshot("target_fixture"));
 		// arrange
-		choices.push("Deny in session");
+		choices.push("Deny with reason…", "This session");
 		// act
 		const denied = await fixture.call("approval_fixture");
 		await fixture.session.prompt("Inspect declarations after a denial.");
@@ -688,7 +695,7 @@ it("an always allow replaces a session deny for the same path", async () => {
 	// The rule state is shared through globalThis, so an earlier test's disposed session leaves a
 	// stale persistSession behind; point it at a no-op so this test's session-tier rule does not
 	// append to a session that no longer exists.
-	initPathPermissions({ appendEntry() {} });
+	initPathPermissions({ appendEntry() {}, events: { emit() {} } });
 	const selector = { kind: "tree", path: join(tmpdir(), "always-replaces-session") };
 	await addPathRule({ mode: "read", kind: "deny", tier: "session", selector });
 	try {
@@ -907,7 +914,7 @@ async function withCritPlanSession(options, run) {
 		// (the first rendered line inside the border) and the options it offers.
 		custom: async factory => {
 			initTheme();
-			const selector = factory({ terminal: { rows: 40 } }, ui.theme, { matches: () => false }, () => {});
+			const selector = factory({ terminal: { rows: 40, columns: 80 } }, ui.theme, { matches: () => false }, () => {});
 			const title = selector.render(80).map(line => line.trim()).find(line => line && !line.startsWith("─"));
 			const { options: items } = selector;
 			dialogs.push({ title, items });

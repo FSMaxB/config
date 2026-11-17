@@ -17,10 +17,12 @@ import {
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import {
+  activeSessionPathGrants,
   gatedTool,
   initPathPermissions,
   PathResolution,
 } from "./lib/path-permissions.ts";
+import { provideSessionGrants } from "./lib/session-grants.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 import {
   createFindExecute,
@@ -33,6 +35,7 @@ const ACCESS_NOTE =
 
 export default function (pi: ExtensionAPI) {
   initPathPermissions(pi);
+  provideSessionGrants(pi.events, activeSessionPathGrants);
   const cwd = process.cwd();
 
   registerToolWithGuidelines(

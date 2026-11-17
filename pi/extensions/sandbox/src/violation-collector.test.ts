@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { SandboxViolationStore } from "@anthropic-ai/sandbox-runtime";
-import { startViolationCollector } from "./violation-collector.ts";
+import { isProxyViolation, startViolationCollector } from "./violation-collector.ts";
 
 test("every violation of a tracked command survives the store's 100-entry ring", () => {
   // arrange
@@ -83,3 +83,17 @@ test("a violation added after the store was cleared is still collected", () => {
 function addViolation(store: SandboxViolationStore, commandId: string, line: string): void {
   store.addViolation({ line, command: commandId, encodedCommand: Buffer.from(commandId).toString("base64"), timestamp: new Date() });
 }
+
+test("proxy violations are recognized and seatbelt lines are not", () => {
+  // arrange
+  const proxyLines = ["deny network-outbound example.com:80 (proxy)", "deny http-request example.com:80 (proxy)"];
+  const seatbeltLine = "Sandbox: bash(1) deny(1) file-read-data /x";
+
+  // act
+  const proxy = proxyLines.map(isProxyViolation);
+  const seatbelt = isProxyViolation(seatbeltLine);
+
+  // assert
+  assert.deepEqual(proxy, [true, true]);
+  assert.equal(seatbelt, false);
+});

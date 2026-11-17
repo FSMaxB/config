@@ -4,13 +4,20 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder, getSelectListTheme, keyText } from "@earendil-works/pi-coding-agent";
 import {
+  type Component,
   Container,
   type KeybindingsManager,
   type ProgramStatus,
   SelectList,
   Spacer,
   Text,
+  truncateToWidth,
+  visibleWidth,
+  wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
+import { detailsHeight, detailsLines, type TextMeasure } from "./select-details.ts";
+
+const measure: TextMeasure = { width: visibleWidth, wrap: wrapTextWithAnsi };
 
 export type WaitKind = NonNullable<ProgramStatus["kind"]>;
 
@@ -29,11 +36,16 @@ export async function selectWithDefault(
   const defaultIndex = Math.max(0, options.indexOf(defaultOption));
   return await ui.custom<string | undefined>((tui, theme, keybindings, done) => {
     // rows - 12 reserves the dialog chrome (borders, spacers, title, hints,
-    // scroll-info line, margin); floor of 3 keeps a window on tiny terminals,
-    // and the cap at options.length renders short lists in full as before.
+    // scroll-info line, margin), plus the details pane and its spacer when an
+    // option is too wide for its row. The window is sized once, so resizing
+    // the terminal while the dialog is open can overflow it or leave room
+    // unused. The floor of 3 keeps a window on tiny terminals, and the cap at
+    // options.length renders short lists in full as before.
+    const paneHeight = detailsHeight(options, tui.terminal.columns, measure);
+    const paneRows = paneHeight > 0 ? paneHeight + 1 : 0;
     const maxVisible = Math.max(
       3,
-      Math.min(options.length, tui.terminal.rows - 12),
+      Math.min(options.length, tui.terminal.rows - 12 - paneRows),
     );
     return new DefaultSelector(
       title,
@@ -63,14 +75,22 @@ class DefaultSelector extends Container {
     super();
     this.selectedIndex = defaultIndex;
     this.list = new SelectList(
-      options.map((option) => ({ value: option, label: option })),
+      // Values are indices, so a pick maps back to its option by position even
+      // when two options read the same.
+      options.map((option, index) => ({ value: String(index), label: option })),
       maxVisible,
       getSelectListTheme(),
+      { truncatePrimary: ({ text, maxWidth }) => truncateToWidth(text, maxWidth, "…") },
     );
     this.list.setSelectedIndex(defaultIndex);
     // Container dispatches mouse events to children, so SelectList gets wheel
-    // and click for free; these callbacks close the dialog on a mouse pick.
-    this.list.onSelect = (item) => this.done(item.value);
+    // and click for free. The wheel moves SelectList's selection without going
+    // through handleInput, so onSelectionChange keeps selectedIndex, and with
+    // it Enter and the details pane, in step.
+    this.list.onSelectionChange = (item) => {
+      this.selectedIndex = Number(item.value);
+    };
+    this.list.onSelect = (item) => this.done(options[Number(item.value)]);
     this.list.onCancel = () => this.done(undefined);
 
     const border = () => new DynamicBorder((text) => theme.fg("border", text));
@@ -79,6 +99,7 @@ class DefaultSelector extends Container {
     this.addChild(new Text(theme.fg("accent", theme.bold(title)), 1, 0));
     this.addChild(new Spacer(1));
     this.addChild(this.list);
+    this.addChild(new DetailsPane(options, () => this.selectedIndex, theme));
     this.addChild(new Spacer(1));
     this.addChild(new Text(this.hints(), 1, 0));
     this.addChild(new Spacer(1));
@@ -118,4 +139,22 @@ class DefaultSelector extends Container {
       hint(keyText("tui.select.cancel"), "cancel"),
     ].join("  ");
   }
+}
+
+// SelectList cuts every label to one row, so the full text of the highlighted
+// option is repeated here, wrapped.
+class DetailsPane implements Component {
+  constructor(
+    private readonly options: readonly string[],
+    private readonly selectedIndex: () => number,
+    private readonly theme: Theme,
+  ) {}
+
+  render(width: number): string[] {
+    const lines = detailsLines(this.options, this.selectedIndex(), width, measure);
+    if (lines.length === 0) return [];
+    return ["", ...lines.map((line) => ` ${this.theme.fg("text", line)}`)];
+  }
+
+  invalidate(): void {}
 }

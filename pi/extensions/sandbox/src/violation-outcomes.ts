@@ -2,6 +2,7 @@ import type { FilesystemConfig } from "@anthropic-ai/sandbox-runtime";
 import type { AgentMode } from "../../lib/agent-mode.ts";
 import { readOnlyRepositoryNotice, type AccessMode } from "../../lib/path-permission-rules.ts";
 import type { OnceGrant } from "../../lib/path-permissions.ts";
+import { userReason } from "../../lib/permission-prompt.ts";
 import { discardedWrites, type PathViolation } from "./violations.ts";
 
 export type ViolationOutcome =
@@ -10,7 +11,7 @@ export type ViolationOutcome =
   | { kind: "not-asked"; mode: AccessMode; path: string }
   | { kind: "allowed"; mode: AccessMode; path: string }
   | { kind: "allowed-once"; mode: AccessMode; path: string; grant: OnceGrant }
-  | { kind: "denied"; mode: AccessMode; path: string };
+  | { kind: "denied"; mode: AccessMode; path: string; note: string | undefined };
 
 export type NextStep = { kind: "rerun"; grants: OnceGrant[] } | { kind: "return" };
 
@@ -43,8 +44,25 @@ function outcomeLine(outcome: ViolationOutcome, step: NextStep, agentMode: Agent
     case "allowed-once": return step.kind === "rerun"
       ? `${mode} access to ${path} was allowed for one rerun.`
       : `${mode} access to ${path} was allowed once, but the command was not rerun because other paths are still blocked.`;
-    case "denied": return `${mode} access to ${path} was denied; do not retry it.${notice}`;
+    case "denied": return `${mode} access to ${path} was denied; do not retry it.${userReason(outcome.note)}${notice}`;
   }
+}
+
+// srt records each refused connection as `deny network-outbound <host>:<port> (<reason>)`.
+const NETWORK_DENIAL = /^deny network-outbound (.+):(\d+) \(/;
+
+// Only denials with a user reason get a line; the raw block already lists the others on a failed command.
+export function networkDenialReport(lines: string[], noteFor: (host: string, port: number) => string | undefined): string {
+  const reported = new Map<string, string>();
+  for (const line of lines) {
+    const match = NETWORK_DENIAL.exec(line);
+    if (!match) continue;
+    const [, host, port] = match;
+    const destination = `${host}:${port}`;
+    const note = noteFor(host, Number(port));
+    if (note && !reported.has(destination)) reported.set(destination, `Network access to ${destination} was denied by the user; do not retry it.${userReason(note)}`);
+  }
+  return reported.size === 0 ? "" : `\n${[...reported.values()].join("\n")}\n`;
 }
 
 // A command that exited 0 despite denials is only reported, never prompted or rerun: rerunning could

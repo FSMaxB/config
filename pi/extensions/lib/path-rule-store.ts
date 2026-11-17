@@ -2,14 +2,14 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { emptyRules, parseRules, serializeRules, type RuleSets } from "./path-permission-rules.ts";
+import { emptyStoredRules, parseStoredRules, serializeStoredRules, type StoredRules } from "./path-permission-rules.ts";
 
-export async function readStoredRules(filePath: string): Promise<RuleSets> {
-  try { return parseRules(JSON.parse(await readFile(filePath, "utf8"))); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return emptyRules(); throw error; }
+export async function readStoredRules(filePath: string): Promise<StoredRules> {
+  try { return parseStoredRules(JSON.parse(await readFile(filePath, "utf8"))); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return emptyStoredRules(); throw error; }
 }
 
-export async function transaction<T>(filePath: string, operation: (rules: RuleSets) => Promise<T> | T): Promise<T> {
+export async function transaction<T>(filePath: string, operation: (rules: StoredRules) => Promise<T> | T): Promise<T> {
   const lockPath = `${filePath}.lock`;
   const temporaryPath = join(dirname(filePath), `.${basename(filePath)}.${randomUUID()}.tmp`);
   await mkdir(dirname(filePath), { recursive: true });
@@ -22,7 +22,7 @@ export async function transaction<T>(filePath: string, operation: (rules: RuleSe
     }
     const rules = await readStoredRules(filePath);
     const result = await operation(rules);
-    await writeFile(temporaryPath, `${JSON.stringify(serializeRules(rules), null, 2)}\n`, { mode: 0o600 });
+    await writeFile(temporaryPath, `${JSON.stringify(serializeStoredRules(rules), null, 2)}\n`, { mode: 0o600 });
     await rename(temporaryPath, filePath);
     return result;
   } finally {

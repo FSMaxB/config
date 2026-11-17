@@ -252,8 +252,9 @@ async function askSingle(
   if (allowFreeform) displays.push(FREEFORM_SENTINEL);
 
   // selectWithDefault windows long option lists (the question tool can pass
-  // more options than fit on screen) and keeps today's start-at-first behavior
-  // via displays[0]; SelectList truncates labels to the terminal width.
+  // more options than fit on screen), keeps today's start-at-first behavior
+  // via displays[0], and repeats an option that is cut to one row in full in
+  // a pane below the list.
   const picked = await selectWithDefault(ui, prompt, displays, displays[0], "question");
   if (isCancelled(picked)) return { kind: "cancelled" };
   if (picked === FREEFORM_SENTINEL) return askFreeform(ui, prompt);

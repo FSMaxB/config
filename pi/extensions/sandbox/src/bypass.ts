@@ -1,7 +1,9 @@
 import { AgentMode, isRestricted } from "../../lib/agent-mode.ts";
-import { ALLOW_ONCE, ALLOW_SESSION, DENY_ONCE, DENY_SESSION } from "../../lib/permission-choices.ts";
+import { ALLOW_ONCE, DENY_ONCE } from "../../lib/permission-choices.ts";
+import { Duration, userReason, type PermissionAnswer } from "../../lib/permission-prompt.ts";
+import type { SessionGrant } from "../../lib/session-grants.ts";
 
-export type SessionDecision = "allow" | "deny";
+export type SessionDecision = { decision: "allow" } | { decision: "deny"; note: string | undefined };
 
 export interface BypassSituation {
   agentMode: AgentMode;
@@ -11,7 +13,10 @@ export interface BypassSituation {
 }
 
 export type BypassAuthorization = { kind: "run" } | { kind: "refuse"; reason: string };
-export type BypassOutcome = BypassAuthorization | { kind: "ask"; choices: string[]; defaultChoice: string };
+export type BypassOutcome = BypassAuthorization | { kind: "ask"; preselected: string };
+
+// "Always" would persist an unsandboxed bypass across sessions, so the prompt does not offer it.
+export const BYPASS_DURATIONS: readonly Duration[] = [Duration.Once, Duration.Session];
 
 const RETRY_HINT = "Do not retry with unsandboxed; run the command inside the sandbox or say what needs to run outside it.";
 
@@ -19,20 +24,25 @@ const RETRY_HINT = "Do not retry with unsandboxed; run the command inside the sa
 // restrictions its parent inherited, so they are refused before any prompt is attempted.
 export function bypassOutcome({ agentMode, subagent, hasUI, sessionDecision }: BypassSituation): BypassOutcome {
   if (subagent) return { kind: "refuse", reason: `Subagents cannot run commands outside the sandbox. ${RETRY_HINT}` };
-  if (sessionDecision === "allow") return { kind: "run" };
-  if (sessionDecision === "deny") return { kind: "refuse", reason: `The user denied unsandboxed commands for this session. ${RETRY_HINT}` };
+  if (sessionDecision?.decision === "allow") return { kind: "run" };
+  if (sessionDecision?.decision === "deny") return { kind: "refuse", reason: `The user denied unsandboxed commands for this session.${userReason(sessionDecision.note)} ${RETRY_HINT}` };
   if (!hasUI) return { kind: "refuse", reason: `Running outside the sandbox needs the user's confirmation and there is no interactive UI to ask. ${RETRY_HINT}` };
   // Plan and explore mode are read-only by design, so the preselected answer flips to deny there.
-  return { kind: "ask", choices: [ALLOW_ONCE, ALLOW_SESSION, DENY_ONCE, DENY_SESSION], defaultChoice: isRestricted(agentMode) ? DENY_ONCE : ALLOW_ONCE };
+  return { kind: "ask", preselected: isRestricted(agentMode) ? DENY_ONCE : ALLOW_ONCE };
 }
 
-export function resolveChoice(choice: string | undefined): { authorization: BypassAuthorization; remember: SessionDecision | undefined } {
-  if (choice === ALLOW_ONCE) return { authorization: { kind: "run" }, remember: undefined };
-  if (choice === ALLOW_SESSION) return { authorization: { kind: "run" }, remember: "allow" };
+export function resolveAnswer(answer: PermissionAnswer<string>): { authorization: BypassAuthorization; remember: SessionDecision | undefined } {
+  if (answer.decision === "allow") {
+    return { authorization: { kind: "run" }, remember: answer.duration === Duration.Once ? undefined : { decision: "allow" } };
+  }
   return {
-    authorization: { kind: "refuse", reason: `The user denied running this command outside the sandbox. ${RETRY_HINT}` },
-    remember: choice === DENY_SESSION ? "deny" : undefined,
+    authorization: { kind: "refuse", reason: `The user denied running this command outside the sandbox.${userReason(answer.note)} ${RETRY_HINT}` },
+    remember: answer.duration === Duration.Once ? undefined : { decision: "deny", note: answer.note },
   };
+}
+
+export function bypassSessionGrants(decision: SessionDecision | undefined): SessionGrant[] {
+  return decision === undefined ? [] : [{ kind: "unsandboxed", decision: decision.decision }];
 }
 
 // The tail matters more than the head here: an unexpected suffix on a long command is where a payload hides.

@@ -1,7 +1,8 @@
 import { homedir } from "node:os";
-import { join, matchesGlob, relative, sep } from "node:path";
-import { AgentMode, isRestricted } from "./agent-mode.ts";
+import { dirname, join, matchesGlob, relative, sep } from "node:path";
+import { AgentMode, isRestricted, PathRuleStore } from "./agent-mode.ts";
 import { contains } from "./repo.ts";
+import type { SessionGrant } from "./session-grants.ts";
 
 
 export type AccessMode = "read" | "write";
@@ -19,18 +20,38 @@ export interface PathRule {
   kind: RuleKind;
   tier: RuleTier;
   selector: PathSelector;
+  // Deny rules only: the user's reason, repeated to the agent on every denial the rule causes.
+  note?: string;
+}
+
+export interface ModeRules {
+  allow: Set<string>;
+  // Keyed by selectorKey like allow; the value is the deny rule's note.
+  deny: Map<string, string | undefined>;
 }
 
 export interface RuleSets {
-  read: { allow: Set<string>; deny: Set<string> };
-  write: { allow: Set<string>; deny: Set<string> };
+  read: ModeRules;
+  write: ModeRules;
 }
 
-export interface SerializedRules {
-  version: 2;
-  read: { allow: PathSelector[]; deny: PathSelector[] };
-  write: { allow: PathSelector[]; deny: PathSelector[] };
+export type DenyEntry = PathSelector & { note?: string };
+
+export interface SerializedRuleSets {
+  read: { allow: PathSelector[]; deny: DenyEntry[] };
+  write: { allow: PathSelector[]; deny: DenyEntry[] };
 }
+
+export const EntryKind = { File: "file", Directory: "directory" } as const;
+export type EntryKind = (typeof EntryKind)[keyof typeof EntryKind];
+
+// One mode's rules, as the subagent path policy carries them.
+export interface SerializedRules extends SerializedRuleSets { version: 2 }
+
+export type StoredRules = Record<PathRuleStore, RuleSets>;
+
+// Every mode's rules, as the rules file and the session entry hold them.
+export type SerializedStoredRules = { version: 3 } & Record<PathRuleStore, SerializedRuleSets>;
 
 export interface DefaultAllowedOptions {
   agentMode: AgentMode;
@@ -44,7 +65,11 @@ export interface DefaultAllowedOptions {
 export interface RuleTiers { session: RuleSets; always: RuleSets }
 
 export function emptyRules(): RuleSets {
-  return { read: { allow: new Set(), deny: new Set() }, write: { allow: new Set(), deny: new Set() } };
+  return { read: { allow: new Set(), deny: new Map() }, write: { allow: new Set(), deny: new Map() } };
+}
+
+export function emptyStoredRules(): StoredRules {
+  return { [PathRuleStore.Execution]: emptyRules(), [PathRuleStore.Plan]: emptyRules(), [PathRuleStore.Explore]: emptyRules() };
 }
 
 export function selectorKey(selector: PathSelector): string {
@@ -57,20 +82,39 @@ export function selectorLabel(selector: PathSelector): string {
   return selector.kind === "exact" ? selector.path : selector.kind === "tree" ? `${selector.path}${sep}**` : `${selector.base}${sep}${selector.pattern}`;
 }
 
-export function serializeRules(rules: RuleSets): SerializedRules {
+export function serializeStoredRules(rules: StoredRules): SerializedStoredRules {
   return {
-    version: 2,
-    read: { allow: selectors(rules.read.allow), deny: selectors(rules.read.deny) },
-    write: { allow: selectors(rules.write.allow), deny: selectors(rules.write.deny) },
+    version: 3,
+    [PathRuleStore.Execution]: serializeRuleSets(rules[PathRuleStore.Execution]),
+    [PathRuleStore.Plan]: serializeRuleSets(rules[PathRuleStore.Plan]),
+    [PathRuleStore.Explore]: serializeRuleSets(rules[PathRuleStore.Explore]),
   };
 }
+
+export function parseStoredRules(value: unknown): StoredRules {
+  const record = asRecord(value);
+  if (record.version !== 3) throw new Error(`Unsupported path permission rules version: ${String(record.version)}`);
+  const rules = emptyStoredRules();
+  for (const store of Object.values(PathRuleStore)) rules[store] = parseRuleSets(record[store]);
+  return rules;
+}
+
+export function serializeRules(rules: RuleSets): SerializedRules {
+  return { version: 2, ...serializeRuleSets(rules) };
+}
+
 export function parseRules(value: unknown): RuleSets {
-  if (!value || typeof value !== "object") throw new Error("Invalid path permission rules");
-  const record = value as Record<string, unknown>;
+  const record = asRecord(value);
   if (record.version !== 2) throw new Error(`Unsupported path permission rules version: ${String(record.version)}`);
-  const read = parseModeRules(record.read), write = parseModeRules(record.write);
-  if (!read || !write) throw new Error("Invalid path permission rules");
-  return { read, write };
+  return parseRuleSets(record);
+}
+
+export function sessionGrantsFromRules(rules: RuleSets): SessionGrant[] {
+  return (["read", "write"] as const).flatMap((access) =>
+    (["allow", "deny"] as const).flatMap((decision) =>
+      [...rules[access][decision].keys()].sort().map((key) => ({ kind: "path", decision, access, target: selectorLabel(selectorFromKey(key)) }) as const),
+    ),
+  );
 }
 
 export function matchesRule(resolvedPath: string, selector: PathSelector): boolean {
@@ -84,11 +128,19 @@ export interface PolicyLayers { defaults: Iterable<PathSelector>; always: RuleSe
 // Explicit grants beat protection, protection beats defaults.
 export function evaluate(resolvedPath: string, mode: AccessMode, layers: PolicyLayers): Verdict {
   const { defaults, always, session, protected: protectedSelectors = [] } = layers;
-  if (matchesAny(resolvedPath, always[mode].deny) || matchesAny(resolvedPath, session[mode].deny)) return "deny";
+  if (matchesAny(resolvedPath, always[mode].deny.keys()) || matchesAny(resolvedPath, session[mode].deny.keys())) return "deny";
   if (matchesAny(resolvedPath, always[mode].allow) || matchesAny(resolvedPath, session[mode].allow)) return "allow";
   if (matchesAny(resolvedPath, protectedSelectors)) return "prompt";
   if (matchesAny(resolvedPath, defaults)) return "allow";
   return "prompt";
+}
+
+// The reason of a deny rule that blocks the path; evaluate checks "always" before "session" as well.
+export function denyNote(resolvedPath: string, mode: AccessMode, { always, session }: Pick<PolicyLayers, "always" | "session">): string | undefined {
+  for (const [key, note] of [...always[mode].deny, ...session[mode].deny]) {
+    if (note && matchesRule(resolvedPath, selectorFromKey(key))) return note;
+  }
+  return undefined;
 }
 
 // A tree or exact grant covers a protected selector rooted inside it. Glob grants never cover.
@@ -101,6 +153,12 @@ export function covers(grant: PathSelector, target: PathSelector): boolean {
 // Protected selectors a grant would swallow, so the prompt can warn about them.
 export function coveredProtectedSelectors(grant: PathSelector, protectedSelectors: Iterable<PathSelector>): PathSelector[] {
   return [...protectedSelectors].filter((target) => covers(grant, target));
+}
+
+// Narrowest first: the path itself, then each enclosing directory that still lies strictly inside the broad grant.
+export function narrowerSelectors(resolvedPath: string, entry: EntryKind, broad: PathSelector): PathSelector[] {
+  const own = entry === EntryKind.Directory ? tree(resolvedPath) : exact(resolvedPath);
+  return [own, ...ancestorTrees(resolvedPath)].filter((candidate) => isStrictlyInside(candidate, broad));
 }
 
 export function defaultAllowed(mode: AccessMode, options: DefaultAllowedOptions): PathSelector[] {
@@ -129,8 +187,10 @@ export function recordRule(rule: PathRule, tiers: RuleTiers): Set<RuleTier> {
   const opposite = rule.kind === "allow" ? "deny" : "allow";
   const otherTier = rule.tier === "session" ? "always" : "session";
   const key = selectorKey(rule.selector);
-  tiers[rule.tier][rule.mode][rule.kind].add(key);
-  tiers[rule.tier][rule.mode][opposite].delete(key);
+  const modeRules = tiers[rule.tier][rule.mode];
+  if (rule.kind === "allow") modeRules.allow.add(key);
+  else modeRules.deny.set(key, rule.note);
+  modeRules[opposite].delete(key);
   if (tiers[otherTier][rule.mode][opposite].delete(key)) changed.add(otherTier);
   return changed;
 }
@@ -140,16 +200,55 @@ export function selectorFromKey(key: string): PathSelector {
   return kind === "glob" ? glob(first, second ?? "") : { kind, path: first };
 }
 
-function selectors(values: Set<string>): PathSelector[] {
+function serializeRuleSets(rules: RuleSets): SerializedRuleSets {
+  return {
+    read: { allow: selectors(rules.read.allow), deny: denyEntries(rules.read.deny) },
+    write: { allow: selectors(rules.write.allow), deny: denyEntries(rules.write.deny) },
+  };
+}
+function parseRuleSets(value: unknown): RuleSets {
+  const record = asRecord(value);
+  const read = parseModeRules(record.read), write = parseModeRules(record.write);
+  if (!read || !write) throw new Error("Invalid path permission rules");
+  return { read, write };
+}
+function asRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object") throw new Error("Invalid path permission rules");
+  return value as Record<string, unknown>;
+}
+function selectors(values: Iterable<string>): PathSelector[] {
   return [...values].map(selectorFromKey).sort((left, right) => selectorKey(left).localeCompare(selectorKey(right)));
+}
+function denyEntries(values: Map<string, string | undefined>): DenyEntry[] {
+  return selectors(values.keys()).map((selector) => {
+    const note = values.get(selectorKey(selector));
+    return note ? { ...selector, note } : selector;
+  });
+}
+function ancestorTrees(path: string): PathSelector[] {
+  const trees: PathSelector[] = [];
+  for (let directory = dirname(path); directory !== dirname(directory); directory = dirname(directory)) trees.push(tree(directory));
+  return trees;
+}
+// A glob grant (the protected agentDir/*.json) only narrows to the path itself; an enclosing tree would be broader.
+function isStrictlyInside(candidate: PathSelector, broad: PathSelector): boolean {
+  if (selectorKey(candidate) === selectorKey(broad)) return false;
+  if (broad.kind === "tree") return covers(broad, candidate);
+  return candidate.kind === "exact" && matchesRule(candidate.path, broad);
 }
 function parseModeRules(value: unknown): RuleSets[AccessMode] | undefined {
   if (!value || typeof value !== "object") return undefined;
   const { allow, deny } = value as Record<string, unknown>;
   if (!Array.isArray(allow) || !Array.isArray(deny)) return undefined;
-  const allowed = allow.map(normalizeSelector), denied = deny.map(normalizeSelector);
+  const allowed = allow.map(normalizeSelector), denied = deny.map(normalizeDenyEntry);
   if (!allowed.every(isDefined) || !denied.every(isDefined)) return undefined;
-  return { allow: new Set(allowed.map(selectorKey)), deny: new Set(denied.map(selectorKey)) };
+  return { allow: new Set(allowed.map(selectorKey)), deny: new Map(denied.map(({ selector, note }) => [selectorKey(selector), note])) };
+}
+function normalizeDenyEntry(value: unknown): { selector: PathSelector; note: string | undefined } | undefined {
+  const selector = normalizeSelector(value);
+  if (!selector) return undefined;
+  const { note } = value as Record<string, unknown>;
+  return { selector, note: typeof note === "string" && note !== "" ? note : undefined };
 }
 function normalizeSelector(value: unknown): PathSelector | undefined {
   if (!value || typeof value !== "object") return undefined;
