@@ -10,7 +10,8 @@ Differences from upstream:
 
 - Pi loads the extension from source: outer `index.ts` forwards the default extension factory from `src/index.ts`; named APIs live in `src/index.ts`. There is no `bundle/` build step or `esbuild`.
 - Dependencies come from this directory's own `package.json`; `@modelcontextprotocol/sdk` is declared explicitly because the bundle no longer inlines it.
-- Pi tools are served to Claude Code through a low-level MCP server (`src/tool-server.ts`) that forwards their JSON Schema unchanged, instead of the upstream TypeBox-to-Zod conversion, which dropped `integer`, min/max bounds and other keywords.
+- Pi tools are served to Claude Code through a low-level MCP server (`src/tool-server.ts`) that forwards their JSON Schema unchanged (except for `edit`, below), instead of the upstream TypeBox-to-Zod conversion, which dropped `integer`, min/max bounds and other keywords.
+- The `edit` tool is advertised to Claude with flat `path`/`oldText`/`newText` string parameters instead of pi's `edits` array (`src/flat-edit.ts`): Sonnet and Haiku often wrote the nested array as broken JSON. pi's edit tool folds the flat arguments into `edits` itself.
 - The provider reads Pi 0.86+ transcripts: the system prompt and tool set come from the transcript's system messages through pi-ai's replay helpers, and the bridge's cursors count conversation messages only. Pi 0.86 or later is required.
 - Configuration uses only nested `claude-bridge.json` files. The extension manager, account router and cloud connector integrations are removed. SDK tools are restricted to Pi's bridge.
 - The global AGENTS context file from the Pi agent directory is forwarded on every query, ahead of the nearest working-directory file. Upstream forwards only the nearest file and uses the global one as a fallback, so standing instructions vanish inside any repository that has its own `AGENTS.md`.

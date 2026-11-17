@@ -15,6 +15,7 @@ import { loadConfig, recordProjectTrust } from "./config.js";
 import { hasClaudeCredentials } from "./auth-presence.js";
 import { NATIVE_PROVIDER_UNSUPPORTED_MESSAGE, buildNativeProvider, supportsNativeProvider } from "./native-provider.js";
 import { createToolServer, type BridgedTool } from "./tool-server.js";
+import { modelFacingTool } from "./flat-edit.js";
 import { resolveGetModels } from "./pi-ai-compat.js";
 import { conversationMessages } from "./transcript.js";
 import { debug, diagDump, makeCliDebugOptions, moduleInstanceId } from "./debug.js";
@@ -255,7 +256,7 @@ export function resolveMcpTools(context: TranscriptContext, excludeToolName?: st
 // per-turn output figures at the message_start placeholders (1–7 tokens).
 
 // Bridges pi tools to the SDK via a low-level MCP server (tool-server.ts) that
-// forwards each tool's JSON Schema unchanged. Each tool handler blocks on a
+// forwards each tool's JSON Schema unchanged, except for `edit` (see flat-edit.ts). Each tool handler blocks on a
 // Promise until pi delivers the tool result via streamSimple. Handlers claim
 // their tool_call id by matching the actual MCP call (tool name + arguments)
 // against the recorded tool_use blocks, then results are matched by ID.
@@ -265,8 +266,7 @@ function buildMcpServers(tools: Tool[], queryCtx: QueryContext): Record<string, 
 	if (!tools.length) return undefined;
 	const mcpTools: BridgedTool[] = tools.map((tool) => ({
 		name: tool.name,
-		description: tool.description,
-		parameters: tool.parameters,
+		...modelFacingTool(tool),
 		handler: async (args?: Record<string, unknown>) => {
 			const mappedArgs = mapToolArgs(tool.name, args);
 			const claim = queryCtx.claimToolCall(tool.name, mappedArgs);

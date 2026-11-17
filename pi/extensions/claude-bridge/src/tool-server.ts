@@ -1,4 +1,5 @@
-// Serves pi's tools over MCP with their JSON Schema untouched.
+// Serves the tools it is given over MCP with their JSON Schema untouched (the bridge flattens `edit` before
+// handing it over, see flat-edit.ts).
 //
 // The Agent SDK's createSdkMcpServer only accepts Zod shapes, and converting
 // pi's TypeBox schemas to Zod lost `integer`, min/max bounds and several other
