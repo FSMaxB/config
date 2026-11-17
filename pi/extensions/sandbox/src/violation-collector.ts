@@ -75,10 +75,22 @@ function streamMacOSViolations(record: RecordViolation): () => void {
   child.stdout.on("data", (chunk: string) => {
     const parsed = parseLogStreamChunk(state, chunk, SRT_VIOLATIONS);
     state = parsed.state;
-    for (const { line, tag } of parsed.entries) record(tag, line);
+    for (const { line, tag } of parsed.entries) {
+      if (!isSystemNoise(line)) record(tag, line);
+    }
   });
   return () => { child.kill("SIGTERM"); };
 }
+
+// Denials that macOS processes hit on their own, whatever the command does, and that do not change its outcome.
+// srt's own monitor drops the diagnosticd and analyticsd lookups as well, but this stream bypasses that monitor.
+// vfs.disk-space is reported for every statfs() (git, jj, rg, df), yet the call still returns the real values,
+// because srt's profile has no rule for the system-info operation.
+export function isSystemNoise(line: string): boolean {
+  return SYSTEM_NOISE.test(line);
+}
+
+const SYSTEM_NOISE = /\sdeny\(\d+\)\s+(?:sysctl-read kern\.iossupportversion|mach-lookup com\.apple\.(?:diagnosticd|analyticsd)|system-info vfs\.disk-space)$/;
 
 // The store notifies synchronously on every add, so the newest entries are the ones added since the last call.
 // Counting through getTotalCount() keeps clear() (which also notifies) from being read as new violations.

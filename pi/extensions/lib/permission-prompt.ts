@@ -4,6 +4,7 @@ export const Duration = { Once: "once", Session: "session", Always: "always" } a
 export type Duration = (typeof Duration)[keyof typeof Duration];
 export type LastingDuration = Exclude<Duration, typeof Duration.Once>;
 export const ALL_DURATIONS: readonly Duration[] = [Duration.Once, Duration.Session, Duration.Always];
+export const LASTING_DURATIONS: readonly Duration[] = [Duration.Session, Duration.Always];
 
 // The two calls a permission prompt makes. lib/permission-ui.ts adapts pi's UI; tests pass a scripted fake.
 export interface PermissionUI {
