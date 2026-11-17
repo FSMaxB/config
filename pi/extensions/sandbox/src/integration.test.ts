@@ -16,7 +16,7 @@ import { resolveSandboxShell } from "./shell.ts";
 import { traceProfile } from "./trace-profile.ts";
 import { scanVcsLayout, vcsWriteRules } from "./vcs-policy.ts";
 import { startViolationCollector, type ViolationCollector } from "./violation-collector.ts";
-import { discardedWrites, isRepositoryRootRemoval, pathViolations } from "./violations.ts";
+import { discardedWrites, isHereDocumentTemporaryFile, isRepositoryRootRemoval, pathViolations } from "./violations.ts";
 
 const enabled = process.env.SANDBOX_INTEGRATION === "1";
 
@@ -344,6 +344,18 @@ test("here-documents work from a read-only directory with the resolved shell", {
   assert.equal(exitCode, 0, output);
   assert.match(output, /^small\n\s*100001\n$/);
   assert.deepEqual(pathViolations((await collectViolations(commandId)).map(({ line }) => line)), []);
+});
+
+test("system bash 3.2 heredocs from a read-only directory are reported as sh-thd temp files", { skip: !enabled || process.platform !== "darwin" }, async () => {
+  // arrange
+  const command = `export TMPDIR='${workDirectory}'; cat <<'EOF'\nsmall\nEOF`;
+
+  // act
+  const { exitCode, output, commandId } = await runSandboxed(command, policyFilesystem(), root, "/bin/bash");
+
+  // assert
+  assert.notEqual(exitCode, 0, output);
+  assert.ok((await collectViolations(commandId)).some(({ line }) => isHereDocumentTemporaryFile(line)), output);
 });
 
 // jj git init itself runs outside the sandbox: it creates files in .jj that the allowlist leaves to the user.

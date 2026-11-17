@@ -31,9 +31,9 @@ import { exportSessionScratch, withSessionScratch } from "./scratch.ts";
 import { loadActivationDecisions, loadProfiles, loadSettings, updateActivationDecisions, updateDomainLists, updateProfile, type Settings } from "./settings.ts";
 import { resolveSandboxShell } from "./shell.ts";
 import { scanVcsLayout, vcsWriteRules, type VcsWriteRules } from "./vcs-policy.ts";
-import { isRepositoryRootRemoval, isSecretPath, pathViolations, type PathViolation } from "./violations.ts";
+import { isHereDocumentTemporaryFile, isRepositoryRootRemoval, isSecretPath, pathViolations, type PathViolation } from "./violations.ts";
 import { startViolationCollector, type ViolationCollector } from "./violation-collector.ts";
-import { CommandExit, discardedWriteReport, networkDenialReport, nextStep, promptDurations, rawViolationBlock, violationReport, type NextStep, type ViolationOutcome } from "./violation-outcomes.ts";
+import { CommandExit, discardedWriteReport, HERE_DOCUMENT_REPORT, networkDenialReport, nextStep, promptDurations, rawViolationBlock, violationReport, type NextStep, type ViolationOutcome } from "./violation-outcomes.ts";
 
 const SANDBOX_NOTE =
   "Commands run inside an OS sandbox that enforces the same read/write path rules as the file tools, with no network except allowed hosts. Denied paths are reported in a <sandbox_violations> block and the user is asked to grant them; after a grant the command has to be rerun, unless the user allowed it once: then the sandbox reruns it itself and the rerun's output follows the report. Never try to work around a denial. Sandbox profiles (extra permissions the user approved for tools such as bazel) activate on their own for matching commands, after the user confirms. " +
@@ -313,7 +313,9 @@ function createRuntime(pi: ExtensionAPI): Runtime {
       const collected = exit === CommandExit.Succeeded && process.platform === "linux"
         ? await readViolationsAfterOneWait(commandId)
         : await collectViolations(commandId);
-      const violations = reportable(collected, vcs.repositoryRoot);
+      const relevant = reportable(collected, vcs.repositoryRoot);
+      const violations = relevant.filter(({ line }) => !isHereDocumentTemporaryFile(line));
+      if (violations.length < relevant.length) options.onData(Buffer.from(HERE_DOCUMENT_REPORT));
       if (violations.length === 0) return { result, step: { kind: "return" }, promptsUsed: 0 };
       const lines = violations.map(({ line }) => line);
       options.onData(Buffer.from(rawViolationBlock(lines)));

@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { discardedWrites, isRepositoryRootRemoval, isSecretPath, isSecretPathThroughSymlinks, pathViolations } from "./violations.ts";
+import { discardedWrites, isHereDocumentTemporaryFile, isRepositoryRootRemoval, isSecretPath, isSecretPathThroughSymlinks, pathViolations } from "./violations.ts";
 
 test("macOS read and write violations parse", () => {
   // arrange
@@ -116,6 +116,21 @@ test("only an unlink of the repository root itself is a repository root removal"
   assert.equal(entryUnlink, false);
   assert.equal(rootCreate, false);
   assert.equal(linuxLine, false);
+});
+
+test("only write violations of sh-thd temp files are here-document temp files", () => {
+  // arrange
+  const macOsCreate = "Sandbox: bash(75451) deny(1) file-write-create /Users/max/config/sh-thd-1794974391";
+  const linuxWrite = "deny openat /home/max/repo/sh-thd-123";
+  const read = "Sandbox: bash(1) deny(1) file-read-data /Users/max/config/sh-thd-1";
+  const namedFile = "Sandbox: bash(1) deny(1) file-write-create /Users/max/config/sh-thd-notes.txt";
+  const otherFile = "Sandbox: bash(1) deny(1) file-write-create /Users/max/config/notes";
+
+  // act
+  const results = [macOsCreate, linuxWrite, read, namedFile, otherFile].map(isHereDocumentTemporaryFile);
+
+  // assert
+  assert.deepEqual(results, [true, true, false, false, false]);
 });
 
 test("a secret path matches itself and nested paths only", () => {

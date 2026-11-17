@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import type { FilesystemConfig } from "@anthropic-ai/sandbox-runtime";
 import { contains, resolveThroughSymlinks } from "../../lib/repo.ts";
 
@@ -42,6 +43,13 @@ export function discardedWrites(
 export function isRepositoryRootRemoval(line: string, repositoryRoot: string): boolean {
   const match = VIOLATION.exec(line);
   return match?.[1] === "file-write-unlink" && match[2] === repositoryRoot;
+}
+
+// Bash before 5.1 creates here-document temp files named sh-thd-<number> outside $TMPDIR, in the current
+// directory when nothing better is writable; bash 5.1+ only falls back to such files above the pipe size.
+export function isHereDocumentTemporaryFile(line: string): boolean {
+  const violation = parseViolation(line);
+  return violation?.mode === "write" && /^sh-thd[-.][A-Za-z0-9]+$/.test(basename(violation.path));
 }
 
 export function isSecretPath(path: string, secrets: string[]): boolean {
