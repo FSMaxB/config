@@ -21,6 +21,7 @@
 - When a value is either borrowed or freshly built, use `Cow` instead of a late-initialized `let filtered;` binding.
 - Import items instead of fully qualifying them at the use site (`use tokio::sync::mpsc;`, `use std::iter;` then `iter::once`).
 - Name ignored bindings `_`, not `_error`, unless a lint requires otherwise.
+- Silence a lint with `#[expect(lint_name, reason = "...")]`, not `#[allow]`, so the override is reported once it is no longer needed.
 
 ## Errors
 
@@ -39,6 +40,7 @@
 - Depend on `futures-util` instead of `futures` whenever it's enough.
 - Use native `async fn` in traits instead of `async_trait` unless the trait is used as a trait object.
 - Prefer `CancellationToken::run_until_cancelled` over a `tokio::select!` on `cancelled()`. If you do need `select!`, remember it polls branches in random order unless you add `biased;`.
+- Give every network client a timeout (reqwest has none by default)
 
 ## Traits and derives
 
@@ -50,7 +52,17 @@
 ## Numbers
 
 - Use `usize` for counts and lengths so they don't need conversions.
+- Convert integers with `From` and `TryFrom` (`u64::from(count)`, `usize::try_from(count)?`), not with `as`.
 - Use `NonZero*` types instead of runtime checks for zero.
+
+## Logging
+
+- Prefer logging values as structured fields (`?value`, `%value`) instead of formatting them into the message.
+- Do not set a log `target`; the module path is the target.
+
+## Tests
+
+- A type that derives `Serialize` or `Deserialize` gets a test against hard-coded JSON, with one minimal and one full payload. A round-trip test does not count.
 
 ## Macros
 
