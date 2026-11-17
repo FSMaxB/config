@@ -6,10 +6,18 @@ export interface ProfileTriggers {
   patterns: string[];
 }
 
-export interface ProfileNetwork {
+export const NetworkAccess = { Listed: "listed", Local: "local", All: "all" } as const;
+export type NetworkAccess = (typeof NetworkAccess)[keyof typeof NetworkAccess];
+
+// What srt's network config takes from profiles.
+export interface NetworkAllowances {
   allowedDomains: string[];
   allowLocalBinding: boolean;
   allowUnixSockets: string[];
+}
+
+export interface ProfileNetwork extends NetworkAllowances {
+  access: NetworkAccess;
 }
 
 export interface ProfileDefinition {
@@ -37,7 +45,7 @@ export function emptyProfileDefinition(): ProfileDefinition {
   return {
     triggers: { commands: [], patterns: [] },
     filesystem: { read: [], write: [] },
-    network: { allowedDomains: [], allowLocalBinding: false, allowUnixSockets: [] },
+    network: { access: NetworkAccess.Listed, allowedDomains: [], allowLocalBinding: false, allowUnixSockets: [] },
     path: [],
   };
 }
@@ -76,6 +84,7 @@ export function parseProfileDefinition(value: unknown, name: string): ProfileDef
       write: pathArray(filesystem.write, `${prefix}.filesystem.write`),
     },
     network: {
+      access: networkAccess(network.access, `${prefix}.network.access`),
       allowedDomains: stringArray(network.allowedDomains, `${prefix}.network.allowedDomains`),
       allowLocalBinding: boolean(network.allowLocalBinding, `${prefix}.network.allowLocalBinding`),
       allowUnixSockets: pathArray(network.allowUnixSockets, `${prefix}.network.allowUnixSockets`),
@@ -120,12 +129,25 @@ export function profileFingerprint(profiles: readonly Profile[]): string {
   return createHash("sha256").update(JSON.stringify(reduced)).digest("hex").slice(0, 16);
 }
 
-export function mergedProfileNetwork(profiles: readonly Profile[]): ProfileNetwork {
+// Patterns srt's proxy matches; its config schema rejects "*" and "*.localhost", but the manager does not validate them.
+const LOOPBACK_HOSTS = ["localhost", "*.localhost", "127.0.0.1", "[::1]"];
+const EVERY_HOST = "*";
+
+export function mergedProfileNetwork(profiles: readonly Profile[]): NetworkAllowances {
+  const networks = profiles.map(({ network }) => network);
   return {
-    allowedDomains: unique(profiles.flatMap(({ network }) => network.allowedDomains)),
-    allowLocalBinding: profiles.some(({ network }) => network.allowLocalBinding),
-    allowUnixSockets: unique(profiles.flatMap(({ network }) => network.allowUnixSockets)),
+    allowedDomains: unique(networks.flatMap(networkHosts)),
+    allowLocalBinding: networks.some(({ access, allowLocalBinding }) => allowLocalBinding || access !== NetworkAccess.Listed),
+    allowUnixSockets: unique(networks.flatMap(({ allowUnixSockets }) => allowUnixSockets)),
   };
+}
+
+function networkHosts({ access, allowedDomains }: ProfileNetwork): string[] {
+  switch (access) {
+    case NetworkAccess.Listed: return allowedDomains;
+    case NetworkAccess.Local: return [...allowedDomains, ...LOOPBACK_HOSTS];
+    case NetworkAccess.All: return [...allowedDomains, ...LOOPBACK_HOSTS, EVERY_HOST];
+  }
 }
 
 export function selectorText(selector: PathSelector, homeDirectory: string): string {
@@ -181,6 +203,13 @@ function patternArray(value: unknown, name: string): string[] {
     }
   });
   return patterns;
+}
+
+function networkAccess(value: unknown, name: string): NetworkAccess {
+  if (value === undefined) return NetworkAccess.Listed;
+  const levels: readonly unknown[] = Object.values(NetworkAccess);
+  if (!levels.includes(value)) throw new Error(`${name} must be one of ${Object.values(NetworkAccess).map((level) => `"${level}"`).join(", ")}`);
+  return value as NetworkAccess;
 }
 
 function boolean(value: unknown, name: string): boolean {

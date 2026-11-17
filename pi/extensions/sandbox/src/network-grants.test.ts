@@ -212,6 +212,20 @@ test("profile network adds hosts and sockets and ORs local binding, but a sessio
   assert.equal(config.allowLocalBinding, true);
 });
 
+test("a profile that allows every host keeps the wildcard while session denials still win", () => {
+  // arrange
+  const grants = emptyGrants();
+  grants.deny.set("bad.example", undefined);
+  const profile = { allowedDomains: ["*"], allowLocalBinding: false, allowUnixSockets: [] };
+
+  // act
+  const config = networkConfig(settings, grants, false, profile);
+
+  // assert
+  assert.ok(config.allowedDomains.includes("*"));
+  assert.ok(config.deniedDomains.includes("bad.example"));
+});
+
 test("subagents ignore profile network", () => {
   // arrange
   const profile = { allowedDomains: ["bcr.example"], allowLocalBinding: true, allowUnixSockets: ["/profile.sock"] };
