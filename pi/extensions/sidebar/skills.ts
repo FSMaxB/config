@@ -95,10 +95,11 @@ export function skillItems(skills: readonly SkillOnBranch[], level: SkillLevel):
     ]);
 }
 
-/** The `references/` directory is the convention for a skill's reference files, so it adds no information to a row. */
+/** The `references/` directory and the `.md` extension are conventions for a skill's reference files, so they add no information to a row. */
 function referenceLabel(path: string): string {
   const prefix = `references${sep}`;
-  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
+  const withoutDirectory = path.startsWith(prefix) ? path.slice(prefix.length) : path;
+  return withoutDirectory.replace(/\.md$/, "");
 }
 
 function withSkillLoaded(skill: Skill, current: SkillOnBranch | undefined): SkillOnBranch | undefined {

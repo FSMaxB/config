@@ -277,12 +277,12 @@ test("skillItems emits each skill with its references one level deeper and dims 
   // assert
   assert.deepEqual(user, [
     { text: "vcs", depth: 0, tone: ItemTone.Normal },
-    { text: "a.md", depth: 1, tone: ItemTone.Normal },
-    { text: "b.md", depth: 1, tone: ItemTone.Normal },
+    { text: "a", depth: 1, tone: ItemTone.Normal },
+    { text: "b", depth: 1, tone: ItemTone.Normal },
     { text: "lonely", depth: 0, tone: ItemTone.Dim },
   ]);
   assert.deepEqual(repo, [
     { text: "planning", depth: 0, tone: ItemTone.Dim },
-    { text: "notes.md", depth: 1, tone: ItemTone.Normal },
+    { text: "notes", depth: 1, tone: ItemTone.Normal },
   ]);
 });
