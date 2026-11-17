@@ -29,6 +29,7 @@ import { addAllowedDomain, addFilesystemEntry, emptyProfileDefinition, mergedPro
 import { createRecorder } from "./recorder.ts";
 import { exportSessionScratch, withSessionScratch } from "./scratch.ts";
 import { loadActivationDecisions, loadProfiles, loadSettings, updateActivationDecisions, updateDomainLists, updateProfile, type Settings } from "./settings.ts";
+import { resolveSandboxShell } from "./shell.ts";
 import { scanVcsLayout, vcsWriteRules, type VcsWriteRules } from "./vcs-policy.ts";
 import { isRepositoryRootRemoval, isSecretPath, pathViolations, type PathViolation } from "./violations.ts";
 import { startViolationCollector, type ViolationCollector } from "./violation-collector.ts";
@@ -53,6 +54,9 @@ const MAX_PATH_PROMPTS_PER_COMMAND = 5;
 
 const CONFIG_ID_WARNING =
   "Sandbox: this jj repo has no config-id, so on Linux the sandbox cannot stop a planted .jj/repo/config.toml or .jj/workspace-config.toml. Run `jj config path --repo` and `jj config path --workspace` once to create the ids.";
+
+const OLD_BASH_WARNING =
+  "Sandbox: no bash 5.1 or newer found, so sandboxed commands run with the system bash, whose here-documents fail when the current directory is not writable. Install one (macOS: `brew install bash`) and restart pi.";
 
 // Commands whose tags a later profiled command adopts, so violations of the long-lived servers they started stay visible.
 const MAX_ADOPTED_COMMANDS = 200;
@@ -196,6 +200,8 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   // Deliberately not persisted in the session: a resumed session asks again before bypassing the sandbox.
   let bypassDecision: SessionDecision | undefined;
   let warnedAboutConfigIds = false;
+  // Undefined makes srt look up `bash` on PATH itself.
+  let shell: string | undefined;
   let collector: ViolationCollector | undefined;
   const onceNetworkGrants: OnceNetworkGrants = new Map();
   // One id per bash call, shared by its reruns: once-answers to network prompts are scoped to these.
@@ -299,7 +305,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     warnAboutMissingConfigIds(vcs, filesystem.denyWrite);
     const environment = profiles.length === 0 ? options.env : profileEnvironment(options.env ?? process.env, profiles, inputs);
     try {
-      const wrapped = await manager().wrapWithSandbox(exportSessionScratch(command, environment), undefined, { filesystem }, options.signal, { commandId, commandText: command });
+      const wrapped = await manager().wrapWithSandbox(exportSessionScratch(command, environment), shell, { filesystem }, options.signal, { commandId, commandText: command });
       const result = await stock.exec(wrapped, cwd, { ...options, env: environment });
       const exit = result.exitCode === 0 ? CommandExit.Succeeded : CommandExit.Failed;
       // Linux events arrive over the monitor socket and are best-effort after exit, so a successful command
@@ -344,6 +350,9 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     const seccompMissing = process.platform === "linux" ? warnings.filter((warning) => /seccomp/i.test(warning)) : [];
     const problems = [...errors, ...seccompMissing];
     if (problems.length > 0) throw new Error(`Sandboxed bash is unavailable: ${problems.join("; ")}. ${INSTALL_HINT}`);
+    const choice = await resolveSandboxShell(process.env.PATH);
+    shell = choice.kind === "found" ? choice.path : undefined;
+    if (choice.kind === "missing") activeContext?.ui.notify(`${OLD_BASH_WARNING} Checked: ${choice.checked.join(", ")}.`, "warning");
     await manager().initialize(
       {
         network: networkConfig(settings, grants, subagent, profileNetwork),
