@@ -11,6 +11,7 @@ import { contains, findRepoRoot, isVcsInternal, memoryDirectory, resolveThroughS
 import { latestCustomData } from "./session-entries.ts";
 import { serialize } from "./ui-queue.ts";
 import { inheritedRules, parseChildPathPolicy, type ChildPathPolicy } from "./path-permission-snapshot.ts";
+import { profileDestinations } from "./permission-choices.ts";
 import { ALL_DURATIONS, askPermission, Duration, userReason, type ScopeChoice } from "./permission-prompt.ts";
 import { permissionUI } from "./permission-ui.ts";
 import { announceSessionGrantsChanged, type SessionGrant } from "./session-grants.ts";
@@ -73,7 +74,8 @@ export async function currentPolicy(onceGrants: OnceGrant[] = []): Promise<Effec
 }
 
 // Used by the sandbox after a command was denied. "Allow once" records nothing: the sandbox reruns the command with the returned grant.
-export async function grantPathAccess(path: string, mode: AccessMode, context: ExtensionContext): Promise<PathAccessOutcome> {
+// Only the sandbox passes profiles, which adds an "Add to profile" choice; the file tools keep the plain prompt.
+export async function grantPathAccess(path: string, mode: AccessMode, context: ExtensionContext, profiles: readonly string[] = []): Promise<PathAccessOutcome> {
   const resolved = await resolveThroughSymlinks(path);
   const settled = async (): Promise<PathAccessOutcome | undefined> => {
     const layers = await effectiveLayers(mode);
@@ -88,8 +90,9 @@ export async function grantPathAccess(path: string, mode: AccessMode, context: E
     if (latest) return latest;
     const { protected: protectedSelectors } = await effectiveLayers(mode);
     try {
-      const answer = await requestAccess(resolved, mode, context, protectedSelectors);
+      const answer = await requestAccess(resolved, mode, context, protectedSelectors, profiles);
       if (answer.kind === "once") return { kind: "allowed-once", grant: { mode, selector: answer.selector } };
+      if (answer.kind === "profile") return { kind: "add-to-profile", profile: answer.profile, grant: { mode, selector: answer.selector } };
       return answer.kind === "rule" ? { kind: "allowed" } : { kind: "denied", note: answer.note };
     } catch {
       return { kind: "denied", note: undefined };
@@ -98,7 +101,12 @@ export async function grantPathAccess(path: string, mode: AccessMode, context: E
 }
 
 export interface OnceGrant { mode: AccessMode; selector: PathSelector }
-export type PathAccessOutcome = { kind: "allowed" } | { kind: "allowed-once"; grant: OnceGrant } | { kind: "denied"; note: string | undefined };
+export type PathAccessOutcome =
+  | { kind: "allowed" }
+  | { kind: "allowed-once"; grant: OnceGrant }
+  | { kind: "denied"; note: string | undefined }
+  // The caller records the grant in the profile; nothing is stored here.
+  | { kind: "add-to-profile"; profile: string; grant: OnceGrant };
 
 async function modePolicy(mode: AccessMode, onceGrants: OnceGrant[]): Promise<ModePolicy> {
   const { defaults, always, session, protected: protectedSelectors } = await effectiveLayers(mode);
@@ -142,7 +150,7 @@ async function ensureAllowed(path: string, mode: AccessMode, context: ExtensionC
   });
 }
 
-async function requestAccess(resolved: string, mode: AccessMode, context: ExtensionContext, protectedSelectors: PathSelector[] = []): Promise<AccessAnswer> {
+async function requestAccess(resolved: string, mode: AccessMode, context: ExtensionContext, protectedSelectors: PathSelector[] = [], profiles: readonly string[] = []): Promise<AccessAnswer> {
   if (!context.hasUI) throw new Error(`${resolved} is not covered by the ${mode} path rules and there is no interactive UI to ask. Stay inside the repository.${readOnlyRepositoryNotice(mode, currentAgentMode())}`);
   // A protected path is granted as its own protected root, so approving one extension file does not open the whole repository.
   const protectedMatch = protectedSelectors.find((candidate) => matchesRule(resolved, candidate));
@@ -158,7 +166,9 @@ async function requestAccess(resolved: string, mode: AccessMode, context: Extens
     scope: selector,
     narrower: await narrowerScopes(resolved, selector, mode, protectedSelectors),
     durations: ALL_DURATIONS,
+    destinations: profileDestinations(profiles),
   });
+  if (answer.decision === "allow-to") return { kind: "profile", profile: answer.destination, selector: answer.scope };
   if (answer.decision === "deny") {
     // A deny always uses the default selector, as the prompt promises; only allows can be narrowed.
     if (answer.duration !== Duration.Once) await addPathRule({ mode, kind: "deny", tier: answer.duration, selector, note: answer.note });
@@ -169,7 +179,11 @@ async function requestAccess(resolved: string, mode: AccessMode, context: Extens
   return { kind: "rule" };
 }
 
-type AccessAnswer = { kind: "once"; selector: PathSelector } | { kind: "rule" } | { kind: "denied"; note: string | undefined };
+type AccessAnswer =
+  | { kind: "once"; selector: PathSelector }
+  | { kind: "rule" }
+  | { kind: "denied"; note: string | undefined }
+  | { kind: "profile"; profile: string; selector: PathSelector };
 
 async function narrowerScopes(resolved: string, broad: PathSelector, mode: AccessMode, protectedSelectors: PathSelector[]): Promise<ScopeChoice<PathSelector>[]> {
   const stats = await stat(resolved).catch(() => undefined);

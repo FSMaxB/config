@@ -1,3 +1,5 @@
+import type { DestinationChoice } from "./permission-prompt.ts";
+
 // Labels shared by every permission prompt, kept free of pi imports so pure modules and their
 // tests can use them without resolving the pi packages.
 export const ALLOW_ONCE = "Allow once";
@@ -8,3 +10,11 @@ export const DENY_SESSION = "Deny in session";
 export const DENY_ALWAYS = "Deny always";
 export const ALLOW_NARROWER = "Allow narrower…";
 export const DENY_WITH_REASON = "Deny with reason…";
+
+export function addToProfileLabel(profile: string): string {
+  return `Add to profile ${profile}`;
+}
+
+export function profileDestinations(profiles: readonly string[]): DestinationChoice<string>[] {
+  return profiles.map((profile) => ({ label: addToProfileLabel(profile), destination: profile }));
+}

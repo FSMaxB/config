@@ -11,15 +11,18 @@ export type ViolationOutcome =
   | { kind: "not-asked"; mode: AccessMode; path: string }
   | { kind: "allowed"; mode: AccessMode; path: string }
   | { kind: "allowed-once"; mode: AccessMode; path: string; grant: OnceGrant }
+  | { kind: "added-to-profile"; mode: AccessMode; path: string; profile: string }
   | { kind: "denied"; mode: AccessMode; path: string; note: string | undefined };
 
 export type NextStep = { kind: "rerun"; grants: OnceGrant[] } | { kind: "return" };
 
-// A path that is still blocked would fail the rerun the same way, so a rerun needs every path granted.
+// A path that is still blocked would fail the rerun the same way, so a rerun needs every path granted. A path
+// added to a profile contributes no once grant: the rerun reloads the profile.
 export function nextStep(outcomes: ViolationOutcome[]): NextStep {
   const grants = outcomes.flatMap((outcome) => outcome.kind === "allowed-once" ? [outcome.grant] : []);
-  const blocked = outcomes.some(({ kind }) => kind !== "allowed" && kind !== "allowed-once");
-  return grants.length === 0 || blocked ? { kind: "return" } : { kind: "rerun", grants };
+  const rerunnable = outcomes.some(({ kind }) => kind === "allowed-once" || kind === "added-to-profile");
+  const blocked = outcomes.some(({ kind }) => kind !== "allowed" && kind !== "allowed-once" && kind !== "added-to-profile");
+  return !rerunnable || blocked ? { kind: "return" } : { kind: "rerun", grants };
 }
 
 // The raw lines, for the model to see what else the command ran into besides the path denials below them.
@@ -44,6 +47,9 @@ function outcomeLine(outcome: ViolationOutcome, step: NextStep, agentMode: Agent
     case "allowed-once": return step.kind === "rerun"
       ? `${mode} access to ${path} was allowed for one rerun.`
       : `${mode} access to ${path} was allowed once, but the command was not rerun because other paths are still blocked.`;
+    case "added-to-profile": return step.kind === "rerun"
+      ? `${mode} access to ${path} was added to profile ${outcome.profile}.`
+      : `${mode} access to ${path} was added to profile ${outcome.profile}; rerun the command.`;
     case "denied": return `${mode} access to ${path} was denied; do not retry it.${userReason(outcome.note)}${notice}`;
   }
 }

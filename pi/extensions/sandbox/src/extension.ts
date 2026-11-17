@@ -3,10 +3,11 @@ import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createBashToolDefinition, createLocalBashOperations, getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { BashOperations, BashSpawnContext, BashToolDetails, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { BashOperations, BashSpawnContext, BashToolDetails, ExtensionAPI, ExtensionCommandContext, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { currentAgentMode, currentPolicy, grantPathAccess, type OnceGrant } from "../../lib/path-permissions.ts";
+import { profileDestinations } from "../../lib/permission-choices.ts";
 import { ALL_DURATIONS, askPermission, Duration, type PermissionAnswer } from "../../lib/permission-prompt.ts";
 import { permissionUI } from "../../lib/permission-ui.ts";
 import { registerToolWithGuidelines } from "../../lib/register-tool.ts";
@@ -17,17 +18,24 @@ import { announceSessionGrantsChanged, provideSessionGrants, type SessionGrant }
 import { serialize } from "../../lib/ui-queue.ts";
 import { BYPASS_DURATIONS, bypassOutcome, bypassPrompt, bypassSessionGrants, resolveAnswer, type BypassAuthorization, type SessionDecision } from "./bypass.ts";
 import { credentialEnvVars } from "./credentials.ts";
-import { NETWORK_ENTRY_TYPE, destinationKey, emptyGrants, networkConfig, networkDenialNote, parseGrants, recordGrant, recordOnceGrant, releaseOnceGrants, rememberedDecision, networkSessionGrants, serializeGrants, type NetworkDecision, type NetworkGrants, type OnceNetworkGrants } from "./network-grants.ts";
+import { NETWORK_ENTRY_TYPE, NO_PROFILE_NETWORK, destinationKey, emptyGrants, networkConfig, networkDenialNote, parseGrants, recordGrant, recordOnceGrant, releaseOnceGrants, rememberedDecision, networkSessionGrants, serializeGrants, type NetworkDecision, type NetworkGrants, type OnceNetworkGrants } from "./network-grants.ts";
+import { activationOutcome, activationPrompt, ActivationScope, emptyProfileState, parseProfileState, PROFILE_ENTRY_TYPE, profileSessionGrants, resolveActivationAnswer, serializeProfileState, settledResolution, type ActivationOrigin, type ActivationResolution, type RecordedDecision, type ProfileSessionState } from "./profile-activation.ts";
+import { parseProfileCommand, profileCompletions, profileListText, type ProfileCommand } from "./profile-command.ts";
+import { profileEnvironment, withoutRepositoryWrites, stateDirectoryIn, type ProfileInputs } from "./profile-grants.ts";
+import { profileGrants } from "./profile-policy.ts";
+import { matchTrigger } from "./profile-triggers.ts";
 import { filesystemConfig, secretPaths, type PolicyOptions } from "./policy.ts";
+import { addAllowedDomain, addFilesystemEntry, emptyProfileDefinition, mergedProfileNetwork, parseProfileDefinition, recordActivationDecision, selectorText, type Profile, type ProfileNetwork } from "./profiles.ts";
+import { createRecorder } from "./recorder.ts";
 import { exportSessionScratch, withSessionScratch } from "./scratch.ts";
-import { loadSettings, updateDomainLists, type Settings } from "./settings.ts";
+import { loadActivationDecisions, loadProfiles, loadSettings, updateActivationDecisions, updateDomainLists, updateProfile, type Settings } from "./settings.ts";
 import { scanVcsLayout, vcsWriteRules, type VcsWriteRules } from "./vcs-policy.ts";
 import { isRepositoryRootRemoval, isSecretPath, pathViolations, type PathViolation } from "./violations.ts";
 import { startViolationCollector, type ViolationCollector } from "./violation-collector.ts";
 import { networkDenialReport, nextStep, rawViolationBlock, successViolationReport, violationReport, type NextStep, type ViolationOutcome } from "./violation-outcomes.ts";
 
 const SANDBOX_NOTE =
-  "Commands run inside an OS sandbox that enforces the same read/write path rules as the file tools, with no network except allowed hosts. Denied paths are reported in a <sandbox_violations> block and the user is asked to grant them; after a grant the command has to be rerun, unless the user allowed it once: then the sandbox reruns it itself and the rerun's output follows the report. Never try to work around a denial. " +
+  "Commands run inside an OS sandbox that enforces the same read/write path rules as the file tools, with no network except allowed hosts. Denied paths are reported in a <sandbox_violations> block and the user is asked to grant them; after a grant the command has to be rerun, unless the user allowed it once: then the sandbox reruns it itself and the rerun's output follows the report. Never try to work around a denial. Sandbox profiles (extra permissions the user approved for tools such as bazel) activate on their own for matching commands, after the user confirms. " +
   "Set unsandboxed to true only for a command the sandbox itself breaks (ssh git remotes, programs that ignore proxy variables, listening sockets); the user confirms every unsandboxed command first, and subagents cannot use it.";
 
 const SCRATCH_GUIDELINE =
@@ -46,11 +54,25 @@ const MAX_PATH_PROMPTS_PER_COMMAND = 5;
 const CONFIG_ID_WARNING =
   "Sandbox: this jj repo has no config-id, so on Linux the sandbox cannot stop a planted .jj/repo/config.toml or .jj/workspace-config.toml. Run `jj config path --repo` and `jj config path --workspace` once to create the ids.";
 
+// Commands whose tags a later profiled command adopts, so violations of the long-lived servers they started stay visible.
+const MAX_ADOPTED_COMMANDS = 200;
+
 const SANDBOX_TEMPORARY_DIRECTORY = "/tmp/claude";
 const SETTINGS_FILE = join(getAgentDir(), "sandbox.json");
 
+interface ProfilesForCall {
+  names: string[];
+  // Why a triggered profile was not activated; shown to the agent before the command's output.
+  notices: string[];
+}
+
 interface Runtime {
-  operations: BashOperations;
+  operationsFor(profileNames: readonly string[], notices: readonly string[]): BashOperations;
+  profilesForCall(command: string, context: ExtensionContext): Promise<ProfilesForCall>;
+  requestProfile(name: string, context: ExtensionContext): Promise<string>;
+  runProfileCommand(command: ProfileCommand, context: ExtensionCommandContext): Promise<void>;
+  profileNames(): Promise<string[]>;
+  recordingOperations(command: string): BashOperations | undefined;
   setActiveContext(context: ExtensionContext): void;
   authorizeBypass(command: string, context: ExtensionContext): Promise<BypassAuthorization>;
   restoreGrants(sessionManager: { getEntries(): readonly unknown[] }): void;
@@ -75,11 +97,26 @@ export default function (pi: ExtensionAPI) {
   // subagent child that ran bash never exits.
   pi.on("session_shutdown", () => runtime.shutdown());
   registerToolWithGuidelines(pi, sandboxedBash(cwd, runtime));
+  registerToolWithGuidelines(pi, sandboxProfileTool(runtime));
+  pi.registerCommand("sandbox-profile", {
+    description: "List sandbox profiles, or record|stop|edit|on|off|forget|delete one",
+    getArgumentCompletions: async (prefix) => profileCompletions(prefix, await runtime.profileNames().catch(() => [])),
+    handler: async (args, context) => {
+      const command = parseProfileCommand(args);
+      if (command.kind === "error") return context.ui.notify(command.message, "error");
+      await runtime.runProfileCommand(command, context);
+    },
+  });
+  // The user's own `!` commands are traced, not sandboxed, while a recording is armed.
+  pi.on("user_bash", (event) => {
+    const operations = runtime.recordingOperations(event.command);
+    return operations ? { operations } : undefined;
+  });
 }
 
 function sandboxedBash(cwd: string, runtime: Runtime) {
   const spawnHook = (context: BashSpawnContext) => withSessionScratch(context, process.platform);
-  const sandboxed = createBashToolDefinition(cwd, { operations: runtime.operations, spawnHook });
+  const sandboxed = createBashToolDefinition(cwd, { operations: runtime.operationsFor([], []), spawnHook });
   const unsandboxed = createBashToolDefinition(cwd, { spawnHook });
   const parameters = Type.Object({
     ...sandboxed.parameters.properties,
@@ -92,7 +129,10 @@ function sandboxedBash(cwd: string, runtime: Runtime) {
     async execute(toolCallId, params, signal, onUpdate, context) {
       if (params.unsandboxed !== true) {
         runtime.setActiveContext(context);
-        return await sandboxed.execute(toolCallId, params, signal, onUpdate, context);
+        const { names, notices } = await runtime.profilesForCall(params.command, context);
+        // One definition per call, so parallel calls cannot race on which profiles apply.
+        const definition = createBashToolDefinition(cwd, { operations: runtime.operationsFor(names, notices), spawnHook });
+        return await definition.execute(toolCallId, params, signal, onUpdate, context);
       }
       const authorization = await runtime.authorizeBypass(params.command, context);
       if (authorization.kind === "refuse") throw new Error(authorization.reason);
@@ -113,6 +153,22 @@ type BashRenderState = ReturnType<typeof createBashToolDefinition> extends ToolD
 
 function withSandboxNote<Definition extends ToolDefinition<any, any, any>>(definition: Definition): Definition {
   return { ...definition, description: `${definition.description}\n\n${SANDBOX_NOTE}` };
+}
+
+function sandboxProfileTool(runtime: Runtime) {
+  const parameters = Type.Object({ name: Type.String({ description: "Profile name" }) });
+  const definition: ToolDefinition<typeof parameters, undefined> = {
+    name: "sandbox_profile",
+    label: "Sandbox profile",
+    description:
+      "Activate a sandbox profile: a bundle of extra sandbox permissions (paths, hosts, local sockets, PATH shims) that the user approved for tools such as bazel. While active, every bash call runs with it. The user confirms each activation. Profiles with triggers activate on their own when a bash command invokes their tool, so call this only for commands the triggers miss, such as wrapper scripts. An unknown name returns the list of profiles.",
+    parameters,
+    async execute(_toolCallId, { name }, _signal, _onUpdate, context) {
+      const text = await runtime.requestProfile(name, context);
+      return { content: [{ type: "text", text }], details: undefined };
+    },
+  };
+  return definition;
 }
 
 function unsupportedOperations(): BashOperations {
@@ -136,6 +192,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   // startup ~40 ms although only a bash command needs it.
   let sandboxManager: SandboxManagerType | undefined;
   let grants: NetworkGrants = emptyGrants();
+  let profileNetwork: ProfileNetwork = NO_PROFILE_NETWORK;
   // Deliberately not persisted in the session: a resumed session asks again before bypassing the sandbox.
   let bypassDecision: SessionDecision | undefined;
   let warnedAboutConfigIds = false;
@@ -144,36 +201,50 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   // One id per bash call, shared by its reruns: once-answers to network prompts are scoped to these.
   const runningExecutions = new Set<number>();
   let nextExecution = 0;
-
-  const operations: BashOperations = {
-    async exec(command, cwd, options) {
-      initialization ??= initialize().catch((error) => {
-        initialization = undefined;
-        throw error;
-      });
-      await initialization;
-      const execution = nextExecution++;
-      runningExecutions.add(execution);
-      try {
-        return await runSandboxed(command, cwd, options, [], MAX_PATH_PROMPTS_PER_COMMAND);
-      } finally {
-        runningExecutions.delete(execution);
-        releaseOnceGrants(onceNetworkGrants, execution);
-      }
+  // One id per pi process, i.e. per lifetime of srt's proxy: a bazel server started by an earlier pi keeps that pi's proxy.
+  const instance = randomUUID();
+  let profileState: ProfileSessionState = emptyProfileState();
+  // execution id → the profiles that call runs with
+  const runningProfiles = new Map<number, string[]>();
+  // srt command ids of profiled runs, newest last
+  const profiledCommandIds: string[] = [];
+  const recorder = createRecorder({
+    settingsFile: SETTINGS_FILE,
+    homeDirectory: homedir(),
+    ensureInitialized,
+    stockExec: (command, cwd, options) => stock.exec(command, cwd, options),
+    async traceFilesystem(profiles) {
+      const inputs = await profileInputs();
+      const profileOnceGrants = withoutRepositoryWrites(await profileGrants(profiles, inputs), inputs.repositoryRoot, inputs.agentMode);
+      return filesystemConfig(await currentPolicy(profileOnceGrants), policyOptions(undefined));
     },
-  };
+    baselinePolicy: () => currentPolicy(),
+    toolchainRead: () => settings?.toolchainRead ?? [],
+    secretPaths: () => secretPaths(homedir()),
+    repositoryRoot: async () => await resolveThroughSymlinks(findRepoRoot()),
+    async profileEnvironment(base, profiles) { return profileEnvironment(base, profiles, await profileInputs()); },
+  });
 
   return {
-    operations,
+    operationsFor,
+    profilesForCall,
+    requestProfile,
+    runProfileCommand,
+    profileNames: async () => (await loadProfiles(SETTINGS_FILE)).map(({ name }) => name),
+    recordingOperations: (command) => recorder.operationsFor(command),
     setActiveContext(context) { activeContext = context; },
     authorizeBypass,
-    sessionGrants: () => [...networkSessionGrants(grants), ...bypassSessionGrants(bypassDecision)],
+    sessionGrants: () => [...networkSessionGrants(grants), ...profileSessionGrants(profileState), ...bypassSessionGrants(bypassDecision)],
     restoreGrants(sessionManager) {
       grants = parseGrants(latestCustomData(sessionManager, NETWORK_ENTRY_TYPE));
+      profileState = parseProfileState(latestCustomData(sessionManager, PROFILE_ENTRY_TYPE));
       applyNetwork();
+      // An invalid sandbox.json surfaces on the next bash call, which fails with its message.
+      void refreshNetwork().catch(() => undefined);
       announceSessionGrantsChanged(pi.events);
     },
     async shutdown() {
+      recorder.shutdown();
       const pending = initialization;
       initialization = undefined;
       if (!pending) return;
@@ -185,23 +256,51 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     },
   };
 
-  // Once-grants live only in this recursion, so they never outlast the command they were given for.
-  // The prompt budget is per command too: each rerun draws from what the previous runs left.
-  async function runSandboxed(command: string, cwd: string, options: ExecOptions, onceGrants: OnceGrant[], promptsLeft: number): Promise<ExecResult> {
-    const { result, step, promptsUsed } = await runOnce(command, cwd, options, onceGrants, promptsLeft);
-    if (step.kind === "return" || options.signal?.aborted) return result;
-    return await runSandboxed(command, cwd, options, [...onceGrants, ...step.grants], promptsLeft - promptsUsed);
+  function operationsFor(profileNames: readonly string[], notices: readonly string[]): BashOperations {
+    return {
+      async exec(command, cwd, options) {
+        await ensureInitialized();
+        if (notices.length > 0) options.onData(Buffer.from(notices.map((line) => `${line}\n`).join("")));
+        const execution = nextExecution++;
+        runningExecutions.add(execution);
+        runningProfiles.set(execution, [...profileNames]);
+        try {
+          await refreshNetwork();
+          return await runSandboxed(command, cwd, options, [], MAX_PATH_PROMPTS_PER_COMMAND, profileNames);
+        } finally {
+          runningExecutions.delete(execution);
+          runningProfiles.delete(execution);
+          releaseOnceGrants(onceNetworkGrants, execution);
+          await refreshNetwork().catch(() => undefined);
+        }
+      },
+    };
   }
 
-  async function runOnce(command: string, cwd: string, options: ExecOptions, onceGrants: OnceGrant[], promptsLeft: number): Promise<{ result: ExecResult; step: NextStep; promptsUsed: number }> {
+  // Once-grants live only in this recursion, so they never outlast the command they were given for.
+  // The prompt budget is per command too: each rerun draws from what the previous runs left.
+  async function runSandboxed(command: string, cwd: string, options: ExecOptions, onceGrants: OnceGrant[], promptsLeft: number, profileNames: readonly string[]): Promise<ExecResult> {
+    const { result, step, promptsUsed } = await runOnce(command, cwd, options, onceGrants, promptsLeft, profileNames);
+    if (step.kind === "return" || options.signal?.aborted) return result;
+    return await runSandboxed(command, cwd, options, [...onceGrants, ...step.grants], promptsLeft - promptsUsed, profileNames);
+  }
+
+  async function runOnce(command: string, cwd: string, options: ExecOptions, onceGrants: OnceGrant[], promptsLeft: number, profileNames: readonly string[]): Promise<{ result: ExecResult; step: NextStep; promptsUsed: number }> {
     const commandId = randomUUID();
-    violationCollector().track(commandId);
+    // Reloaded on every run, so an "Add to profile" answer applies to the rerun and changes the fingerprint the shim sees.
+    const profiles = (await loadProfiles(SETTINGS_FILE)).filter(({ name }) => profileNames.includes(name));
+    const inputs = await profileInputs();
+    // Only profile grants are filtered: a once grant is the user's explicit answer to a prompt.
+    const profileOnceGrants = withoutRepositoryWrites(await profileGrants(profiles, inputs), inputs.repositoryRoot, inputs.agentMode);
+    violationCollector().track(commandId, profiles.length === 0 ? [] : profiledCommandIds);
+    if (profiles.length > 0) rememberProfiledCommand(commandId);
     const vcs = await vcsRules();
-    const filesystem = filesystemConfig(await currentPolicy(onceGrants), policyOptions(vcs));
+    const filesystem = filesystemConfig(await currentPolicy([...profileOnceGrants, ...onceGrants]), policyOptions(vcs));
     warnAboutMissingConfigIds(vcs, filesystem.denyWrite);
+    const environment = profiles.length === 0 ? options.env : profileEnvironment(options.env ?? process.env, profiles, inputs);
     try {
-      const wrapped = await manager().wrapWithSandbox(exportSessionScratch(command, options.env), undefined, { filesystem }, options.signal, { commandId, commandText: command });
-      const result = await stock.exec(wrapped, cwd, options);
+      const wrapped = await manager().wrapWithSandbox(exportSessionScratch(command, environment), undefined, { filesystem }, options.signal, { commandId, commandText: command });
+      const result = await stock.exec(wrapped, cwd, { ...options, env: environment });
       if (result.exitCode === 0) {
         // Linux events arrive over the monitor socket and are best-effort after exit, so the success
         // path pays one poll on Linux; macOS reports asynchronously via `log stream`, so it polls
@@ -225,7 +324,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
       if (violations.length === 0) return { result, step: { kind: "return" }, promptsUsed: 0 };
       const lines = violations.map(({ line }) => line);
       options.onData(Buffer.from(rawViolationBlock(lines)));
-      const { outcomes, promptsUsed } = await resolveViolations(violations, promptsLeft);
+      const { outcomes, promptsUsed } = await resolveViolations(violations, promptsLeft, profileNames);
       const step = nextStep(outcomes);
       // A command that only hit network denials has no path outcomes to report.
       if (outcomes.length > 0) options.onData(Buffer.from(violationReport(outcomes, step, currentAgentMode())));
@@ -236,6 +335,14 @@ function createRuntime(pi: ExtensionAPI): Runtime {
       manager().cleanupAfterCommand();
       violationCollector().release(commandId);
     }
+  }
+
+  function ensureInitialized(): Promise<void> {
+    initialization ??= initialize().catch((error) => {
+      initialization = undefined;
+      throw error;
+    });
+    return initialization;
   }
 
   async function initialize(): Promise<void> {
@@ -250,7 +357,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     if (problems.length > 0) throw new Error(`Sandboxed bash is unavailable: ${problems.join("; ")}. ${INSTALL_HINT}`);
     await manager().initialize(
       {
-        network: networkConfig(settings, grants, subagent),
+        network: networkConfig(settings, grants, subagent, profileNetwork),
         filesystem: filesystemConfig(await currentPolicy(), policyOptions(await vcsRules())),
         credentials: { envVars: credentialEnvVars() },
         allowPty: false,
@@ -261,7 +368,8 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     collector = startViolationCollector(process.platform as PolicyOptions["platform"], manager().getSandboxViolationStore());
   }
 
-  function policyOptions(vcs: VcsWriteRules): PolicyOptions {
+  // Without vcs the repository stays a plain subtree allow, which the recorder wants: it traces without the generated VCS globs.
+  function policyOptions(vcs: VcsWriteRules | undefined): PolicyOptions {
     if (!settings) throw new Error("Sandbox settings are not loaded.");
     return { platform: process.platform as PolicyOptions["platform"], homeDirectory: homedir(), toolchainRead: settings.toolchainRead, extraDenyRead: settings.extraDenyRead, vcs };
   }
@@ -294,7 +402,15 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     if (!sandboxManager || !settings) return;
     const config = sandboxManager.getConfig();
     if (!config) return;
-    sandboxManager.updateConfig({ ...config, network: { ...config.network, ...networkConfig(settings, grants, subagent) } });
+    sandboxManager.updateConfig({ ...config, network: { ...config.network, ...networkConfig(settings, grants, subagent, profileNetwork) } });
+  }
+
+  // srt reads local binding and sockets from its global config, so the profile network settings of every
+  // profile that is active or running right now are merged into it.
+  async function refreshNetwork(): Promise<void> {
+    const names = new Set([...profileState.active, ...[...runningProfiles.values()].flat()]);
+    profileNetwork = names.size === 0 ? NO_PROFILE_NETWORK : mergedProfileNetwork((await loadProfiles(SETTINGS_FILE)).filter(({ name }) => names.has(name)));
+    applyNetwork();
   }
 
   // The success-path report is best effort on Linux, where events arrive over the monitor socket, so
@@ -350,12 +466,18 @@ function createRuntime(pi: ExtensionAPI): Runtime {
         scope: host,
         narrower: port === undefined ? [] : [{ label: `network access to ${destination}`, scope: destination }],
         durations: ALL_DURATIONS,
+        destinations: profileDestinations(offeredProfiles()),
       });
       return await applyNetworkAnswer(answer, host);
     });
   }
 
-  async function applyNetworkAnswer(answer: PermissionAnswer<string>, host: string): Promise<boolean> {
+  async function applyNetworkAnswer(answer: PermissionAnswer<string, string>, host: string): Promise<boolean> {
+    if (answer.decision === "allow-to") {
+      await updateProfile(SETTINGS_FILE, answer.destination, (current) => current && addAllowedDomain(current, answer.scope));
+      await refreshNetwork();
+      return true;
+    }
     if (answer.decision === "allow") {
       if (answer.duration === Duration.Once) {
         recordOnceGrant(onceNetworkGrants, "allow", answer.scope, runningExecutions, undefined);
@@ -395,27 +517,191 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     return networkDenialNote({ grants, once: onceNetworkGrants, settingsReasons: settings?.deniedDomainReasons ?? new Map() }, host, port);
   }
 
-  async function resolveViolations(violations: { line: string }[], promptsLeft: number): Promise<{ outcomes: ViolationOutcome[]; promptsUsed: number }> {
+  async function resolveViolations(violations: { line: string }[], promptsLeft: number, profileNames: readonly string[]): Promise<{ outcomes: ViolationOutcome[]; promptsUsed: number }> {
     const secrets = secretPaths(homedir());
     const parsed = pathViolations(violations.map(({ line }) => line));
     const outcomes: ViolationOutcome[] = [];
     for (const [index, violation] of parsed.entries()) {
-      outcomes.push(await resolveViolation(violation, secrets, index < promptsLeft));
+      outcomes.push(await resolveViolation(violation, secrets, index < promptsLeft, profileNames));
     }
     return { outcomes, promptsUsed: Math.min(parsed.length, promptsLeft) };
   }
 
-  async function resolveViolation({ mode, path }: PathViolation, secrets: string[], mayPrompt: boolean): Promise<ViolationOutcome> {
+  async function resolveViolation({ mode, path }: PathViolation, secrets: string[], mayPrompt: boolean, profileNames: readonly string[]): Promise<ViolationOutcome> {
     // Resolve before the secret check so a symlink into a secret tree short-circuits and the
     // report names the real secret path. grantPathAccess already resolves internally.
     const resolved = await resolveThroughSymlinks(path);
     if (isSecretPath(resolved, secrets)) return { kind: "secret", path: resolved };
     if (!activeContext?.hasUI) return { kind: "no-ui", mode, path };
     if (!mayPrompt) return { kind: "not-asked", mode, path };
-    const outcome = await grantPathAccess(path, mode, activeContext);
+    const outcome = await grantPathAccess(path, mode, activeContext, profileNames);
+    if (outcome.kind === "add-to-profile") {
+      const entry = selectorText(outcome.grant.selector, homedir());
+      await updateProfile(SETTINGS_FILE, outcome.profile, (current) => current && addFilesystemEntry(current, mode, entry));
+      return { kind: "added-to-profile", mode, path, profile: outcome.profile };
+    }
     if (outcome.kind === "allowed-once") return { kind: "allowed-once", mode, path, grant: outcome.grant };
     if (outcome.kind === "denied") return { kind: "denied", mode, path, note: outcome.note };
     return { kind: "allowed", mode, path };
+  }
+
+  function offeredProfiles(): string[] {
+    return [...new Set([...profileState.active, ...[...runningProfiles.values()].flat()])].sort();
+  }
+
+  async function profileInputs(): Promise<ProfileInputs> {
+    return { agentMode: currentAgentMode(), repositoryRoot: await resolveThroughSymlinks(findRepoRoot()), stateDirectory: stateDirectoryIn(getAgentDir()), homeDirectory: homedir(), instance };
+  }
+
+  function rememberProfiledCommand(commandId: string): void {
+    profiledCommandIds.push(commandId);
+    profiledCommandIds.splice(0, Math.max(0, profiledCommandIds.length - MAX_ADOPTED_COMMANDS));
+  }
+
+  // Profiles that apply to this bash call: the active ones, a once-activation waiting for it, and the ones its command triggers.
+  async function profilesForCall(command: string, context: ExtensionContext): Promise<ProfilesForCall> {
+    if (subagent) return { names: [], notices: [] };
+    const profiles = await loadProfiles(SETTINGS_FILE);
+    const applied = new Set(profiles.filter(({ name }) => profileState.active.has(name) || profileState.pendingOnce.has(name)).map(({ name }) => name));
+    profileState.pendingOnce.clear();
+    const notices: string[] = [];
+    for (const profile of profiles) {
+      if (applied.has(profile.name)) continue;
+      const match = matchTrigger(command, profile.triggers);
+      if (!match) continue;
+      const activation = await activateProfile(profile, { kind: "trigger", match, command }, context);
+      if (activation.kind === "activated") applied.add(profile.name);
+      else notices.push(`Sandbox profile ${profile.name} was not activated: ${activation.reason}`);
+    }
+    return { names: [...applied], notices };
+  }
+
+  type Activation = { kind: "activated"; scope: ActivationScope } | { kind: "refused"; reason: string };
+
+  async function activateProfile(profile: Profile, origin: ActivationOrigin, context: ExtensionContext): Promise<Activation> {
+    const resolution = await decideActivation(profile, origin, context);
+    if (resolution.remember) {
+      rememberProfileDecision(profile.name, resolution.remember);
+      persistProfileState();
+    }
+    const { persist } = resolution;
+    if (persist) await updateActivationDecisions(SETTINGS_FILE, (decisions) => recordActivationDecision(decisions, profile.name, persist));
+    return resolution.kind === "activate" ? { kind: "activated", scope: resolution.scope } : { kind: "refused", reason: resolution.reason };
+  }
+
+  async function decideActivation(profile: Profile, origin: ActivationOrigin, context: ExtensionContext): Promise<ActivationResolution> {
+    const outcomeNow = async () => activationOutcome(profile, profileState, { agentMode: currentAgentMode(), hasUI: context.hasUI, always: await loadActivationDecisions(SETTINGS_FILE) });
+    const first = await outcomeNow();
+    if (first.kind !== "ask") return settledResolution(first);
+    return await serialize(async () => {
+      // Every triggering call lands here; the first answer settles the ones queued behind it.
+      const latest = await outcomeNow();
+      if (latest.kind !== "ask") return settledResolution(latest);
+      const answer = await askPermission(permissionUI(context.ui), {
+        title: activationPrompt(profile, origin),
+        subject: `sandbox profile ${profile.name}`,
+        scope: profile.name,
+        narrower: [],
+        durations: ALL_DURATIONS,
+        preselected: latest.preselected,
+      });
+      return resolveActivationAnswer(profile, answer);
+    });
+  }
+
+  function rememberProfileDecision(name: string, decision: RecordedDecision): void {
+    if (decision.decision === "allow") {
+      profileState.active.add(name);
+      profileState.denied.delete(name);
+      return;
+    }
+    profileState.denied.set(name, decision.note);
+    profileState.active.delete(name);
+  }
+
+  function persistProfileState(): void {
+    pi.appendEntry(PROFILE_ENTRY_TYPE, serializeProfileState(profileState));
+    announceSessionGrantsChanged(pi.events);
+  }
+
+  async function requestProfile(name: string, context: ExtensionContext): Promise<string> {
+    if (subagent) throw new Error("Sandbox profiles are not available to subagents.");
+    const profiles = await loadProfiles(SETTINGS_FILE);
+    const profile = profiles.find((candidate) => candidate.name === name);
+    if (!profile) throw new Error(`Unknown profile "${name}". Profiles: ${profiles.map((candidate) => candidate.name).join(", ") || "none"}.`);
+    if (profileState.active.has(name)) return `Profile ${name} is already active.`;
+    activeContext = context;
+    const activation = await activateProfile(profile, { kind: "tool" }, context);
+    if (activation.kind === "refused") throw new Error(`${activation.reason} Do not retry it; run the command without it or ask the user.`);
+    if (activation.scope === ActivationScope.Once) {
+      profileState.pendingOnce.add(name);
+      return `Profile ${name} applies to your next bash call only.`;
+    }
+    await refreshNetwork();
+    return `Profile ${name} is active for this session; every bash call runs with it.`;
+  }
+
+  async function runProfileCommand(command: ProfileCommand, context: ExtensionCommandContext): Promise<void> {
+    switch (command.kind) {
+      case "list": {
+        const text = profileListText(await loadProfiles(SETTINGS_FILE), profileState, await loadActivationDecisions(SETTINGS_FILE));
+        return context.ui.notify(text, "info");
+      }
+      case "record": return await recorder.arm(command.name, context);
+      case "stop": return await recorder.stop(context);
+      case "edit": return await editProfile(command.name, context);
+      case "on": {
+        if (!(await knownProfile(command.name, context))) return;
+        // The user typed this, so no prompt.
+        rememberProfileDecision(command.name, { decision: "allow" });
+        persistProfileState();
+        await refreshNetwork();
+        return context.ui.notify(`Profile ${command.name} is active for this session.`, "info");
+      }
+      case "off": {
+        profileState.active.delete(command.name);
+        profileState.pendingOnce.delete(command.name);
+        persistProfileState();
+        await refreshNetwork();
+        return context.ui.notify(`Profile ${command.name} is no longer active.`, "info");
+      }
+      case "forget": {
+        await updateActivationDecisions(SETTINGS_FILE, ({ allowed, denied }) => { allowed.delete(command.name); denied.delete(command.name); });
+        return context.ui.notify(`Forgot the stored activation decision for ${command.name}; its triggers prompt again.`, "info");
+      }
+      case "delete": {
+        if (!(await knownProfile(command.name, context))) return;
+        if (!(await context.ui.confirm("Delete sandbox profile", `Delete profile ${command.name} and its stored activation decision?`))) return;
+        await updateProfile(SETTINGS_FILE, command.name, () => undefined);
+        profileState.active.delete(command.name);
+        profileState.denied.delete(command.name);
+        profileState.pendingOnce.delete(command.name);
+        persistProfileState();
+        await refreshNetwork();
+        return context.ui.notify(`Deleted profile ${command.name}.`, "info");
+      }
+    }
+  }
+
+  async function knownProfile(name: string, context: ExtensionCommandContext): Promise<boolean> {
+    if ((await loadProfiles(SETTINGS_FILE)).some((profile) => profile.name === name)) return true;
+    context.ui.notify(`Unknown profile "${name}".`, "error");
+    return false;
+  }
+
+  async function editProfile(name: string, context: ExtensionCommandContext): Promise<void> {
+    const existing = (await loadProfiles(SETTINGS_FILE)).find((profile) => profile.name === name);
+    const { name: _name, ...definition } = existing ?? { name, ...emptyProfileDefinition() };
+    const edited = await context.ui.editor(`Edit sandbox profile ${name}`, JSON.stringify(definition, null, 2));
+    if (edited === undefined) return;
+    try {
+      const parsed = parseProfileDefinition(JSON.parse(edited), name);
+      await updateProfile(SETTINGS_FILE, name, () => parsed);
+    } catch (error) {
+      return context.ui.notify(`Profile ${name} was not saved: ${(error as Error).message}`, "error");
+    }
+    await refreshNetwork();
+    context.ui.notify(`Saved profile ${name}.`, "info");
   }
 }
 

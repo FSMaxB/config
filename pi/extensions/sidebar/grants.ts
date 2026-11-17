@@ -1,7 +1,7 @@
 import { sep } from "node:path";
 import type { SessionGrant } from "../lib/session-grants.ts";
 
-const KIND_ORDER: readonly SessionGrant["kind"][] = ["path", "tool", "network", "unsandboxed"];
+const KIND_ORDER: readonly SessionGrant["kind"][] = ["path", "tool", "network", "profile", "unsandboxed"];
 
 /** One row per grant, grouped by kind in a fixed order; providers already sort within a kind. */
 export function grantRows(grants: readonly SessionGrant[], homeDirectory: string): string[] {
@@ -18,6 +18,8 @@ function subject(grant: SessionGrant, homeDirectory: string): string {
       return `tool ${grant.name}`;
     case "network":
       return `net ${grant.host}`;
+    case "profile":
+      return `profile ${grant.name}`;
     case "unsandboxed":
       return "unsandboxed bash";
   }

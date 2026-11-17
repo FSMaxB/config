@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# Put first on PATH by a pi sandbox profile (pi/extensions/sandbox). A bazel server outlives the command that
+# started it and keeps that command's sandbox, so this restarts a server the sandbox started once the profile
+# fingerprint changed. Servers started elsewhere (IDE, terminal) are shared and never restarted. The server is
+# found through server.pid.txt because ps cannot run inside the sandbox.
+#
+# Known limit: outside a recording, the first sandboxed call in a workspace learns the output base through
+# `bazel info`. A server that call starts stays unstamped, so it counts as shared until it exits.
+set -euo pipefail
+
+program=$(basename "$0")
+shim_directory=$(cd "$(dirname "$0")" && pwd -P)
+
+main() {
+  real=$(find_real_program) || { echo "pi sandbox: no $program on PATH besides the shim in $shim_directory" >&2; exit 127; }
+  if [[ -z ${PI_SANDBOX_PROFILE_FINGERPRINT:-} || -z ${PI_SANDBOX_STATE_DIR:-} ]]; then exec "$real" "$@"; fi
+  collect_startup_options "$@"
+  if [[ $command_word == shutdown ]]; then exec "$real" "$@"; fi
+  workspace=$(find_workspace) || exec "$real" "$@"
+  state="$PI_SANDBOX_STATE_DIR/bazel/$(printf '%s\n' "$workspace" ${startup[@]+"${startup[@]}"} | cksum | cut -d' ' -f1)"
+  mkdir -p "$state"
+  prepare_server
+  status=0
+  "$real" "$@" || status=$?
+  stamp_new_server
+  exit "$status"
+}
+
+find_real_program() {
+  local entry resolved
+  local -a entries
+  IFS=: read -r -a entries <<<"$PATH"
+  for entry in ${entries[@]+"${entries[@]}"}; do
+    [[ -n $entry && -x $entry/$program && ! -d $entry/$program ]] || continue
+    resolved=$(cd "$entry" && pwd -P) || continue
+    [[ $resolved == "$shim_directory" ]] && continue
+    printf '%s\n' "$entry/$program"
+    return 0
+  done
+  return 1
+}
+
+# Startup options must use the --name=value form.
+collect_startup_options() {
+  startup=()
+  command_word=""
+  local argument
+  for argument in "$@"; do
+    if [[ $argument != --* ]]; then command_word=$argument; return; fi
+    startup+=("$argument")
+  done
+}
+
+find_workspace() {
+  local directory=$PWD marker
+  while :; do
+    for marker in MODULE.bazel REPO.bazel WORKSPACE.bazel WORKSPACE; do
+      if [[ -f $directory/$marker ]]; then printf '%s\n' "$directory"; return 0; fi
+    done
+    [[ $directory == / ]] && return 1
+    directory=$(dirname "$directory")
+  done
+}
+
+run_real() { "$real" ${startup[@]+"${startup[@]}"} "$@"; }
+
+prepare_server() {
+  local fresh=no
+  if [[ ! -f $state/output_base ]]; then
+    # Learning the output base starts a server. A recording needs that server traced, so it shuts down whatever runs first.
+    if [[ ${PI_SANDBOX_RECORDING:-} == 1 ]]; then
+      echo "pi sandbox: first recording in this workspace; restarting the bazel server so the recording sees it." >&2
+      run_real shutdown
+      fresh=yes
+    fi
+    run_real info output_base >"$state/output_base.tmp"
+    mv "$state/output_base.tmp" "$state/output_base"
+  fi
+  output_base=$(cat "$state/output_base")
+  running_pid=$(server_pid)
+  if [[ $fresh == yes && -n $running_pid ]]; then write_stamp "$running_pid"; fi
+  read_stamp
+  [[ -z $running_pid ]] && return
+  if [[ $running_pid == "$stamp_pid" ]]; then
+    if [[ $stamp_fingerprint != "$PI_SANDBOX_PROFILE_FINGERPRINT" ]]; then
+      run_real shutdown
+      running_pid=""
+    elif [[ $stamp_instance != "${PI_SANDBOX_INSTANCE:-}" ]]; then
+      echo "pi sandbox: the bazel server (pid $running_pid) was started by an earlier pi session and keeps that session's sandbox, so it has no network access. Ask the user before running \`bazel shutdown\`; the next bazel call then starts a fresh server." >&2
+    fi
+    return
+  fi
+  if [[ ${PI_SANDBOX_RECORDING:-} == 1 ]]; then
+    echo "pi sandbox: a bazel server the sandbox did not start is running (pid $running_pid), so its file accesses would not be recorded. Run \`bazel shutdown\` and retry." >&2
+    exit 1
+  fi
+}
+
+server_pid() { cat "$output_base/server/server.pid.txt" 2>/dev/null || true; }
+
+read_stamp() {
+  stamp_pid="" stamp_fingerprint="" stamp_instance=""
+  if [[ -f $state/stamp ]]; then read -r stamp_pid stamp_fingerprint stamp_instance <"$state/stamp" || true; fi
+}
+
+write_stamp() { printf '%s %s %s\n' "$1" "$PI_SANDBOX_PROFILE_FINGERPRINT" "${PI_SANDBOX_INSTANCE:-}" >"$state/stamp"; }
+
+stamp_new_server() {
+  local current
+  current=$(server_pid)
+  if [[ -n $current && $current != "$running_pid" ]]; then write_stamp "$current"; fi
+}
+
+main "$@"

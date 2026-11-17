@@ -1,4 +1,5 @@
 import type { SessionGrant } from "../../lib/session-grants.ts";
+import type { ProfileNetwork } from "./profiles.ts";
 import type { Settings } from "./settings.ts";
 
 export const NETWORK_ENTRY_TYPE = "network-permissions";
@@ -112,10 +113,20 @@ export function releaseOnceGrants(once: OnceNetworkGrants, execution: number): v
 }
 
 // Subagents get no network at all: an empty allowlist plus a deny-all entry, and no local sockets.
-export function networkConfig(settings: Settings, grants: NetworkGrants, subagent: boolean): NetworkConfig {
+// Active profiles add their hosts and sockets; a session deny of the same host still wins, as it does over the settings file.
+export function networkConfig(settings: Settings, grants: NetworkGrants, subagent: boolean, profile: ProfileNetwork): NetworkConfig {
   if (subagent) return { allowedDomains: [], deniedDomains: ["*"], allowUnixSockets: [], allowLocalBinding: false };
-  return { ...effectiveNetwork(settings, grants), allowUnixSockets: settings.allowUnixSockets, allowLocalBinding: settings.allowLocalBinding };
+  const { allowedDomains, deniedDomains } = effectiveNetwork(settings, grants);
+  const profileDomains = profile.allowedDomains.filter((host) => !grants.deny.has(host));
+  return {
+    allowedDomains: [...new Set([...allowedDomains, ...profileDomains])],
+    deniedDomains,
+    allowUnixSockets: [...new Set([...settings.allowUnixSockets, ...profile.allowUnixSockets])],
+    allowLocalBinding: settings.allowLocalBinding || profile.allowLocalBinding,
+  };
 }
+
+export const NO_PROFILE_NETWORK: ProfileNetwork = { allowedDomains: [], allowLocalBinding: false, allowUnixSockets: [] };
 
 // Session grants override the settings file: a session allow lifts a stored deny of the same host and vice versa.
 export function effectiveNetwork(settings: Settings, grants: NetworkGrants): NetworkLists {
