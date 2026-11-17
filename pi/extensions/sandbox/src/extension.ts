@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createBashToolDefinition, createLocalBashOperations, getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { BashOperations, BashSpawnContext, BashToolDetails, ExtensionAPI, ExtensionCommandContext, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, BashOperations, BashSpawnContext, BashToolDetails, ExtensionAPI, ExtensionCommandContext, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { currentAgentMode, currentPolicy, grantPathAccess, type OnceGrant } from "../../lib/path-permissions.ts";
@@ -17,6 +17,7 @@ import { latestCustomData } from "../../lib/session-entries.ts";
 import { announceSessionGrantsChanged, provideSessionGrants, type SessionGrant } from "../../lib/session-grants.ts";
 import { serialize } from "../../lib/ui-queue.ts";
 import { BYPASS_DURATIONS, bypassOutcome, bypassPrompt, bypassSessionGrants, resolveAnswer, type BypassAuthorization, type SessionDecision } from "./bypass.ts";
+import { callPrefix, PrefixedCallText, withSandboxProfiles, type CallMode, type SandboxedBashDetails } from "./call-line.ts";
 import { credentialEnvVars } from "./credentials.ts";
 import { NETWORK_ENTRY_TYPE, NO_PROFILE_NETWORK, destinationKey, emptyGrants, networkConfig, networkDenialNote, parseGrants, recordGrant, recordOnceGrant, releaseOnceGrants, rememberedDecision, networkSessionGrants, serializeGrants, type NetworkDecision, type NetworkGrants, type OnceNetworkGrants } from "./network-grants.ts";
 import { activationOutcome, activationPrompt, emptyProfileState, parseProfileState, PROFILE_ENTRY_TYPE, profileSessionGrants, resolveActivationAnswer, serializeProfileState, settledResolution, type ActivationOrigin, type ActivationResolution, type RecordedDecision, type ProfileSessionState } from "./profile-activation.ts";
@@ -125,7 +126,7 @@ function sandboxedBash(cwd: string, runtime: Runtime) {
     unsandboxed: Type.Optional(Type.Boolean({ description: "Run outside the sandbox after the user confirms; only for a command the sandbox itself breaks" })),
     profiles: Type.Optional(Type.Array(Type.String(), { description: "Sandbox profiles to apply to this call, for commands their triggers miss (such as wrapper scripts); the user confirms each" })),
   });
-  const definition: ToolDefinition<typeof parameters, BashToolDetails | undefined, BashRenderState> = {
+  const definition: ToolDefinition<typeof parameters, SandboxedBashDetails | undefined, SandboxedBashRenderState> = {
     ...withSandboxNote(sandboxed),
     promptGuidelines: [...(sandboxed.promptGuidelines ?? []), SCRATCH_GUIDELINE],
     parameters,
@@ -141,20 +142,34 @@ function sandboxedBash(cwd: string, runtime: Runtime) {
       const { names, notices } = await runtime.profilesForCall(params.command, requested, context);
       // One definition per call, so parallel calls cannot race on which profiles apply.
       const definition = createBashToolDefinition(cwd, { operations: runtime.operationsFor(names, notices), spawnHook });
-      return await definition.execute(toolCallId, params, signal, onUpdate, context);
+      const onProfiledUpdate = onUpdate && ((update: AgentToolResult<BashToolDetails | undefined>) => onUpdate({ ...update, details: withSandboxProfiles(update.details, names) }));
+      const result = await definition.execute(toolCallId, params, signal, onProfiledUpdate, context);
+      return { ...result, details: withSandboxProfiles(result.details, names) };
     },
     renderCall(args, theme, context) {
-      const component = sandboxed.renderCall?.(args, theme, context) ?? new Text("", 0, 0);
-      if (args.unsandboxed === true && component instanceof Text) {
-        component.setText(theme.fg("warning", theme.bold("unsandboxed $ ")) + theme.fg("toolTitle", theme.bold(args.command)));
-      }
-      return component;
+      const line = context.lastComponent instanceof PrefixedCallText ? context.lastComponent : new PrefixedCallText();
+      // Sets the `$ command` text on `line` and starts the row's timer.
+      sandboxed.renderCall?.(args, theme, { ...context, lastComponent: line });
+      // Evaluated when the line is drawn: renderResult stores the profiles after this returns.
+      line.setPrefix(() => callPrefix(callMode(args, context.state), theme));
+      return line;
+    },
+    renderResult(result, options, theme, context) {
+      // A thrown error's result has empty details; keep the profiles its partial updates carried.
+      context.state.sandboxProfiles ??= result.details?.sandboxProfiles;
+      return sandboxed.renderResult?.(result, options, theme, context) ?? new Text("", 0, 0);
     },
   };
   return definition;
 }
 
+function callMode(args: { unsandboxed?: boolean }, state: SandboxedBashRenderState): CallMode {
+  if (args.unsandboxed === true) return { kind: "unsandboxed" };
+  return { kind: "sandboxed", profiles: state.sandboxProfiles ?? [] };
+}
+
 type BashRenderState = ReturnType<typeof createBashToolDefinition> extends ToolDefinition<any, any, infer State> ? State : never;
+type SandboxedBashRenderState = BashRenderState & { sandboxProfiles?: readonly string[] };
 
 function withSandboxNote<Definition extends ToolDefinition<any, any, any>>(definition: Definition): Definition {
   return { ...definition, description: `${definition.description}\n\n${SANDBOX_NOTE}` };
