@@ -1,43 +1,74 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SectionChanged, SidebarSection } from "./section.ts";
 import {
+  applySkillLoad,
   buildSkillIndex,
   LOADED_SKILL_ENTRY,
-  loadedSkillsOnBranch,
+  LOADED_SKILL_REFERENCE_ENTRY,
+  type LoadedSkillData,
+  type LoadedSkillReferenceData,
   type SkillIndex,
-  skillForReadPath,
-  skillFromUserContent,
+  type SkillLevel,
+  type SkillLoad,
+  type SkillOnBranch,
+  skillItems,
+  skillLoadForReadPath,
+  skillLoadFromUserContent,
+  skillsOnBranch,
 } from "./skills.ts";
 
-export function createSkillsSection(pi: ExtensionAPI, changed: SectionChanged): SidebarSection {
+const TITLES: Record<SkillLevel, string> = { repo: "Repo skills", user: "User skills" };
+
+export function createSkillsSections(pi: ExtensionAPI, changed: SectionChanged): SidebarSection[] {
   let index: SkillIndex = new Map();
-  let names: string[] = [];
+  let skills: readonly SkillOnBranch[] = [];
 
   // Returning a value from a tool_result handler would replace the tool result, so these return nothing.
   pi.on("tool_result", async (event, context) => {
     if (event.toolName !== "read" || event.isError) return;
-    record(skillForReadPath(index, event.input.path, context.cwd), context);
+    record(skillLoadForReadPath(index, event.input.path, context.cwd), context);
   });
 
   pi.on("message_start", async (event, context) => {
     if (event.message.role !== "user") return;
-    record(skillFromUserContent(index, event.message.content), context);
+    record(skillLoadFromUserContent(index, event.message.content), context);
   });
 
-  return {
-    title: "Skills",
-    // The skill set only changes on /reload, which restarts extensions, so rebuilding here is enough.
-    restore: (context) => {
-      index = buildSkillIndex(pi.getCommands());
-      names = loadedSkillsOnBranch(context.sessionManager.getBranch());
+  // `restore` runs per section in array order, so the repo section owns the rebuild of the shared state.
+  return [
+    {
+      title: TITLES.repo,
+      // The skill set only changes on /reload, which restarts extensions, so rebuilding here is enough.
+      restore: (context) => {
+        rebuild(context);
+      },
+      items: () => skillItems(skills, "repo"),
     },
-    items: () => names,
-  };
+    { title: TITLES.user, restore: () => {}, items: () => skillItems(skills, "user") },
+  ];
 
-  function record(name: string | undefined, context: ExtensionContext): void {
-    if (name === undefined || names.includes(name)) return;
-    names = [...names, name];
-    pi.appendEntry(LOADED_SKILL_ENTRY, { name });
+  function rebuild(context: ExtensionContext): void {
+    index = buildSkillIndex(pi.getCommands());
+    skills = skillsOnBranch(context.sessionManager.getBranch(), index);
+  }
+
+  function record(load: SkillLoad | undefined, context: ExtensionContext): void {
+    if (load === undefined) return;
+    const next = applySkillLoad(skills, load);
+    if (next === undefined) return;
+    skills = next;
+    appendLoadEntry(load);
     changed(context);
+  }
+
+  function appendLoadEntry(load: SkillLoad): void {
+    if (load.kind === "skill") {
+      pi.appendEntry(LOADED_SKILL_ENTRY, { name: load.skill.name } satisfies LoadedSkillData);
+      return;
+    }
+    pi.appendEntry(LOADED_SKILL_REFERENCE_ENTRY, {
+      skill: load.skill.name,
+      path: load.path,
+    } satisfies LoadedSkillReferenceData);
   }
 }

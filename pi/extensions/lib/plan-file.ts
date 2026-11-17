@@ -11,7 +11,12 @@ export function newPlanPath(slug: string): string {
 }
 
 export function plansDirectory(): string {
-  return join(getAgentDir(), "plans", cwdSlug(process.cwd()));
+  return join(plansRoot(), cwdSlug(process.cwd()));
+}
+
+/** Parent of every working directory's plans directory. */
+export function plansRoot(): string {
+  return join(getAgentDir(), "plans");
 }
 
 // Relative paths are resolved against the process cwd, the same base the file tools use.
