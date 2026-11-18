@@ -10,7 +10,6 @@ import {
   commitPlanFile,
   initInvocation,
   isUnchanged,
-  statusInvocation,
 } from "./plan-commit.ts";
 import type {
   Executor,
