@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { isRecord } from "../../lib/untyped.ts";
 import { effectiveNetwork, emptyGrants, parseGrants, recordGrant, serializeGrants } from "./network-grants.ts";
 import { emptyProfileDefinition } from "./profiles.ts";
 import { loadActivationDecisions, loadProfiles, loadSettings, parseSettingsFile, resolveSettings, updateActivationDecisions, updateDomainLists, updateProfile } from "./settings.ts";
@@ -96,11 +97,12 @@ test("updating the domain lists keeps unrelated keys", async () => {
     });
 
     // assert
-    const written = JSON.parse(await readFile(filePath, "utf8"));
+    const written = await readSettingsFile(filePath);
+    const network = section(written, "network");
     assert.equal(written.note, "keep");
-    assert.equal(written.network.allowLocalBinding, true);
-    assert.deepEqual(written.network.allowedDomains, ["good.com"]);
-    assert.deepEqual(written.network.deniedDomains, []);
+    assert.equal(network.allowLocalBinding, true);
+    assert.deepEqual(network.allowedDomains, ["good.com"]);
+    assert.deepEqual(network.deniedDomains, []);
   });
 });
 
@@ -181,10 +183,11 @@ test("updating the domain lists writes deny reasons and keeps other keys", async
     });
 
     // assert
-    const written = JSON.parse(await readFile(filePath, "utf8"));
+    const written = await readSettingsFile(filePath);
+    const network = section(written, "network");
     assert.equal(written.note, "keep");
-    assert.equal(written.network.allowLocalBinding, true);
-    assert.deepEqual(written.network.deniedDomainReasons, { "old.com": "old reason", "new.com": "new reason" });
+    assert.equal(network.allowLocalBinding, true);
+    assert.deepEqual(network.deniedDomainReasons, { "old.com": "old reason", "new.com": "new reason" });
   });
 });
 
@@ -198,8 +201,9 @@ test("updating the domain lists adds no reasons key to files without one", async
     await updateDomainLists(filePath, ({ allowedDomains }) => { allowedDomains.add("good.com"); });
 
     // assert
-    const written = JSON.parse(await readFile(filePath, "utf8"));
-    assert.equal("deniedDomainReasons" in written.network, false);
+    const written = await readSettingsFile(filePath);
+    const network = section(written, "network");
+    assert.equal("deniedDomainReasons" in network, false);
   });
 });
 
@@ -243,8 +247,9 @@ test("updating a profile creates, mutates and deletes it while keeping other key
 
     // assert
     assert.deepEqual(created.map(({ name, path }) => ({ name, path })), [{ name: "bazel", path: ["/bin"] }]);
-    const written = JSON.parse(await readFile(filePath, "utf8"));
-    assert.deepEqual(written.network, { allowedDomains: ["a.com"] });
+    const written = await readSettingsFile(filePath);
+    const network = section(written, "network");
+    assert.deepEqual(network, { allowedDomains: ["a.com"] });
     assert.equal(written.custom, 1);
     assert.deepEqual(written.profiles, {});
   });
@@ -275,9 +280,10 @@ test("updating activation decisions moves a name between the lists and keeps oth
     const decisions = await loadActivationDecisions(filePath);
     assert.deepEqual([...decisions.allowed], []);
     assert.deepEqual([...decisions.denied], [["bazel", "no"]]);
-    const written = JSON.parse(await readFile(filePath, "utf8"));
-    assert.deepEqual(written.network, { allowedDomains: ["a.com"] });
-    assert.deepEqual(Object.keys(written.profiles), ["bazel"]);
+    const written = await readSettingsFile(filePath);
+    const network = section(written, "network");
+    assert.deepEqual(network, { allowedDomains: ["a.com"] });
+    assert.deepEqual(Object.keys(section(written, "profiles")), ["bazel"]);
   });
 });
 
@@ -292,7 +298,7 @@ test("the activation key is absent from files that never had a decision", async 
     await updateProfile(filePath, "bazel", (current) => current);
 
     // assert
-    const written = JSON.parse(await readFile(filePath, "utf8"));
+    const written = await readSettingsFile(filePath);
     assert.equal("profileActivation" in written, false);
   });
 });
@@ -311,3 +317,15 @@ test("deleting a profile removes its activation decision", async () => {
     assert.deepEqual([...decisions.allowed], ["other"]);
   });
 });
+
+async function readSettingsFile(filePath: string): Promise<Record<string, unknown>> {
+  const parsed: unknown = JSON.parse(await readFile(filePath, "utf8"));
+  assert.ok(isRecord(parsed));
+  return parsed;
+}
+
+function section(settings: Record<string, unknown>, key: string): Record<string, unknown> {
+  const value = settings[key];
+  assert.ok(isRecord(value));
+  return value;
+}

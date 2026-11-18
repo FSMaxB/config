@@ -10,7 +10,7 @@ export type VcsInfo =
   // A colocated jj repository also has a .git directory that jj keeps in sync.
   | { kind: "jj"; root: string; colocated: boolean };
 
-export function findRepoRoot(from: string = process.cwd()): string {
+export function findRepositoryRoot(from: string = process.cwd()): string {
   return findVcsRoot(from) ?? resolve(from);
 }
 
@@ -51,10 +51,10 @@ export function memoryDirectory(cwd: string = process.cwd(), home: string = home
 }
 
 export function contains(root: string, path: string): boolean {
-  const rel = relative(root, path);
+  const relativePath = relative(root, path);
   return (
-    rel === "" ||
-    (!rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel))
+    relativePath === "" ||
+    (!relativePath.startsWith(`..${sep}`) && relativePath !== ".." && !isAbsolute(relativePath))
   );
 }
 

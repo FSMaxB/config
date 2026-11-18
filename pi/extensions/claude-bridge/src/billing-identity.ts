@@ -71,7 +71,7 @@ export function loginEmailFrom(info: AccountInfo): string | undefined {
 }
 
 export function makeBillingIdentityStore(
-	lanes: Map<string | undefined, BillingIdentityLane> = new Map(),
+	lanes = new Map<string | undefined, BillingIdentityLane>(),
 ): BillingIdentityStore {
 	return {
 		version: 1,

@@ -61,7 +61,7 @@ export async function readSettingsFile(filePath: string): Promise<SettingsFile> 
   try {
     return parseSettingsFile(JSON.parse(text));
   } catch (error) {
-    throw new Error(`Invalid sandbox settings in ${filePath}: ${errorMessage(error)}`);
+    throw new Error(`Invalid sandbox settings in ${filePath}: ${errorMessage(error)}`, { cause: error });
   }
 }
 
@@ -142,7 +142,7 @@ async function readRawSettings(filePath: string): Promise<Record<string, unknown
   try {
     return requireRecord(JSON.parse(text), "settings");
   } catch (error) {
-    throw new Error(`Invalid sandbox settings in ${filePath}: ${errorMessage(error)}`);
+    throw new Error(`Invalid sandbox settings in ${filePath}: ${errorMessage(error)}`, { cause: error });
   }
 }
 

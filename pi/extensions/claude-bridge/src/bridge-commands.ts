@@ -25,8 +25,8 @@ export function registerBridgeCommands(pi: ExtensionAPI): void {
 
 	pi.registerCommand("pi-claude", {
 		description: "Show Pi Claude status",
-		handler: async (args: string, context) => {
-			if (args.trim()) context.ui.notify("Unknown /pi-claude argument.", "warning");
+		handler: async (commandArguments: string, context) => {
+			if (commandArguments.trim()) context.ui.notify("Unknown /pi-claude argument.", "warning");
 			showBridgeStatus(context);
 		},
 	});

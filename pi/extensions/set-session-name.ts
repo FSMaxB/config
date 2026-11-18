@@ -29,26 +29,26 @@ export default function (pi: ExtensionAPI): void {
       }),
     }),
 
-    async execute(_toolCallId, params): Promise<AgentToolResult<SessionNameDetails>> {
-      const name = sanitizeDisplayText(params.name, MAX_LENGTH);
+    async execute(_toolCallId, parameters): Promise<AgentToolResult<SessionNameDetails>> {
+      const name = sanitizeDisplayText(parameters.name, MAX_LENGTH);
       if (!name) {
         const error =
           "Session name is empty after sanitization (allowed characters: letters, digits, whitespace and ,.!?). Call set_session_name again with usable text.";
         return {
           content: [{ type: "text", text: error }],
-          details: { requested: params.name, kind: "empty" },
+          details: { requested: parameters.name, kind: "empty" },
         };
       }
 
       pi.setSessionName(name);
       return {
         content: [{ type: "text", text: `Session name set: ${name}` }],
-        details: { requested: params.name, kind: "set", name },
+        details: { requested: parameters.name, kind: "set", name },
       };
     },
 
-    renderCall(args, theme) {
-      const requested = typeof args.name === "string" ? args.name : "";
+    renderCall(toolArguments, theme) {
+      const requested = typeof toolArguments.name === "string" ? toolArguments.name : "";
       return new Text(
         theme.fg("toolTitle", theme.bold("set_session_name ")) +
           theme.fg("muted", requested),

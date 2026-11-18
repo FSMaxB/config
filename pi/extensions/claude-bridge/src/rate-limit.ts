@@ -30,12 +30,18 @@ export function uniqueNonEmptyLines(values: readonly unknown[]): string[] {
 	const seen = new Set<string>();
 	const out: string[] = [];
 	for (const value of values) {
-		const text = typeof value === "string" ? value.trim() : value == null ? "" : String(value).trim();
+		const text = lineText(value);
 		if (!text || seen.has(text)) continue;
 		seen.add(text);
 		out.push(text);
 	}
 	return out;
+}
+
+function lineText(value: unknown): string {
+	if (typeof value === "string") return value.trim();
+	if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return String(value);
+	return value === undefined || value === null ? "" : JSON.stringify(value);
 }
 
 /** Epoch milliseconds from an SDK reset timestamp, or undefined.

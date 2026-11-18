@@ -114,6 +114,6 @@ test("without an enabled entry the branch is in execution mode, recorded or not"
   assert.deepEqual(untouched, { mode: "execution", recorded: false });
 });
 
-function stateEntry(data: Record<string, unknown>, customType = "plan-mode") {
+function stateEntry(data: Record<string, unknown>, customType = "plan-mode"): { type: string; customType: string; data: Record<string, unknown> } {
   return { type: "custom", customType, data };
 }

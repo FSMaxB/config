@@ -18,7 +18,7 @@ import { resolveSandboxShell } from "./shell.ts";
 import { traceProfile } from "./trace-profile.ts";
 import { scanVcsLayout, vcsWriteRules } from "./vcs-policy.ts";
 import { startViolationCollector } from "./violation-collector.ts";
-import type { ViolationCollector } from "./violation-collector.ts";
+import type { CollectedViolation, ViolationCollector } from "./violation-collector.ts";
 import { discardedWrites, isHereDocumentTemporaryFile, isRepositoryRootRemoval, pathViolations } from "./violations.ts";
 import { supportedPlatform } from "./platform.ts";
 import type { Platform } from "./platform.ts";
@@ -127,7 +127,7 @@ test("the trace profile reports a read the normal sandbox would deny", { skip: !
 
   // assert
   assert.equal(status, 0);
-  assert.ok(lines.some((line) => / allow file-read-data /.test(line) && line.includes(target)), lines.join("\n"));
+  assert.ok(lines.some((line) => line.includes(" allow file-read-data ") && line.includes(target)), lines.join("\n"));
 });
 
 test("secrets under the home directory are unreadable", { skip: !enabled }, async () => {
@@ -338,7 +338,10 @@ test("mktemp creates its files in TMPDIR through the shim", { skip: !enabled || 
 test("here-documents work from a read-only directory with the resolved shell", { skip: !enabled }, async (context) => {
   // arrange
   const choice = await resolveSandboxShell(process.env.PATH);
-  if (choice.kind === "missing") return context.skip("no bash 5.1 or newer installed");
+  if (choice.kind === "missing") {
+    context.skip("no bash 5.1 or newer installed");
+    return;
+  }
   // The second heredoc is larger than the pipe buffer, so bash 5.1+ writes it to a temp file under $TMPDIR.
   const command = `export TMPDIR='${workDirectory}'; cat <<'EOF'\nsmall\nEOF\ncat <<EOF | wc -c\n$(head -c 100000 /dev/zero | tr '\\0' x)\nEOF`;
 
@@ -464,7 +467,7 @@ function vcsEnvironment(): string {
   return Object.entries(vcsEnvironmentVariables()).map(([name, value]) => `export ${name}='${value}'`).join("\n");
 }
 
-async function runInRepository(repository: string, command: string) {
+async function runInRepository(repository: string, command: string): ReturnType<typeof runSandboxed> {
   const vcs = vcsWriteRules(await scanVcsLayout(repository), testPlatform());
   const policy = {
     read: { allow: [tree(workDirectory)], deny: [], protected: [] },
@@ -474,7 +477,7 @@ async function runInRepository(repository: string, command: string) {
   return await runSandboxed(command, filesystem, repository);
 }
 
-async function collectViolations(commandId: string) {
+async function collectViolations(commandId: string): Promise<CollectedViolation[]> {
   let previousCount = -1;
   let violations = collector.violationsFor(commandId);
   for (let poll = 0; poll < 6; poll += 1) {
@@ -486,7 +489,7 @@ async function collectViolations(commandId: string) {
   return violations;
 }
 
-function policyFilesystem(extraReadAllow: PathSelector[] = [], extraWriteAllow: PathSelector[] = []) {
+function policyFilesystem(extraReadAllow: PathSelector[] = [], extraWriteAllow: PathSelector[] = []): ReturnType<typeof filesystemConfig> {
   const policy = {
     read: { allow: [tree(workDirectory), ...extraReadAllow], deny: [], protected: [] },
     write: { allow: [tree(workDirectory), ...extraWriteAllow], deny: [], protected: [] },
@@ -494,7 +497,7 @@ function policyFilesystem(extraReadAllow: PathSelector[] = [], extraWriteAllow: 
   return filesystemConfig(policy, { platform: testPlatform(), homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [], vcs: undefined });
 }
 
-async function runSandboxed(command: string, filesystem = policyFilesystem(), cwd = workDirectory, shell: string | undefined = undefined): Promise<{ exitCode: number | null; output: string; commandId: string }> {
+async function runSandboxed(command: string, filesystem = policyFilesystem(), cwd = workDirectory, shell?: string): Promise<{ exitCode: number | null; output: string; commandId: string }> {
   const commandId = `${Date.now()}-${Math.random()}`;
   collector.track(commandId);
   const wrapped = await SandboxManager.wrapWithSandbox(command, shell, { filesystem }, undefined, { commandId, commandText: command });
@@ -502,8 +505,8 @@ async function runSandboxed(command: string, filesystem = policyFilesystem(), cw
     return await new Promise((resolve, reject) => {
       const child = spawn(wrapped, { shell: true, cwd });
       let output = "";
-      child.stdout.on("data", (chunk) => { output += chunk; });
-      child.stderr.on("data", (chunk) => { output += chunk; });
+      child.stdout.on("data", (chunk: Buffer) => { output += chunk.toString(); });
+      child.stderr.on("data", (chunk: Buffer) => { output += chunk.toString(); });
       child.on("error", reject);
       child.on("close", (exitCode) => resolve({ exitCode, output, commandId }));
     });

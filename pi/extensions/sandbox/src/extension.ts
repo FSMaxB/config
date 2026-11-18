@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { createBashToolDefinition, createLocalBashOperations, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { AgentToolResult, BashOperations, BashSpawnContext, BashToolDetails, ExtensionAPI, ExtensionCommandContext, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import type * as SandboxRuntime from "@anthropic-ai/sandbox-runtime";
 import { Type } from "typebox";
 import type { TSchema } from "typebox";
 import { currentAgentMode, currentPolicy, grantPathAccess } from "../../lib/path-permissions.ts";
@@ -14,7 +15,7 @@ import { ALL_DURATIONS, askPermission, Duration } from "../../lib/permission-pro
 import type { PermissionAnswer } from "../../lib/permission-prompt.ts";
 import { permissionUI } from "../../lib/permission-ui.ts";
 import { registerToolWithGuidelines } from "../../lib/register-tool.ts";
-import { findRepoRoot, resolveThroughSymlinks } from "../../lib/repo.ts";
+import { findRepositoryRoot, resolveThroughSymlinks } from "../../lib/repo.ts";
 import { markSandboxActive } from "../../lib/sandbox-state.ts";
 import { latestCustomData } from "../../lib/session-entries.ts";
 import { announceSessionGrantsChanged, provideSessionGrants } from "../../lib/session-grants.ts";
@@ -25,7 +26,7 @@ import { BYPASS_DURATIONS, bypassOutcome, bypassPrompt, bypassSessionGrants, res
 import type { BypassAuthorization, SessionDecision } from "./bypass.ts";
 import { callPrefix, PrefixedCallText, withSandboxProfiles } from "./call-line.ts";
 import type { CallMode, SandboxedBashDetails } from "./call-line.ts";
-import { credentialEnvVars } from "./credentials.ts";
+import { credentialEnvironmentVariables } from "./credentials.ts";
 import { NETWORK_ENTRY_TYPE, NO_PROFILE_NETWORK, destinationKey, emptyGrants, networkConfig, networkDenialNote, parseGrants, recordGrant, recordOnceGrant, releaseOnceGrants, rememberedDecision, networkSessionGrants, serializeGrants } from "./network-grants.ts";
 import type { NetworkDecision, NetworkGrants, OnceNetworkGrants } from "./network-grants.ts";
 import { activationOutcome, activationPrompt, emptyProfileState, parseProfileState, PROFILE_ENTRY_TYPE, profileSessionGrants, resolveActivationAnswer, serializeProfileState, settledResolution } from "./profile-activation.ts";
@@ -104,7 +105,7 @@ interface Runtime {
   shutdown(): Promise<void>;
 }
 
-type SandboxManagerType = typeof import("@anthropic-ai/sandbox-runtime")["SandboxManager"];
+type SandboxManagerType = (typeof SandboxRuntime)["SandboxManager"];
 
 export default function (pi: ExtensionAPI): void {
   if (process.env.PI_SANDBOX === "0") return;
@@ -125,9 +126,12 @@ export default function (pi: ExtensionAPI): void {
   pi.registerCommand("sandbox-profile", {
     description: `List sandbox profiles, or ${SUBCOMMANDS.join("|")} one`,
     getArgumentCompletions: async (prefix) => profileCompletions(prefix, await runtime.profileNames().catch(() => [])),
-    handler: async (args, context) => {
-      const command = parseProfileCommand(args);
-      if (command.kind === "error") return context.ui.notify(command.message, "error");
+    handler: async (commandArguments, context) => {
+      const command = parseProfileCommand(commandArguments);
+      if (command.kind === "error") {
+        context.ui.notify(command.message, "error");
+        return;
+      }
       await runtime.runProfileCommand(command, context);
     },
   });
@@ -151,28 +155,28 @@ function sandboxedBash(cwd: string, runtime: Runtime): ToolDefinition<TSchema, S
     ...withSandboxNote(sandboxed),
     promptGuidelines: [...(sandboxed.promptGuidelines ?? []), SCRATCH_GUIDELINE],
     parameters,
-    async execute(toolCallId, params, signal, onUpdate, context) {
-      const requested = params.profiles ?? [];
-      if (params.unsandboxed === true) {
+    async execute(toolCallId, bashParameters, signal, onUpdate, context) {
+      const requested = bashParameters.profiles ?? [];
+      if (bashParameters.unsandboxed === true) {
         if (requested.length > 0) throw new Error("Profiles only apply to sandboxed commands; drop either profiles or unsandboxed.");
-        const authorization = await runtime.authorizeBypass(params.command, context);
+        const authorization = await runtime.authorizeBypass(bashParameters.command, context);
         if (authorization.kind === "refuse") throw new Error(authorization.reason);
-        return await unsandboxed.execute(toolCallId, params, signal, onUpdate, context);
+        return await unsandboxed.execute(toolCallId, bashParameters, signal, onUpdate, context);
       }
       runtime.setActiveContext(context);
-      const { names, notices } = await runtime.profilesForCall(params.command, requested, context);
+      const { names, notices } = await runtime.profilesForCall(bashParameters.command, requested, context);
       // One definition per call, so parallel calls cannot race on which profiles apply.
       const definition = createBashToolDefinition(cwd, { operations: runtime.operationsFor(names, notices), spawnHook });
       const onProfiledUpdate = onUpdate && ((update: AgentToolResult<BashToolDetails | undefined>) => onUpdate({ ...update, details: withSandboxProfiles(update.details, names) }));
-      const result = await definition.execute(toolCallId, params, signal, onProfiledUpdate, context);
+      const result = await definition.execute(toolCallId, bashParameters, signal, onProfiledUpdate, context);
       return { ...result, details: withSandboxProfiles(result.details, names) };
     },
-    renderCall(args, theme, context) {
+    renderCall(toolArguments, theme, context) {
       const line = context.lastComponent instanceof PrefixedCallText ? context.lastComponent : new PrefixedCallText();
       // Sets the `$ command` text on `line` and starts the row's timer.
-      sandboxed.renderCall?.(args, theme, { ...context, lastComponent: line });
+      sandboxed.renderCall?.(toolArguments, theme, { ...context, lastComponent: line });
       // Evaluated when the line is drawn: renderResult stores the profiles after this returns.
-      line.setPrefix(() => callPrefix(callMode(args, context.state), theme));
+      line.setPrefix(() => callPrefix(callMode(toolArguments, context.state), theme));
       return line;
     },
     renderResult(result, options, theme, context) {
@@ -184,15 +188,15 @@ function sandboxedBash(cwd: string, runtime: Runtime): ToolDefinition<TSchema, S
   return definition;
 }
 
-function callMode(args: { unsandboxed?: boolean }, state: SandboxedBashRenderState): CallMode {
-  if (args.unsandboxed === true) return { kind: "unsandboxed" };
+function callMode(toolArguments: { unsandboxed?: boolean }, state: SandboxedBashRenderState): CallMode {
+  if (toolArguments.unsandboxed === true) return { kind: "unsandboxed" };
   return { kind: "sandboxed", profiles: state.sandboxProfiles ?? [] };
 }
 
 type BashRenderState = ReturnType<typeof createBashToolDefinition> extends ToolDefinition<infer _Parameters, infer _Details, infer State> ? State : never;
 type SandboxedBashRenderState = BashRenderState & { sandboxProfiles?: readonly string[] };
 
-function withSandboxNote<TParams extends TSchema, TDetails, TState>(definition: ToolDefinition<TParams, TDetails, TState>): ToolDefinition<TParams, TDetails, TState> {
+function withSandboxNote<TParameters extends TSchema, TDetails, TState>(definition: ToolDefinition<TParameters, TDetails, TState>): ToolDefinition<TParameters, TDetails, TState> {
   return { ...definition, description: `${definition.description}\n\n${SANDBOX_NOTE}` };
 }
 
@@ -247,7 +251,7 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
     baselinePolicy: () => currentPolicy(),
     toolchainRead: () => settings?.toolchainRead ?? [],
     secretPaths: () => secretPaths(homedir()),
-    repositoryRoot: async () => await resolveThroughSymlinks(findRepoRoot()),
+    repositoryRoot: async () => await resolveThroughSymlinks(findRepositoryRoot()),
     async profileEnvironment(base, profiles) { return profileEnvironment(base, profiles, await profileInputs()); },
   });
 
@@ -352,7 +356,7 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
   }
 
   function ensureInitialized(): Promise<void> {
-    initialization ??= initialize().catch((error) => {
+    initialization ??= initialize().catch((error: unknown) => {
       initialization = undefined;
       throw error;
     });
@@ -374,9 +378,9 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
     if (choice.kind === "missing") activeContext?.ui.notify(`${OLD_BASH_WARNING} Checked: ${choice.checked.join(", ")}.`, "warning");
     await manager().initialize(
       {
-        network: networkConfig(settings, grants, subagent, profileNetwork),
+        network: networkConfig(settings, grants, subagent ? "subagent" : "main", profileNetwork),
         filesystem: filesystemConfig(await currentPolicy(), policyOptions(await vcsRules())),
-        credentials: { envVars: credentialEnvVars() },
+        credentials: { envVars: credentialEnvironmentVariables() },
         allowPty: false,
       },
       askNetwork,
@@ -393,7 +397,7 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
 
   // Scanned per command: git and jj create and remove entries inside their directories all the time.
   async function vcsRules(): Promise<VcsWriteRules> {
-    const layout = await scanVcsLayout(await resolveThroughSymlinks(findRepoRoot()));
+    const layout = await scanVcsLayout(await resolveThroughSymlinks(findRepositoryRoot()));
     return vcsWriteRules(layout, platform);
   }
 
@@ -419,7 +423,7 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
     if (!sandboxManager || !settings) return;
     const config = sandboxManager.getConfig();
     if (!config) return;
-    sandboxManager.updateConfig({ ...config, network: { ...config.network, ...networkConfig(settings, grants, subagent, profileNetwork) } });
+    sandboxManager.updateConfig({ ...config, network: { ...config.network, ...networkConfig(settings, grants, subagent ? "subagent" : "main", profileNetwork) } });
   }
 
   // srt reads local binding and sockets from its global config, so the profile network settings of every
@@ -561,7 +565,7 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
   }
 
   async function profileInputs(): Promise<ProfileInputs> {
-    return { agentMode: currentAgentMode(), repositoryRoot: await resolveThroughSymlinks(findRepoRoot()), stateDirectory: stateDirectoryIn(getAgentDir()), homeDirectory: homedir(), instance };
+    return { agentMode: currentAgentMode(), repositoryRoot: await resolveThroughSymlinks(findRepositoryRoot()), stateDirectory: stateDirectoryIn(getAgentDir()), homeDirectory: homedir(), instance };
   }
 
   function rememberProfiledCommand(commandId: string): void {
@@ -644,17 +648,28 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
     switch (command.kind) {
       case "list": {
         const text = profileListText(await loadProfiles(SETTINGS_FILE), profileState, await loadActivationDecisions(SETTINGS_FILE));
-        return context.ui.notify(text, "info");
+        context.ui.notify(text, "info");
+        return;
       }
-      case "record": return await recorder.arm(command.name, context);
-      case "stop": return await recorder.stop(context);
-      case "edit": return await editProfile(command.name, context);
+      case "record": {
+        await recorder.arm(command.name, context);
+        return;
+      }
+      case "stop": {
+        await recorder.stop(context);
+        return;
+      }
+      case "edit": {
+        await editProfile(command.name, context);
+        return;
+      }
       case "forget": {
         await updateActivationDecisions(SETTINGS_FILE, ({ allowed, denied }) => { allowed.delete(command.name); denied.delete(command.name); });
         profileState.allowed.delete(command.name);
         profileState.denied.delete(command.name);
         persistProfileState();
-        return context.ui.notify(`Forgot the stored and session decisions for ${command.name}; it prompts again.`, "info");
+        context.ui.notify(`Forgot the stored and session decisions for ${command.name}; it prompts again.`, "info");
+        return;
       }
       case "delete": {
         if (!(await knownProfile(command.name, context))) return;
@@ -664,7 +679,8 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
         profileState.denied.delete(command.name);
         persistProfileState();
         await refreshNetwork();
-        return context.ui.notify(`Deleted profile ${command.name}.`, "info");
+        context.ui.notify(`Deleted profile ${command.name}.`, "info");
+        return;
       }
     }
   }
@@ -684,7 +700,8 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
       const parsed = parseProfileDefinition(JSON.parse(edited), name);
       await updateProfile(SETTINGS_FILE, name, () => parsed);
     } catch (error) {
-      return context.ui.notify(`Profile ${name} was not saved: ${errorMessage(error)}`, "error");
+      context.ui.notify(`Profile ${name} was not saved: ${errorMessage(error)}`, "error");
+      return;
     }
     await refreshNetwork();
     context.ui.notify(`Saved profile ${name}.`, "info");

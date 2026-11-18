@@ -51,7 +51,9 @@ function isPreflightError(error: unknown): boolean {
 }
 
 function displayValue(value: unknown): string {
-	return value === undefined || value === null || value === "" ? "<none>" : String(value);
+	if (typeof value === "string") return value === "" ? "<none>" : value;
+	if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return String(value);
+	return value === undefined || value === null ? "<none>" : JSON.stringify(value);
 }
 
 function makeClaudePreflightError(
@@ -179,7 +181,7 @@ export function preflightClaudeExecutable(path: string, cwd: string): ClaudeExec
 	return { path, realPath, cwd, realCwd, fileType };
 }
 
-function envFlagEnabled(value: string | undefined): boolean {
+function environmentFlagEnabled(value: string | undefined): boolean {
 	return value === "1" || value?.toLowerCase() === "true";
 }
 
@@ -219,7 +221,7 @@ export function wrapClaudeSpawnErrorForSdk(error: Error, options: SpawnOptions):
 }
 
 export function spawnClaudeCodeWithDiagnostics(options: SpawnOptions): SpawnedProcess {
-	const pipeStderr = DEBUG || envFlagEnabled(options.env.DEBUG_CLAUDE_AGENT_SDK);
+	const pipeStderr = DEBUG || environmentFlagEnabled(options.env.DEBUG_CLAUDE_AGENT_SDK);
 	const child = spawnProcess(options.command, options.args, {
 		cwd: options.cwd,
 		env: options.env,
@@ -228,7 +230,7 @@ export function spawnClaudeCodeWithDiagnostics(options: SpawnOptions): SpawnedPr
 		windowsHide: true,
 	});
 	if (pipeStderr) {
-		child.stderr?.on("data", (data) => {
+		child.stderr?.on("data", (data: Buffer) => {
 			for (const line of data.toString().split(/\r?\n/)) {
 				if (line) debug(`[cli-stderr spawn] ${line}`);
 			}

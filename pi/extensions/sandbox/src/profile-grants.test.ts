@@ -49,12 +49,12 @@ test("the environment puts shim directories first and sets the three variables",
   ];
 
   // act
-  const env = profileEnvironment({ PATH: "/usr/bin:/bin", HOME: "/home/u" }, profiles, inputs);
+  const environment = profileEnvironment({ PATH: "/usr/bin:/bin", HOME: "/home/u" }, profiles, inputs);
 
   // assert
-  assert.equal(env.PATH, "/home/u/shims/a:/opt/shims/b:/usr/bin:/bin");
-  assert.equal(env.PI_SANDBOX_PROFILE_FINGERPRINT, profileFingerprint(profiles));
-  assert.equal(env.PI_SANDBOX_INSTANCE, "instance-1");
-  assert.equal(env.PI_SANDBOX_STATE_DIR, "/home/u/.pi/agent/sandbox-state");
-  assert.equal(env.HOME, "/home/u");
+  assert.equal(environment.PATH, "/home/u/shims/a:/opt/shims/b:/usr/bin:/bin");
+  assert.equal(environment.PI_SANDBOX_PROFILE_FINGERPRINT, profileFingerprint(profiles));
+  assert.equal(environment.PI_SANDBOX_INSTANCE, "instance-1");
+  assert.equal(environment.PI_SANDBOX_STATE_DIR, "/home/u/.pi/agent/sandbox-state");
+  assert.equal(environment.HOME, "/home/u");
 });

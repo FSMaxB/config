@@ -32,6 +32,7 @@ export function notifyUser(
 }
 
 function notify(title: string, body: string, environment: NodeJS.ProcessEnv): void {
+  // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check -- notifications exist on three of the many Node platforms
   switch (process.platform) {
     case "darwin":
       notifyMacOs(title, body, environment);
@@ -45,6 +46,8 @@ function notify(title: string, body: string, environment: NodeJS.ProcessEnv): vo
         ["-NoProfile", "-NonInteractive", "-Command", windowsToastScript(title, body)],
         () => {},
       );
+      break;
+    default:
       break;
   }
 }

@@ -28,8 +28,6 @@ function input(accesses: TraceAccess[], overrides: Partial<DraftInput> = {}): Dr
   };
 }
 
-const read = (path: string): TraceAccess => ({ mode: "read", path });
-const write = (path: string): TraceAccess => ({ mode: "write", path });
 
 test("trace accesses parse read and write operations and ignore other operations", () => {
   // arrange
@@ -194,3 +192,11 @@ test("exact selectors in the existing profile entries also silence accesses", ()
   // assert
   assert.deepEqual(draft.entries, []);
 });
+
+function read(path: string): TraceAccess {
+  return { mode: "read", path };
+}
+
+function write(path: string): TraceAccess {
+  return { mode: "write", path };
+}

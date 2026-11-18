@@ -1,0 +1,35 @@
+{
+  // Typechecks the extensions without their own package.json (lib/, subagent/, sidebar/, the
+  // top-level *.ts files, ...) and this package. claude-bridge/ and sandbox/ have their own
+  // tsconfig.json. The pi packages come from this package's node_modules through `paths`: files
+  // outside this directory cannot resolve it on their own.
+  "compilerOptions": {
+    // lib/ uses Array#findLast.
+    "target": "ES2023",
+    // The extensions have no package.json, so NodeNext would treat them as CommonJS and reject
+    // import.meta; Bundler keeps every file an ES module, like pi's loader does.
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node"],
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "paths": {
+      // pi aliases extension imports of pi-ai to this view; its StringEnum returns a TypeBox
+      // schema, unlike the published pi-ai's.
+      "@earendil-works/pi-ai": [
+        "./node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/pi-ai-extension-view.d.ts"
+      ],
+      "@earendil-works/*": ["./node_modules/@earendil-works/*"],
+      "typebox": ["./node_modules/typebox"]
+    }
+  },
+  "include": ["../extensions/**/*.ts", "./**/*.ts"],
+  "exclude": ["../extensions/claude-bridge/**", "../extensions/sandbox/**", "**/node_modules/**"]
+}

@@ -268,7 +268,7 @@ async function runInRepository(command: string): Promise<{ exitCode: number | nu
   return await runSandboxed(command, filesystem, repository);
 }
 
-function policyFilesystem(extraReadAllow: PathSelector[] = [], protectedWrite: PathSelector[] = []) {
+function policyFilesystem(extraReadAllow: PathSelector[] = [], protectedWrite: PathSelector[] = []): ReturnType<typeof filesystemConfig> {
   const policy = {
     read: { allow: [tree(workDirectory), ...extraReadAllow], deny: [], protected: [] },
     write: { allow: [tree(workDirectory)], deny: [], protected: protectedWrite },
@@ -283,8 +283,8 @@ async function runSandboxed(command: string, filesystem = policyFilesystem(), cw
     return await new Promise((resolve, reject) => {
       const child = spawn(wrapped, { shell: true, cwd });
       let output = "";
-      child.stdout.on("data", (chunk) => { output += chunk; });
-      child.stderr.on("data", (chunk) => { output += chunk; });
+      child.stdout.on("data", (chunk: Buffer) => { output += chunk.toString(); });
+      child.stderr.on("data", (chunk: Buffer) => { output += chunk.toString(); });
       child.on("error", reject);
       child.on("close", (exitCode) => resolve({ exitCode, output, commandId }));
     });

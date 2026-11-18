@@ -10,7 +10,7 @@ import { AgentMode, storeForMode } from "./agent-mode.ts";
 import type { PathRuleStore } from "./agent-mode.ts";
 import { expandHome } from "./path-resolution.ts";
 import { readStoredRules, transaction } from "./path-rule-store.ts";
-import { contains, findRepoRoot, isVcsInternal, memoryDirectory, resolveThroughSymlinks } from "./repo.ts";
+import { contains, findRepositoryRoot, isVcsInternal, memoryDirectory, resolveThroughSymlinks } from "./repo.ts";
 import { latestCustomData } from "./session-entries.ts";
 import { serialize } from "./ui-queue.ts";
 import { CHILD_POLICY_ENV, inheritedRules, parseChildPathPolicy } from "./path-permission-snapshot.ts";
@@ -47,15 +47,15 @@ export type PathResolution = (typeof PathResolution)[keyof typeof PathResolution
 export type GatedScope = "root" | "children" | "recursive";
 
 // Every gated tool takes the path it works on in a `path` parameter.
-export function gatedTool<TParams extends TSchema, TDetails>(definition: ToolDefinition<TParams, TDetails>, mode: AccessMode, resolution: PathResolution = PathResolution.Follow, scope: GatedScope = "root"): ToolDefinition<TParams, TDetails> {
-  return { ...definition, async execute(toolCallId, params, signal, onUpdate, context) {
-    const path = isRecord(params) ? stringProperty(params, "path") : undefined;
+export function gatedTool<TParameters extends TSchema, TDetails>(definition: ToolDefinition<TParameters, TDetails>, mode: AccessMode, resolution: PathResolution = PathResolution.Follow, scope: GatedScope = "root"): ToolDefinition<TParameters, TDetails> {
+  return { ...definition, async execute(toolCallId, parameters, signal, onUpdate, context) {
+    const path = isRecord(parameters) ? stringProperty(parameters, "path") : undefined;
     const authorization = await authorizeRoot(path ?? context.cwd, mode, context, resolution);
     if (scope !== "root") {
       const { preflightPath } = await import("./path-preflight.ts");
       await preflightPath(authorization, scope, signal);
     }
-    return await definition.execute(toolCallId, { ...params, path: authorization.operationPath }, signal, onUpdate, context);
+    return await definition.execute(toolCallId, { ...parameters, path: authorization.operationPath }, signal, onUpdate, context);
   } };
 }
 
@@ -208,27 +208,27 @@ function scopeLabel(selector: PathSelector, mode: AccessMode, protectedSelectors
   return `${mode} access to ${selectorLabel(selector)}${warning}`;
 }
 
-async function grantRootFor(path: string): Promise<string> { const stats = await stat(path).catch(() => undefined); return findRepoRoot(stats?.isDirectory() ? path : dirname(path)); }
+async function grantRootFor(path: string): Promise<string> { const stats = await stat(path).catch(() => undefined); return findRepositoryRoot(stats?.isDirectory() ? path : dirname(path)); }
 async function currentDefaults(mode: AccessMode): Promise<ReturnType<typeof defaultAllowed>> {
-  const repoRoot = await resolveThroughSymlinks(findRepoRoot());
+  const repositoryRoot = await resolveThroughSymlinks(findRepositoryRoot());
   const [memoryRoot, resolvedSkills, agentDirectory, temporaryDirectory] = await Promise.all([
     resolveThroughSymlinks(memoryDirectory()),
-    resolvedSkillRoots(repoRoot),
+    resolvedSkillRoots(repositoryRoot),
     resolveThroughSymlinks(getAgentDir()),
     state.temporaryDirectory === undefined ? undefined : resolveThroughSymlinks(state.temporaryDirectory),
   ]);
-  return defaultAllowed(mode, { agentMode: currentAgentMode(), repoRoot, memoryDirectory: memoryRoot, skillRoots: resolvedSkills, agentDirectory, temporaryDirectory, homeDirectory: homedir() });
+  return defaultAllowed(mode, { agentMode: currentAgentMode(), repoRoot: repositoryRoot, memoryDirectory: memoryRoot, skillRoots: resolvedSkills, agentDirectory, temporaryDirectory, homeDirectory: homedir() });
 }
 // Project skill roots count only while they resolve inside the repository. Global roots also
 // allow every entry they hold, since skills are commonly symlinked in from elsewhere.
-async function resolvedSkillRoots(repoRoot: string): Promise<string[]> {
-  const projectRoot = findRepoRoot();
+async function resolvedSkillRoots(repositoryRoot: string): Promise<string[]> {
+  const projectRoot = findRepositoryRoot();
   const projectRoots = [join(projectRoot, ".agents", "skills"), join(projectRoot, ".pi", "skills")];
   const globalRoots = [join(getAgentDir(), "skills"), join(homedir(), ".agents", "skills"), join(homedir(), ".claude", "skills")];
   const resolved = new Set<string>();
   for (const root of projectRoots) {
     const resolvedRoot = await resolveThroughSymlinks(root);
-    if (contains(repoRoot, resolvedRoot)) resolved.add(resolvedRoot);
+    if (contains(repositoryRoot, resolvedRoot)) resolved.add(resolvedRoot);
   }
   for (const root of globalRoots) {
     resolved.add(await resolveThroughSymlinks(root));
@@ -298,7 +298,7 @@ function persistSessions(): void { state.persistSession?.(serializeStoredRules(s
 // An entry in any other format than the current one (version 3) gives empty session rules.
 function parseSession(value: unknown): StoredRules { try { return isRecord(value) ? parseStoredRules(value) : emptyStoredRules(); } catch { return emptyStoredRules(); } }
 
-const GLOB_COMPONENT = /[*?\[\]{}]|\([^)]*[?+*@!]\)|\([^)]*\)/;
+const GLOB_COMPONENT = /[*?[\]{}]|\([^)]*[?+*@!]\)|\([^)]*\)/;
 
 export async function normalizePathSelector(input: string, cwd: string): Promise<PathSelector> {
   const expanded = expandHome(input);

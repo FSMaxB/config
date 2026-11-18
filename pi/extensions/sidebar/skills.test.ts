@@ -3,7 +3,6 @@ import { test } from "node:test";
 import { ItemTone } from "./panel.ts";
 import { buildSkillIndex } from "../lib/skill-index.ts";
 import type { CommandInfo, Skill } from "../lib/skill-index.ts";
-import type { RealPath } from "../lib/tool-path.ts";
 import {
   applySkillLoad,
   LOADED_SKILL_ENTRY,
@@ -19,7 +18,6 @@ const links: Record<string, string> = {
   "/home/u/.pi/agent/skills/vcs/SKILL.md": "/home/u/config/pi/skills/vcs/SKILL.md",
   "/home/u/.pi/agent/skills/vcs/references/a.md": "/home/u/config/pi/skills/vcs/references/a.md",
 };
-const realPath: RealPath = (path) => links[path] ?? path;
 
 const commands: CommandInfo[] = [
   {
@@ -160,7 +158,7 @@ test("skillItems emits each skill with its references one level deeper and dims 
 
   // act
   const user = skillItems(skills, "user");
-  const repo = skillItems(skills, "repo");
+  const repository = skillItems(skills, "repo");
 
   // assert
   assert.deepEqual(user, [
@@ -169,8 +167,12 @@ test("skillItems emits each skill with its references one level deeper and dims 
     { text: "b", depth: 1, tone: ItemTone.Normal },
     { text: "lonely", depth: 0, tone: ItemTone.Dim },
   ]);
-  assert.deepEqual(repo, [
+  assert.deepEqual(repository, [
     { text: "planning", depth: 0, tone: ItemTone.Dim },
     { text: "notes", depth: 1, tone: ItemTone.Normal },
   ]);
 });
+
+function realPath(path: string): string {
+  return links[path] ?? path;
+}

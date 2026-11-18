@@ -20,12 +20,13 @@ export function formatDuration(milliseconds: number): string {
 // Allowlist filter for text that leaves the terminal (session names, desktop
 // notifications): only letters, digits, whitespace and ,.!? survive.
 export function sanitizeDisplayText(raw: string, maxLength: number): string {
-  return [
-    ...raw
+  // The filter keeps no combining marks or joiners, so a code point is one visible character.
+  return Array.from(
+    raw
       .replace(/[^\p{L}\p{N}\s.,!?]/gu, "")
       .replace(/\s+/g, " ")
       .trim(),
-  ]
+  )
     .slice(0, maxLength)
     .join("")
     .trim();

@@ -52,7 +52,7 @@ Fable 5.2 requires [Claude Code 2.1.322 or later](https://code.claude.com/docs/e
 
 ## Settings
 
-Write nested JSON to `<piUserDir>/claude-bridge.json` (normally `~/.pi/agent/claude-bridge.json`; `PI_CODING_AGENT_DIR` changes the directory). A trusted project's `.pi/claude-bridge.json` overrides the user file. Project trust must explicitly report `true`; otherwise the project file is ignored. Starting Pi in a nested project directory still finds its project root. With `CLAUDE_BRIDGE_ISOLATED=1`, only the user file is read. Built-in defaults apply when neither file sets a value.
+Write nested JSON to `<piUserDirectory>/claude-bridge.json` (normally `~/.pi/agent/claude-bridge.json`; `PI_CODING_AGENT_DIR` changes the directory). A trusted project's `.pi/claude-bridge.json` overrides the user file. Project trust must explicitly report `true`; otherwise the project file is ignored. Starting Pi in a nested project directory still finds its project root. With `CLAUDE_BRIDGE_ISOLATED=1`, only the user file is read. Built-in defaults apply when neither file sets a value.
 
 ```json
 {

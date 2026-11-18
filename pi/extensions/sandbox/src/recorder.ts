@@ -70,9 +70,18 @@ export function createRecorder(dependencies: RecorderDependencies): Recorder {
   };
 
   async function arm(name: string, context: ExtensionCommandContext): Promise<void> {
-    if (process.platform !== "darwin") return context.ui.notify("Recording needs macOS.", "error");
-    if (recording) return context.ui.notify(`Already recording profile ${recording.profile}; finish it with /sandbox-profile stop.`, "error");
-    if (!isValidProfileName(name)) return context.ui.notify(`"${name}" is not a valid profile name.`, "error");
+    if (process.platform !== "darwin") {
+      context.ui.notify("Recording needs macOS.", "error");
+      return;
+    }
+    if (recording) {
+      context.ui.notify(`Already recording profile ${recording.profile}; finish it with /sandbox-profile stop.`, "error");
+      return;
+    }
+    if (!isValidProfileName(name)) {
+      context.ui.notify(`"${name}" is not a valid profile name.`, "error");
+      return;
+    }
     let created = false;
     await updateProfile(dependencies.settingsFile, name, (current) => {
       created = current === undefined;
@@ -104,19 +113,27 @@ export function createRecorder(dependencies: RecorderDependencies): Recorder {
 
   async function stop(context: ExtensionCommandContext): Promise<void> {
     const active = recording;
-    if (!active) return context.ui.notify("Not recording. Start with /sandbox-profile record <name>.", "error");
+    if (!active) {
+      context.ui.notify("Not recording. Start with /sandbox-profile record <name>.", "error");
+      return;
+    }
     await waitUntilCountSettles(() => active.lines.length);
     const text = active.reviewText ?? (await draftFor(active));
     const edited = await context.ui.editor(`Recording for profile ${active.profile}`, text);
-    if (edited === undefined) return context.ui.notify("Still recording; run /sandbox-profile stop to review again.", "info");
+    if (edited === undefined) {
+      context.ui.notify("Still recording; run /sandbox-profile stop to review again.", "info");
+      return;
+    }
     if (edited.trim() === "") {
       finish(active);
-      return context.ui.notify("Recording discarded.", "info");
+      context.ui.notify("Recording discarded.", "info");
+      return;
     }
     const { entries, errors } = parseDraftText(edited);
     if (errors.length > 0) {
       active.reviewText = edited;
-      return context.ui.notify(`The recording was not saved:\n${errors.join("\n")}\nRun /sandbox-profile stop to fix it.`, "error");
+      context.ui.notify(`The recording was not saved:\n${errors.join("\n")}\nRun /sandbox-profile stop to fix it.`, "error");
+      return;
     }
     await updateProfile(dependencies.settingsFile, active.profile, (current) => {
       let definition = current ?? emptyProfileDefinition();

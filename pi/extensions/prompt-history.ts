@@ -67,12 +67,12 @@ function installHistoryEditor(
 
 /** Returns prompts oldest-first, so the most recent one is the first arrow-up hit. */
 async function loadPreviousPrompts(
-  sessionDir: string,
+  sessionDirectory: string,
   currentSessionFile: string | undefined,
 ): Promise<string[]> {
   let fileNames: string[];
   try {
-    fileNames = await readdir(sessionDir);
+    fileNames = await readdir(sessionDirectory);
   } catch {
     return [];
   }
@@ -93,7 +93,7 @@ async function loadPreviousPrompts(
   for (const fileName of sessionFiles) {
     let content: string;
     try {
-      content = await readFile(join(sessionDir, fileName), "utf8");
+      content = await readFile(join(sessionDirectory, fileName), "utf8");
     } catch {
       continue;
     }

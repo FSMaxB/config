@@ -12,7 +12,7 @@ export interface CommandResult {
 
 export type Executor = (
   command: string,
-  args: readonly string[],
+  commandArguments: readonly string[],
   cwd: string,
 ) => Promise<CommandResult>;
 
@@ -39,8 +39,8 @@ export async function commitPlanFileForUser(
 ): Promise<void> {
   // Generous for a single-file commit, which also covers jj snapshotting a large working copy.
   const TIMEOUT_MS = 30_000;
-  const execute: Executor = (command, args, cwd) =>
-    pi.exec(command, [...args], { cwd, timeout: TIMEOUT_MS });
+  const execute: Executor = (command, commandArguments, cwd) =>
+    pi.exec(command, [...commandArguments], { cwd, timeout: TIMEOUT_MS });
   try {
     await commitPlanFile(execute, planFile, reason);
   } catch (error) {
@@ -89,8 +89,8 @@ export function initInvocation(vcs: RepositoryKind): Invocation {
 // Both commands print one line per changed path and nothing when the path is clean.
 export function statusInvocation(vcs: RepositoryKind, root: string, path: string): Invocation {
   return vcs === "jj"
-    ? { command: "jj", args: [...jjGlobalArgs(root), "diff", "--summary", path] }
-    : { command: "git", args: [...gitGlobalArgs(root), "status", "--porcelain", "--", path] };
+    ? { command: "jj", args: [...jjGlobalArguments(root), "diff", "--summary", path] }
+    : { command: "git", args: [...gitGlobalArguments(root), "status", "--porcelain", "--", path] };
 }
 
 export function isUnchanged(statusOutput: string): boolean {
@@ -105,13 +105,13 @@ export function commitInvocations(
 ): Invocation[] {
   if (vcs === "jj") {
     return [
-      { command: "jj", args: [...jjGlobalArgs(root), "file", "track", path] },
-      { command: "jj", args: [...jjGlobalArgs(root), "commit", "-m", message, path] },
+      { command: "jj", args: [...jjGlobalArguments(root), "file", "track", path] },
+      { command: "jj", args: [...jjGlobalArguments(root), "commit", "-m", message, path] },
     ];
   }
   return [
-    { command: "git", args: [...gitGlobalArgs(root), "add", "--", path] },
-    { command: "git", args: [...gitGlobalArgs(root), "commit", "--quiet", "-m", message, "--", path] },
+    { command: "git", args: [...gitGlobalArguments(root), "add", "--", path] },
+    { command: "git", args: [...gitGlobalArguments(root), "commit", "--quiet", "-m", message, "--", path] },
   ];
 }
 
@@ -122,11 +122,11 @@ export function commitMessage(planFile: string, reason: CommitReason): string {
 
 // -R / -C pin the command to the detected root, so the process cwd can never redirect
 // the commit into another repository.
-function jjGlobalArgs(root: string): string[] {
+function jjGlobalArguments(root: string): string[] {
   return ["-R", root, "--color=never", "--no-pager"];
 }
 
-function gitGlobalArgs(root: string): string[] {
+function gitGlobalArguments(root: string): string[] {
   return ["-C", root, "--no-pager", "-c", "color.ui=false"];
 }
 

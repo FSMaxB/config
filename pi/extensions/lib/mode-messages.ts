@@ -21,7 +21,7 @@ export interface ModeSnapshot {
 
 export interface ModeMessages {
   announce(context: ExtensionContext): void;
-  reset(): void;
+  reset: () => void;
 }
 
 // The system prompt and tool declarations stay fixed so switching modes keeps the provider's
@@ -30,9 +30,9 @@ export interface ModeMessages {
 export function registerModeMessages(
   pi: Pick<ExtensionAPI, "on" | "sendMessage">,
   dependencies: {
-    snapshot(): ModeSnapshot;
-    projection(context: ExtensionContext): readonly unknown[];
-    prepare(context: ExtensionContext): void;
+    snapshot: () => ModeSnapshot;
+    projection: (context: ExtensionContext) => readonly unknown[];
+    prepare: (context: ExtensionContext) => void;
   },
 ): ModeMessages {
   const { snapshot, projection, prepare } = dependencies;
@@ -120,7 +120,7 @@ export interface ModeDelivery {
   announce(content: string, visible: readonly unknown[]): void;
   initialMessage(prepare: () => string, visible: readonly unknown[]): string | undefined;
   requestMessages<Message>(messages: readonly Message[], content: string, visible: readonly unknown[]): (Message | SnapshotMessage)[] | undefined;
-  reset(): void;
+  reset: () => void;
 }
 
 export function createModeDelivery(send: (content: string) => void, now: () => number = Date.now): ModeDelivery {

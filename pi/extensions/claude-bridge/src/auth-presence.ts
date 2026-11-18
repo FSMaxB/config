@@ -33,32 +33,32 @@ import { isRecord } from "../../lib/untyped.ts";
  * root). The returned value is trimmed so downstream joins never carry stray
  * whitespace.
  */
-export function resolveClaudeConfigDir(environment: NodeJS.ProcessEnv = process.env): string {
+export function resolveClaudeConfigDirectory(environment: NodeJS.ProcessEnv = process.env): string {
 	const configured = environment.CLAUDE_CONFIG_DIR;
 	if (typeof configured === "string" && configured.trim().length > 0) return configured.trim();
 	return join(homedir(), ".claude");
 }
 
-function nonEmptyEnv(value: string | undefined): boolean {
+function nonEmptyEnvironment(value: string | undefined): boolean {
 	return typeof value === "string" && value.trim().length > 0;
 }
 
 // Matches how Claude Code interprets its boolean provider-routing env flags:
 // only "1" / "true" (case-insensitive) enable them.
-function envTruthy(value: string | undefined): boolean {
+function environmentTruthy(value: string | undefined): boolean {
 	const v = value?.trim().toLowerCase();
 	return v === "1" || v === "true";
 }
 
 /**
- * True when `${configDir}/settings.json` exists, parses as JSON, and carries a
+ * True when `${configDirectory}/settings.json` exists, parses as JSON, and carries a
  * non-empty `apiKeyHelper` string (an enterprise/custom auth command that
  * produces a key). Parse/read errors are tolerated as "not present". The helper
  * VALUE is never logged — only its presence/non-emptiness is used.
  */
-function hasApiKeyHelper(configDir: string): boolean {
+function hasApiKeyHelper(configDirectory: string): boolean {
 	try {
-		const settingsPath = join(configDir, "settings.json");
+		const settingsPath = join(configDirectory, "settings.json");
 		if (!existsSync(settingsPath)) return false;
 		const parsed: unknown = JSON.parse(readFileSync(settingsPath, "utf8"));
 		return isRecord(parsed) && typeof parsed.apiKeyHelper === "string" && parsed.apiKeyHelper.trim().length > 0;
@@ -92,18 +92,18 @@ export function hasClaudeCredentials(
 	environment: NodeJS.ProcessEnv = process.env,
 	platform: NodeJS.Platform = osPlatform(),
 ): boolean {
-	if (nonEmptyEnv(environment.CLAUDE_CODE_OAUTH_TOKEN)) return true;
-	if (nonEmptyEnv(environment.ANTHROPIC_API_KEY)) return true;
-	if (nonEmptyEnv(environment.ANTHROPIC_AUTH_TOKEN)) return true;
-	if (envTruthy(environment.CLAUDE_CODE_USE_BEDROCK)) return true;
-	if (envTruthy(environment.CLAUDE_CODE_USE_VERTEX)) return true;
-	if (envTruthy(environment.CLAUDE_CODE_USE_FOUNDRY)) return true;
-	if (envTruthy(environment.CLAUDE_CODE_USE_ANTHROPIC_AWS)) return true;
-	if (envTruthy(environment.CLAUDE_CODE_USE_MANTLE)) return true;
+	if (nonEmptyEnvironment(environment.CLAUDE_CODE_OAUTH_TOKEN)) return true;
+	if (nonEmptyEnvironment(environment.ANTHROPIC_API_KEY)) return true;
+	if (nonEmptyEnvironment(environment.ANTHROPIC_AUTH_TOKEN)) return true;
+	if (environmentTruthy(environment.CLAUDE_CODE_USE_BEDROCK)) return true;
+	if (environmentTruthy(environment.CLAUDE_CODE_USE_VERTEX)) return true;
+	if (environmentTruthy(environment.CLAUDE_CODE_USE_FOUNDRY)) return true;
+	if (environmentTruthy(environment.CLAUDE_CODE_USE_ANTHROPIC_AWS)) return true;
+	if (environmentTruthy(environment.CLAUDE_CODE_USE_MANTLE)) return true;
 
-	const configDir = resolveClaudeConfigDir(environment);
-	if (existsSync(join(configDir, ".credentials.json"))) return true;
-	if (hasApiKeyHelper(configDir)) return true;
+	const configDirectory = resolveClaudeConfigDirectory(environment);
+	if (existsSync(join(configDirectory, ".credentials.json"))) return true;
+	if (hasApiKeyHelper(configDirectory)) return true;
 
 	if (platform === "darwin") return true;
 

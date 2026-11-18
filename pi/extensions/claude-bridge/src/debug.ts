@@ -1,15 +1,15 @@
 import { appendFileSync, chmodSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { piUserDir } from "./config.js";
+import { piUserDirectory } from "./config.js";
 
-// CLAUDE_BRIDGE_DEBUG=1 enables debug logging to <piUserDir>/claude-bridge.log
+// CLAUDE_BRIDGE_DEBUG=1 enables debug logging to <piUserDirectory>/claude-bridge.log
 // (~/.pi/agent/claude-bridge.log unless PI_CODING_AGENT_DIR points elsewhere).
 
 export const DEBUG = process.env.CLAUDE_BRIDGE_DEBUG === "1";
-export const DEBUG_LOG_PATH = process.env.CLAUDE_BRIDGE_DEBUG_PATH || join(piUserDir(), "claude-bridge.log");
+export const DEBUG_LOG_PATH = process.env.CLAUDE_BRIDGE_DEBUG_PATH || join(piUserDirectory(), "claude-bridge.log");
 
 export function diagLogPath(): string {
-	return process.env.CLAUDE_BRIDGE_DIAG_PATH || join(piUserDir(), "claude-bridge-diag.log");
+	return process.env.CLAUDE_BRIDGE_DIAG_PATH || join(piUserDirectory(), "claude-bridge-diag.log");
 }
 
 /** Trailing clause for user-facing integrity notifications. With DEBUG on the
@@ -44,7 +44,7 @@ if (DEBUG) {
 // Unique per module evaluation — confirms whether subagents share module state
 export const moduleInstanceId = Math.random().toString(36).slice(2, 8);
 
-export function debug(...args: readonly unknown[]): void {
+export function debug(...values: readonly unknown[]): void {
 	if (!DEBUG) return;
 	const ts = new Date().toISOString();
 	const fmt = (a: unknown): string => {
@@ -53,7 +53,7 @@ export function debug(...args: readonly unknown[]): void {
 		// A function argument is a lazy payload: hot-path call sites (per-token
 		// stream events) pass a thunk so the expensive formatting only runs when
 		// DEBUG is on — fmt is only reached past the early return.
-		if (typeof a === "function") return fmt(a());
+		if (typeof a === "function") return fmt(Reflect.apply(a, undefined, []));
 		return JSON.stringify(a);
 	};
 	// A throwing thunk or JSON.stringify (circular structure, BigInt) must not
@@ -90,7 +90,7 @@ export function debug(...args: readonly unknown[]): void {
 			return "[unprintable: formatting failed]";
 		}
 	};
-	const message = args.map(safeFmt).join(" ");
+	const message = values.map(safeFmt).join(" ");
 	try { appendFileSync(DEBUG_LOG_PATH, `[${ts}] [${moduleInstanceId}] ${message}\n`, { mode: OWNER_ONLY_FILE_MODE }); } catch { /* debug is best effort */ }
 }
 
@@ -105,9 +105,9 @@ export function makeCliDebugOptions(tag: string): { debug?: boolean; debugFile?:
 	if (!DEBUG) return {};
 	const seq = nextCliDebugSeq++;
 	const ts = new Date().toISOString().replace(/[:.]/g, "-");
-	const logDir = join(dirname(DEBUG_LOG_PATH), "cc-cli-logs");
-	try { mkdirSync(logDir, { recursive: true, mode: OWNER_ONLY_DIRECTORY_MODE }); chmodSync(logDir, OWNER_ONLY_DIRECTORY_MODE); } catch { /* ignore */ }
-	const debugFile = join(logDir, `${ts}-${tag}-${seq}.log`);
+	const logDirectory = join(dirname(DEBUG_LOG_PATH), "cc-cli-logs");
+	try { mkdirSync(logDirectory, { recursive: true, mode: OWNER_ONLY_DIRECTORY_MODE }); chmodSync(logDirectory, OWNER_ONLY_DIRECTORY_MODE); } catch { /* ignore */ }
+	const debugFile = join(logDirectory, `${ts}-${tag}-${seq}.log`);
 	debug(`cli-debug: ${tag} #${seq} → ${debugFile}`);
 	return {
 		debug: true,

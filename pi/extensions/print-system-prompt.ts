@@ -4,9 +4,9 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 export default function (pi: ExtensionAPI): void {
   pi.registerCommand("print-system-prompt", {
     description: "Show or write the current system prompt",
-    handler: async (args, context) => {
+    handler: async (commandArguments, context) => {
       const prompt = context.getSystemPrompt();
-      const outputPath = args.trim();
+      const outputPath = commandArguments.trim();
 
       if (outputPath) {
         writeFileSync(outputPath, prompt);

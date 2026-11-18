@@ -17,6 +17,7 @@
 // the Claude Code subprocess does its own authentication; pi never needs a
 // real secret, so none is read or exposed.
 
+import type * as PiAi from "@earendil-works/pi-ai";
 import type { Api, Provider, SimpleStreamOptions, StreamFunction } from "@earendil-works/pi-ai";
 import { hasClaudeCredentials } from "./auth-presence.js";
 import type { BridgeModel } from "./models.js";
@@ -54,7 +55,7 @@ export function claudeAuthSourceLabel(environment: NodeJS.ProcessEnv = process.e
  * run at check/resolve CALL time, so a login/logout between calls is seen.
  */
 export function buildNativeProvider(
-	piAi: Pick<typeof import("@earendil-works/pi-ai"), "createProvider">,
+	piAi: Pick<typeof PiAi, "createProvider">,
 	models: readonly BridgeModel[],
 	streamSimple: StreamFunction<Api, SimpleStreamOptions>,
 	environment: NodeJS.ProcessEnv = process.env,

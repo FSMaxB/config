@@ -65,9 +65,9 @@ describe("Claude Code tool isolation", () => {
 		// arrange
 		const configured = ["user", "local"];
 		// act
-		const isolated = settingSourcesForQuery(true, configured);
-		const defaultSources = settingSourcesForQuery(false);
-		const explicit = settingSourcesForQuery(false, configured);
+		const isolated = settingSourcesForQuery("append", configured);
+		const defaultSources = settingSourcesForQuery("omit");
+		const explicit = settingSourcesForQuery("omit", configured);
 		// assert
 		assert.equal(isolated, undefined);
 		assert.deepEqual(defaultSources, ["user", "project"]);

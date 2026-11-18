@@ -1,5 +1,5 @@
 /**
- * Tests for isolated mode (CLAUDE_BRIDGE_ISOLATED=1) and the piUserDir routing
+ * Tests for isolated mode (CLAUDE_BRIDGE_ISOLATED=1) and the piUserDirectory routing
  * for paths that must follow the configured Pi directory.
  *
  * Isolated mode is the contract for host apps that embed the bridge and own
@@ -12,7 +12,7 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { isolatedFromEnv, loadConfig, piUserDir, recordProjectTrust } from "../src/config.ts";
+import { isolatedFromEnvironment, loadConfig, piUserDirectory, recordProjectTrust } from "../src/config.ts";
 import { extractAgentsAppend, resolveAgentsMdPaths } from "../src/agents-md.ts";
 import { readAppendSystemPromptFiles } from "../src/prompt-context.ts";
 import { resolveClaudeExecutable } from "../src/index.ts";
@@ -53,7 +53,7 @@ const caseInsensitiveTempFs = withTempDir((dir) => {
 	return existsSync(join(dir, "CASE-PROBE"));
 });
 
-describe("isolatedFromEnv", () => {
+describe("isolatedFromEnvironment", () => {
 	it("parses the isolated-mode flag spellings", () => {
 		for (const [value, expected] of [
 			[undefined, false], ["", false], ["0", false], ["false", false],
@@ -62,22 +62,22 @@ describe("isolatedFromEnv", () => {
 			[" TRUE ", true], ["Yes", true],
 		]) {
 			withEnv({ CLAUDE_BRIDGE_ISOLATED: value }, () => {
-				assert.equal(isolatedFromEnv(), expected, `value: ${value}`);
+				assert.equal(isolatedFromEnvironment(), expected, `value: ${value}`);
 			});
 		}
 	});
 });
 
-describe("piUserDir", () => {
+describe("piUserDirectory", () => {
 	it("defaults to ~/.pi/agent when PI_CODING_AGENT_DIR is unset (no-behavior-change proof)", () => {
 		withEnv({ PI_CODING_AGENT_DIR: undefined }, () => {
-			assert.equal(piUserDir(), resolve(join(homedir(), ".pi", "agent")));
+			assert.equal(piUserDirectory(), resolve(join(homedir(), ".pi", "agent")));
 		});
 	});
 
 	it("resolves PI_CODING_AGENT_DIR when set", () => withTempDir((dir) => {
 		withEnv({ PI_CODING_AGENT_DIR: dir }, () => {
-			assert.equal(piUserDir(), resolve(dir));
+			assert.equal(piUserDirectory(), resolve(dir));
 		});
 	}));
 });
@@ -179,7 +179,7 @@ describe("resolveAgentsMdPaths isolation", () => {
 		}
 	}));
 
-	it("the piUserDir global file honors AGENTS.override.md too", () => withTempDir((dir) => {
+	it("the piUserDirectory global file honors AGENTS.override.md too", () => withTempDir((dir) => {
 		const cwdDir = join(dir, "cwd");
 		const agentDir = join(dir, "agent");
 		mkdirSync(cwdDir, { recursive: true });
@@ -198,7 +198,7 @@ describe("resolveAgentsMdPaths isolation", () => {
 		}
 	}));
 
-	it("default mode forwards the piUserDir AGENTS.md when cwd has none", () => withTempDir((dir) => {
+	it("default mode forwards the piUserDirectory AGENTS.md when cwd has none", () => withTempDir((dir) => {
 		const cwdDir = join(dir, "cwd");
 		const agentDir = join(dir, "agent");
 		mkdirSync(cwdDir, { recursive: true });
@@ -216,7 +216,7 @@ describe("resolveAgentsMdPaths isolation", () => {
 		}
 	}));
 
-	it("forwards the piUserDir AGENTS.md before the nearest cwd AGENTS.md", () => withTempDir((dir) => {
+	it("forwards the piUserDirectory AGENTS.md before the nearest cwd AGENTS.md", () => withTempDir((dir) => {
 		// arrange
 		const cwdDir = join(dir, "cwd");
 		const agentDir = join(dir, "agent");
@@ -264,7 +264,7 @@ describe("resolveAgentsMdPaths isolation", () => {
 		}
 	}));
 
-	it("isolated mode suppresses cwd and shared piUserDir AGENTS.md", () => withTempDir((dir) => {
+	it("isolated mode suppresses cwd and shared piUserDirectory AGENTS.md", () => withTempDir((dir) => {
 		const cwdDir = join(dir, "cwd");
 		const agentDir = join(dir, "agent");
 		mkdirSync(cwdDir, { recursive: true });
@@ -366,7 +366,7 @@ describe("recordProjectTrust isolation", () => {
 });
 
 describe("readAppendSystemPromptFiles isolation", () => {
-	it("isolated mode skips project .pi/APPEND_SYSTEM.md but keeps the piUserDir file", () => withTempDir((dir) => {
+	it("isolated mode skips project .pi/APPEND_SYSTEM.md but keeps the piUserDirectory file", () => withTempDir((dir) => {
 		const agentDir = join(dir, "agent");
 		const project = join(dir, "project");
 		mkdirSync(agentDir, { recursive: true });

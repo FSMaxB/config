@@ -16,7 +16,7 @@ import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { formatDuration, shortenPath } from "../lib/format.ts";
 import { createLineSplitter } from "../lib/lines.ts";
-import { AgentMode, isRestricted, MODE_IDENTITIES, READ_ONLY_JJ_NOTE } from "../lib/agent-mode.ts";
+import { AgentMode, MODE_IDENTITIES, READ_ONLY_JJ_NOTE } from "../lib/agent-mode.ts";
 import type { RestrictedMode } from "../lib/agent-mode.ts";
 import { isRecord } from "../lib/untyped.ts";
 import { readPersistedDecisions } from "../lib/mode-decisions.ts";
@@ -119,9 +119,9 @@ export default function (pi: ExtensionAPI): void {
       "Dispatch independent explorations in parallel, and trust the returned report instead of re-reading the same files yourself.",
       "Pick a cheaper model or a lower thinkingLevel for subagent tasks that don't need the session model's full capability.",
     ],
-    parameters: SubagentParams,
+    parameters: SubagentParameters,
 
-    async execute(_toolCallId, params, signal, onUpdate, context) {
+    async execute(_toolCallId, parameters, signal, onUpdate, context) {
       const active = activeRestrictedMode(context.sessionManager);
       const restriction = active.mode !== AgentMode.Execution
         ? {
@@ -148,8 +148,8 @@ export default function (pi: ExtensionAPI): void {
       };
       const agents = discoverAgents().agents;
 
-      const hasTasks = (params.tasks?.length ?? 0) > 0;
-      const hasSingle = Boolean(params.agent && params.task);
+      const hasTasks = (parameters.tasks?.length ?? 0) > 0;
+      const hasSingle = Boolean(parameters.agent && parameters.task);
       const modeCount = Number(hasTasks) + Number(hasSingle);
 
       if (modeCount !== 1) {
@@ -167,13 +167,13 @@ export default function (pi: ExtensionAPI): void {
         };
       }
 
-      if (params.tasks && params.tasks.length > 0) {
-        if (params.tasks.length > MAX_PARALLEL_TASKS)
+      if (parameters.tasks && parameters.tasks.length > 0) {
+        if (parameters.tasks.length > MAX_PARALLEL_TASKS)
           return {
             content: [
               {
                 type: "text",
-                text: `Too many parallel tasks (${params.tasks.length}). Max is ${MAX_PARALLEL_TASKS}.`,
+                text: `Too many parallel tasks (${parameters.tasks.length}). Max is ${MAX_PARALLEL_TASKS}.`,
               },
             ],
             details: { mode: "parallel", results: [] },
@@ -181,19 +181,19 @@ export default function (pi: ExtensionAPI): void {
             usage: emptyUsage(),
           };
 
-        const allResults: SingleResult[] = new Array(params.tasks.length);
-        for (let i = 0; i < params.tasks.length; i++) {
-          const taskItem = params.tasks[i];
+        const allResults = new Array<SingleResult>(parameters.tasks.length);
+        for (let index = 0; index < parameters.tasks.length; index++) {
+          const taskItem = parameters.tasks[index];
           const agent = agents.find((candidate) => candidate.name === taskItem.agent);
-          const configuration = agent
-            ? resolveTaskConfiguration(agent, { model: taskItem.model, thinkingLevel: taskItem.thinkingLevel }, dispatch)
+          const config = agent
+            ? resolveTaskConfig(agent, { model: taskItem.model, thinkingLevel: taskItem.thinkingLevel }, dispatch)
             : {
                 model:
                   taskItem.model ??
                   (dispatch.mainModel ? `${dispatch.mainModel.provider}/${dispatch.mainModel.id}` : undefined),
                 thinkingLevel: taskItem.thinkingLevel ?? dispatch.thinkingLevel,
               };
-          allResults[i] = {
+          allResults[index] = {
             agent: taskItem.agent,
             task: taskItem.task,
             exitCode: RUNNING_EXIT_CODE,
@@ -201,25 +201,24 @@ export default function (pi: ExtensionAPI): void {
             stderr: "",
             usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
             nativeUsage: emptyUsage(),
-            model: configuration.model,
-            thinkingLevel: configuration.thinkingLevel,
+            model: config.model,
+            thinkingLevel: config.thinkingLevel,
           };
         }
 
         const emitParallelUpdate = () => {
-          if (onUpdate) {
-            const running = allResults.filter((result) => isRunningResult(result)).length;
-            const done = allResults.filter((result) => !isRunningResult(result)).length;
-            onUpdate({
-              content: [
-                { type: "text", text: `Parallel: ${done}/${allResults.length} done, ${running} running...` },
-              ],
-              details: { mode: "parallel", results: [...allResults] },
-            });
-          }
+          if (!onUpdate) return;
+          const running = allResults.filter((result) => isRunningResult(result)).length;
+          const done = allResults.filter((result) => !isRunningResult(result)).length;
+          onUpdate({
+            content: [
+              { type: "text", text: `Parallel: ${done}/${allResults.length} done, ${running} running...` },
+            ],
+            details: { mode: "parallel", results: [...allResults] },
+          });
         };
 
-        const results = await mapWithConcurrencyLimit(params.tasks, MAX_CONCURRENCY, async (taskItem, index) => {
+        const results = await mapWithConcurrencyLimit(parameters.tasks, MAX_CONCURRENCY, async (taskItem, index) => {
           const result = await runSingleAgent(
             context.cwd,
             dispatch,
@@ -230,10 +229,9 @@ export default function (pi: ExtensionAPI): void {
             taskItem.cwd,
             signal,
             (partial) => {
-              if (partial.details?.results[0]) {
-                allResults[index] = partial.details.results[0];
-                emitParallelUpdate();
-              }
+              if (!partial.details?.results[0]) return;
+              allResults[index] = partial.details.results[0];
+              emitParallelUpdate();
             },
             "parallel",
           );
@@ -262,7 +260,7 @@ export default function (pi: ExtensionAPI): void {
         };
       }
 
-      const { agent: agentName, task } = params;
+      const { agent: agentName, task } = parameters;
       if (!agentName || !task) throw new Error("Unreachable: exactly one mode is set");
       const result = await runSingleAgent(
         context.cwd,
@@ -270,8 +268,8 @@ export default function (pi: ExtensionAPI): void {
         agents,
         agentName,
         task,
-        { model: params.model, thinkingLevel: params.thinkingLevel },
-        params.cwd,
+        { model: parameters.model, thinkingLevel: parameters.thinkingLevel },
+        parameters.cwd,
         signal,
         onUpdate,
         "single",
@@ -291,27 +289,27 @@ export default function (pi: ExtensionAPI): void {
       };
     },
 
-    renderCall(args, theme, _context) {
-      if (args.tasks && args.tasks.length > 0) {
+    renderCall(toolArguments, theme, _context) {
+      if (toolArguments.tasks && toolArguments.tasks.length > 0) {
         let text =
           theme.fg("toolTitle", theme.bold("subagent ")) +
-          theme.fg("accent", `parallel (${args.tasks.length} tasks)`);
-        for (const taskItem of args.tasks.slice(0, 3)) {
+          theme.fg("accent", `parallel (${toolArguments.tasks.length} tasks)`);
+        for (const taskItem of toolArguments.tasks.slice(0, 3)) {
           const preview = taskItem.task.length > 40 ? `${taskItem.task.slice(0, 40)}...` : taskItem.task;
           text +=
             `\n  ${theme.fg("accent", taskItem.agent)}` +
-            formatAgentConfiguration(taskItem.model, taskItem.thinkingLevel, "inherit", theme) +
+            formatAgentConfig(taskItem.model, taskItem.thinkingLevel, "inherit", theme) +
             theme.fg("dim", ` ${preview}`);
         }
-        if (args.tasks.length > 3) text += `\n  ${theme.fg("muted", `... +${args.tasks.length - 3} more`)}`;
+        if (toolArguments.tasks.length > 3) text += `\n  ${theme.fg("muted", `... +${toolArguments.tasks.length - 3} more`)}`;
         return new Text(text, 0, 0);
       }
-      const agentName = args.agent || "...";
-      const preview = args.task ? (args.task.length > 60 ? `${args.task.slice(0, 60)}...` : args.task) : "...";
+      const agentName = toolArguments.agent || "...";
+      const preview = toolArguments.task ? (toolArguments.task.length > 60 ? `${toolArguments.task.slice(0, 60)}...` : toolArguments.task) : "...";
       let text =
         theme.fg("toolTitle", theme.bold("subagent ")) +
         theme.fg("accent", agentName) +
-        formatAgentConfiguration(args.model, args.thinkingLevel, "inherit", theme);
+        formatAgentConfig(toolArguments.model, toolArguments.thinkingLevel, "inherit", theme);
       text += `\n  ${theme.fg("dim", preview)}`;
       return new Text(text, 0, 0);
     },
@@ -337,7 +335,7 @@ export default function (pi: ExtensionAPI): void {
             : theme.fg("success", "✓");
         let text =
           `${icon} ${theme.fg("toolTitle", theme.bold(single.agent))}` +
-          formatAgentConfiguration(single.model, single.thinkingLevel, "unresolved", theme);
+          formatAgentConfig(single.model, single.thinkingLevel, "unresolved", theme);
         if (isError && single.stopReason) text += ` ${theme.fg("error", `[${single.stopReason}]`)}`;
 
         if (expanded) {
@@ -387,7 +385,7 @@ export default function (pi: ExtensionAPI): void {
           const header =
             theme.fg("muted", "─── ") +
             theme.fg("accent", item.agent) +
-            formatAgentConfiguration(item.model, item.thinkingLevel, "unresolved", theme) +
+            formatAgentConfig(item.model, item.thinkingLevel, "unresolved", theme) +
             ` ${itemIcon}`;
           container.addChild(new Spacer(1));
           renderTaskSection(container, header, item, theme, markdownTheme);
@@ -412,7 +410,7 @@ export default function (pi: ExtensionAPI): void {
         const displayItems = getDisplayItems(item.messages);
         text +=
           `\n\n${theme.fg("muted", "─── ")}${theme.fg("accent", item.agent)}` +
-          formatAgentConfiguration(item.model, item.thinkingLevel, "unresolved", theme) +
+          formatAgentConfig(item.model, item.thinkingLevel, "unresolved", theme) +
           ` ${itemIcon}`;
         if (displayItems.length === 0)
           text += `\n${theme.fg("muted", isRunningResult(item) ? "(running...)" : "(no output)")}`;
@@ -428,14 +426,14 @@ export default function (pi: ExtensionAPI): void {
   });
 }
 
-const ModelParam = Type.Optional(
+const ModelParameter = Type.Optional(
   Type.String({
     description:
       'Model for this subagent as "provider/id" (a bare id works when unambiguous). Omit to inherit the session model, which is always valid.',
   }),
 );
 
-const ThinkingLevelParam = Type.Optional(
+const ThinkingLevelParameter = Type.Optional(
   StringEnum(THINKING_LEVELS, {
     description:
       "Thinking level for this subagent. Omit to inherit the session's level. Lowering it on the inherited model is the cheapest way to scale effort down.",
@@ -445,16 +443,16 @@ const ThinkingLevelParam = Type.Optional(
 const TaskItem = Type.Object({
   agent: Type.String({ description: "Name of the agent to invoke" }),
   task: Type.String({ description: "Task to delegate to the agent" }),
-  model: ModelParam,
-  thinkingLevel: ThinkingLevelParam,
+  model: ModelParameter,
+  thinkingLevel: ThinkingLevelParameter,
   cwd: Type.Optional(Type.String({ description: "Working directory for the agent process" })),
 });
 
-const SubagentParams = Type.Object({
+const SubagentParameters = Type.Object({
   agent: Type.Optional(Type.String({ description: "Name of the agent to invoke (for single mode)" })),
   task: Type.Optional(Type.String({ description: "Task to delegate (for single mode)" })),
-  model: ModelParam,
-  thinkingLevel: ThinkingLevelParam,
+  model: ModelParameter,
+  thinkingLevel: ThinkingLevelParameter,
   tasks: Type.Optional(Type.Array(TaskItem, { description: "Array of {agent, task} for parallel execution" })),
   cwd: Type.Optional(Type.String({ description: "Working directory for the agent process (single mode)" })),
 });
@@ -540,12 +538,12 @@ async function runSingleAgent(
     };
   }
 
-  const args: string[] = ["--mode", "json", "-p", "--no-session"];
-  const configuration = resolveTaskConfiguration(agent, overrides, dispatch);
-  if (!configuration.ok) return policyFailure(agent, task, configuration.error, configuration);
-  const { model, thinkingLevel } = configuration;
-  if (model) args.push("--model", model);
-  if (thinkingLevel) args.push("--thinking", thinkingLevel);
+  const childArguments: string[] = ["--mode", "json", "-p", "--no-session"];
+  const config = resolveTaskConfig(agent, overrides, dispatch);
+  if (!config.ok) return policyFailure(agent, task, config.error, config);
+  const { model, thinkingLevel } = config;
+  if (model) childArguments.push("--model", model);
+  if (thinkingLevel) childArguments.push("--thinking", thinkingLevel);
 
   const { restriction } = dispatch;
   const effectiveTools = effectiveChildTools(agent.tools, restriction?.allowedTools);
@@ -555,10 +553,10 @@ async function runSingleAgent(
       task,
       `${MODE_IDENTITIES[restriction.mode].label} restricts every tool of agent "${agent.name}", so dispatching it would be pointless. ` +
         `Tools currently allowed for subagents: ${[...restriction.allowedTools].sort().join(", ")}.`,
-      configuration,
+      config,
     );
   }
-  if (effectiveTools?.length) args.push("--tools", effectiveTools.join(","));
+  if (effectiveTools?.length) childArguments.push("--tools", effectiveTools.join(","));
 
   let temporaryPromptDirectory: string | undefined;
 
@@ -585,16 +583,16 @@ async function runSingleAgent(
 
   try {
     if (agent.systemPrompt.trim()) {
-      const promptPath = await writePromptToTempFile(agent.name, agent.systemPrompt);
+      const promptPath = await writePromptToTemporaryFile(agent.name, agent.systemPrompt);
       temporaryPromptDirectory = dirname(promptPath);
-      args.push("--append-system-prompt", promptPath);
+      childArguments.push("--append-system-prompt", promptPath);
     }
 
-    args.push(`Task: ${task}`);
+    childArguments.push(`Task: ${task}`);
     let wasAborted = false;
 
     const exitCode = await new Promise<number>((resolve) => {
-      const invocation = getPiInvocation(args);
+      const invocation = getPiInvocation(childArguments);
       const child = spawn(invocation.command, invocation.args, {
         cwd: cwd ?? defaultCwd,
         shell: false,
@@ -610,30 +608,30 @@ async function runSingleAgent(
 
         trackPhase(event);
         const { message: rawMessage } = event;
-        if ((event.type === "message_end" || event.type === "tool_result_end") && typeof rawMessage === "object" && rawMessage !== null) {
-          // The child is pi in JSON mode, which writes its own Message objects.
-          const message = rawMessage as Message;
-          if (message.role === "toolResult" && completedToolCalls.has(message.toolCallId)) return;
-          const usage = finalizedMessageUsage(message, completedToolCalls);
-          if (message.role === "toolResult") completedToolCalls.add(message.toolCallId);
-          currentResult.messages.push(message);
-          if (usage) {
-            currentResult.nativeUsage = sumUsage([currentResult.nativeUsage, usage]);
-            currentResult.usage.input += usage.input || 0;
-            currentResult.usage.output += usage.output || 0;
-            currentResult.usage.cacheRead += usage.cacheRead || 0;
-            currentResult.usage.cacheWrite += usage.cacheWrite || 0;
-            currentResult.usage.cost += usage.cost?.total || 0;
-          }
-          if (message.role === "assistant") {
-            currentResult.usage.turns++;
-            currentResult.usage.contextTokens = message.usage?.totalTokens || 0;
-            if (!currentResult.model && message.model) currentResult.model = message.model;
-            if (message.stopReason) currentResult.stopReason = message.stopReason;
-            currentResult.errorMessage = message.errorMessage;
-          }
-          emitUpdate();
+        const endsMessage = event.type === "message_end" || event.type === "tool_result_end";
+        if (!endsMessage || typeof rawMessage !== "object" || rawMessage === null) return;
+        // The child is pi in JSON mode, which writes its own Message objects.
+        const message = rawMessage as Message;
+        if (message.role === "toolResult" && completedToolCalls.has(message.toolCallId)) return;
+        const usage = finalizedMessageUsage(message, completedToolCalls);
+        if (message.role === "toolResult") completedToolCalls.add(message.toolCallId);
+        currentResult.messages.push(message);
+        if (usage) {
+          currentResult.nativeUsage = sumUsage([currentResult.nativeUsage, usage]);
+          currentResult.usage.input += usage.input || 0;
+          currentResult.usage.output += usage.output || 0;
+          currentResult.usage.cacheRead += usage.cacheRead || 0;
+          currentResult.usage.cacheWrite += usage.cacheWrite || 0;
+          currentResult.usage.cost += usage.cost?.total || 0;
         }
+        if (message.role === "assistant") {
+          currentResult.usage.turns++;
+          currentResult.usage.contextTokens = message.usage?.totalTokens || 0;
+          if (!currentResult.model && message.model) currentResult.model = message.model;
+          if (message.stopReason) currentResult.stopReason = message.stopReason;
+          currentResult.errorMessage = message.errorMessage;
+        }
+        emitUpdate();
       };
 
       const trackPhase = (event: ChildEvent): void => {
@@ -658,9 +656,9 @@ async function runSingleAgent(
       };
 
       const splitter = createLineSplitter(processLine);
-      child.stdout.on("data", (data) => splitter.push(data.toString()));
+      child.stdout.on("data", (data: Buffer) => splitter.push(data.toString()));
 
-      child.stderr.on("data", (data) => {
+      child.stderr.on("data", (data: Buffer) => {
         currentResult.stderr += data.toString();
       });
 
@@ -686,14 +684,13 @@ async function runSingleAgent(
         resolve(1);
       });
 
-      if (signal) {
-        const killChild = () => {
-          wasAborted = true;
-          terminateChild();
-        };
-        if (signal.aborted) killChild();
-        else signal.addEventListener("abort", killChild, { once: true });
-      }
+      if (!signal) return;
+      const killChild = () => {
+        wasAborted = true;
+        terminateChild();
+      };
+      if (signal.aborted) killChild();
+      else signal.addEventListener("abort", killChild, { once: true });
     });
 
     currentResult.exitCode = exitCode;
@@ -704,11 +701,11 @@ async function runSingleAgent(
   }
 }
 
-function resolveTaskConfiguration(
+function resolveTaskConfig(
   agent: AgentConfig,
   overrides: TaskOverrides,
   dispatch: DispatchContext,
-): TaskConfiguration {
+): TaskConfig {
   const requestedModel = overrides.model ?? agent.model;
   const fallbackModel =
     requestedModel ?? (dispatch.mainModel ? `${dispatch.mainModel.provider}/${dispatch.mainModel.id}` : undefined);
@@ -762,7 +759,7 @@ function policyFailure(
   agent: AgentConfig,
   task: string,
   message: string,
-  configuration?: Pick<TaskConfiguration, "model" | "thinkingLevel">,
+  config?: Pick<TaskConfig, "model" | "thinkingLevel">,
 ): SingleResult {
   return {
     agent: agent.name,
@@ -772,12 +769,12 @@ function policyFailure(
     stderr: message,
     usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
     nativeUsage: emptyUsage(),
-    model: configuration?.model,
-    thinkingLevel: configuration?.thinkingLevel,
+    model: config?.model,
+    thinkingLevel: config?.thinkingLevel,
   };
 }
 
-type TaskConfiguration = {
+type TaskConfig = {
   model?: string;
   thinkingLevel?: ModelThinkingLevel;
 } & ({ ok: true } | { ok: false; error: string });
@@ -795,23 +792,23 @@ function childEnvironment(dispatch: DispatchContext): NodeJS.ProcessEnv {
   return environment;
 }
 
-function getPiInvocation(args: readonly string[]): { command: string; args: readonly string[] } {
+function getPiInvocation(childArguments: readonly string[]): { command: string; args: readonly string[] } {
   const currentScript = process.argv[1];
   const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/");
   if (currentScript && !isBunVirtualScript && existsSync(currentScript)) {
-    return { command: process.execPath, args: [currentScript, ...args] };
+    return { command: process.execPath, args: [currentScript, ...childArguments] };
   }
 
   const execName = basename(process.execPath).toLowerCase();
   const isGenericRuntime = /^(node|bun)(\.exe)?$/.test(execName);
   if (!isGenericRuntime) {
-    return { command: process.execPath, args };
+    return { command: process.execPath, args: childArguments };
   }
 
-  return { command: "pi", args };
+  return { command: "pi", args: childArguments };
 }
 
-async function writePromptToTempFile(agentName: string, prompt: string): Promise<string> {
+async function writePromptToTemporaryFile(agentName: string, prompt: string): Promise<string> {
   const temporaryDirectory = await mkdtemp(join(tmpdir(), "pi-subagent-"));
   const safeName = agentName.replace(/[^\w.-]+/g, "_");
   const filePath = join(temporaryDirectory, `prompt-${safeName}.md`);
@@ -820,8 +817,8 @@ async function writePromptToTempFile(agentName: string, prompt: string): Promise
 }
 
 function getFinalOutput(messages: readonly Message[]): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i];
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
     if (message.role === "assistant") {
       for (const part of message.content) {
         if (part.type === "text") return part.text;
@@ -850,7 +847,7 @@ async function mapWithConcurrencyLimit<TIn, TOut>(
   mapper: (item: TIn, index: number) => Promise<TOut>,
 ): Promise<TOut[]> {
   const limit = Math.min(concurrency, items.length);
-  const results: TOut[] = new Array(items.length);
+  const results = new Array<TOut>(items.length);
   let nextIndex = 0;
   const workers = new Array(limit).fill(null).map(async () => {
     while (true) {
@@ -878,20 +875,20 @@ function getDisplayItems(messages: readonly Message[]): DisplayItem[] {
 
 function formatToolCall(
   toolName: string,
-  args: Record<string, unknown>,
+  toolArguments: Record<string, unknown>,
   themeFg: Theme["fg"],
 ): string {
   switch (toolName) {
     case "bash": {
-      const command = stringArgument(args, "command") || "...";
+      const command = stringArgument(toolArguments, "command") || "...";
       const preview = command.length > TASK_PREVIEW_CHARACTERS ? `${command.slice(0, TASK_PREVIEW_CHARACTERS)}...` : command;
       return themeFg("muted", "$ ") + themeFg("toolOutput", preview);
     }
     case "read": {
-      const rawPath = stringArgument(args, "file_path") || stringArgument(args, "path") || "...";
+      const rawPath = stringArgument(toolArguments, "file_path") || stringArgument(toolArguments, "path") || "...";
       const filePath = shortenPath(rawPath);
-      const offset = numberArgument(args, "offset");
-      const limit = numberArgument(args, "limit");
+      const offset = numberArgument(toolArguments, "offset");
+      const limit = numberArgument(toolArguments, "limit");
       let text = themeFg("accent", filePath);
       if (offset !== undefined || limit !== undefined) {
         const startLine = offset ?? 1;
@@ -901,33 +898,33 @@ function formatToolCall(
       return themeFg("muted", `${toolName} `) + text;
     }
     case "write": {
-      const rawPath = stringArgument(args, "file_path") || stringArgument(args, "path") || "...";
+      const rawPath = stringArgument(toolArguments, "file_path") || stringArgument(toolArguments, "path") || "...";
       const filePath = shortenPath(rawPath);
-      const content = stringArgument(args, "content") ?? "";
+      const content = stringArgument(toolArguments, "content") ?? "";
       const lines = content.split("\n").length;
       let text = themeFg("muted", `${toolName} `) + themeFg("accent", filePath);
       if (lines > 1) text += themeFg("dim", ` (${lines} lines)`);
       return text;
     }
     case "edit": {
-      const rawPath = stringArgument(args, "file_path") || stringArgument(args, "path") || "...";
+      const rawPath = stringArgument(toolArguments, "file_path") || stringArgument(toolArguments, "path") || "...";
       return themeFg("muted", `${toolName} `) + themeFg("accent", shortenPath(rawPath));
     }
     case "ls":
     case "delete": {
-      const rawPath = stringArgument(args, "path") || ".";
+      const rawPath = stringArgument(toolArguments, "path") || ".";
       return themeFg("muted", `${toolName} `) + themeFg("accent", shortenPath(rawPath));
     }
     case "find": {
-      const pattern = stringArgument(args, "pattern") || "*";
-      const rawPath = stringArgument(args, "path") || ".";
+      const pattern = stringArgument(toolArguments, "pattern") || "*";
+      const rawPath = stringArgument(toolArguments, "path") || ".";
       return (
         themeFg("muted", `${toolName} `) + themeFg("accent", pattern) + themeFg("dim", ` in ${shortenPath(rawPath)}`)
       );
     }
     case "grep": {
-      const pattern = stringArgument(args, "pattern") ?? "";
-      const rawPath = stringArgument(args, "path") || ".";
+      const pattern = stringArgument(toolArguments, "pattern") ?? "";
+      const rawPath = stringArgument(toolArguments, "path") || ".";
       return (
         themeFg("muted", `${toolName} `) +
         themeFg("accent", `/${pattern}/`) +
@@ -935,8 +932,8 @@ function formatToolCall(
       );
     }
     default: {
-      const argsText = JSON.stringify(args);
-      const preview = argsText.length > ARGUMENTS_PREVIEW_CHARACTERS ? `${argsText.slice(0, ARGUMENTS_PREVIEW_CHARACTERS)}...` : argsText;
+      const argumentsText = JSON.stringify(toolArguments);
+      const preview = argumentsText.length > ARGUMENTS_PREVIEW_CHARACTERS ? `${argumentsText.slice(0, ARGUMENTS_PREVIEW_CHARACTERS)}...` : argumentsText;
       return themeFg("accent", toolName) + themeFg("dim", ` ${preview}`);
     }
   }
@@ -1013,7 +1010,7 @@ function aggregateUsage(results: readonly SingleResult[]): Omit<UsageStats, "con
   return total;
 }
 
-function formatAgentConfiguration(
+function formatAgentConfig(
   model: string | undefined,
   thinkingLevel: ModelThinkingLevel | undefined,
   fallback: "inherit" | "unresolved",
@@ -1114,12 +1111,12 @@ function parseChildEvent(line: string): ChildEvent | undefined {
   return { type: typeof parsed.type === "string" ? parsed.type : undefined, willRetry: parsed.willRetry, message: parsed.message };
 }
 
-function stringArgument(args: Record<string, unknown>, name: string): string | undefined {
-  const value = args[name];
+function stringArgument(toolArguments: Record<string, unknown>, name: string): string | undefined {
+  const value = toolArguments[name];
   return typeof value === "string" ? value : undefined;
 }
 
-function numberArgument(args: Record<string, unknown>, name: string): number | undefined {
-  const value = args[name];
+function numberArgument(toolArguments: Record<string, unknown>, name: string): number | undefined {
+  const value = toolArguments[name];
   return typeof value === "number" ? value : undefined;
 }

@@ -321,6 +321,6 @@ function snapshot(overrides: Partial<ModeSnapshot> = {}): ModeSnapshot {
   };
 }
 
-function stateMessage(content: string) {
+function stateMessage(content: string): { role: string; customType: string; content: string; display: boolean; timestamp: number } {
   return { role: "custom", customType: "agent-mode-state", content, display: false, timestamp: 0 };
 }

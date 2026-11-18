@@ -43,10 +43,10 @@ export interface ForkPoint {
  *  record per content block, and the SDK forks at the kept turn's last chain
  *  entry. A transcript rebuilt from Pi history carries synthetic ids and never
  *  matches, which is the point: its records are not the ones the stamp meant. */
-export function resolveForkPoint(target: ClaudeTranscriptAnchor, cwd: string, claudeDir: string | undefined): ForkPoint | TreeResumeRejection {
+export function resolveForkPoint(target: ClaudeTranscriptAnchor, cwd: string, claudeDirectory: string | undefined): ForkPoint | TreeResumeRejection {
 	let session: ReturnType<typeof openSession>;
 	try {
-		session = openSession({ sessionId: target.sessionId, projectPath: cwd, claudeDir });
+		session = openSession({ sessionId: target.sessionId, projectPath: cwd, claudeDir: claudeDirectory });
 		statSync(session.jsonlPath);
 	} catch (error) {
 		return `Claude session ${target.sessionId.slice(0, 8)} cannot be read: ${error instanceof Error ? error.message : String(error)}`;

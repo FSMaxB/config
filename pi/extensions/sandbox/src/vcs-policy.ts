@@ -118,13 +118,13 @@ export interface VcsWriteRules {
   missingConfigIds: string[];
 }
 
-export async function scanVcsLayout(repoRoot: string): Promise<VcsLayout> {
+export async function scanVcsLayout(repositoryRoot: string): Promise<VcsLayout> {
   const listings = new Map<string, DirectoryListing>();
-  const gitPath = join(repoRoot, ".git");
+  const gitPath = join(repositoryRoot, ".git");
   const gitStatus = await lstat(gitPath).catch(ignoreMissing);
   if (gitStatus?.isDirectory()) await scanDirectory(gitPath, GIT_DIRECTORY, listings);
-  await scanDirectory(join(repoRoot, ".jj"), JJ_DIRECTORY, listings);
-  return { repoRoot, listings, gitFile: gitStatus && !gitStatus.isDirectory() ? gitPath : undefined };
+  await scanDirectory(join(repositoryRoot, ".jj"), JJ_DIRECTORY, listings);
+  return { repoRoot: repositoryRoot, listings, gitFile: gitStatus && !gitStatus.isDirectory() ? gitPath : undefined };
 }
 
 export function vcsWriteRules(layout: VcsLayout, platform: Platform): VcsWriteRules {
@@ -244,6 +244,6 @@ const COMPLEMENT_PATTERNS = [
 
 // srt matches a glob allow against the entry itself and drops a trailing `/**`, so what lies beneath an entry
 // needs its own pattern: `/**/*` matches every path at any depth below it.
-function complementOfVcsDirectories(repoRoot: string): PathSelector[] {
-  return COMPLEMENT_PATTERNS.flatMap((pattern) => [glob(repoRoot, pattern), glob(repoRoot, `${pattern}/**/*`)]);
+function complementOfVcsDirectories(repositoryRoot: string): PathSelector[] {
+  return COMPLEMENT_PATTERNS.flatMap((pattern) => [glob(repositoryRoot, pattern), glob(repositoryRoot, `${pattern}/**/*`)]);
 }

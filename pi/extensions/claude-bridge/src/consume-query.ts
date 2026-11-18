@@ -175,7 +175,7 @@ export async function consumeQuery(
 						accountInfoProbe = (async () => sdkQuery.accountInfo())();
 						void accountInfoProbe
 							.then((info) => recordBillingIdentity(info))
-							.catch((error) => debug("consumeQuery: billing identity probe rejected:", error));
+							.catch((error: unknown) => debug("consumeQuery: billing identity probe rejected:", error));
 					}
 				} else if (message.subtype === "model_refusal_fallback") {
 					const originalModel = message.original_model;
@@ -196,7 +196,7 @@ export async function consumeQuery(
 					const rateLimitType = rateLimitTypeFromInfo(info);
 					const resetAt = rateLimitResetFromInfo(info);
 					const resetAtMs = rateLimitResetMs(info);
-					const reason = `${rateLimitType ?? "unknown"} rate limit`;
+					const reason = `${typeof rateLimitType === "string" ? rateLimitType : "unknown"} rate limit`;
 					// A rejected event may precede a successful SDK fallback. Report it
 					// without holding a terminal failure until the final result arrives.
 					const resetsAt = formatResetTimestamp(resetAtMs ?? resetAt);
@@ -213,7 +213,11 @@ export async function consumeQuery(
 				}
 				break;
 			}
-			default:
+			case "auth_status":
+			case "conversation_reset":
+			case "prompt_suggestion":
+			case "tool_progress":
+			case "tool_use_summary":
 				debug("consumeQuery: unhandled SDK message type", message.type);
 				break;
 		}

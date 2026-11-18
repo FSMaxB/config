@@ -13,7 +13,7 @@ import {
 	formatResetTimestamp,
 	normalizeRateLimitUtilization,
 	resetTimestampMs,
-	streamIdleTimeoutMsFromEnv,
+	streamIdleTimeoutMsFromEnvironment,
 } from "../src/index.ts";
 
 describe("rate-limit reset timestamps", () => {
@@ -69,7 +69,7 @@ describe("stream-idle timeout", () => {
 			[{ CLAUDE_BRIDGE_STREAM_IDLE_TIMEOUT: "0" }, 0],
 			[{ CLAUDE_BRIDGE_STREAM_IDLE_TIMEOUT: "bogus" }, DEFAULT_STREAM_IDLE_TIMEOUT_MS],
 		]) {
-			assert.equal(streamIdleTimeoutMsFromEnv(env), expected, JSON.stringify(env));
+			assert.equal(streamIdleTimeoutMsFromEnvironment(env), expected, JSON.stringify(env));
 		}
 	});
 

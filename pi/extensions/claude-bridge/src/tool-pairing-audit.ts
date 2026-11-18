@@ -19,11 +19,11 @@ export interface MissingToolResult {
 	userIndex: number | undefined;
 }
 
-function contentBlocks(content: unknown): Array<Record<string, unknown>> {
+function contentBlocks(content: unknown): Record<string, unknown>[] {
 	return Array.isArray(content) ? content.filter(isRecord) : [];
 }
 
-function toolUses(content: unknown): Array<{ id: string; name: string }> {
+function toolUses(content: unknown): { id: string; name: string }[] {
 	return contentBlocks(content).flatMap((block) => {
 		if (block.type !== "tool_use" || typeof block.id !== "string") return [];
 		return [{ id: block.id, name: typeof block.name === "string" && block.name ? block.name : "unknown" }];
@@ -51,16 +51,16 @@ function toolResultIds(content: unknown): Set<string> {
  * copying is therefore required to keep both assistant messages valid.
  */
 export function recoverLaterToolResults(
-	messages: ReadonlyArray<{ role?: string; content?: unknown }>,
+	messages: readonly { role?: string; content?: unknown }[],
 ): RecoveredToolResult[] {
 	const recovered: RecoveredToolResult[] = [];
-	for (let i = 0; i < messages.length; i++) {
-		const assistant = messages[i];
+	for (let index = 0; index < messages.length; index++) {
+		const assistant = messages[index];
 		if (assistant?.role !== "assistant") continue;
 		const uses = toolUses(assistant.content);
 		if (uses.length === 0) continue;
 
-		const target = messages[i + 1];
+		const target = messages[index + 1];
 		if (target?.role !== "user") continue;
 		const present = toolResultIds(target.content);
 		const missing = uses.filter((use) => !present.has(use.id));
@@ -69,14 +69,14 @@ export function recoverLaterToolResults(
 		for (const use of missing) {
 			let sourceBlock: Record<string, unknown> | undefined;
 			let sourceUserIndex = -1;
-			for (let j = i + 2; j < messages.length; j++) {
-				const candidate = messages[j];
+			for (let laterIndex = index + 2; laterIndex < messages.length; laterIndex++) {
+				const candidate = messages[laterIndex];
 				if (candidate?.role !== "user") continue;
 				sourceBlock = contentBlocks(candidate.content).find(
 					(block) => block.type === "tool_result" && block.tool_use_id === use.id,
 				);
 				if (sourceBlock) {
-					sourceUserIndex = j;
+					sourceUserIndex = laterIndex;
 					break;
 				}
 			}
@@ -94,7 +94,7 @@ export function recoverLaterToolResults(
 			targetBlocks.splice(insertAt, 0, { ...sourceBlock });
 			target.content = targetBlocks;
 			present.add(use.id);
-			recovered.push({ id: use.id, assistantIndex: i, sourceUserIndex, targetUserIndex: i + 1 });
+			recovered.push({ id: use.id, assistantIndex: index, sourceUserIndex, targetUserIndex: index + 1 });
 		}
 	}
 	return recovered;
@@ -105,20 +105,20 @@ export function recoverLaterToolResults(
  * be followed by a user message containing matching tool_result blocks. Return
  * every tool_use that would force repairToolPairing to synthesize a result.
  */
-export function findUnpairedToolUses(messages: ReadonlyArray<{ role?: string; content?: unknown }>): MissingToolResult[] {
+export function findUnpairedToolUses(messages: readonly { role?: string; content?: unknown }[]): MissingToolResult[] {
 	const missing: MissingToolResult[] = [];
-	for (let i = 0; i < messages.length; i++) {
-		const message = messages[i];
+	for (let index = 0; index < messages.length; index++) {
+		const message = messages[index];
 		if (message?.role !== "assistant") continue;
 		const uses = toolUses(message.content);
 		if (uses.length === 0) continue;
 
-		const next = messages[i + 1];
-		const nextUserIndex = next?.role === "user" ? i + 1 : undefined;
+		const next = messages[index + 1];
+		const nextUserIndex = next?.role === "user" ? index + 1 : undefined;
 		const resultIds = nextUserIndex === undefined ? new Set<string>() : toolResultIds(next.content);
 		for (const use of uses) {
 			if (!resultIds.has(use.id)) {
-				missing.push({ id: use.id, toolName: use.name, assistantIndex: i, userIndex: nextUserIndex });
+				missing.push({ id: use.id, toolName: use.name, assistantIndex: index, userIndex: nextUserIndex });
 			}
 		}
 	}
@@ -145,7 +145,7 @@ export const LOST_TOOL_RESULT_TEXT =
  * follows. `missing` must come from findUnpairedToolUses on the same array.
  */
 export function insertLostToolResultPlaceholders(
-	messages: Array<{ role?: string; content?: unknown }>,
+	messages: { role?: string; content?: unknown }[],
 	missing: readonly MissingToolResult[],
 ): void {
 	const block = (id: string): Record<string, unknown> => ({ type: "tool_result", tool_use_id: id, content: LOST_TOOL_RESULT_TEXT, is_error: true });
@@ -173,7 +173,7 @@ export function insertLostToolResultPlaceholders(
 	}
 }
 
-export function summarizeMissingToolNames(missing: readonly MissingToolResult[]): Array<{ name: string; count: number }> {
+export function summarizeMissingToolNames(missing: readonly MissingToolResult[]): { name: string; count: number }[] {
 	const counts = new Map<string, number>();
 	for (const item of missing) counts.set(item.toolName, (counts.get(item.toolName) ?? 0) + 1);
 	return [...counts.entries()]

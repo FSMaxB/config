@@ -9,8 +9,8 @@ import { exportSessionScratch, mktempShimDirectory, withSessionScratch } from ".
 const SESSION_ID = "01a1cfbf-1586-7514-9c42-4b6b53c37159";
 const SESSION_DIRECTORY = join(tmpdir(), "pi", "4b6b53c37159");
 
-function spawnContext(env: NodeJS.ProcessEnv): BashSpawnContext {
-  return { command: "ls", cwd: "/repo", env };
+function spawnContext(environment: NodeJS.ProcessEnv): BashSpawnContext {
+  return { command: "ls", cwd: "/repo", env: environment };
 }
 
 test("on macOS bash gets the session directory as TMPDIR and the mktemp shim first on PATH", () => {

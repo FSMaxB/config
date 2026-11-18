@@ -10,8 +10,8 @@ import { buildModels } from "./models.js";
 import { MCP_SERVER_NAME, MCP_TOOL_PREFIX } from "./skills.js";
 import { extractAllToolResults as _extractAllToolResults } from "./extract-tool-results.js";
 import type { McpResult } from "./extract-tool-results.js";
-import { QueryContext, currentQueryContext, deleteQueryLane, drainStrandedToolCalls, stackDepth, pushContext, summarizeDroppedUserMessages, takeQueuedOrParkedResult, toolCallDrainCause } from "./query-state.js";
-import type { DeferredUserMessage, QueryRestartRequest } from "./query-state.js";
+import { currentQueryContext, deleteQueryLane, drainStrandedToolCalls, stackDepth, pushContext, summarizeDroppedUserMessages, takeQueuedOrParkedResult, toolCallDrainCause } from "./query-state.js";
+import type { DeferredUserMessage, QueryRestartRequest, QueryContext } from "./query-state.js";
 import { abortRebuildReason, abortSdkQuery, closeSdkQuery, interruptSdkQuery, teardownQuery } from "./query-teardown.js";
 import { abortExitGraceMs, createChildExitTracker } from "./child-exit.js";
 import { loadConfig, recordProjectTrust } from "./config.js";
@@ -24,12 +24,12 @@ import { resolveGetModels } from "./pi-ai-compat.js";
 import { conversationMessages } from "./transcript.js";
 import { debug, diagDump, makeCliDebugOptions, moduleInstanceId } from "./debug.js";
 import { preflightClaudeExecutable, resolveClaudeExecutable } from "./claude-executable.js";
-import { appendIntegrityEntry, argKeys, deleteSharedSessionLane, getExtensionApi, getSharedSession, markSessionForRebuild, recordStartedLane, reportToolResultMismatch, safeNotify, safeToolCallSummary, setExtensionApi, setPiUI, setSharedSession, takeStartedLane } from "./bridge-state.js";
+import { appendIntegrityEntry, argumentKeys, deleteSharedSessionLane, getExtensionApi, getSharedSession, markSessionForRebuild, recordStartedLane, reportToolResultMismatch, safeNotify, safeToolCallSummary, setExtensionApi, setPiUI, setSharedSession, takeStartedLane } from "./bridge-state.js";
 import type { SessionState } from "./bridge-state.js";
 import { cancelScheduledSessionPersistence, claudeSessionPairsToolCalls, conversationFingerprint, restoreSharedSessionFromPi, schedulePersistSharedSession, syncSharedSession } from "./session-persistence.js";
-import { STREAM_IDLE_BACKOFF_HINT_MS, activeStreamIdleWatchdogs, buildStreamIdleTimeoutErrorMessage, createStreamIdleWatchdog, formatDurationShort, streamIdleTimeoutMsFromEnv } from "./stream-idle-watchdog.js";
+import { STREAM_IDLE_BACKOFF_HINT_MS, activeStreamIdleWatchdogs, buildStreamIdleTimeoutErrorMessage, createStreamIdleWatchdog, formatDurationShort, streamIdleTimeoutMsFromEnvironment } from "./stream-idle-watchdog.js";
 import { RATE_LIMIT_TOKEN } from "./rate-limit.js";
-import { mapToolArgs } from "./tool-mapping.js";
+import { mapToolArguments } from "./tool-mapping.js";
 import { finalizeCurrentStream, finalizeToolUseTurnFromMcpInvocation, scheduleToolUseTurnEnd } from "./assistant-stream.js";
 import { classifyClaudeFailure } from "./claude-failure.js";
 import { BRIDGE_BILLING_IDENTITY, CLAUDE_BILLING_IDENTITY_SYMBOL, beginBillingIdentityAttempt, deleteBillingIdentityLane } from "./billing-identity.js";
@@ -54,7 +54,7 @@ export { CLAUDE_BRIDGE_TOOL_ISOLATION, DISALLOWED_BUILTIN_TOOLS, bridgeOnlyToolH
 export { settingSourcesForQuery } from "./query-options.js";
 export { cancelScheduledSessionPersistence, conversationFingerprint, conversationFingerprintsMatch, planIncrementalPromptBatch, restoreSharedSessionFromPi, shouldRestorePersistedBridgeEntry } from "./session-persistence.js";
 export { NATIVE_PROVIDER_UNSUPPORTED_MESSAGE, buildNativeProvider, claudeAuthSourceLabel, supportsNativeProvider } from "./native-provider.js";
-export { DEFAULT_STREAM_IDLE_TIMEOUT_MS, STREAM_IDLE_BACKOFF_HINT_MS, STREAM_IDLE_TIMEOUT_ENV, buildStreamIdleTimeoutErrorMessage, createStreamIdleWatchdog, streamIdleTimeoutMsFromEnv, type StreamIdleTimeoutInfo, type StreamIdleWatchdog, type StreamIdleWatchdogState } from "./stream-idle-watchdog.js";
+export { DEFAULT_STREAM_IDLE_TIMEOUT_MS, STREAM_IDLE_BACKOFF_HINT_MS, STREAM_IDLE_TIMEOUT_ENV, buildStreamIdleTimeoutErrorMessage, createStreamIdleWatchdog, streamIdleTimeoutMsFromEnvironment, type StreamIdleTimeoutInfo, type StreamIdleWatchdog, type StreamIdleWatchdogState } from "./stream-idle-watchdog.js";
 export { ALLOWED_RATE_LIMIT_WARNING_UTILIZATION_THRESHOLD, formatAllowedRateLimitWarning, formatResetTimestamp, isUsageLimitMessage, normalizeRateLimitUtilization, resetTimestampMs, uniqueNonEmptyLines } from "./rate-limit.js";
 export { isPiDispatchable, mapToolName } from "./tool-mapping.js";
 export { cancelScheduledToolUseEnd, endToolUseTurn, finalizeToolUseTurnFromMcpInvocation, processAssistantMessage, processStreamEvent, reapStaleQueuedResults, scheduleToolUseTurnEnd } from "./assistant-stream.js";
@@ -101,7 +101,7 @@ const MODELS = buildModels(getModels("anthropic"));
 function extractAllToolResults(messages: readonly Message[]): McpResult[] {
 	const { results, stopIdx: stopIndex } = _extractAllToolResults(messages);
 	debug(`extractAllToolResults: ${results.length} results from ${messages.length} msgs, stopped at index ${stopIndex}`);
-	debug(`extractAllToolResults: all msg roles:`, messages.map((m, i) => `[${i}]${m.role}`).join(" "));
+	debug(`extractAllToolResults: all msg roles:`, messages.map((m, index) => `[${index}]${m.role}`).join(" "));
 	for (let r = 0; r < results.length; r++) {
 		debug(`extractAllToolResults: result[${r}] id=${results[r].toolCallId}${results[r].isError ? " ERROR" : ""} preview:`, JSON.stringify(results[r].content).slice(0, 150));
 	}
@@ -272,22 +272,22 @@ function buildMcpServers(tools: readonly Tool[], queryContext: QueryContext): Re
 	const mcpTools: BridgedTool[] = tools.map((tool) => ({
 		name: tool.name,
 		...modelFacingTool(tool),
-		handler: async (args?: Record<string, unknown>) => {
-			const mappedArgs = mapToolArgs(tool.name, args);
-			const claim = queryContext.claimToolCall(tool.name, mappedArgs);
+		handler: async (toolArguments?: Record<string, unknown>) => {
+			const mappedArguments = mapToolArguments(tool.name, toolArguments);
+			const claim = queryContext.claimToolCall(tool.name, mappedArguments);
 			const toolCallId = claim.toolCallId;
 			if (!toolCallId) {
 				debug(`WARNING: mcp handler ${tool.name} has no toolCallId (available=${claim.available})`);
 				diagDump("tool_handler_unmatched", {
 					toolName: tool.name,
-					argKeys: argKeys(mappedArgs),
+					argKeys: argumentKeys(mappedArguments),
 					available: claim.available,
 					turnToolCallIds: queryContext.turnToolCallIds,
 					turnToolCalls: safeToolCallSummary(queryContext.turnToolCalls),
 				});
 				appendIntegrityEntry("tool_handler_unmatched", {
 					toolName: tool.name,
-					argKeys: argKeys(mappedArgs),
+					argKeys: argumentKeys(mappedArguments),
 					available: claim.available,
 					turnToolCallIds: queryContext.turnToolCallIds,
 				});
@@ -302,8 +302,8 @@ function buildMcpServers(tools: readonly Tool[], queryContext: QueryContext): Re
 				diagDump("tool_claim_args_mismatch", {
 					toolName: tool.name,
 					toolCallId,
-					handlerArgKeys: argKeys(mappedArgs),
-					recordedArgKeys: argKeys(queryContext.turnToolCalls.find((call) => call.id === toolCallId)?.arguments),
+					handlerArgKeys: argumentKeys(mappedArguments),
+					recordedArgKeys: argumentKeys(queryContext.turnToolCalls.find((call) => call.id === toolCallId)?.arguments),
 				});
 			} else if (claim.match !== "tool-args" || claim.ambiguous) {
 				debug(`mcp handler: ${tool.name} [${toolCallId}] claimed by ${claim.match}${claim.ambiguous ? " (ambiguous)" : ""}`);
@@ -320,13 +320,13 @@ function buildMcpServers(tools: readonly Tool[], queryContext: QueryContext): Re
 			// grace timer instead; it force-finalizes only if they never arrive.
 			scheduleToolUseTurnEnd(
 				queryContext,
-				() => finalizeToolUseTurnFromMcpInvocation(queryContext, toolCallId, tool.name, mappedArgs),
+				() => finalizeToolUseTurnFromMcpInvocation(queryContext, toolCallId, tool.name, mappedArguments),
 				`mcp-invocation:${tool.name}`,
 			);
 			return new Promise<McpResult>((resolve) => {
 				queryContext.pendingToolCalls.set(toolCallId, {
 					toolName: tool.name,
-					args: mappedArgs,
+					args: mappedArguments,
 					generation: queryContext.callbackGeneration,
 					resolve: (result) => {
 						queryContext.markToolResultResolved(toolCallId);
@@ -381,10 +381,9 @@ function releaseProviderTokens(event: string): void {
 		debug(`${event}: clearing ACTIVE_STREAM_SIMPLE_KEY`);
 		g[ACTIVE_STREAM_SIMPLE_KEY] = undefined;
 	}
-	if (g[PRIMARY_INSTANCE_KEY] === streamClaudeAgentSdk) {
-		debug(`${event}: clearing PRIMARY_INSTANCE_KEY`);
-		g[PRIMARY_INSTANCE_KEY] = undefined;
-	}
+	if (g[PRIMARY_INSTANCE_KEY] !== streamClaudeAgentSdk) return;
+	debug(`${event}: clearing PRIMARY_INSTANCE_KEY`);
+	g[PRIMARY_INSTANCE_KEY] = undefined;
 }
 
 // Native (pi >=0.81) provider registration. Run at extension load, on every
@@ -508,14 +507,13 @@ export function onPiHistoryReplaced(event: string): void {
 		// integrity fault an unhandled one reports.
 		reportToolResultMismatch(queryContext, event, activeSession?.cwd ?? process.cwd(), { expectedInterruption: restarts });
 	}
-	if (activeSession) {
-		debug(`${event}: marking needsRebuild on session ${activeSession.sessionId.slice(0, 8)}`);
-		// A restart kills the child, which goes on flushing its jsonl: rebuilding
-		// in place would race that writer, so the replacement takes a new session
-		// id and leaves the old transcript alone. A compaction that kills nothing
-		// has no writer to race and rebuilds in place.
-		markSessionForRebuild(`pi replaced the history (${event})`, { forceRotate: restarts });
-	}
+	if (!activeSession) return;
+	debug(`${event}: marking needsRebuild on session ${activeSession.sessionId.slice(0, 8)}`);
+	// A restart kills the child, which goes on flushing its jsonl: rebuilding
+	// in place would race that writer, so the replacement takes a new session
+	// id and leaves the old transcript alone. A compaction that kills nothing
+	// has no writer to race and rebuilds in place.
+	markSessionForRebuild(`pi replaced the history (${event})`, { forceRotate: restarts });
 }
 
 /** After /tree navigation, replace the record with the Claude transcript
@@ -590,10 +588,10 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 	};
 
 	// DEBUG: trace followUp message triggering
-	const lastMsgRole = conversation[conversation.length - 1]?.role;
+	const lastMessageRole = conversation[conversation.length - 1]?.role;
 	// Some hosts pass the working directory along with the stream options.
 	const cwd = (options ? stringProperty(options, "cwd") : undefined) ?? process.cwd();
-	debug(`provider: streamClaudeAgentSdk called, activeQuery=${!!currentQueryContext().activeQuery}, lastMsgRole=${lastMsgRole}, isReentrant=${currentQueryContext().activeQuery !== undefined}`);
+	debug(`provider: streamClaudeAgentSdk called, activeQuery=${!!currentQueryContext().activeQuery}, lastMsgRole=${lastMessageRole}, isReentrant=${currentQueryContext().activeQuery !== undefined}`);
 
 	// Pi appends tool results to context and calls back. Extract this turn's results
 	// (everything after the last assistant message) and match against waiting MCP
@@ -751,7 +749,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 		// silent input loss ( — only the LAST of several trailing user
 		// messages was captured while the cursor skipped them all).
 		let capturedThrough = conversation.length;
-		if (lastMsgRole === "user") {
+		if (lastMessageRole === "user") {
 			// Bound the plan at this query's own captured position (latestCursor
 			// Math.max-advances with every callback's capturedThrough below), so a
 			// second steer callback only queues messages BEYOND what the first one
@@ -772,7 +770,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 					contextLength: conversation.length,
 					runStart: replay.runStart,
 					userMessageCount: replay.userMessageCount,
-					messageRoles: context.messages.map((m, i) => `[${i}]${m.role}`).join(" "),
+					messageRoles: context.messages.map((m, index) => `[${index}]${m.role}`).join(" "),
 				});
 			}
 		}
@@ -941,7 +939,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 				const activeSession = getSharedSession();
 				return activeSession ? { sessionId: activeSession.sessionId.slice(0, 8), cursor: activeSession.cursor } : null;
 			})(),
-			messageRoles: context.messages.map((m, i) => `[${i}]${m.role}`).join(" "),
+			messageRoles: context.messages.map((m, index) => `[${index}]${m.role}`).join(" "),
 		});
 		// Recover: use a continuation prompt so the SDK doesn't send an empty text block
 		promptText = "[continue]";
@@ -1027,7 +1025,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 		}
 		return dropped;
 	};
-	const streamIdleTimeoutMs = streamIdleTimeoutMsFromEnv();
+	const streamIdleTimeoutMs = streamIdleTimeoutMsFromEnvironment();
 	const streamIdleWatchdog = streamIdleTimeoutMs > 0
 		? createStreamIdleWatchdog({
 			getState: () => ({
@@ -1324,7 +1322,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 			const anchor = anchorSessionId && abortContext.currentMessageId ? { sessionId: anchorSessionId, messageId: abortContext.currentMessageId } : undefined;
 			finalizeCurrentStream(abortContext.turnOutput?.stopReason, abortContext, anchor);
 		})
-		.catch(async (error) => {
+		.catch(async (error: unknown) => {
 			debug(`provider: query error, model=${model.id}, aborted=${Boolean(options?.signal?.aborted)}, error=`, error);
 			if (abortContext.restartRequest) {
 				// Killed for the restart: the replacement query surfaces the outcome.
@@ -1362,7 +1360,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 			activeStreamIdleWatchdogs.delete(abortContext);
 			if (options?.signal) options.signal.removeEventListener("abort", onAbort);
 			const cause = toolCallDrainCause({ wasAborted, signalAborted: options?.signal?.aborted, streamIdleTimedOut });
-			teardownQuery(abortContext, sdkQuery, cause, cwd, isReentrant);
+			teardownQuery(abortContext, sdkQuery, cause, cwd, isReentrant ? "reentrant" : "outermost");
 			closeSdkQuery(sdkQuery);
 		})
 		.then(async () => {
@@ -1370,33 +1368,31 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 			// a fresh outermost query over Pi's new context, and its events belong to
 			// the callback that observed the replacement, not to this one.
 			const restart = abortContext.restartRequest;
-			if (restart) {
-				abortContext.restartRequest = undefined;
-				reentryStream = restart.stream;
-				if (wasAborted || options?.signal?.aborted || restart.options?.signal?.aborted) {
-					// The request died between the restart and this teardown: rebuilding
-					// the session and spawning a child the fresh-query path kills on the
-					// same signal buys nothing. Terminate the callback's stream instead.
-					debug("provider: abort before the history restart — terminating the stream without restarting");
-					// A fresh output for THIS message: the restart branch returned before
-					// resetTurnState, so turnOutput is still the message pi already holds
-					// for the pre-compaction turn. Stamping "aborted" onto it would
-					// rewrite a delivered turn whose tools really ran.
-					abortContext.resetTurnState(restart.model);
-					const output = abortContext.output;
-					output.stopReason = "aborted";
-					output.errorMessage = "Operation aborted";
-					reentryStream.push({ type: "error", reason: "aborted", error: output });
-					reentryStream.end();
-					return;
-				}
-				debug(`provider: restarting query on replaced history, ${restart.context.messages.length} pi message(s)`);
-				for await (const event of streamClaudeAgentSdk(restart.model, restartContext(restart), restart.options)) reentryStream.push(event);
+			if (!restart) return;
+			abortContext.restartRequest = undefined;
+			reentryStream = restart.stream;
+			if (wasAborted || options?.signal?.aborted || restart.options?.signal?.aborted) {
+				// The request died between the restart and this teardown: rebuilding
+				// the session and spawning a child the fresh-query path kills on the
+				// same signal buys nothing. Terminate the callback's stream instead.
+				debug("provider: abort before the history restart — terminating the stream without restarting");
+				// A fresh output for THIS message: the restart branch returned before
+				// resetTurnState, so turnOutput is still the message pi already holds
+				// for the pre-compaction turn. Stamping "aborted" onto it would
+				// rewrite a delivered turn whose tools really ran.
+				abortContext.resetTurnState(restart.model);
+				const output = abortContext.output;
+				output.stopReason = "aborted";
+				output.errorMessage = "Operation aborted";
+				reentryStream.push({ type: "error", reason: "aborted", error: output });
 				reentryStream.end();
 				return;
 			}
+			debug(`provider: restarting query on replaced history, ${restart.context.messages.length} pi message(s)`);
+			for await (const event of streamClaudeAgentSdk(restart.model, restartContext(restart), restart.options)) reentryStream.push(event);
+			reentryStream.end();
 		})
-		.catch((error) => {
+		.catch((error: unknown) => {
 			debug("provider: re-entry pipeline failed:", error);
 			// A throw BEFORE the re-entry ran — teardown, or closing the stale query
 			// — skips it, leaving reentryStream on this call's own stream, which has
@@ -1532,5 +1528,5 @@ export default function (pi: ExtensionAPI): void {
 // Process-global slots shared by every copy of this module, keyed by registered symbols; only this
 // module and its siblings write them.
 function processGlobals(): Record<symbol, unknown> {
-	return globalThis as Record<symbol, unknown>;
+	return globalThis;
 }

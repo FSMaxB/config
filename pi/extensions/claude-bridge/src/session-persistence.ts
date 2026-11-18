@@ -179,10 +179,10 @@ function readBuiltSessionContext(sessionManager: SessionManagerView | undefined)
 }
 
 function latestPersistedBridgeSession(sessionManager: SessionManagerView | undefined): PersistedBridgeSessionState | undefined {
-	const entries = typeof sessionManager?.getEntries === "function" ? sessionManager.getEntries() : [];
+	const entries: unknown = typeof sessionManager?.getEntries === "function" ? sessionManager.getEntries() : [];
 	if (!Array.isArray(entries)) return undefined;
-	for (let i = entries.length - 1; i >= 0; i--) {
-		const entry = entries[i];
+	for (let index = entries.length - 1; index >= 0; index--) {
+		const entry: unknown = entries[index];
 		if (!isRecord(entry) || entry.type !== "custom" || entry.customType !== BRIDGE_SESSION_CUSTOM_TYPE) continue;
 		const persisted = parsePersistedBridgeSession(entry.data);
 		if (persisted) return persisted;
@@ -197,9 +197,9 @@ function parsePersistedBridgeSession(data: unknown): PersistedBridgeSessionState
 	return persisted as PersistedBridgeSessionState;
 }
 
-function claudeSessionExists(sessionId: string, cwd: string, claudeDir: string | undefined): boolean {
+function claudeSessionExists(sessionId: string, cwd: string, claudeDirectory: string | undefined): boolean {
 	try {
-		const session = openSession({ sessionId, projectPath: cwd, claudeDir });
+		const session = openSession({ sessionId, projectPath: cwd, claudeDir: claudeDirectory });
 		statSync(session.jsonlPath);
 		return true;
 	} catch {
@@ -213,9 +213,9 @@ function claudeSessionExists(sessionId: string, cwd: string, claudeDir: string |
  *  tool_use came from a child that died before that write, and resuming it
  *  would hand Claude a history its API rejects. A missing or unreadable
  *  transcript counts as unpaired. */
-export function claudeSessionPairsToolCalls(sessionId: string, cwd: string, claudeDir: string | undefined): boolean {
+export function claudeSessionPairsToolCalls(sessionId: string, cwd: string, claudeDirectory: string | undefined): boolean {
 	try {
-		const session = openSession({ sessionId, projectPath: cwd, claudeDir });
+		const session = openSession({ sessionId, projectPath: cwd, claudeDir: claudeDirectory });
 		const messages = session.messages.map(({ message: { role, content } }) => ({ role, content }));
 		return findUnpairedToolUses(messages).length === 0;
 	} catch (error) {
@@ -335,13 +335,13 @@ export function __testCancelAllScheduledSessionPersistence(): void {
 	timers.clear();
 }
 
-export function schedulePersistSharedSession(ctxLike?: { sessionManager?: SessionManagerView }): void {
+export function schedulePersistSharedSession(contextLike?: { sessionManager?: SessionManagerView }): void {
 	const sharedSession = getSharedSession();
-	if (!getExtensionApi() || !sharedSession || !ctxLike?.sessionManager) return;
+	if (!getExtensionApi() || !sharedSession || !contextLike?.sessionManager) return;
 	// Extension contexts become guarded/stale as soon as shutdown or replacement
 	// starts. Capture the plain SessionManager reference now and cancel the timer
 	// on shutdown rather than dereferencing the ctx proxy from the next tick.
-	const { sessionManager } = ctxLike;
+	const { sessionManager } = contextLike;
 	const snapshot = sharedSession;
 	const timers = scheduledPersistenceTimers();
 	const superseded = timers.get(sessionManager);
@@ -391,11 +391,11 @@ function convertAndImportMessages(
 	const { anthropicMessages, sanitizedIds } = convertPiMessages(messages, customToolNameToSdk);
 
 	debug(`convertAndImportMessages: ${messages.length} pi msgs → ${anthropicMessages.length} anthropic msgs`);
-	debug(`convertAndImportMessages: imported roles:`, anthropicMessages.map((m, i) => {
+	debug(`convertAndImportMessages: imported roles:`, anthropicMessages.map((m, index) => {
 		const c = m.content;
-		if (typeof c === "string") return `[${i}]${m.role}:text`;
-		if (Array.isArray(c)) return `[${i}]${m.role}:${(c).map((b) => b.type).join("+")}`;
-		return `[${i}]${m.role}:?`;
+		if (typeof c === "string") return `[${index}]${m.role}:text`;
+		if (Array.isArray(c)) return `[${index}]${m.role}:${(c).map((b) => b.type).join("+")}`;
+		return `[${index}]${m.role}:?`;
 	}).join(" "));
 	if (sanitizedIds.size > 0) {
 		debug(`convertAndImportMessages: sanitized ${sanitizedIds.size} tool IDs:`,
@@ -516,7 +516,7 @@ export function verifyWrittenSession(
 	expectedSessionId: string,
 	expectedRecordCount: number,
 	cwd: string,
-	claudeDir: string | undefined,
+	claudeDirectory: string | undefined,
 ): void {
 	const warnings = _verifyWrittenSession(jsonlPath, expectedSessionId, expectedRecordCount);
 	for (const message of warnings) {
@@ -534,7 +534,7 @@ export function verifyWrittenSession(
 			(DEBUG ? ` and attach ${DEBUG_LOG_PATH}` : ` (rerun with CLAUDE_BRIDGE_DEBUG=1 to capture a debug log)`),
 			"warning",
 		);
-		diagDump("session_verify_fail", { msg: message, jsonlPath, cwd, realpath: safeRealpath(cwd), claudeConfigDir: claudeDir ?? null });
+		diagDump("session_verify_fail", { msg: message, jsonlPath, cwd, realpath: safeRealpath(cwd), claudeConfigDir: claudeDirectory ?? null });
 	}
 }
 
@@ -545,7 +545,7 @@ function safeRealpath(p: string): string {
 // Diagnostic snapshot of where a session file was just written. Catches the
 // class of bugs where pi writes to ~/.claude/projects/<X> but CC SDK reads
 // from ~/.claude/projects/<Y> (symlinks, CLAUDE_CONFIG_DIR, hash mismatch).
-function debugSessionPaths(label: string, cwd: string, jsonlPath: string, claudeDir: string | undefined): void {
+function debugSessionPaths(label: string, cwd: string, jsonlPath: string, claudeDirectory: string | undefined): void {
 	const realCwd = safeRealpath(cwd);
 	let fileSize: number | undefined;
 	let fileExists = false;
@@ -558,7 +558,7 @@ function debugSessionPaths(label: string, cwd: string, jsonlPath: string, claude
 	if (realCwd !== cwd) debug(`${label}: realpath(cwd)=${realCwd} (DIFFERS — symlink-resolved path is what CC SDK uses)`);
 	debug(`${label}: jsonlPath=${jsonlPath}`);
 	debug(`${label}: fileExists=${fileExists}${fileSize !== undefined ? ` size=${fileSize}` : ""}`);
-	debug(`${label}: selected.CLAUDE_CONFIG_DIR=${claudeDir ?? "(unset)"} HOME=${process.env.HOME ?? "(unset)"}`);
+	debug(`${label}: selected.CLAUDE_CONFIG_DIR=${claudeDirectory ?? "(unset)"} HOME=${process.env.HOME ?? "(unset)"}`);
 }
 
 // Two semantic paths:
@@ -605,7 +605,7 @@ export function syncSharedSession(
 ): SyncResult {
 	const sharedSession = getSharedSession();
 	const priorMessages = messages.slice(0, -1); // everything before the current user prompt
-	const claudeDir = process.env.CLAUDE_CONFIG_DIR;
+	const claudeDirectory = process.env.CLAUDE_CONFIG_DIR;
 	const incomingFingerprint = conversationFingerprint(messages);
 
 	// FOREIGN-CONVERSATION guard. A subagent-shaped query
@@ -696,17 +696,17 @@ export function syncSharedSession(
 	const preserveId = preservedId !== undefined;
 	if (preservedId !== undefined) {
 		// Wipe prior jsonl + companion dir (no-op if nothing to wipe).
-		deleteSession(preservedId, cwd, claudeDir);
+		deleteSession(preservedId, cwd, claudeDirectory);
 	}
 	const session = createSession({
 		projectPath: cwd,
-		claudeDir,
+		claudeDir: claudeDirectory,
 		...(preservedId !== undefined ? { sessionId: preservedId } : {}),
 		...(modelId ? { model: modelId } : {}),
 	});
 	convertAndImportMessages(session, priorMessages, customToolNameToSdk, cwd);
 	session.save();
-	verifyWrittenSession(session.jsonlPath, session.sessionId, session.messages.length, cwd, claudeDir);
+	verifyWrittenSession(session.jsonlPath, session.sessionId, session.messages.length, cwd, claudeDirectory);
 	setSharedSession({
 		sessionId: session.sessionId,
 		cursor: priorMessages.length,
@@ -737,7 +737,7 @@ export function syncSharedSession(
 	} else {
 		debug(`Case 4 rotated: ${priorMessages.length} total → new session ${session.sessionId.slice(0, 8)} (was ${replacedSessionId.slice(0, 8)}, rotated to avoid race with orphan writer), ${session.messages.length} records`);
 	}
-	debugSessionPaths(`${session.sessionId.slice(0, 8)}`, cwd, session.jsonlPath, claudeDir);
+	debugSessionPaths(session.sessionId.slice(0, 8), cwd, session.jsonlPath, claudeDirectory);
 	debug(`syncResult: path=rebuild sessionId=${session.sessionId} priors=${priorMessages.length} ${replacedSessionId === undefined ? "first" : preserveId ? "preserved" : "rotated"}`);
 	return { sessionId: session.sessionId, promptStart: messages.length - 1 };
 }

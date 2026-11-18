@@ -291,8 +291,8 @@ test("serialized rules survive a round trip through JSON and parseRules", () => 
   recordRule({ mode: "write", kind: "deny", tier: "session", selector: { kind: "tree", path: "/secrets" }, note: undefined }, { session: rules, always });
 
   // act
-  const serialized = JSON.parse(JSON.stringify(serializeRules(rules)));
-  const parsed = parseRules(serialized);
+  const serialized = serializeRules(rules);
+  const parsed = parseRules(JSON.parse(JSON.stringify(serialized)));
 
   // assert
   assert.deepEqual(serialized.read.allow, [

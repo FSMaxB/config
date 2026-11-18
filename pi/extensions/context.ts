@@ -17,7 +17,7 @@ import { modelLabel } from "./lib/default-model.ts";
 export default function (pi: ExtensionAPI): void {
   pi.registerCommand("context", {
     description: "Show detailed stats on how the context window is used",
-    handler: async (_args, context) => {
+    handler: async (_commandArguments, context) => {
       context.ui.notify(buildReport(pi, context), "info");
     },
   });
@@ -231,6 +231,9 @@ function buildMessageRows(
       case "branchSummary":
         tally(totals, "summary", estimateTokens(message));
         break;
+      case "system":
+        // splitContextMessages moves system messages into the system rows.
+        break;
     }
   }
 
@@ -320,10 +323,12 @@ function sortedByTokens(map: ReadonlyMap<string, Stats>): [string, Stats][] {
 }
 
 function sumStats(entries: readonly [string, Stats][]): Stats {
-  return entries.reduce(
-    (total, [, stats]) => ({ tokens: total.tokens + stats.tokens, count: total.count + stats.count }),
-    { tokens: 0, count: 0 },
-  );
+  const total: Stats = { tokens: 0, count: 0 };
+  for (const [, stats] of entries) {
+    total.tokens += stats.tokens;
+    total.count += stats.count;
+  }
+  return total;
 }
 
 function renderRows(rows: readonly Row[], contextWindow: number | undefined): string[] {

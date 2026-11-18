@@ -47,7 +47,7 @@ const CACHE_MARKER_KEYS = new Set(["cache_control", "cacheControl"]);
 const HASH_LENGTH = 16;
 
 function digest(value: unknown): { hash: string; chars: number } {
-  const json = JSON.stringify(value, (key, nested) => (CACHE_MARKER_KEYS.has(key) ? undefined : nested)) ?? "null";
+  const json = JSON.stringify(value, (key: string, nested: unknown): unknown => (CACHE_MARKER_KEYS.has(key) ? undefined : nested)) ?? "null";
   return { hash: createHash("sha256").update(json).digest("hex").slice(0, HASH_LENGTH), chars: json.length };
 }
 

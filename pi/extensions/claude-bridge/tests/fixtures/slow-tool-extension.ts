@@ -6,16 +6,16 @@ import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI): void {
-	const params = Type.Object({
+	const parameters = Type.Object({
 		seconds: Type.Optional(Type.Number({ description: "How long to wait before returning (default 5)" })),
 	});
-	pi.registerTool<typeof params>({
+	pi.registerTool<typeof parameters>({
 		name: "SlowTool",
 		label: "A tool that takes a while to return",
 		description: "Waits for the specified number of seconds before returning. Use this when asked to call SlowTool.",
-		parameters: params,
-		async execute(_id, params, signal) {
-			const delay = (params.seconds ?? 5) * 1000;
+		parameters: parameters,
+		async execute(_id, parameters, signal) {
+			const delay = (parameters.seconds ?? 5) * 1000;
 			await new Promise<void>((resolve, reject) => {
 				const onAbort = () => {
 					clearTimeout(timer);

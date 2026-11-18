@@ -25,14 +25,14 @@ export function canSubmitReviewedPlan(
 
 export async function submitReviewedPlan(
   events: ExtensionAPI["events"],
-  params: PlanSubmissionParams,
+  parameters: PlanSubmissionParameters,
   signal: AbortSignal | undefined,
   context: ExtensionContext,
 ): Promise<PlanSubmissionResult> {
   signal?.throwIfAborted();
   const service = discoverPlanSubmission(events);
   if (!service) throw new Error("Plan submission service is not available.");
-  return await service.submit(params, signal, context);
+  return await service.submit(parameters, signal, context);
 }
 
 function discoverPlanSubmission(
@@ -56,13 +56,13 @@ export interface PlanSubmissionService {
   available: (context: ExtensionContext) => boolean;
   // Only called after the user approved the plan in crit, so the service skips its own approval question.
   submit: (
-    params: PlanSubmissionParams,
+    parameters: PlanSubmissionParameters,
     signal: AbortSignal | undefined,
     context: ExtensionContext,
   ) => Promise<PlanSubmissionResult>;
 }
 
-export interface PlanSubmissionParams {
+export interface PlanSubmissionParameters {
   path: string;
 }
 

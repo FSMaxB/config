@@ -8,7 +8,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { resolveClaudeConfigDir, hasClaudeCredentials } from "../src/auth-presence.ts";
+import { resolveClaudeConfigDirectory, hasClaudeCredentials } from "../src/auth-presence.ts";
 
 function withTempHome(fn) {
 	const root = mkdtempSync(join(tmpdir(), "claude-bridge-auth-"));
@@ -23,7 +23,7 @@ function withTempHome(fn) {
 // never masks a real false/true; darwin behavior is tested explicitly.
 const LINUX = "linux";
 
-describe("resolveClaudeConfigDir", () => {
+describe("resolveClaudeConfigDirectory", () => {
 	it("resolves explicit, trimmed and absent config paths", () => {
 		for (const [env, expected] of [
 			[{ CLAUDE_CONFIG_DIR: "/custom/dir" }, "/custom/dir"],
@@ -31,7 +31,7 @@ describe("resolveClaudeConfigDir", () => {
 			[{ CLAUDE_CONFIG_DIR: "   " }, join(homedir(), ".claude")],
 			[{}, join(homedir(), ".claude")],
 		]) {
-			assert.equal(resolveClaudeConfigDir(env), expected, JSON.stringify(env));
+			assert.equal(resolveClaudeConfigDirectory(env), expected, JSON.stringify(env));
 		}
 	});
 });

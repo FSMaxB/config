@@ -120,10 +120,10 @@ export default function (pi: ExtensionAPI): void {
   );
 }
 
-function withNote<TParams extends TSchema, TDetails>(
-  definition: ToolDefinition<TParams, TDetails>,
+function withNote<TParameters extends TSchema, TDetails>(
+  definition: ToolDefinition<TParameters, TDetails>,
   guideline: string,
-): ToolDefinition<TParams, TDetails> {
+): ToolDefinition<TParameters, TDetails> {
   return {
     ...definition,
     namespace: FILE_NAMESPACE,
@@ -148,18 +148,18 @@ function withSkillReferenceLabel(pi: ExtensionAPI, definition: ReadDefinition): 
   });
   return {
     ...definition,
-    renderCall(args, theme, context) {
-      const load = context.expanded ? undefined : skillLoadForReadPath(skillIndex, args.path, context.cwd);
-      if (load?.kind !== "reference") return stockRenderCall(args, theme, context);
+    renderCall(toolArguments, theme, context) {
+      const load = context.expanded ? undefined : skillLoadForReadPath(skillIndex, toolArguments.path, context.cwd);
+      if (load?.kind !== "reference") return stockRenderCall(toolArguments, theme, context);
       const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-      text.setText(skillReferenceCall(load, args, theme));
+      text.setText(skillReferenceCall(load, toolArguments, theme));
       return text;
     },
   };
 }
 
-function skillReferenceCall(reference: SkillReference, args: ReadToolInput, theme: Theme): string {
-  const range = formatReadLineRange(args.offset, args.limit);
+function skillReferenceCall(reference: SkillReference, toolArguments: ReadToolInput, theme: Theme): string {
+  const range = formatReadLineRange(toolArguments.offset, toolArguments.limit);
   return (
     theme.fg("customMessageLabel", theme.bold("[skill reference]")) +
     " " +
@@ -178,7 +178,9 @@ function lsDefinition(cwd: string): ToolDefinition<typeof lsParameters, LsToolDe
       `Includes dotfiles. Output is truncated to ${LS_DEFAULT_LIMIT} entries or 50KB (whichever is hit first). ` +
       'Use output="count" to return only the exact number of immediate entries, omitting names and ignoring limit.',
     parameters: lsParameters,
-    execute: createLsExecute(stockDefinition.execute),
+    execute: createLsExecute((toolCallId, parameters, signal, onUpdate, context) =>
+      stockDefinition.execute(toolCallId, parameters, signal, onUpdate, context),
+    ),
   };
 }
 
@@ -223,8 +225,8 @@ function deleteDefinition(): ToolDefinition<typeof deleteParameters, { path: str
       "When deleting a memory file, also drop its line from MEMORY.md.",
     promptSnippet: "Delete a file",
     parameters: deleteParameters,
-    async execute(_toolCallId, params) {
-      const { path } = params;
+    async execute(_toolCallId, parameters) {
+      const { path } = parameters;
       const stats = await lstat(path).catch((error: unknown) => {
         if (errorCode(error) === "ENOENT") {
           throw new Error(`There is no file at ${path}.`);

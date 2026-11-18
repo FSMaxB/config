@@ -66,14 +66,14 @@ export default function (pi: ExtensionAPI): void {
       ),
     }),
 
-    async execute(_toolCallId, params, signal, _onUpdate, context): Promise<AgentToolResult<QuestionDetails>> {
+    async execute(_toolCallId, parameters, signal, _onUpdate, context): Promise<AgentToolResult<QuestionDetails>> {
       const {
         question,
         context: contextText,
         options: rawOptions = [],
         allowFreeform = true,
         allowMultiple = false,
-      } = params;
+      } = parameters;
       const normalizedContext = contextText?.trim() || undefined;
       const options = rawOptions
         .map(coerceOption)
@@ -122,12 +122,13 @@ export default function (pi: ExtensionAPI): void {
         );
       }
 
+      const freeform = allowFreeform ? "allowed" : "forbidden";
       const outcome =
         options.length === 0
           ? await askFreeform(context.ui, prompt)
           : allowMultiple
-            ? await askMultiple(context.ui, prompt, options, allowFreeform)
-            : await askSingle(context.ui, prompt, options, allowFreeform);
+            ? await askMultiple(context.ui, prompt, options, freeform)
+            : await askSingle(context.ui, prompt, options, freeform);
 
       if (outcome.kind === "cancelled")
         return cancelled("User cancelled the question");
@@ -151,10 +152,10 @@ export default function (pi: ExtensionAPI): void {
       return result(`User answered: ${summary}${warning}`, outcome);
     },
 
-    renderCall(args, theme) {
-      const rawOptions = Array.isArray(args.options) ? args.options : [];
+    renderCall(toolArguments, theme) {
+      const rawOptions = Array.isArray(toolArguments.options) ? toolArguments.options : [];
       let text = theme.fg("toolTitle", theme.bold("question "));
-      text += theme.fg("muted", args.question ?? "");
+      text += theme.fg("muted", toolArguments.question ?? "");
       if (rawOptions.length > 0) {
         const titles = rawOptions.map(
           (option: unknown) => coerceOption(option)?.title ?? "<invalid>",
@@ -166,7 +167,7 @@ export default function (pi: ExtensionAPI): void {
             `  ${rawOptions.length} option(s): ${titles.join(", ")}`,
           );
       }
-      if (args.allowMultiple) {
+      if (toolArguments.allowMultiple) {
         text += theme.fg("dim", " [multi-select]");
       }
       return new Text(text, 0, 0);
@@ -244,14 +245,14 @@ async function askSingle(
   ui: ExtensionUIContext,
   prompt: string,
   options: readonly QuestionOption[],
-  allowFreeform: boolean,
+  freeform: "allowed" | "forbidden",
 ): Promise<AskOutcome> {
   // select() only takes strings, so descriptions have to ride along in the label
   // and be mapped back by position afterwards.
   const displays = options.map(({ title, description }) =>
     description ? `${title} — ${description}` : title,
   );
-  if (allowFreeform) displays.push(FREEFORM_SENTINEL);
+  if (freeform === "allowed") displays.push(FREEFORM_SENTINEL);
 
   // selectWithDefault windows long option lists (the question tool can pass
   // more options than fit on screen), starts at the first option, and repeats
@@ -270,7 +271,7 @@ async function askMultiple(
   ui: ExtensionUIContext,
   prompt: string,
   options: readonly QuestionOption[],
-  allowFreeform: boolean,
+  freeform: "allowed" | "forbidden",
 ): Promise<AskOutcome> {
   const body = `${prompt}\n\nOptions (numbers, ranges, or "all" — e.g. 1,3-5,8):\n${formatOptionList(options)}`;
   const reply = await ui.input(body, "e.g. 1,3-5 or all");
@@ -284,7 +285,7 @@ async function askMultiple(
   if (!trimmed) return { kind: "cancelled" };
   if (looksLikeSelectionSyntax(trimmed))
     return { kind: "unparseable", input: trimmed };
-  return allowFreeform
+  return freeform === "allowed"
     ? { kind: "freeform", text: trimmed }
     : { kind: "unparseable", input: trimmed };
 }

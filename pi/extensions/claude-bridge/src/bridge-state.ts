@@ -184,12 +184,12 @@ export function safeNotify(message: string, level: "info" | "warning" | "error" 
 	catch (error) { debug("notify failed:", error); }
 }
 
-export function argKeys(args: Record<string, unknown> | undefined): string[] {
-	return Object.keys(args ?? {}).sort();
+export function argumentKeys(toolArguments: Record<string, unknown> | undefined): string[] {
+	return Object.keys(toolArguments ?? {}).sort();
 }
 
-export function safeToolCallSummary(calls: ReadonlyArray<{ id: string; toolName: string; arguments?: Record<string, unknown> }>): Array<{ id: string; toolName: string; argKeys: string[] }> {
-	return calls.map((call) => ({ id: call.id, toolName: call.toolName, argKeys: argKeys(call.arguments) }));
+export function safeToolCallSummary(calls: readonly { id: string; toolName: string; arguments?: Record<string, unknown> }[]): { id: string; toolName: string; argKeys: string[] }[] {
+	return calls.map((call) => ({ id: call.id, toolName: call.toolName, argKeys: argumentKeys(call.arguments) }));
 }
 
 export const INTEGRITY_CUSTOM_TYPE = "claude-bridge-integrity";
@@ -217,7 +217,7 @@ export function appendIntegrityEntry(label: string, data: Record<string, unknown
 	}
 }
 
-function compactToolNameSummary(names: ReadonlyArray<{ name: string; count: number }>, limit = 12): string[] {
+function compactToolNameSummary(names: readonly { name: string; count: number }[], limit = 12): string[] {
 	const shown = names.slice(0, limit).map(({ name, count }) => count > 1 ? `${name}×${count}` : name);
 	if (names.length > limit) shown.push(`+${names.length - limit} more`);
 	return shown;

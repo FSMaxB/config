@@ -6,10 +6,10 @@
 
 import { isRecord } from "../../lib/untyped.ts";
 
-export type McpContent = Array<
+export type McpContent = (
 	| { type: "text"; text: string }
 	| { type: "image"; data: string; mimeType: string }
->;
+)[];
 
 export interface McpResult {
 	content: McpContent;
@@ -34,15 +34,15 @@ export function toolResultToMcpContent(content: unknown): McpContent {
 
 // Returns { results, stopIdx } so callers can log the walk boundary.
 export function extractAllToolResults(
-	messages: ReadonlyArray<{ role: string; content?: unknown; toolCallId?: string; isError?: boolean }>,
+	messages: readonly { role: string; content?: unknown; toolCallId?: string; isError?: boolean }[],
 ): { results: McpResult[]; stopIdx: number } {
 	const results: McpResult[] = [];
 	let stopIndex = -1;
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const message = messages[i];
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const message = messages[index];
 		if (message.role === "toolResult") {
 			results.unshift({ content: toolResultToMcpContent(message.content), isError: message.isError, toolCallId: message.toolCallId });
-		} else if (message.role === "assistant") { stopIndex = i; break; }
+		} else if (message.role === "assistant") { stopIndex = index; break; }
 		// user messages (steer/followUp injected mid-tool-execution) and system
 		// messages (a prompt or tool-set change Pi recorded at the boundary): skip
 	}

@@ -118,9 +118,7 @@ function createProvider(
     async getSuggestions(lines, cursorLine, cursorCol, options) {
       const delegate = () =>
         current.getSuggestions(lines, cursorLine, cursorCol, options);
-      const query = (lines[cursorLine] ?? "")
-        .slice(0, cursorCol)
-        .match(MENTION)?.[1];
+      const query = MENTION.exec((lines[cursorLine] ?? "").slice(0, cursorCol))?.[1];
       // Home and absolute paths keep the built-in directory listing, which avoids scanning $HOME.
       if (query === undefined || query.startsWith("~") || query.startsWith("/"))
         return delegate();

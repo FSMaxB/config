@@ -1,0 +1,1099 @@
+{
+  "extensions/cache-debug/analysis.test.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 19
+    },
+    "local/step-down": {
+      "count": 4
+    }
+  },
+  "extensions/cache-debug/analysis.ts": {
+    "@typescript-eslint/no-magic-numbers": {
+      "count": 3
+    },
+    "local/step-down": {
+      "count": 9
+    }
+  },
+  "extensions/cache-debug/fingerprint.test.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    },
+    "local/step-down": {
+      "count": 1
+    },
+    "unicorn/no-null": {
+      "count": 1
+    }
+  },
+  "extensions/cache-debug/fingerprint.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 3
+    }
+  },
+  "extensions/cache-debug/log-file.test.ts": {
+    "local/step-down": {
+      "count": 2
+    }
+  },
+  "extensions/cache-debug/log-file.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    },
+    "@typescript-eslint/no-magic-numbers": {
+      "count": 8
+    },
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/cache-debug/records.test.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    },
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/cache-debug/records.ts": {
+    "local/step-down": {
+      "count": 9
+    }
+  },
+  "extensions/claude-bridge/src/agents-md.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 2
+    }
+  },
+  "extensions/claude-bridge/src/assistant-stream.ts": {
+    "@typescript-eslint/no-magic-numbers": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 34
+    },
+    "local/step-down": {
+      "count": 13
+    },
+    "unicorn/no-null": {
+      "count": 4
+    }
+  },
+  "extensions/claude-bridge/src/auth-presence.ts": {
+    "local/step-down": {
+      "count": 4
+    }
+  },
+  "extensions/claude-bridge/src/billing-identity.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 3
+    },
+    "local/step-down": {
+      "count": 7
+    }
+  },
+  "extensions/claude-bridge/src/bridge-commands.ts": {
+    "local/step-down": {
+      "count": 2
+    }
+  },
+  "extensions/claude-bridge/src/bridge-state.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 4
+    },
+    "@typescript-eslint/no-magic-numbers": {
+      "count": 4
+    },
+    "local/step-down": {
+      "count": 12
+    },
+    "unicorn/no-null": {
+      "count": 1
+    }
+  },
+  "extensions/claude-bridge/src/child-exit.ts": {
+    "local/step-down": {
+      "count": 2
+    }
+  },
+  "extensions/claude-bridge/src/claude-executable.ts": {
+    "@typescript-eslint/no-magic-numbers": {
+      "count": 20
+    },
+    "@typescript-eslint/prefer-nullish-coalescing": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 13
+    }
+  },
+  "extensions/claude-bridge/src/claude-failure.ts": {
+    "@typescript-eslint/no-magic-numbers": {
+      "count": 12
+    },
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/claude-bridge/src/config.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "@typescript-eslint/prefer-nullish-coalescing": {
+      "count": 2
+    },
+    "local/step-down": {
+      "count": 20
+    }
+  },
+  "extensions/claude-bridge/src/consume-query.ts": {
+    "@typescript-eslint/no-magic-numbers": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 4
+    },
+    "@typescript-eslint/prefer-nullish-coalescing": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 4
+    }
+  },
+  "extensions/claude-bridge/src/convert.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 4
+    },
+    "local/step-down": {
+      "count": 8
+    }
+  },
+  "extensions/claude-bridge/src/debug.ts": {
+    "@typescript-eslint/no-magic-numbers": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "@typescript-eslint/prefer-nullish-coalescing": {
+      "count": 2
+    },
+    "local/step-down": {
+      "count": 2
+    }
+  },
+  "extensions/claude-bridge/src/extract-tool-results.ts": {
+    "local/step-down": {
+      "count": 3
+    }
+  },
+  "extensions/claude-bridge/src/flat-edit.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/claude-bridge/src/index.ts": {
+    "@typescript-eslint/no-magic-numbers": {
+      "count": 18
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 8
+    },
+    "@typescript-eslint/prefer-nullish-coalescing": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 14
+    },
+    "unicorn/no-null": {
+      "count": 3
+    }
+  },
+  "extensions/claude-bridge/src/json-value.ts": {
+    "local/step-down": {
+      "count": 2
+    }
+  },
+  "extensions/claude-bridge/src/models.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 4
+    },
+    "local/step-down": {
+      "count": 3
+    }
+  },
+  "extensions/claude-bridge/src/native-provider.ts": {
+    "local/step-down": {
+      "count": 2
+    }
+  },
+  "extensions/claude-bridge/src/pi-ai-compat.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 2
+    }
+  },
+  "extensions/claude-bridge/src/prompt-context.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 7
+    }
+  },
+  "extensions/claude-bridge/src/query-options.ts": {
+    "@typescript-eslint/prefer-nullish-coalescing": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 5
+    }
+  },
+  "extensions/claude-bridge/src/query-state.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 2
+    },
+    "local/step-down": {
+      "count": 24
+    }
+  },
+  "extensions/claude-bridge/src/query-teardown.ts": {
+    "local/step-down": {
+      "count": 2
+    }
+  },
+  "extensions/claude-bridge/src/rate-limit.ts": {
+    "@typescript-eslint/no-magic-numbers": {
+      "count": 6
+    },
+    "local/step-down": {
+      "count": 4
+    }
+  },
+  "extensions/claude-bridge/src/request-lane.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 2
+    },
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/claude-bridge/src/sdk-query.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 2
+    }
+  },
+  "extensions/claude-bridge/src/session-persistence.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 3
+    },
+    "@typescript-eslint/no-magic-numbers": {
+      "count": 17
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 23
+    },
+    "unicorn/no-null": {
+      "count": 2
+    }
+  },
+  "extensions/claude-bridge/src/session-verify.ts": {
+    "@typescript-eslint/no-magic-numbers": {
+      "count": 2
+    },
+    "@typescript-eslint/prefer-nullish-coalescing": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 3
+    }
+  },
+  "extensions/claude-bridge/src/stream-idle-watchdog.ts": {
+    "@typescript-eslint/no-magic-numbers": {
+      "count": 9
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    },
+    "local/step-down": {
+      "count": 6
+    }
+  },
+  "extensions/claude-bridge/src/tool-isolation.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/claude-bridge/src/tool-mapping.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    },
+    "local/step-down": {
+      "count": 2
+    },
+    "unicorn/no-null": {
+      "count": 1
+    }
+  },
+  "extensions/claude-bridge/src/tool-pairing-audit.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 5
+    },
+    "local/step-down": {
+      "count": 5
+    }
+  },
+  "extensions/claude-bridge/src/tool-server.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 4
+    },
+    "@typescript-eslint/no-deprecated": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 3
+    }
+  },
+  "extensions/claude-bridge/src/tree-resume.ts": {
+    "@typescript-eslint/no-magic-numbers": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 3
+    }
+  },
+  "extensions/context.ts": {
+    "@typescript-eslint/no-magic-numbers": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 1
+    },
+    "unicorn/no-null": {
+      "count": 1
+    }
+  },
+  "extensions/crit.ts": {
+    "@typescript-eslint/no-magic-numbers": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 3
+    }
+  },
+  "extensions/files.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/foreign-thinking/policy.test.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 4
+    }
+  },
+  "extensions/foreign-thinking/policy.ts": {
+    "local/step-down": {
+      "count": 6
+    }
+  },
+  "extensions/fuzzy-files.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "@typescript-eslint/prefer-nullish-coalescing": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 1
+    },
+    "unicorn/no-null": {
+      "count": 2
+    }
+  },
+  "extensions/i-have-adhd/context-compat.ts": {
+    "local/step-down": {
+      "count": 2
+    }
+  },
+  "extensions/i-have-adhd/context-sync.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/i-have-adhd/index.ts": {
+    "local/step-down": {
+      "count": 6
+    }
+  },
+  "extensions/lib/agent-mode.ts": {
+    "local/step-down": {
+      "count": 4
+    }
+  },
+  "extensions/lib/completions.ts": {
+    "unicorn/no-null": {
+      "count": 1
+    }
+  },
+  "extensions/lib/context-messages.test.ts": {
+    "unicorn/no-null": {
+      "count": 1
+    }
+  },
+  "extensions/lib/context-messages.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/lib/default-model.ts": {
+    "local/step-down": {
+      "count": 2
+    }
+  },
+  "extensions/lib/exec.test.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 2
+    },
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/lib/exec.ts": {
+    "@typescript-eslint/no-magic-numbers": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/lib/file-lock.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "extensions/lib/format.ts": {
+    "@typescript-eslint/no-magic-numbers": {
+      "count": 7
+    }
+  },
+  "extensions/lib/grep-collector.test.ts": {
+    "local/step-down": {
+      "count": 2
+    }
+  },
+  "extensions/lib/grep-collector.ts": {
+    "local/step-down": {
+      "count": 6
+    }
+  },
+  "extensions/lib/lines.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/lib/mode-context.test.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 7
+    }
+  },
+  "extensions/lib/mode-entry.ts": {
+    "local/step-down": {
+      "count": 6
+    }
+  },
+  "extensions/lib/mode-messages.test.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "extensions/lib/mode-messages.ts": {
+    "local/step-down": {
+      "count": 4
+    }
+  },
+  "extensions/lib/mode-policy.test.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "extensions/lib/mode-policy.ts": {
+    "local/step-down": {
+      "count": 5
+    }
+  },
+  "extensions/lib/model-defaults.test.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    }
+  },
+  "extensions/lib/panes.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/lib/path-permission-rules.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    },
+    "@typescript-eslint/no-magic-numbers": {
+      "count": 2
+    },
+    "local/step-down": {
+      "count": 27
+    }
+  },
+  "extensions/lib/path-permission-snapshot.ts": {
+    "@typescript-eslint/no-magic-numbers": {
+      "count": 3
+    },
+    "local/step-down": {
+      "count": 2
+    }
+  },
+  "extensions/lib/path-permissions.test.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "extensions/lib/path-permissions.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 12
+    }
+  },
+  "extensions/lib/path-preflight.test.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    }
+  },
+  "extensions/lib/path-preflight.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/lib/path-resolution.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "extensions/lib/path-rule-commands.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 2
+    }
+  },
+  "extensions/lib/path-rule-store.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/lib/paths-command.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/lib/permission-choices.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/lib/permission-prompt.test.ts": {
+    "local/step-down": {
+      "count": 3
+    }
+  },
+  "extensions/lib/permission-prompt.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 8
+    }
+  },
+  "extensions/lib/plan-commit.test.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 2
+    }
+  },
+  "extensions/lib/plan-commit.ts": {
+    "local/step-down": {
+      "count": 6
+    }
+  },
+  "extensions/lib/plan-file.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/lib/plan-mode-policy.ts": {
+    "local/step-down": {
+      "count": 2
+    }
+  },
+  "extensions/lib/plan-submission.test.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 6
+    },
+    "unicorn/no-null": {
+      "count": 2
+    }
+  },
+  "extensions/lib/plan-submission.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/lib/register-tool.test.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 2
+    }
+  },
+  "extensions/lib/repo.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/lib/restricted-mode.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 6
+    }
+  },
+  "extensions/lib/sandbox-state.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 2
+    }
+  },
+  "extensions/lib/search-binaries.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/lib/search-tools.smoke.ts": {
+    "@typescript-eslint/no-magic-numbers": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "extensions/lib/search-tools.ts": {
+    "local/step-down": {
+      "count": 8
+    }
+  },
+  "extensions/lib/select-details.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/lib/select-with-default.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/lib/session-empty.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/lib/session-grants.test.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/lib/session-grants.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 4
+    }
+  },
+  "extensions/lib/skill-index.ts": {
+    "local/step-down": {
+      "count": 5
+    }
+  },
+  "extensions/lib/tool-permission-policy.test.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    }
+  },
+  "extensions/lib/tool-permission-policy.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "extensions/lib/tuicr-session.test.ts": {
+    "local/step-down": {
+      "count": 2
+    }
+  },
+  "extensions/lib/tuicr-session.ts": {
+    "local/step-down": {
+      "count": 3
+    }
+  },
+  "extensions/pause/gate.ts": {
+    "local/step-down": {
+      "count": 2
+    }
+  },
+  "extensions/plan-mode.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 6
+    },
+    "local/step-down": {
+      "count": 1
+    },
+    "unicorn/no-null": {
+      "count": 4
+    }
+  },
+  "extensions/question.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 3
+    },
+    "@typescript-eslint/prefer-nullish-coalescing": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 4
+    }
+  },
+  "extensions/sandbox/src/bypass.test.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    }
+  },
+  "extensions/sandbox/src/bypass.ts": {
+    "local/step-down": {
+      "count": 4
+    }
+  },
+  "extensions/sandbox/src/call-line.ts": {
+    "local/step-down": {
+      "count": 3
+    }
+  },
+  "extensions/sandbox/src/escape.test.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/sandbox/src/extension.ts": {
+    "local/step-down": {
+      "count": 4
+    }
+  },
+  "extensions/sandbox/src/integration.test.ts": {
+    "local/step-down": {
+      "count": 3
+    }
+  },
+  "extensions/sandbox/src/log-stream.ts": {
+    "local/step-down": {
+      "count": 3
+    }
+  },
+  "extensions/sandbox/src/network-grants.ts": {
+    "local/step-down": {
+      "count": 9
+    }
+  },
+  "extensions/sandbox/src/platform.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/sandbox/src/policy.test.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 3
+    }
+  },
+  "extensions/sandbox/src/policy.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 2
+    },
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/sandbox/src/profile-activation.test.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/sandbox/src/profile-activation.ts": {
+    "local/step-down": {
+      "count": 7
+    },
+    "unicorn/no-null": {
+      "count": 1
+    }
+  },
+  "extensions/sandbox/src/profile-command.test.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 3
+    }
+  },
+  "extensions/sandbox/src/profile-command.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 4
+    },
+    "local/step-down": {
+      "count": 2
+    },
+    "unicorn/no-null": {
+      "count": 1
+    }
+  },
+  "extensions/sandbox/src/profile-grants.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/sandbox/src/profile-triggers.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/sandbox/src/profiles.test.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/sandbox/src/profiles.ts": {
+    "local/step-down": {
+      "count": 9
+    }
+  },
+  "extensions/sandbox/src/recorder.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 3
+    }
+  },
+  "extensions/sandbox/src/recording.test.ts": {
+    "local/step-down": {
+      "count": 2
+    }
+  },
+  "extensions/sandbox/src/recording.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 4
+    }
+  },
+  "extensions/sandbox/src/scratch.test.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/sandbox/src/settings-values.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/sandbox/src/settings.test.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/sandbox/src/settings.ts": {
+    "local/step-down": {
+      "count": 4
+    }
+  },
+  "extensions/sandbox/src/shell.ts": {
+    "local/step-down": {
+      "count": 4
+    }
+  },
+  "extensions/sandbox/src/trace-profile.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "extensions/sandbox/src/vcs-policy.test.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 2
+    }
+  },
+  "extensions/sandbox/src/vcs-policy.ts": {
+    "local/step-down": {
+      "count": 6
+    }
+  },
+  "extensions/sandbox/src/violation-collector.ts": {
+    "local/step-down": {
+      "count": 4
+    }
+  },
+  "extensions/sandbox/src/violation-outcomes.ts": {
+    "local/step-down": {
+      "count": 3
+    }
+  },
+  "extensions/sandbox/src/violations.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 2
+    }
+  },
+  "extensions/set-session-name.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/sidebar/index.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/sidebar/panel.ts": {
+    "@typescript-eslint/no-magic-numbers": {
+      "count": 1
+    },
+    "local/step-down": {
+      "count": 5
+    }
+  },
+  "extensions/sidebar/skills.ts": {
+    "local/step-down": {
+      "count": 2
+    }
+  },
+  "extensions/sidebar/visibility.test.ts": {
+    "unicorn/no-null": {
+      "count": 1
+    }
+  },
+  "extensions/sidebar/visibility.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/subagent/agents.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/subagent/exit-watchdog.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/subagent/index.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 2
+    },
+    "@typescript-eslint/no-magic-numbers": {
+      "count": 17
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 11
+    },
+    "@typescript-eslint/prefer-nullish-coalescing": {
+      "count": 13
+    },
+    "local/step-down": {
+      "count": 11
+    }
+  },
+  "extensions/subagent/mode-restrictions.ts": {
+    "local/step-down": {
+      "count": 1
+    }
+  },
+  "extensions/subagent/model-policy.ts": {
+    "local/step-down": {
+      "count": 2
+    }
+  },
+  "extensions/subagent/results.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 3
+    },
+    "local/step-down": {
+      "count": 2
+    }
+  },
+  "extensions/tuicr.ts": {
+    "@typescript-eslint/no-magic-numbers": {
+      "count": 5
+    },
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 4
+    },
+    "local/step-down": {
+      "count": 2
+    }
+  }
+}

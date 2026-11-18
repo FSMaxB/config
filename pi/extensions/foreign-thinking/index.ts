@@ -30,8 +30,8 @@ export default function foreignThinkingExtension(pi: ExtensionAPI): void {
 
   pi.registerCommand("foreign-thinking", {
     description: "Show or override for this session how thinking from other models is sent",
-    handler: async (args, context) => {
-      const argument = args.trim().toLowerCase();
+    handler: async (commandArguments, context) => {
+      const argument = commandArguments.trim().toLowerCase();
       if (argument === "") {
         context.ui.notify(describeState(config, override), "info");
         return;

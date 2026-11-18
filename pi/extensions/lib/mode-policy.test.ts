@@ -186,6 +186,6 @@ function stores({
 }: {
   session?: [string, string | undefined][];
   always?: [string, string | undefined][];
-}) {
+}): { sessionDenials: Map<string, string | undefined>; alwaysDenials: Map<string, string | undefined> } {
   return { sessionDenials: new Map(session), alwaysDenials: new Map(always) };
 }

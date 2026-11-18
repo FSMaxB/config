@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ItemTone } from "./panel.ts";
 import { LOADED_PLAN_ENTRY, planItems, planPathForToolPath, plansOnBranch, withPlan } from "./plans.ts";
-import type { RealPath } from "../lib/tool-path.ts";
 
 const root = "/home/u/.pi/agent/plans";
 const plan = `${root}/Users-u-config/20261116-1401-sidebar.md`;
@@ -10,7 +9,6 @@ const plan = `${root}/Users-u-config/20261116-1401-sidebar.md`;
 const links: Record<string, string> = {
   "/home/u/link.md": plan,
 };
-const realPath: RealPath = (path) => links[path] ?? path;
 
 test("planPathForToolPath returns the path of a Markdown file in a cwd-slug directory", () => {
   // arrange
@@ -108,3 +106,7 @@ test("planItems shows the filename without the extension", () => {
   // assert
   assert.deepEqual(items, [{ text: "20261116-1401-sidebar", depth: 0, tone: ItemTone.Normal }]);
 });
+
+function realPath(path: string): string {
+  return links[path] ?? path;
+}

@@ -43,12 +43,14 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("before_provider_request", async (event, context) => {
+    // ExtensionContext types the model as Model<any>, which makes its api an any.
+    const modelApi: unknown = context.model?.api;
     safely(() =>
       tracker.request({
         sessionId: context.sessionManager.getSessionId(),
         provider: context.model?.provider ?? "unknown",
         model: context.model?.id ?? "unknown",
-        api: context.model?.api ?? "unknown",
+        api: typeof modelApi === "string" ? modelApi : "unknown",
         at: new Date(),
         payload: fingerprintPayload(event.payload),
       }),
@@ -87,9 +89,9 @@ export default function (pi: ExtensionAPI): void {
 
   pi.registerCommand("cache-debug", {
     description: "Show the prompt-cache report for this session or another session id (--all lists every request)",
-    handler: async (args, context) => {
+    handler: async (commandArguments, context) => {
       await writer.flush();
-      const { verbosity, target } = parseReportArguments(args.trim().split(/\s+/).filter(Boolean));
+      const { verbosity, target } = parseReportArguments(commandArguments.trim().split(/\s+/).filter(Boolean));
       const sessionId = target ?? context.sessionManager.getSessionId();
       const report = renderReport(analyze(await readLog(logFilePath(directory, sessionId))), verbosity);
       const problems = [writer.lastError, errors.last].filter(Boolean).map((message) => `Logging error: ${message}`);

@@ -100,6 +100,9 @@ function findByName(index: SkillIndex, name: string): Skill | undefined {
 function firstText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
-  const block = content.find((item) => item?.type === "text" && typeof item.text === "string");
-  return block?.text ?? "";
+  const blocks: readonly unknown[] = content;
+  for (const block of blocks) {
+    if (isRecord(block) && block.type === "text" && typeof block.text === "string") return block.text;
+  }
+  return "";
 }

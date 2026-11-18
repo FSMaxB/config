@@ -173,10 +173,10 @@ async function callerCommands(
 function run(
   pi: ExtensionAPI,
   command: string,
-  args: readonly string[],
+  commandArguments: readonly string[],
   signal: AbortSignal | undefined,
 ): Promise<string> {
-  return execChecked(pi, command, args, { signal, timeout: TIMEOUT });
+  return execChecked(pi, command, commandArguments, { signal, timeout: TIMEOUT });
 }
 
 export function shellQuote(value: string): string {

@@ -33,7 +33,7 @@ function parseDurationLiteralMs(value: string, defaultUnit: "ms" | "s" = "s"): n
 	const text = value.trim().toLowerCase();
 	if (!text) return undefined;
 	if (["off", "false", "disabled", "disable"].includes(text)) return 0;
-	const match = text.match(/^(\d+(?:\.\d+)?)\s*(ms|msec|msecs|milliseconds?|s|sec|secs|seconds?|m|min|mins|minutes?)?$/i);
+	const match = /^(\d+(?:\.\d+)?)\s*(ms|msec|msecs|milliseconds?|s|sec|secs|seconds?|m|min|mins|minutes?)?$/i.exec(text);
 	if (!match) return undefined;
 	const amount = Number(match[1]);
 	if (!Number.isFinite(amount) || amount < 0) return undefined;
@@ -50,7 +50,7 @@ function parseDurationLiteralMs(value: string, defaultUnit: "ms" | "s" = "s"): n
 	return Number.isFinite(ms) ? ms : undefined;
 }
 
-export function streamIdleTimeoutMsFromEnv(environment: NodeJS.ProcessEnv = process.env): number {
+export function streamIdleTimeoutMsFromEnvironment(environment: NodeJS.ProcessEnv = process.env): number {
 	const raw = environment[STREAM_IDLE_TIMEOUT_ENV]?.trim();
 	if (!raw) return DEFAULT_STREAM_IDLE_TIMEOUT_MS;
 	return parseDurationLiteralMs(raw, "s") ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS;

@@ -88,7 +88,7 @@ export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): Bu
 
 	// The default prompt mode avoids filesystem settings. When users opt into
 	// settings, strict MCP config still prevents auto-discovered MCP servers.
-	const settingSources = settingSourcesForQuery(appendSystemPrompt, providerSettings.settingSources);
+	const settingSources = settingSourcesForQuery(appendSystemPrompt ? "append" : "omit", providerSettings.settingSources);
 	// Prefer the model's own thinkingLevelMap when present (pi-ai 0.72+ ships
 	// per-model overrides — e.g. opus-4-8 wants xhigh→xhigh, not xhigh→max).
 	// Fall back to our generic table for older pi-ai or unmapped levels.
@@ -98,14 +98,14 @@ export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): Bu
 		: undefined;
 	const effort = resolveConfiguredEffort(requestedModel.id, requestedEffort, providerSettings);
 
-	const extraArgs: Record<string, string | null> = {};
+	const extraArguments: Record<string, string | null> = {};
 	// Opus 4.7 defaults thinking.display to "omitted" (empty thinking text in stream).
 	// Force summarized so thinking_delta events arrive.
 	// Deliberately the raw flag, NOT the typed `thinking` option: every non-disabled
 	// ThinkingConfig also emits `--thinking adaptive` or `--max-thinking-tokens`
 	// (verified in sdk.mjs flag mapping), so the typed form cannot set display
 	// without overriding the model's thinking mode alongside our `--effort`.
-	if (effort) extraArgs["thinking-display"] = "summarized";
+	if (effort) extraArguments["thinking-display"] = "summarized";
 	const fallbackModel = fallbackModelForPrimaryModel(requestedModel.id);
 
 	// Suppress claude.ai cloud MCP servers (Figma/Canva/etc. auto-discovered via OAuth
@@ -133,7 +133,7 @@ export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): Bu
 		systemPrompt: systemPromptMode === "verbatim" && systemPrompt
 			? systemPrompt
 			: { type: "preset", preset: "claude_code", append: systemPromptAppend ? systemPromptAppend : undefined },
-		extraArgs,
+		extraArgs: extraArguments,
 		...(effort ? { effort } : {}),
 		...(settingSources ? { settingSources } : {}),
 		...(resumeSessionId ? { resume: resumeSessionId, ...(forkAt ? { resumeSessionAt: forkAt, forkSession: true } : {}) } : {}),
@@ -161,6 +161,6 @@ export function systemPromptModeForQuery(tools: readonly Tool[], systemPrompt: s
 	return tools.length === 0 && systemPrompt ? "verbatim" : "claude-code-preset";
 }
 
-export function settingSourcesForQuery(appendSystemPrompt: boolean, configured?: readonly SettingSource[]): SettingSource[] | undefined {
-	return appendSystemPrompt ? undefined : configured === undefined ? ["user", "project"] : [...configured];
+export function settingSourcesForQuery(promptAppend: "append" | "omit", configured?: readonly SettingSource[]): SettingSource[] | undefined {
+	return promptAppend === "append" ? undefined : configured === undefined ? ["user", "project"] : [...configured];
 }

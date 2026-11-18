@@ -88,7 +88,9 @@ export function createRpcHarness(opts) {
 					const msg = JSON.parse(line);
 					if (!stopped) rpcLog.write(`< ${line}\n`);
 					for (const fn of [...listeners]) fn(msg);
-				} catch {}
+				} catch {
+					// A line that is not JSON, or a listener that throws, must not stop the reader.
+				}
 			}
 		});
 	}

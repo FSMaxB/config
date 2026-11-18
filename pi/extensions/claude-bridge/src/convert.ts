@@ -31,10 +31,11 @@ export function mapPiToolNameToSdk(name: string, customToolNameToSdk?: ReadonlyM
 }
 
 export function messageContentToText(
-	content: string | ReadonlyArray<{ type: string; text?: string; data?: string; mimeType?: string }>,
+	content: string | readonly { type: string; text?: string; data?: string; mimeType?: string }[],
 ): string {
 	if (typeof content === "string") return content;
-	if (!Array.isArray(content)) return "";
+	const blocks: unknown = content;
+	if (!Array.isArray(blocks)) return "";
 	const parts = [];
 	let hasText = false;
 	for (const block of content) {
@@ -127,8 +128,8 @@ export function convertPiMessages(
 		});
 	};
 
-	for (let i = 0; i < messages.length; i++) {
-		const message = messages[i];
+	for (let index = 0; index < messages.length; index++) {
+		const message = messages[index];
 		// Pi 0.86+ records prompt and tool-set changes as system messages. Claude
 		// Code owns its own system prompt and receives Pi's current prompt-derived
 		// append with every query, so a system message has no record to import.
@@ -169,9 +170,9 @@ export function convertPiMessages(
 			if (hasToolUse(message)) {
 				const toolMessages: ToolResultMessage[] = [];
 				const interleavedUsers: UserMessage[] = [];
-				let j = i + 1;
-				for (; j < messages.length; j++) {
-					const next = messages[j];
+				let nextIndex = index + 1;
+				for (; nextIndex < messages.length; nextIndex++) {
+					const next = messages[nextIndex];
 					if (next.role === "assistant") break;
 					if (next.role === "toolResult") toolMessages.push(next);
 					else if (next.role === "user") interleavedUsers.push(next);
@@ -181,15 +182,15 @@ export function convertPiMessages(
 				if (toolMessages.length > 0) {
 					pushToolResultGroup(toolMessages);
 					for (const userMessage of interleavedUsers) anthropicMessages.push(userMessageToAnthropic(userMessage));
-					i = j - 1;
+					index = nextIndex - 1;
 				}
 			}
 		} else if (message.role === "toolResult") {
 			const blocks: ContentBlock[] = [];
-			for (; i < messages.length; i++) {
-				const toolMsg = messages[i];
-				if (toolMsg.role !== "toolResult") { i--; break; }
-				blocks.push(toolResultToAnthropicBlock(toolMsg, sanitizedIds));
+			for (; index < messages.length; index++) {
+				const toolMessage = messages[index];
+				if (toolMessage.role !== "toolResult") { index--; break; }
+				blocks.push(toolResultToAnthropicBlock(toolMessage, sanitizedIds));
 			}
 			anthropicMessages.push({ role: "user", content: blocks });
 		}

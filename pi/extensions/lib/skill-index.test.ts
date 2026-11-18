@@ -2,13 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildSkillIndex, skillLoadForReadPath, skillReferenceLabel } from "./skill-index.ts";
 import type { CommandInfo, Skill } from "./skill-index.ts";
-import type { RealPath } from "./tool-path.ts";
 
 const links: Record<string, string> = {
   "/home/u/.pi/agent/skills/vcs/SKILL.md": "/home/u/config/pi/skills/vcs/SKILL.md",
   "/home/u/.pi/agent/skills/vcs/references/a.md": "/home/u/config/pi/skills/vcs/references/a.md",
 };
-const realPath: RealPath = (path) => links[path] ?? path;
 
 const commands: CommandInfo[] = [
   {
@@ -152,3 +150,7 @@ test("skillReferenceLabel drops a leading references/ and a trailing .md only", 
   // assert
   assert.deepEqual(labels, expected);
 });
+
+function realPath(path: string): string {
+  return links[path] ?? path;
+}
