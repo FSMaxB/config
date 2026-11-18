@@ -164,12 +164,6 @@
     "@typescript-eslint/no-magic-numbers": {
       "count": 20
     },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 2
-    },
     "@typescript-eslint/prefer-nullish-coalescing": {
       "count": 1
     },
@@ -235,9 +229,6 @@
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 4
     },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 6
-    },
     "local/step-down": {
       "count": 8
     },
@@ -250,9 +241,6 @@
       "count": 2
     },
     "@typescript-eslint/no-unnecessary-condition": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-call": {
       "count": 1
     },
     "@typescript-eslint/prefer-nullish-coalescing": {
@@ -441,9 +429,6 @@
     "@typescript-eslint/no-unnecessary-template-expression": {
       "count": 1
     },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 23
     },
@@ -457,12 +442,6 @@
   "extensions/claude-bridge/src/session-verify.ts": {
     "@typescript-eslint/no-magic-numbers": {
       "count": 2
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 4
     },
     "@typescript-eslint/prefer-nullish-coalescing": {
       "count": 1

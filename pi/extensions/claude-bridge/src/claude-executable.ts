@@ -230,7 +230,7 @@ export function spawnClaudeCodeWithDiagnostics(options: SpawnOptions): SpawnedPr
 		windowsHide: true,
 	});
 	if (pipeStderr) {
-		child.stderr?.on("data", (data) => {
+		child.stderr?.on("data", (data: Buffer) => {
 			for (const line of data.toString().split(/\r?\n/)) {
 				if (line) debug(`[cli-stderr spawn] ${line}`);
 			}

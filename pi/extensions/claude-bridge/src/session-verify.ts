@@ -5,6 +5,7 @@
 import { closeSync, openSync, readSync, statSync } from "node:fs";
 import { StringDecoder } from "node:string_decoder";
 import { errorMessage } from "../../lib/errors.ts";
+import { isRecord, stringProperty } from "../../lib/untyped.ts";
 
 interface JsonlSummary {
 	count: number;
@@ -76,13 +77,17 @@ export function verifyWrittenSession(jsonlPath: string, expectedSessionId: strin
 		return warnings;
 	}
 	try {
-		const firstRec = JSON.parse(summary.firstLine ?? "");
-		const lastRec = JSON.parse(summary.lastLine ?? "");
-		if (firstRec.sessionId !== expectedSessionId || lastRec.sessionId !== expectedSessionId) {
-			warnings.push(`session-id-drift=${expectedSessionId} first=${firstRec.sessionId} last=${lastRec.sessionId}\nSession identity differs from the expected identity.`);
+		const firstSessionId = sessionIdOf(JSON.parse(summary.firstLine ?? ""));
+		const lastSessionId = sessionIdOf(JSON.parse(summary.lastLine ?? ""));
+		if (firstSessionId !== expectedSessionId || lastSessionId !== expectedSessionId) {
+			warnings.push(`session-id-drift=${expectedSessionId} first=${firstSessionId ?? "none"} last=${lastSessionId ?? "none"}\nSession identity differs from the expected identity.`);
 		}
 	} catch (error) {
 		warnings.push(`session-json-invalid=${jsonlPath}\nMalformed JSONL: ${errorMessage(error)}`);
 	}
 	return warnings;
+}
+
+function sessionIdOf(record: unknown): string | undefined {
+	return isRecord(record) ? stringProperty(record, "sessionId") : undefined;
 }

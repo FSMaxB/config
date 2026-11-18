@@ -179,10 +179,10 @@ function readBuiltSessionContext(sessionManager: SessionManagerView | undefined)
 }
 
 function latestPersistedBridgeSession(sessionManager: SessionManagerView | undefined): PersistedBridgeSessionState | undefined {
-	const entries = typeof sessionManager?.getEntries === "function" ? sessionManager.getEntries() : [];
+	const entries: unknown = typeof sessionManager?.getEntries === "function" ? sessionManager.getEntries() : [];
 	if (!Array.isArray(entries)) return undefined;
 	for (let i = entries.length - 1; i >= 0; i--) {
-		const entry = entries[i];
+		const entry: unknown = entries[i];
 		if (!isRecord(entry) || entry.type !== "custom" || entry.customType !== BRIDGE_SESSION_CUSTOM_TYPE) continue;
 		const persisted = parsePersistedBridgeSession(entry.data);
 		if (persisted) return persisted;

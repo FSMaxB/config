@@ -34,7 +34,8 @@ export function messageContentToText(
 	content: string | ReadonlyArray<{ type: string; text?: string; data?: string; mimeType?: string }>,
 ): string {
 	if (typeof content === "string") return content;
-	if (!Array.isArray(content)) return "";
+	const blocks: unknown = content;
+	if (!Array.isArray(blocks)) return "";
 	const parts = [];
 	let hasText = false;
 	for (const block of content) {
