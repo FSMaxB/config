@@ -43,12 +43,14 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("before_provider_request", async (event, context) => {
+    // ExtensionContext types the model as Model<any>, which makes its api an any.
+    const modelApi: unknown = context.model?.api;
     safely(() =>
       tracker.request({
         sessionId: context.sessionManager.getSessionId(),
         provider: context.model?.provider ?? "unknown",
         model: context.model?.id ?? "unknown",
-        api: context.model?.api ?? "unknown",
+        api: typeof modelApi === "string" ? modelApi : "unknown",
         at: new Date(),
         payload: fingerprintPayload(event.payload),
       }),

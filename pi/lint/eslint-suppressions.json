@@ -33,17 +33,11 @@
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 1
     },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 3
     }
   },
   "extensions/cache-debug/index.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
     "unicorn/name-replacements": {
       "count": 1
     }
@@ -672,9 +666,6 @@
     }
   },
   "extensions/i-have-adhd/context-compat.ts": {
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 2
-    },
     "local/step-down": {
       "count": 2
     }
@@ -785,25 +776,7 @@
     "@typescript-eslint/consistent-type-assertions": {
       "count": 8
     },
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 3
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 4
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 4
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
-    },
-    "local/step-down": {
       "count": 1
     },
     "no-restricted-syntax": {
@@ -889,12 +862,6 @@
   "extensions/lib/path-permissions.test.ts": {
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 1
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
     }
   },
   "extensions/lib/path-permissions.ts": {
@@ -917,12 +884,6 @@
     }
   },
   "extensions/lib/path-preflight.ts": {
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
-    },
-    "@typescript-eslint/use-unknown-in-catch-callback-variable": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 1
     },
@@ -1085,15 +1046,6 @@
     }
   },
   "extensions/lib/search-tools.ts": {
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
-    },
-    "@typescript-eslint/restrict-plus-operands": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 8
     },
@@ -1557,15 +1509,6 @@
     }
   },
   "extensions/sidebar/skills.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 3
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 2
     }
@@ -1606,23 +1549,8 @@
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 11
     },
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 2
-    },
     "@typescript-eslint/prefer-nullish-coalescing": {
       "count": 13
-    },
-    "@typescript-eslint/restrict-plus-operands": {
-      "count": 1
     },
     "local/step-down": {
       "count": 11

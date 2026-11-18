@@ -258,19 +258,12 @@ test("the prepare hook runs before the snapshot is computed", async () => {
   assert.equal(latestSnapshotContent(request), fixture.render({ mode: AgentMode.Planning }));
 });
 
-interface Message {
-  role: string;
-  customType?: string;
-  content?: unknown;
-  display?: boolean;
-}
-
 // Mirrors the parts of Pi's session the hooks depend on: custom messages sent while streaming
 // wait for the tool results, requests are built from the persisted messages, and the fake API
 // has no setActiveTools or prompt access, so touching them would throw.
 function fakeSession(initial: Partial<ModeSnapshot>, prepare: (state: ModeSnapshot) => void = () => undefined) {
   const state: ModeSnapshot = { ...baseSnapshot(), ...initial };
-  const handlers: Record<string, (event: any, context: ExtensionContext) => Promise<any>> = {};
+  const handlers: Record<string, Hook> = {};
   const sent: { message: Message; options: unknown }[] = [];
   const context = {} as ExtensionContext;
   const fixture = {
@@ -370,4 +363,18 @@ function baseSnapshot(): ModeSnapshot {
 
 function snapshotCount(messages: Message[]): number {
   return messages.filter((message) => message.customType === "agent-mode-state").length;
+}
+
+type Hook = (event: Record<string, unknown>, context: ExtensionContext) => Promise<HookResult | undefined>;
+
+interface HookResult {
+  message?: Omit<Message, "role">;
+  messages?: Message[];
+}
+
+interface Message {
+  role: string;
+  customType?: string;
+  content?: unknown;
+  display?: boolean;
 }

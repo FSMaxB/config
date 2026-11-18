@@ -416,7 +416,7 @@ function runLines(
     };
     signal?.addEventListener("abort", onAbort, { once: true });
 
-    child.stderr.on("data", (chunk) => {
+    child.stderr.on("data", (chunk: Buffer) => {
       stderr += chunk.toString();
     });
     lineReader.on("line", (line) => {

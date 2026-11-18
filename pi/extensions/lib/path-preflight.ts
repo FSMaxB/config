@@ -9,7 +9,9 @@ import { insideGitRepository, locateBinary } from "./search-binaries.ts";
 export async function preflightPath(authorization: PathAuthorization, scope: GatedScope, signal?: AbortSignal): Promise<void> {
   if (scope === "root") return;
   const root = authorization.operationPath;
-  const rootStats = await lstat(root).catch((error) => { throw new Error(`Path preflight failed: ${error.message}`); });
+  const rootStats = await lstat(root).catch((error: unknown) => {
+    throw new Error(`Path preflight failed: ${error instanceof Error ? error.message : "unknown error"}`, { cause: error });
+  });
   if (!rootStats.isDirectory()) return;
   const rejected = await firstRejectedEntry(root, scope, authorization, signal);
   if (!rejected) return;

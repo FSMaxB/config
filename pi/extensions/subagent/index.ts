@@ -181,7 +181,7 @@ export default function (pi: ExtensionAPI): void {
             usage: emptyUsage(),
           };
 
-        const allResults: SingleResult[] = new Array(params.tasks.length);
+        const allResults = new Array<SingleResult>(params.tasks.length);
         for (let i = 0; i < params.tasks.length; i++) {
           const taskItem = params.tasks[i];
           const agent = agents.find((candidate) => candidate.name === taskItem.agent);
@@ -658,9 +658,9 @@ async function runSingleAgent(
       };
 
       const splitter = createLineSplitter(processLine);
-      child.stdout.on("data", (data) => splitter.push(data.toString()));
+      child.stdout.on("data", (data: Buffer) => splitter.push(data.toString()));
 
-      child.stderr.on("data", (data) => {
+      child.stderr.on("data", (data: Buffer) => {
         currentResult.stderr += data.toString();
       });
 
@@ -850,7 +850,7 @@ async function mapWithConcurrencyLimit<TIn, TOut>(
   mapper: (item: TIn, index: number) => Promise<TOut>,
 ): Promise<TOut[]> {
   const limit = Math.min(concurrency, items.length);
-  const results: TOut[] = new Array(items.length);
+  const results = new Array<TOut>(items.length);
   let nextIndex = 0;
   const workers = new Array(limit).fill(null).map(async () => {
     while (true) {

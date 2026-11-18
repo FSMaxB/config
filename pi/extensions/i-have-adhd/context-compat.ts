@@ -1,3 +1,5 @@
+import { isRecord } from "../lib/untyped.ts";
+
 export type ContextMessageMarker = Readonly<{
   type?: string;
   role?: string;
@@ -17,13 +19,11 @@ export function contextMessages(
   // caller can safely re-inject the rules instead of breaking session startup.
   try {
     if (typeof compatible.buildSessionContext === "function") {
-      const messages = compatible.buildSessionContext().messages;
-      return Array.isArray(messages) ? messages : [];
+      return markersOf(compatible.buildSessionContext().messages);
     }
 
     if (typeof compatible.buildContextEntries === "function") {
-      const entries = compatible.buildContextEntries();
-      return Array.isArray(entries) ? entries : [];
+      return markersOf(compatible.buildContextEntries());
     }
   } catch {
     return [];
@@ -52,4 +52,13 @@ export function latestMarkerIsActive(
   }
 
   return active;
+}
+
+function markersOf(value: unknown): readonly ContextMessageMarker[] {
+  return Array.isArray(value) ? value.filter(isContextMessageMarker) : [];
+}
+
+function isContextMessageMarker(value: unknown): value is ContextMessageMarker {
+  if (!isRecord(value)) return false;
+  return [value.type, value.role, value.customType].every((field) => field === undefined || typeof field === "string");
 }
