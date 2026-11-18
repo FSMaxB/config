@@ -93,7 +93,7 @@ test("grants at or under a secret are dropped from the sandbox allows", () => {
   assert.ok(!config.allowRead?.includes(`${HOME}/.ssh`));
   assert.ok(!config.allowRead?.includes(`${HOME}/.ssh/keys`));
   assert.ok(!config.allowRead?.includes(`${HOME}/.netrc`));
-  assert.ok(!config.allowWrite?.includes(`${HOME}/.ssh`));
+  assert.ok(!config.allowWrite.includes(`${HOME}/.ssh`));
 });
 
 test("glob grants that can reach a secret are dropped", () => {

@@ -98,7 +98,7 @@ describe("stream-idle timeout", () => {
 			now: () => now,
 			onTimeout: (info) => timeouts.push(info),
 			setTimer: (fn, delayMs) => {
-				const timer = { cancelled: false, delayMs, fn };
+				const timer = { cancelled: false, delayMs, fn, unref() {} };
 				timers.push(timer);
 				return timer;
 			},
@@ -137,7 +137,7 @@ describe("stream-idle timeout", () => {
 			now: () => now,
 			onTimeout: (info) => timeouts.push(info),
 			setTimer: (fn, delayMs) => {
-				timer = { cancelled: false, delayMs, fn };
+				timer = { cancelled: false, delayMs, fn, unref() {} };
 				return timer;
 			},
 			timeoutMs: 1_000,

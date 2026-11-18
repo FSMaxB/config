@@ -59,7 +59,8 @@ export function shortId(id: string): string {
 export function debug(...values: readonly unknown[]): void {
 	if (!DEBUG) return;
 	const ts = new Date().toISOString();
-	const fmt = (a: unknown): string => {
+	// JSON.stringify returns undefined for values it cannot render; safeFmt below handles that case.
+	const fmt = (a: unknown): string | undefined => {
 		if (typeof a === "string") return a;
 		if (a instanceof Error) return `${a.name}: ${a.message}${a.stack ? "\n" + a.stack : ""}`;
 		// A function argument is a lazy payload: hot-path call sites (per-token

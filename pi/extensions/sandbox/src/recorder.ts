@@ -91,6 +91,7 @@ export function createRecorder(dependencies: RecorderDependencies): Recorder {
     const lines: string[] = [];
     const stopStream = await streamAllowedAccesses(tag, (line) => lines.push(line));
     recording = { profile: name, tag, commands: [], lines, stopStream, reviewText: undefined };
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- updateProfile sets created from its update callback
     const extension = created ? ` Set its triggers and PATH with /sandbox-profile edit ${name}.` : "";
     context.ui.notify(
       `Recording profile ${name}. Run the commands with ! or !! (they run outside the sandbox, traced). For bazel, start with !bazel shutdown so the server runs traced. Finish with /sandbox-profile stop.${extension}`,

@@ -130,69 +130,74 @@ export function convertPiMessages(
 
 	for (let index = 0; index < messages.length; index++) {
 		const message = messages[index];
-		// Pi 0.86+ records prompt and tool-set changes as system messages. Claude
-		// Code owns its own system prompt and receives Pi's current prompt-derived
-		// append with every query, so a system message has no record to import.
-		if (message.role === "system") continue;
-		if (message.role === "user") {
-			// Rebuild imports each pi user message as its OWN record. The REUSE path
-			// (extractUserPrompt/extractUserPromptBlocks in index.ts) instead merges a
-			// trailing user run into one "\n\n"-joined prompt — accepted divergence,
-			// see the comment there; the merged form is never re-imported here.
-			anthropicMessages.push(userMessageToAnthropic(message));
-		} else if (message.role === "assistant") {
-			const content = Array.isArray(message.content) ? message.content : [];
-			const blocks: ContentBlock[] = [];
-			const provenance = assistantProvenancePrefix(message);
-			if (provenance) blocks.push({ type: "text", text: provenance });
-			for (const block of content) {
-				if (block.type === "text" && block.text) {
-					blocks.push({ type: "text", text: block.text });
-				} else if (block.type === "thinking") {
-					const sig = block.thinkingSignature;
-					const isAnthropicProvider = message.provider === PROVIDER_ID || isAnthropicApi(message.api);
-					if (isAnthropicProvider && sig) {
-						blocks.push({ type: "thinking", thinking: block.thinking ?? "", signature: sig });
+		switch (message.role) {
+			case "system":
+				// Pi 0.86+ records prompt and tool-set changes as system messages. Claude
+				// Code owns its own system prompt and receives Pi's current prompt-derived
+				// append with every query, so a system message has no record to import.
+				continue;
+			case "user":
+				// Rebuild imports each pi user message as its OWN record. The REUSE path
+				// (extractUserPrompt/extractUserPromptBlocks in index.ts) instead merges a
+				// trailing user run into one "\n\n"-joined prompt — accepted divergence,
+				// see the comment there; the merged form is never re-imported here.
+				anthropicMessages.push(userMessageToAnthropic(message));
+				break;
+			case "assistant": {
+				const content = Array.isArray(message.content) ? message.content : [];
+				const blocks: ContentBlock[] = [];
+				const provenance = assistantProvenancePrefix(message);
+				if (provenance) blocks.push({ type: "text", text: provenance });
+				for (const block of content) {
+					if (block.type === "text" && block.text) {
+						blocks.push({ type: "text", text: block.text });
+					} else if (block.type === "thinking") {
+						const sig = block.thinkingSignature;
+						const isAnthropicProvider = message.provider === PROVIDER_ID || isAnthropicApi(message.api);
+						if (isAnthropicProvider && sig) {
+							blocks.push({ type: "thinking", thinking: block.thinking, signature: sig });
+						}
+					} else if (block.type === "toolCall") {
+						const toolName = mapPiToolNameToSdk(block.name, customToolNameToSdk);
+						blocks.push({ type: "tool_use", id: sanitizeToolId(block.id, sanitizedIds), name: toolName, input: block.arguments });
 					}
-				} else if (block.type === "toolCall") {
-					const toolName = mapPiToolNameToSdk(block.name, customToolNameToSdk);
-					blocks.push({ type: "tool_use", id: sanitizeToolId(block.id, sanitizedIds), name: toolName, input: block.arguments ?? {} });
 				}
-			}
-			if (!blocks.length) blocks.push({ type: "text", text: "[incompatible content omitted]" });
-			anthropicMessages.push({ role: "assistant", content: blocks });
+				if (!blocks.length) blocks.push({ type: "text", text: "[incompatible content omitted]" });
+				anthropicMessages.push({ role: "assistant", content: blocks });
 
-			// Pi may inject steer/followUp user messages between parallel tool
-			// results, while runtime extraction treats every toolResult after the
-			// assistant (until the next assistant) as one turn. Claude history must
-			// put all tool_result blocks immediately after the tool_use assistant;
-			// replay interleaved user text only after that grouped result message.
-			if (hasToolUse(message)) {
-				const toolMessages: ToolResultMessage[] = [];
-				const interleavedUsers: UserMessage[] = [];
-				let nextIndex = index + 1;
-				for (; nextIndex < messages.length; nextIndex++) {
-					const next = messages[nextIndex];
-					if (next.role === "assistant") break;
-					if (next.role === "toolResult") toolMessages.push(next);
-					else if (next.role === "user") interleavedUsers.push(next);
-					else if (next.role === "system") continue;
-					else break;
+				// Pi may inject steer/followUp user messages between parallel tool
+				// results, while runtime extraction treats every toolResult after the
+				// assistant (until the next assistant) as one turn. Claude history must
+				// put all tool_result blocks immediately after the tool_use assistant;
+				// replay interleaved user text only after that grouped result message.
+				if (hasToolUse(message)) {
+					const toolMessages: ToolResultMessage[] = [];
+					const interleavedUsers: UserMessage[] = [];
+					let nextIndex = index + 1;
+					for (; nextIndex < messages.length; nextIndex++) {
+						const next = messages[nextIndex];
+						if (next.role === "assistant") break;
+						if (next.role === "toolResult") toolMessages.push(next);
+						else if (next.role === "user") interleavedUsers.push(next);
+					}
+					if (toolMessages.length > 0) {
+						pushToolResultGroup(toolMessages);
+						for (const userMessage of interleavedUsers) anthropicMessages.push(userMessageToAnthropic(userMessage));
+						index = nextIndex - 1;
+					}
 				}
-				if (toolMessages.length > 0) {
-					pushToolResultGroup(toolMessages);
-					for (const userMessage of interleavedUsers) anthropicMessages.push(userMessageToAnthropic(userMessage));
-					index = nextIndex - 1;
+				break;
+			}
+			case "toolResult": {
+				const blocks: ContentBlock[] = [];
+				for (; index < messages.length; index++) {
+					const toolMessage = messages[index];
+					if (toolMessage.role !== "toolResult") { index--; break; }
+					blocks.push(toolResultToAnthropicBlock(toolMessage, sanitizedIds));
 				}
+				anthropicMessages.push({ role: "user", content: blocks });
+				break;
 			}
-		} else if (message.role === "toolResult") {
-			const blocks: ContentBlock[] = [];
-			for (; index < messages.length; index++) {
-				const toolMessage = messages[index];
-				if (toolMessage.role !== "toolResult") { index--; break; }
-				blocks.push(toolResultToAnthropicBlock(toolMessage, sanitizedIds));
-			}
-			anthropicMessages.push({ role: "user", content: blocks });
 		}
 	}
 

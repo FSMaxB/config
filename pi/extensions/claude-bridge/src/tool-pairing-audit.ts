@@ -55,12 +55,12 @@ export function recoverLaterToolResults(
 ): RecoveredToolResult[] {
 	const recovered: RecoveredToolResult[] = [];
 	for (let index = 0; index < messages.length; index++) {
-		const assistant = messages[index];
+		const assistant = messages.at(index);
 		if (assistant?.role !== "assistant") continue;
 		const uses = toolUses(assistant.content);
 		if (uses.length === 0) continue;
 
-		const target = messages[index + 1];
+		const target = messages.at(index + 1);
 		if (target?.role !== "user") continue;
 		const present = toolResultIds(target.content);
 		const missing = uses.filter((use) => !present.has(use.id));
@@ -70,7 +70,7 @@ export function recoverLaterToolResults(
 			let sourceBlock: Record<string, unknown> | undefined;
 			let sourceUserIndex = -1;
 			for (let laterIndex = index + 2; laterIndex < messages.length; laterIndex++) {
-				const candidate = messages[laterIndex];
+				const candidate = messages.at(laterIndex);
 				if (candidate?.role !== "user") continue;
 				sourceBlock = contentBlocks(candidate.content).find(
 					(block) => block.type === "tool_result" && block.tool_use_id === use.id,
@@ -108,14 +108,15 @@ export function recoverLaterToolResults(
 export function findUnpairedToolUses(messages: readonly { role?: string; content?: unknown }[]): MissingToolResult[] {
 	const missing: MissingToolResult[] = [];
 	for (let index = 0; index < messages.length; index++) {
-		const message = messages[index];
+		const message = messages.at(index);
 		if (message?.role !== "assistant") continue;
 		const uses = toolUses(message.content);
 		if (uses.length === 0) continue;
 
-		const next = messages[index + 1];
-		const nextUserIndex = next?.role === "user" ? index + 1 : undefined;
-		const resultIds = nextUserIndex === undefined ? new Set<string>() : toolResultIds(next.content);
+		const next = messages.at(index + 1);
+		const nextUser = next?.role === "user" ? next : undefined;
+		const nextUserIndex = nextUser === undefined ? undefined : index + 1;
+		const resultIds = nextUser === undefined ? new Set<string>() : toolResultIds(nextUser.content);
 		for (const use of uses) {
 			if (!resultIds.has(use.id)) {
 				missing.push({ id: use.id, toolName: use.name, assistantIndex: index, userIndex: nextUserIndex });

@@ -55,10 +55,10 @@ test("a miss on an exact prefix is a provider miss", () => {
   const findings = analyze(records);
 
   // assert
-  const third = findings[2];
+  const third = findings.at(2);
   assert.equal(third?.verdict, Verdict.ProviderMiss);
-  assert.equal(third?.missedTokens, 21_000);
-  assert.equal(third?.idleMs, 9_000);
+  assert.equal(third.missedTokens, 21_000);
+  assert.equal(third.idleMs, 9_000);
 });
 
 test("a changed earlier message is a prefix change with a located offset", () => {
@@ -71,12 +71,12 @@ test("a changed earlier message is a prefix change with a located offset", () =>
   ];
 
   // act
-  const finding = analyze(records)[2];
+  const finding = analyze(records).at(2);
 
   // assert
   assert.equal(finding?.verdict, Verdict.PrefixChanged);
-  assert.equal(finding?.firstChange?.index, 1);
-  const estimate = finding?.estimatedChangeTokens ?? 0;
+  assert.equal(finding.firstChange?.index, 1);
+  const estimate = finding.estimatedChangeTokens ?? 0;
   assert.ok(estimate > 3_000 && estimate < 9_000, `estimate ${estimate}`);
 });
 
@@ -88,7 +88,7 @@ test("a small drop stays below the noise floor", () => {
   ];
 
   // act
-  const finding = analyze(records)[1];
+  const finding = analyze(records).at(1);
 
   // assert
   assert.equal(finding?.verdict, Verdict.Ok);
@@ -106,9 +106,9 @@ test("a cache warm between two requests is no-usage and only changes parameters"
   const [, warm, next] = analyze(records);
 
   // assert
-  assert.equal(warm?.verdict, Verdict.NoUsage);
-  assert.equal(next?.verdict, Verdict.Ok);
-  assert.deepEqual(next?.changedParameters, ["maxTokens"]);
+  assert.equal(warm.verdict, Verdict.NoUsage);
+  assert.equal(next.verdict, Verdict.Ok);
+  assert.deepEqual(next.changedParameters, ["maxTokens"]);
 });
 
 test("a tagged cache warm is reported as such and neither becomes the comparison baseline nor hides the idle time", () => {
@@ -123,9 +123,9 @@ test("a tagged cache warm is reported as such and neither becomes the comparison
   const [, warm, next] = analyze(records);
 
   // assert
-  assert.equal(warm?.verdict, Verdict.CacheWarm);
-  assert.deepEqual(next?.changedParameters, []);
-  assert.equal(next?.idleMs, 9_000);
+  assert.equal(warm.verdict, Verdict.CacheWarm);
+  assert.deepEqual(next.changedParameters, []);
+  assert.equal(next.idleMs, 9_000);
 });
 
 test("the report counts tagged cache warms", () => {
@@ -152,11 +152,11 @@ test("a cache warm followed by a miss on an exact prefix is a provider miss, not
   ];
 
   // act
-  const finding = analyze(records)[2];
+  const finding = analyze(records).at(2);
 
   // assert
   assert.equal(finding?.verdict, Verdict.ProviderMiss);
-  assert.deepEqual(finding?.changedParameters, ["maxTokens"]);
+  assert.deepEqual(finding.changedParameters, ["maxTokens"]);
 });
 
 test("a compaction marker resets the comparison", () => {
@@ -168,7 +168,7 @@ test("a compaction marker resets the comparison", () => {
   ];
 
   // act
-  const finding = analyze(records)[1];
+  const finding = analyze(records).at(1);
 
   // assert
   assert.equal(finding?.verdict, Verdict.First);
@@ -182,7 +182,7 @@ test("a model change is reported as such", () => {
   ];
 
   // act
-  const finding = analyze(records)[1];
+  const finding = analyze(records).at(1);
 
   // assert
   assert.equal(finding?.verdict, Verdict.ModelChanged);
@@ -196,7 +196,7 @@ test("a miss without a payload is no-payload", () => {
   ];
 
   // act
-  const finding = analyze(records)[1];
+  const finding = analyze(records).at(1);
 
   // assert
   assert.equal(finding?.verdict, Verdict.NoPayload);
@@ -210,7 +210,7 @@ test("a provider that never reports cache is never a miss", () => {
   ];
 
   // act
-  const finding = analyze(records)[1];
+  const finding = analyze(records).at(1);
 
   // assert
   assert.equal(finding?.verdict, Verdict.Ok);

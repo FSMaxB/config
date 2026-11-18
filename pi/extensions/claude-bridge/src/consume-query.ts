@@ -18,7 +18,7 @@ import { isRecord, stringProperty } from "../../lib/untyped.ts";
 
 export function emitRateLimitEvent(payload: Record<string, unknown>): void {
 	try {
-		getExtensionApi()?.events?.emit?.(RATE_LIMIT_AUTO_RESUME_EVENT, payload);
+		getExtensionApi()?.events.emit(RATE_LIMIT_AUTO_RESUME_EVENT, payload);
 	} catch {
 		// Cross-extension broker is best-effort only.
 	}

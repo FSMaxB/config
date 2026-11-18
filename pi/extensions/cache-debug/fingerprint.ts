@@ -47,8 +47,13 @@ const CACHE_MARKER_KEYS = new Set(["cache_control", "cacheControl"]);
 const HASH_LENGTH = 16;
 
 function digest(value: unknown): { hash: string; chars: number } {
-  const json = JSON.stringify(value, (key: string, nested: unknown): unknown => (CACHE_MARKER_KEYS.has(key) ? undefined : nested)) ?? "null";
+  const json = serializeWithoutCacheMarkers(value) ?? "null";
   return { hash: createHash("sha256").update(json).digest("hex").slice(0, HASH_LENGTH), chars: json.length };
+}
+
+// JSON.stringify returns undefined for a lone undefined, function or symbol, which its own type leaves out.
+function serializeWithoutCacheMarkers(value: unknown): string | undefined {
+  return JSON.stringify(value, (key: string, nested: unknown): unknown => (CACHE_MARKER_KEYS.has(key) ? undefined : nested));
 }
 
 function labelOf(item: unknown): { label?: string } {

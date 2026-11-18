@@ -207,13 +207,17 @@ function buildMessageRows(
         break;
       case "assistant":
         for (const block of message.content) {
-          if (block.type === "text") {
-            assistantTextChars += block.text.length;
-          } else if (block.type === "thinking") {
-            assistantThinkingChars += block.thinking.length;
-          } else if (block.type === "toolCall") {
-            toolCallChars +=
-              block.name.length + JSON.stringify(block.arguments).length;
+          switch (block.type) {
+            case "text":
+              assistantTextChars += block.text.length;
+              break;
+            case "thinking":
+              assistantThinkingChars += block.thinking.length;
+              break;
+            case "toolCall":
+              toolCallChars +=
+                block.name.length + JSON.stringify(block.arguments).length;
+              break;
           }
         }
         break;

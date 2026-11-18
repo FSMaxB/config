@@ -17,6 +17,7 @@ import { commitPlanFileForUser } from "./lib/plan-commit.ts";
 import { registerPlanSubmission } from "./lib/plan-submission.ts";
 import type { PlanSubmissionOutcome, PlanSubmissionParameters, PlanSubmissionResult } from "./lib/plan-submission.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
+import { isRecord, stringProperty } from "./lib/untyped.ts";
 import { registerRestrictedMode } from "./lib/restricted-mode.ts";
 import { selectWithDefault } from "./lib/select-with-default.ts";
 import { PLAN_HANDOFF_ENTRY_TYPE } from "./lib/plan-handoff.ts";
@@ -79,18 +80,19 @@ export default function (pi: ExtensionAPI): void {
 
     renderCall(toolArguments, theme) {
       return new Text(
-        theme.fg("toolTitle", theme.bold("plan_path ")) + theme.fg("muted", toolArguments.slug ?? ""),
+        theme.fg("toolTitle", theme.bold("plan_path ")) + theme.fg("muted", stringProperty(toolArguments, "slug") ?? ""),
         0,
         0,
       );
     },
 
     renderResult(result, _renderOptions, theme) {
-      const { details } = result;
-      if (!details?.path) {
+      const details: unknown = result.details;
+      const path = isRecord(details) ? stringProperty(details, "path") : undefined;
+      if (!path) {
         return new Text(theme.fg("error", "✗ only available in plan mode"), 0, 0);
       }
-      return new Text(theme.fg("success", "✓ ") + theme.fg("dim", details.path), 0, 0);
+      return new Text(theme.fg("success", "✓ ") + theme.fg("dim", path), 0, 0);
     },
   });
 
@@ -122,11 +124,11 @@ export default function (pi: ExtensionAPI): void {
     },
 
     renderCall(toolArguments, theme) {
-      return new Text(theme.fg("toolTitle", theme.bold("submit_plan ")) + theme.fg("muted", toolArguments.path ?? ""), 0, 0);
+      return new Text(theme.fg("toolTitle", theme.bold("submit_plan ")) + theme.fg("muted", stringProperty(toolArguments, "path") ?? ""), 0, 0);
     },
 
     renderResult(result, renderOptions, theme) {
-      const { details } = result;
+      const details: unknown = result.details;
       if (renderOptions.isPartial) {
         return new Text(
           theme.fg("muted", "Waiting for your decision..."),
@@ -134,20 +136,22 @@ export default function (pi: ExtensionAPI): void {
           0,
         );
       }
-      if (!details?.path) {
+      const path = isRecord(details) ? stringProperty(details, "path") : undefined;
+      const outcome = isRecord(details) ? stringProperty(details, "outcome") : undefined;
+      if (!path) {
         const reason =
-          details?.outcome === "missing"
+          outcome === "missing"
             ? "plan file not found"
-            : details?.outcome === "outside-plans-directory"
+            : outcome === "outside-plans-directory"
               ? "not in the plans directory"
               : "only available in plan mode";
         return new Text(theme.fg("error", `✗ ${reason}`), 0, 0);
       }
-      const label = OUTCOME_LABELS[details.outcome] ?? "submitted";
+      const label = (outcome === undefined ? undefined : OUTCOME_LABELS[outcome]) ?? "submitted";
       return new Text(
         theme.fg("success", "✓ ") +
           theme.fg("accent", label) +
-          theme.fg("dim", ` — ${details.path}`),
+          theme.fg("dim", ` — ${path}`),
         0,
         0,
       );
@@ -417,7 +421,7 @@ function latestPlanHandoff(
   return { planPath, provider, modelId, thinkingLevel: level };
 }
 
-const OUTCOME_LABELS: Partial<Record<PlanSubmissionOutcome, string>> = {
+const OUTCOME_LABELS: Partial<Record<string, string>> = {
   "handed-off": "handed off",
 };
 

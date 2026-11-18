@@ -70,10 +70,10 @@ export function sumUsage(usages: Iterable<Usage | undefined>): Usage {
   for (const usage of usages) {
     if (!usage) continue;
     for (const field of ["input", "output", "cacheRead", "cacheWrite", "totalTokens"] as const) {
-      total[field] += usage[field] ?? 0;
+      total[field] += usage[field];
     }
     for (const field of ["input", "output", "cacheRead", "cacheWrite", "total"] as const) {
-      total.cost[field] += usage.cost?.[field] ?? 0;
+      total.cost[field] += usage.cost[field];
     }
     for (const field of ["reasoning", "cacheWrite1h"] as const) {
       if (usage[field] !== undefined) total[field] = (total[field] ?? 0) + usage[field];

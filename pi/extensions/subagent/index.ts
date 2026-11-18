@@ -87,7 +87,7 @@ export default function (pi: ExtensionAPI): void {
   }
 
   pi.on("before_agent_start", (event, context) => {
-    if (!event.systemPromptOptions.selectedTools?.includes("subagent")) return;
+    if (!event.systemPromptOptions.selectedTools.includes("subagent")) return;
 
     const guidance = guidanceTable({
       mainModel: context.model,
@@ -240,8 +240,9 @@ export default function (pi: ExtensionAPI): void {
             taskItem.cwd,
             signal,
             (partial) => {
-              if (!partial.details?.results[0]) return;
-              allResults[index] = partial.details.results[0];
+              const first = partial.details.results.at(0);
+              if (!first) return;
+              allResults[index] = first;
               emitParallelUpdate();
             },
             "parallel",
@@ -329,7 +330,7 @@ export default function (pi: ExtensionAPI): void {
       const { durationMs } = context;
       const { details } = result;
       if (!details || details.results.length === 0) {
-        const text = result.content[0];
+        const text = result.content.at(0);
         return new Text(text?.type === "text" ? text.text : "(no output)", 0, 0);
       }
 
@@ -360,7 +361,7 @@ export default function (pi: ExtensionAPI): void {
         if (isError && single.errorMessage) text += `\n${theme.fg("error", `Error: ${single.errorMessage}`)}`;
         else if (displayItems.length === 0) text += `\n${theme.fg("muted", running ? "(running...)" : "(no output)")}`;
         else {
-          text += `\n${renderCollapsedItems(displayItems, COLLAPSED_ITEM_COUNT, expanded ? "expanded" : "collapsed", theme)}`;
+          text += `\n${renderCollapsedItems(displayItems, COLLAPSED_ITEM_COUNT, "collapsed", theme)}`;
           if (displayItems.length > COLLAPSED_ITEM_COUNT) text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
         }
         const footer = formatRunFooter(formatUsageStats(single.usage), durationMs);
@@ -633,13 +634,13 @@ async function runSingleAgent(
           currentResult.usage.output += usage.output || 0;
           currentResult.usage.cacheRead += usage.cacheRead || 0;
           currentResult.usage.cacheWrite += usage.cacheWrite || 0;
-          currentResult.usage.cost += usage.cost?.total || 0;
+          currentResult.usage.cost += usage.cost.total || 0;
         }
         if (message.role === "assistant") {
           currentResult.usage.turns++;
-          currentResult.usage.contextTokens = message.usage?.totalTokens || 0;
+          currentResult.usage.contextTokens = message.usage.totalTokens || 0;
           if (!currentResult.model && message.model) currentResult.model = message.model;
-          if (message.stopReason) currentResult.stopReason = message.stopReason;
+          currentResult.stopReason = message.stopReason;
           currentResult.errorMessage = message.errorMessage;
         }
         emitUpdate();
@@ -705,6 +706,7 @@ async function runSingleAgent(
     });
 
     currentResult.exitCode = exitCode;
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- killChild sets wasAborted from the abort listener while the child runs
     if (wasAborted) throw new Error("Subagent was aborted");
     return currentResult;
   } finally {
@@ -804,7 +806,7 @@ function childEnvironment(dispatch: DispatchContext): NodeJS.ProcessEnv {
 }
 
 function getPiInvocation(childArguments: readonly string[]): { command: string; args: readonly string[] } {
-  const currentScript = process.argv[1];
+  const currentScript = process.argv.at(1);
   const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/");
   if (currentScript && !isBunVirtualScript && existsSync(currentScript)) {
     return { command: process.execPath, args: [currentScript, ...childArguments] };

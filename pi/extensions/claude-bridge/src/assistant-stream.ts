@@ -225,7 +225,7 @@ export function finalizeToolUseTurnFromMcpInvocation(
 		return;
 	}
 	let index = queryContext.turnBlocks.findIndex((block) => isToolCallWithId(block, toolCallId));
-	const existing = queryContext.turnBlocks[index];
+	const existing = index === -1 ? undefined : queryContext.turnBlocks[index];
 	if (existing?.type === "toolCall") {
 		const block = existing;
 		if (block.partialJson !== undefined) {
@@ -576,7 +576,7 @@ function appendMissingToolUsesFromAssistant(
 		const mappedArguments = mapToolArguments(name, block.input);
 		queryContext.recordToolCall(block.id, name, mappedArguments);
 		if (!streamLive) continue;
-		const existing = queryContext.turnBlocks[existingIndex];
+		const existing = existingIndex === -1 ? undefined : queryContext.turnBlocks[existingIndex];
 		if (existing?.type === "toolCall") {
 			existing.name = name;
 			existing.arguments = mappedArguments;

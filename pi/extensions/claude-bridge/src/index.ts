@@ -155,7 +155,7 @@ function extractUserPromptBlocks(messages: readonly Message[]): ContentBlockPara
 			if (block.type === "text" && block.text) {
 				blocks.push({ type: "text", text: block.text });
 			} else if (block.type === "image") {
-				debug(`image block: mimeType=${block.mimeType}, data length=${(block.data ?? "").length}, keys=${Object.keys(block).join(",")}`);
+				debug(`image block: mimeType=${block.mimeType}, data length=${block.data.length}, keys=${Object.keys(block).join(",")}`);
 				const mediaType = imageMediaType(block.mimeType);
 				if (!block.data || !mediaType) {
 					debug(`image block missing data or a supported mimeType, skipping`);
@@ -803,7 +803,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 
 	// The query is gone but pi still delivered the result. Nothing to do — just
 	// emit end_turn so pi waits for the next real user message.
-	const lastMessage = conversation[conversation.length - 1];
+	const lastMessage = conversation.at(-1);
 	if (lastMessage?.role === "toolResult") {
 		debug(`provider: orphaned tool result after abort, emitting end_turn`);
 		// The detached flag deliberately survives query end: an orphaned result
@@ -1252,6 +1252,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 			// Only for outermost queries — reentrant (subagent) queries leave
 			// deferred messages for the parent to handle after it finishes.
 			try {
+				// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- the abort handler sets wasAborted while the continuation queries below await
 				while (!isReentrant && !wasAborted) {
 					const steer = abortContext.deferredUserMessages.shift();
 					if (steer === undefined) break;
@@ -1285,6 +1286,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 						// Superseded: the restart killed this attempt, so its end is not
 						// an outcome to record. The replacement carries the remaining
 						// steers, which pi's history holds and the rebuild imports.
+						// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- a restart sets restartRequest from another request while consumeQuery awaits
 						if (abortContext.restartRequest) break;
 						if (continuation.failure) {
 							if (!abortContext.handledTerminalError) surfaceFailure(continuation.failure);
@@ -1304,6 +1306,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 					} catch (contError) {
 						// Killing the child can throw out of its iterator; that is this
 						// restart's own doing, not a reason to drop input the rebuild carries.
+						// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- a restart sets restartRequest from another request while consumeQuery awaits
 						if (abortContext.restartRequest) break;
 						debug(`provider: continuation query error:`, contError);
 						const continuationFailure: ClaudeAttemptFailure = {
@@ -1507,7 +1510,7 @@ export default function (pi: ExtensionAPI): void {
 	});
 	pi.on("message_end", (event, context) => runInRequestLane(context.sessionManager.getSessionId(), () => {
 		const { message } = event;
-		if (message?.role === "assistant" && message.provider === PROVIDER_ID) schedulePersistSharedSession(context);
+		if (message.role === "assistant" && message.provider === PROVIDER_ID) schedulePersistSharedSession(context);
 	}));
 
 	// Both events replace pi's messages array out from under the bridge; see

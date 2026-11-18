@@ -60,7 +60,7 @@ export function mapToolName(name: string, customToolNameToPi?: ReadonlyMap<strin
 
 // Renames for Claude Code SDK param names that differ from pi's native names.
 // Keys not listed here pass through unchanged, so additional Pi parameters work automatically.
-const SDK_KEY_RENAMES: Record<string, Record<string, string>> = {
+const SDK_KEY_RENAMES: Partial<Record<string, Partial<Record<string, string>>>> = {
 	read:  { file_path: "path" },
 	write: { file_path: "path" },
 	edit:  { file_path: "path", old_string: "oldText", new_string: "newText", old_text: "oldText", new_text: "newText" },

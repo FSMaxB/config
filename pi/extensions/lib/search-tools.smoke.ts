@@ -415,7 +415,7 @@ async function run<TParameters>(
   signal?: AbortSignal,
 ): Promise<{ text: string; details: unknown }> {
   const result = await search(parameters, signal);
-  const [first] = result.content;
+  const first = result.content.at(0);
   return { text: first?.type === "text" ? first.text : "", details: result.details };
 }
 

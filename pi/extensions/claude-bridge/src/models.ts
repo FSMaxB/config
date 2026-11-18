@@ -46,7 +46,7 @@ type BridgeModelMetadata = Pick<Model<Api>, "id" | "name" | "reasoning" | "think
 // The bridge's own models are free: Claude Code bills through the user's own login or key.
 export type BridgeModel = BridgeModelMetadata & { cost: Model<Api>["cost"] };
 
-const FALLBACK_MODELS: Record<string, BridgeModelMetadata> = {
+const FALLBACK_MODELS: Partial<Record<string, BridgeModelMetadata>> = {
 	[FABLE_5_2_MODEL_ID]: {
 		id: FABLE_5_2_MODEL_ID,
 		name: "Claude Fable 5.2",
@@ -111,7 +111,7 @@ const FALLBACK_MODELS: Record<string, BridgeModelMetadata> = {
 	},
 };
 
-const FALLBACK_ONLY_DISPLAY_NAMES: Record<string, string> = {
+const FALLBACK_ONLY_DISPLAY_NAMES: Partial<Record<string, string>> = {
 	[OPUS_5_MODEL_ID]: "Claude Opus 5",
 };
 

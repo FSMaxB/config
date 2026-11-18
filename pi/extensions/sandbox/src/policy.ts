@@ -85,8 +85,10 @@ function mayExposeSecret(selector: PathSelector, secret: string): boolean {
 // srt's glob semantics: no dotfile exception, `*` and `?` stay within a segment, `**` crosses any number.
 // A match that ends above the secret only exposes that directory entry, not the secret beneath it.
 function globMayReach(patternSegments: readonly string[], secretSegments: readonly string[]): boolean {
-  const [segment, ...remainingSecret] = secretSegments;
-  const [pattern, ...remainingPattern] = patternSegments;
+  const segment = secretSegments.at(0);
+  const remainingSecret = secretSegments.slice(1);
+  const pattern = patternSegments.at(0);
+  const remainingPattern = patternSegments.slice(1);
   if (segment === undefined) return true;
   if (pattern === undefined) return false;
   if (pattern.includes("**")) return true;

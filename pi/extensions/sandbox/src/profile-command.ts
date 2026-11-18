@@ -20,7 +20,10 @@ export const SUBCOMMANDS = ["record", "stop", "edit", "forget", "delete"] as con
 const USAGE = `Use /sandbox-profile [${SUBCOMMANDS.map((subcommand) => (subcommand === "stop" ? subcommand : `${subcommand} <name>`)).join(" | ")}].`;
 
 export function parseProfileCommand(commandArguments: string): ProfileCommand | ProfileCommandError {
-  const [subcommand, name, ...rest] = commandArguments.trim().split(/\s+/).filter((word) => word !== "");
+  const words = commandArguments.trim().split(/\s+/).filter((word) => word !== "");
+  const subcommand = words.at(0);
+  const name = words.at(1);
+  const rest = words.slice(2);
   if (subcommand === undefined) return { kind: "list" };
   if (subcommand === "stop") return name === undefined ? { kind: "stop" } : error(`stop takes no argument. ${USAGE}`);
   const named = NAMED_SUBCOMMANDS.find((candidate) => candidate === subcommand);
@@ -31,7 +34,9 @@ export function parseProfileCommand(commandArguments: string): ProfileCommand | 
 }
 
 export function profileCompletions(prefix: string, profileNames: readonly string[]): { value: string; label: string }[] | null {
-  const [first = "", second] = prefix.split(" ");
+  const words = prefix.split(" ");
+  const first = words.at(0) ?? "";
+  const second = words.at(1);
   const candidates = second === undefined
     ? SUBCOMMANDS.filter((subcommand) => subcommand.startsWith(first)).map((subcommand) => ({ value: subcommand, label: subcommand }))
     : profileNames.filter((name) => name.startsWith(second)).map((name) => ({ value: `${first} ${name}`, label: name }));

@@ -64,9 +64,9 @@ test("numbers are parameters and arrays are content", () => {
 
   // assert
   assert.equal(fingerprint?.sections.find(({ key }) => key === "maxTokens")?.kind, SectionKind.Parameter);
-  assert.equal(fingerprint?.sections.find(({ key }) => key === "messages")?.kind, SectionKind.Content);
+  assert.equal(fingerprint.sections.find(({ key }) => key === "messages")?.kind, SectionKind.Content);
   assert.notEqual(
-    fingerprint?.sections.find(({ key }) => key === "maxTokens")?.hash,
+    fingerprint.sections.find(({ key }) => key === "maxTokens")?.hash,
     warm?.sections.find(({ key }) => key === "maxTokens")?.hash,
   );
 });

@@ -3,6 +3,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { sanitizeDisplayText } from "./lib/format.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
+import { isRecord, stringProperty } from "./lib/untyped.ts";
 
 // Fits a terminal title and the session selector without truncation.
 const MAX_LENGTH = 80;
@@ -58,9 +59,9 @@ export default function (pi: ExtensionAPI): void {
     },
 
     renderResult(result, _renderOptions, theme) {
-      const { details } = result;
+      const details: unknown = result.details;
       // Checks the name rather than the kind, so results stored without a kind render too.
-      const name = details !== undefined && "name" in details ? details.name : undefined;
+      const name = isRecord(details) ? stringProperty(details, "name") : undefined;
       if (!name) {
         return new Text(
           theme.fg("error", "✗ Name empty after sanitization"),

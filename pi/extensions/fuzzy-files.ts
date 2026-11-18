@@ -128,6 +128,7 @@ function createProvider(
       if (paths.length === 0) return delegate();
 
       const ranked = await rank(paths, query, options.signal);
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- the signal can abort while rank awaits
       if (options.signal.aborted || ranked.length === 0) return null;
 
       return { items: ranked.map(toItem), prefix: `@${query}` };

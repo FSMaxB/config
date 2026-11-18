@@ -35,7 +35,7 @@ export function discardedWrites(
   if (platform !== "linux") return [];
   const literal = (entries: readonly string[]): string[] => entries.filter((entry) => !hasGlobCharacters(entry));
   const denied = literal(filesystem.denyRead);
-  const writable = literal(filesystem.allowWrite ?? []);
+  const writable = literal(filesystem.allowWrite);
   return violations.filter(({ mode, path }) =>
     mode === "write" && denied.some((root) => contains(root, path)) && !writable.some((root) => contains(root, path)));
 }

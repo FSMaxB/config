@@ -61,7 +61,7 @@ test("a message without a request emits a usage-only record", () => {
   tracker.assistantMessage({ ...identity, usage, stopReason: "stop", at: new Date(2000) });
 
   // assert
-  const [record] = records;
+  const record = records.at(0);
   assert.ok(record?.kind === "request");
   assert.equal(record.payload, undefined);
   assert.equal(record.outcome, Outcome.Completed);
@@ -107,7 +107,7 @@ test("the message provider and model override the request values", () => {
   tracker.assistantMessage({ ...identity, usage, stopReason: "stop", at: new Date(2000) });
 
   // assert
-  const [record] = records;
+  const record = records.at(0);
   assert.ok(record?.kind === "request");
   assert.equal(record.provider, "mistral");
   assert.equal(record.model, "large");

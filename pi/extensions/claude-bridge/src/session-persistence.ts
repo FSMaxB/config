@@ -372,7 +372,7 @@ export function schedulePersistSharedSession(contextLike?: { sessionManager?: Se
 		}
 	}, 0);
 	timers.set(sessionManager, timer);
-	timer.unref?.();
+	timer.unref();
 }
 
 // Convert pi messages to Anthropic API format for session import.
