@@ -17,7 +17,9 @@
 // the Claude Code subprocess does its own authentication; pi never needs a
 // real secret, so none is read or exposed.
 
+import type { Api, Provider, SimpleStreamOptions, StreamFunction } from "@earendil-works/pi-ai";
 import { hasClaudeCredentials } from "./auth-presence.js";
+import type { BridgeModel } from "./models.js";
 import { PROVIDER_ID } from "./convert.js";
 
 export const NATIVE_PROVIDER_UNSUPPORTED_MESSAGE =
@@ -29,8 +31,8 @@ export const NATIVE_PROVIDER_UNSUPPORTED_MESSAGE =
  *  older host would register fine and then offer Claude Code no tools at all;
  *  refuse it up front instead. */
 export function supportsNativeProvider(piAi: unknown): boolean {
-	const host = piAi as { createProvider?: unknown; getCurrentTools?: unknown } | undefined;
-	return typeof host?.createProvider === "function" && typeof host?.getCurrentTools === "function";
+	if (typeof piAi !== "object" || piAi === null) return false;
+	return typeof Reflect.get(piAi, "createProvider") === "function" && typeof Reflect.get(piAi, "getCurrentTools") === "function";
 }
 
 /** Auth source label for pi's status UI, chosen by the same existence-only
@@ -52,13 +54,13 @@ export function claudeAuthSourceLabel(environment: NodeJS.ProcessEnv = process.e
  * run at check/resolve CALL time, so a login/logout between calls is seen.
  */
 export function buildNativeProvider(
-	piAi: unknown,
-	models: ReadonlyArray<Record<string, unknown>>,
-	streamSimple: (...args: readonly unknown[]) => unknown,
+	piAi: Pick<typeof import("@earendil-works/pi-ai"), "createProvider">,
+	models: readonly BridgeModel[],
+	streamSimple: StreamFunction<Api, SimpleStreamOptions>,
 	environment: NodeJS.ProcessEnv = process.env,
 	// Availability probe, evaluated at check/resolve time.
 	hasCredentials: () => boolean = () => hasClaudeCredentials(environment),
-): unknown {
+): Provider {
 	if (!supportsNativeProvider(piAi)) {
 		throw Object.assign(new Error(NATIVE_PROVIDER_UNSUPPORTED_MESSAGE), { code: "CLAUDE_BRIDGE_NATIVE_PROVIDER_UNSUPPORTED" });
 	}
@@ -73,7 +75,7 @@ export function buildNativeProvider(
 		stream: streamSimple,
 		streamSimple,
 	};
-	return (piAi as { createProvider: (input: unknown) => unknown }).createProvider({
+	return piAi.createProvider({
 		id: PROVIDER_ID,
 		name: "Pi Claude",
 		baseUrl: "claude-bridge",

@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
-import type { AssistantMessage, AssistantMessageEventStream, Message, Model, SimpleStreamOptions, Tool, TranscriptContext, Api } from "@earendil-works/pi-ai";
+import type { AssistantMessage, AssistantMessageEventStream, Message, Model, Provider, SimpleStreamOptions, Tool, TranscriptContext, Api } from "@earendil-works/pi-ai";
 import * as piAi from "@earendil-works/pi-ai";
 import type { ExtensionAPI, SessionProjection } from "@earendil-works/pi-coding-agent";
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { Base64ImageSource, ContentBlockParam, MessageParam } from "@anthropic-ai/sdk/resources";
+import type { Base64ImageSource, ContentBlockParam } from "@anthropic-ai/sdk/resources";
 import { PROVIDER_ID, messageContentToText } from "./convert.js";
 import { buildModels } from "./models.js";
 import { MCP_SERVER_NAME, MCP_TOOL_PREFIX } from "./skills.js";
@@ -40,6 +40,8 @@ import { buildClaudeQueryOptions } from "./query-options.js";
 import { findTreeResumeTarget, resolveForkPoint } from "./tree-resume.js";
 import { sdkQueryFactory } from "./sdk-query.js";
 import { currentRequestLaneId, runInRequestLane } from "./request-lane.js";
+import { errorMessage } from "../../lib/errors.ts";
+import { stringProperty } from "../../lib/untyped.ts";
 
 // Re-exports: unit tests and downstream consumers import these from the bundle
 // entry, bundle/index.js.
@@ -58,13 +60,8 @@ export { isPiDispatchable, mapToolName } from "./tool-mapping.js";
 export { cancelScheduledToolUseEnd, endToolUseTurn, finalizeToolUseTurnFromMcpInvocation, processAssistantMessage, processStreamEvent, reapStaleQueuedResults, scheduleToolUseTurnEnd } from "./assistant-stream.js";
 export { classifyClaudeFailure, rateLimitResetFromInfo, rateLimitResetMs, rateLimitTypeFromInfo } from "./claude-failure.js";
 
-// Uses the factory when pi-ai provides one (pi-ai ≥0.66), else the constructor (gsd-pi etc.).
-const _piAi = piAi as any;
-const getModels = await resolveGetModels(_piAi) as (provider: string) => Array<Model<Api>>;
-const newAssistantMessageEventStream: () => AssistantMessageEventStream =
-	typeof _piAi.createAssistantMessageEventStream === "function"
-		? _piAi.createAssistantMessageEventStream
-		: () => new _piAi.AssistantMessageEventStream();
+const getModels = await resolveGetModels(piAi);
+const newAssistantMessageEventStream: () => AssistantMessageEventStream = piAi.createAssistantMessageEventStream;
 
 
 // Two process-global tokens govern provider registration across module reloads.
@@ -102,7 +99,7 @@ const MODELS = buildModels(getModels("anthropic"));
 // the provider again. Thin wrapper over extract-tool-results.js that adds per-turn
 // debug logging at the extraction boundary.
 function extractAllToolResults(messages: readonly Message[]): McpResult[] {
-	const { results, stopIdx: stopIndex } = _extractAllToolResults(messages as unknown as Array<{ role: string; [key: string]: unknown }>);
+	const { results, stopIdx: stopIndex } = _extractAllToolResults(messages);
 	debug(`extractAllToolResults: ${results.length} results from ${messages.length} msgs, stopped at index ${stopIndex}`);
 	debug(`extractAllToolResults: all msg roles:`, messages.map((m, i) => `[${i}]${m.role}`).join(" "));
 	for (let r = 0; r < results.length; r++) {
@@ -120,8 +117,8 @@ function extractAllToolResults(messages: readonly Message[]): McpResult[] {
  *  into one Pi reply with double-counted usage, so the join stays. The merged
  *  form is only ever a query's live prompt — it is never re-imported, so the
  *  two representations never meet in one session file. */
-function extractUserPrompt(messages: readonly Message[]): string | null {
-	if (messages.length === 0 || messages.some((message) => message.role !== "user")) return null;
+function extractUserPrompt(messages: readonly Message[]): string | undefined {
+	if (messages.length === 0 || messages.some((message) => message.role !== "user")) return undefined;
 	return messages.map((message) =>
 		typeof message.content === "string" ? message.content : messageContentToText(message.content) || "",
 	).join("\n\n");
@@ -130,8 +127,8 @@ function extractUserPrompt(messages: readonly Message[]): string | null {
 /** Combine consecutive user messages as ContentBlockParam[] while preserving images.
  *  Returns null if no images — caller should fall back to the string prompt.
  *  Same N-into-1 merge as extractUserPrompt (see its comment for why). */
-function extractUserPromptBlocks(messages: readonly Message[]): ContentBlockParam[] | null {
-	if (messages.length === 0 || messages.some((message) => message.role !== "user")) return null;
+function extractUserPromptBlocks(messages: readonly Message[]): ContentBlockParam[] | undefined {
+	if (messages.length === 0 || messages.some((message) => message.role !== "user")) return undefined;
 
 	let hasImage = false;
 	const blocks: ContentBlockParam[] = [];
@@ -146,25 +143,33 @@ function extractUserPromptBlocks(messages: readonly Message[]): ContentBlockPara
 			debug(`extractUserPromptBlocks: content is ${typeof content}`);
 			continue;
 		}
-		debug(`extractUserPromptBlocks: ${content.length} blocks, types=${content.map((b: any) => b.type).join(",")}`);
+		debug(`extractUserPromptBlocks: ${content.length} blocks, types=${content.map((block) => block.type).join(",")}`);
 		for (const block of content) {
 			if (block.type === "text" && block.text) {
 				blocks.push({ type: "text", text: block.text });
 			} else if (block.type === "image") {
-				debug(`image block: mimeType=${(block as any).mimeType}, data length=${((block as any).data ?? "").length}, keys=${Object.keys(block).join(",")}`);
-				if (!(block as any).data || !(block as any).mimeType) {
-					debug(`image block missing data or mimeType, skipping`);
+				debug(`image block: mimeType=${block.mimeType}, data length=${(block.data ?? "").length}, keys=${Object.keys(block).join(",")}`);
+				const mediaType = imageMediaType(block.mimeType);
+				if (!block.data || !mediaType) {
+					debug(`image block missing data or a supported mimeType, skipping`);
 					continue;
 				}
 				hasImage = true;
 				blocks.push({
 					type: "image",
-					source: { type: "base64", media_type: block.mimeType as Base64ImageSource["media_type"], data: block.data },
+					source: { type: "base64", media_type: mediaType, data: block.data },
 				});
 			}
 		}
 	}
-	return hasImage ? blocks : null;
+	return hasImage ? blocks : undefined;
+}
+
+const IMAGE_MEDIA_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const satisfies readonly Base64ImageSource["media_type"][];
+
+// The image types the Anthropic API accepts; any other would fail the whole request.
+function imageMediaType(mimeType: string | undefined): Base64ImageSource["media_type"] | undefined {
+	return IMAGE_MEDIA_TYPES.find((mediaType) => mediaType === mimeType);
 }
 
 export interface DeferredUserReplayPlan {
@@ -173,13 +178,13 @@ export interface DeferredUserReplayPlan {
 	// capturedThrough bound).
 	runStart: number;
 	userMessageCount: number;
-	// All trailing user messages combined into one replay prompt, or null when
-	// there is nothing usable to replay (no trailing users, or all-empty text
-	// with no image blocks).
-	prompt: string | null;
+	// All trailing user messages combined into one replay prompt, or undefined
+	// when there is nothing usable to replay (no trailing users, or all-empty
+	// text with no image blocks).
+	prompt: string | undefined;
 	// Present when the run carries image blocks — the replay must send these
 	// (via wrapPromptStream) or the images are silently lost.
-	blocks: ContentBlockParam[] | null;
+	blocks: ContentBlockParam[] | undefined;
 }
 
 /** Plan replay of user messages pi injected mid-query (steer drain, followUp).
@@ -193,12 +198,12 @@ export function planDeferredUserReplay(messages: readonly Message[], capturedThr
 	let runStart = messages.length;
 	while (runStart > capturedThrough && messages[runStart - 1]?.role === "user") runStart--;
 	const trailingUsers = messages.slice(runStart);
-	const prompt = trailingUsers.length > 0 ? extractUserPrompt(trailingUsers) : null;
-	const blocks = trailingUsers.length > 0 ? extractUserPromptBlocks(trailingUsers) : null;
+	const prompt = trailingUsers.length > 0 ? extractUserPrompt(trailingUsers) : undefined;
+	const blocks = trailingUsers.length > 0 ? extractUserPromptBlocks(trailingUsers) : undefined;
 	return {
 		runStart,
 		userMessageCount: trailingUsers.length,
-		prompt: prompt?.trim() ? prompt : null,
+		prompt: prompt?.trim() ? prompt : undefined,
 		blocks,
 	};
 }
@@ -206,7 +211,7 @@ export function planDeferredUserReplay(messages: readonly Message[], capturedThr
 async function* wrapPromptStream(blocks: readonly ContentBlockParam[]): AsyncIterable<SDKUserMessage> {
 	yield {
 		type: "user",
-		message: { role: "user", content: blocks } as MessageParam,
+		message: { role: "user", content: [...blocks] },
 		parent_tool_use_id: null,
 	};
 }
@@ -355,7 +360,7 @@ function buildMcpServers(tools: readonly Tool[], queryContext: QueryContext): Re
 // UNCONDITIONALLY (before any credential check), so a later subagent load can
 // never become primary and steal registration ownership.
 function claimPrimaryInstance(): boolean {
-	const g = globalThis as Record<symbol, any>;
+	const g = processGlobals();
 	if (!g[PRIMARY_INSTANCE_KEY]) g[PRIMARY_INSTANCE_KEY] = streamClaudeAgentSdk;
 	return g[PRIMARY_INSTANCE_KEY] === streamClaudeAgentSdk;
 }
@@ -367,7 +372,7 @@ function claimPrimaryInstance(): boolean {
 // (registerNativeProvider is replace-by-id); logout-hiding is the provider's own
 // auth check.
 function releaseProviderTokens(event: string): void {
-	const g = globalThis as Record<symbol, any>;
+	const g = processGlobals();
 	// Billing identity is request-lane state. The shutdown handler removes its
 	// one lane after this call. The process publisher remains available to
 	// sibling sessions and reads the shared lane registry across reloads until a
@@ -408,7 +413,7 @@ function releaseProviderTokens(event: string): void {
 // its own streamSimple — the exact split-brain the tokens exist to prevent.
 // On a pre-0.81 host the extension declines loudly (once) instead of
 // registering wrongly through the legacy overload.
-let nativeProviderInstance: unknown;
+let nativeProviderInstance: Provider | undefined;
 let notifiedNativeUnsupported = false;
 // Credential-probe answer at the last upsert that reached pi.registerProvider;
 // undefined until the first one into the current runtime's registry. A re-upsert
@@ -418,13 +423,13 @@ let lastRegisteredCredentialed: boolean | undefined;
 function applyProviderRegistration(trigger: string): void {
 	const pi = getExtensionApi();
 	if (!pi) { debug(`${trigger}: applyProviderRegistration skipped — no extensionApi`); return; }
-	const g = globalThis as Record<symbol, any>;
+	const g = processGlobals();
 	const isPrimary = claimPrimaryInstance();
 	if (!isPrimary) {
 		debug(`${trigger}: registration noop — non-primary instance (module=${moduleInstanceId})`);
 		return;
 	}
-	if (!supportsNativeProvider(_piAi)) {
+	if (!supportsNativeProvider(piAi)) {
 		debug(`${trigger}: host pi-ai lacks createProvider; refusing to register (module=${moduleInstanceId})`);
 		if (!notifiedNativeUnsupported) {
 			notifiedNativeUnsupported = true;
@@ -443,13 +448,13 @@ function applyProviderRegistration(trigger: string): void {
 	debug(`${trigger}: native registration upsert, credentialed=${credentialed} (module=${moduleInstanceId})`);
 	try {
 		nativeProviderInstance ??= buildNativeProvider(
-			_piAi,
+			piAi,
 			MODELS,
-			streamClaudeAgentSdk as (...args: readonly unknown[]) => unknown,
+			streamClaudeAgentSdk,
 			process.env,
 			() => hasClaudeCredentials(),
 		);
-		(pi.registerProvider as (provider: unknown) => void)(nativeProviderInstance);
+		pi.registerProvider(nativeProviderInstance);
 		lastRegisteredCredentialed = credentialed;
 	} catch (error) {
 		// Self-heal: release ONLY the stream guard we just claimed so a later
@@ -586,7 +591,8 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 
 	// DEBUG: trace followUp message triggering
 	const lastMsgRole = conversation[conversation.length - 1]?.role;
-	const cwd = (options as { cwd?: string } | undefined)?.cwd ?? process.cwd();
+	// Some hosts pass the working directory along with the stream options.
+	const cwd = (options ? stringProperty(options, "cwd") : undefined) ?? process.cwd();
 	debug(`provider: streamClaudeAgentSdk called, activeQuery=${!!currentQueryContext().activeQuery}, lastMsgRole=${lastMsgRole}, isReentrant=${currentQueryContext().activeQuery !== undefined}`);
 
 	// Pi appends tool results to context and calls back. Extract this turn's results
@@ -681,8 +687,8 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 				continue;
 			}
 			queryContext.markToolResultDelivered(id);
-			if (id && queryContext.pendingToolCalls.has(id)) {
-				const pending = queryContext.pendingToolCalls.get(id)!;
+			const pending = id ? queryContext.pendingToolCalls.get(id) : undefined;
+			if (id && pending) {
 				queryContext.pendingToolCalls.delete(id);
 				debug(`provider: resolving ${pending.toolName} [${id}]${result.isError ? " (error)" : ""}`, JSON.stringify(result.content).slice(0, 200));
 				pending.resolve(result);
@@ -1051,23 +1057,24 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 					timeoutMs,
 				});
 				safeNotify(`${RATE_LIMIT_TOKEN} Claude stream idle timeout after ${formatDurationShort(timeoutMs)} — retrying via rate-limit backoff`, "warning");
-				if (abortContext.turnOutput) {
-					abortContext.turnOutput.stopReason = "error";
-					abortContext.turnOutput.errorMessage = errorMessage;
-					Object.assign(abortContext.turnOutput as AssistantMessage & Record<string, unknown>, {
+				const output = abortContext.turnOutput;
+				if (output) {
+					output.stopReason = "error";
+					output.errorMessage = errorMessage;
+					Object.assign(output, {
 						rateLimitType: "stream_idle",
 						retryAfterMs: STREAM_IDLE_BACKOFF_HINT_MS,
 						streamIdleTimeoutMs: timeoutMs,
 					});
+					abortContext.currentPiStream?.push({ type: "error", reason: "error", error: output });
 				}
-				abortContext.currentPiStream?.push({ type: "error", reason: "error", error: abortContext.turnOutput! });
 				abortContext.currentPiStream?.end();
 				abortContext.currentPiStream = undefined;
 				abortSdkQuery(sdkQuery);
 			},
 			timeoutMs: streamIdleTimeoutMs,
 		})
-		: null;
+		: undefined;
 	if (streamIdleWatchdog) {
 		activeStreamIdleWatchdogs.set(abortContext, streamIdleWatchdog);
 		streamIdleWatchdog.refresh();
@@ -1108,11 +1115,12 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 	}
 
 	const surfaceFailure = (failure: ClaudeAttemptFailure, aborted = false): void => {
-		if (abortContext.turnOutput) {
-			abortContext.turnOutput.stopReason = aborted ? "aborted" : "error";
-			abortContext.turnOutput.errorMessage = failure.message;
+		const output = abortContext.turnOutput;
+		if (output) {
+			output.stopReason = aborted ? "aborted" : "error";
+			output.errorMessage = failure.message;
+			abortContext.currentPiStream?.push({ type: "error", reason: aborted ? "aborted" : "error", error: output });
 		}
-		abortContext.currentPiStream?.push({ type: "error", reason: aborted ? "aborted" : "error", error: abortContext.turnOutput! });
 		abortContext.currentPiStream?.end();
 		abortContext.currentPiStream = undefined;
 	};
@@ -1152,13 +1160,15 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 			debug(`provider: abort settled with a rebuild (${reason}), rotate=${childExit === "still-running"}`);
 			return;
 		}
+		// abortRebuildReason asks for a rebuild without a session id, so this only narrows the type.
+		if (sessionId === undefined) return;
 		const cursor = Math.max(conversation.length, abortContext.latestCursor, activeSession?.cursor ?? 0);
 		// Every call handed to Pi during this query has a result in the Claude
 		// transcript: delivered normally, or recorded as rejected by the interrupt.
 		// The next turn's REUSE plan skips Pi's own results for these ids.
 		const interruptedToolCallIds = [...abortContext.forwardedToolCallIds];
-		debug(`provider: abort settled cleanly, keeping session=${sessionId!.slice(0, 8)} for resume, cursor=${cursor}, interruptedToolCalls=${interruptedToolCallIds.length}`);
-		persistSession({ sessionId: sessionId!, cursor, cwd, ...(interruptedToolCallIds.length > 0 ? { interruptedToolCallIds } : {}) });
+		debug(`provider: abort settled cleanly, keeping session=${sessionId.slice(0, 8)} for resume, cursor=${cursor}, interruptedToolCalls=${interruptedToolCallIds.length}`);
+		persistSession({ sessionId, cursor, cwd, ...(interruptedToolCallIds.length > 0 ? { interruptedToolCallIds } : {}) });
 	};
 
 	// Background consumer runs until the SDK query ends.
@@ -1237,8 +1247,9 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 			// Only for outermost queries — reentrant (subagent) queries leave
 			// deferred messages for the parent to handle after it finishes.
 			try {
-				while (abortContext.deferredUserMessages.length > 0 && !isReentrant && !wasAborted) {
-					const steer = abortContext.deferredUserMessages.shift()!;
+				while (!isReentrant && !wasAborted) {
+					const steer = abortContext.deferredUserMessages.shift();
+					if (steer === undefined) break;
 					const steerPreview = (steer.text || "[image-only]").slice(0, 60);
 					debug(`provider: replaying deferred user message: ${steerPreview}`);
 					abortContext.resetTurnState(model);
@@ -1372,9 +1383,10 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 					// for the pre-compaction turn. Stamping "aborted" onto it would
 					// rewrite a delivered turn whose tools really ran.
 					abortContext.resetTurnState(restart.model);
-					abortContext.turnOutput!.stopReason = "aborted";
-					abortContext.turnOutput!.errorMessage = "Operation aborted";
-					reentryStream.push({ type: "error", reason: "aborted", error: abortContext.turnOutput! });
+					const output = abortContext.output;
+					output.stopReason = "aborted";
+					output.errorMessage = "Operation aborted";
+					reentryStream.push({ type: "error", reason: "aborted", error: output });
 					reentryStream.end();
 					return;
 				}
@@ -1399,11 +1411,12 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 				// message would be the delivered pre-compaction turn.
 				abortContext.resetTurnState(restart.model);
 			}
-			if (abortContext.turnOutput) {
-				abortContext.turnOutput.stopReason = "error";
-				abortContext.turnOutput.errorMessage = error instanceof Error ? error.message : String(error);
+			const output = abortContext.turnOutput;
+			if (output) {
+				output.stopReason = "error";
+				output.errorMessage = errorMessage(error);
+				reentryStream.push({ type: "error", reason: "error", error: output });
 			}
-			reentryStream.push({ type: "error", reason: "error", error: abortContext.turnOutput! });
 			reentryStream.end();
 		})
 		// After teardown and any restart: nothing else reads this lane.
@@ -1448,7 +1461,7 @@ export default function (pi: ExtensionAPI): void {
 		return;
 	}
 	if (claimPrimaryInstance()) {
-		const host = globalThis as Record<symbol, any>;
+		const host = processGlobals();
 		host[CLAUDE_BILLING_IDENTITY_SYMBOL] = BRIDGE_BILLING_IDENTITY;
 	}
 
@@ -1490,7 +1503,7 @@ export default function (pi: ExtensionAPI): void {
 		deleteBillingIdentityLane(sessionId);
 	});
 	pi.on("message_end", (event, context) => runInRequestLane(context.sessionManager.getSessionId(), () => {
-		const message = (event as { message?: AssistantMessage }).message;
+		const { message } = event;
 		if (message?.role === "assistant" && message.provider === PROVIDER_ID) schedulePersistSharedSession(context);
 	}));
 
@@ -1514,4 +1527,10 @@ export default function (pi: ExtensionAPI): void {
 	// reload always no-ops, so it never overwrites the parent's streamSimple nor
 	// steals ownership. See PRIMARY_INSTANCE_KEY / ACTIVE_STREAM_SIMPLE_KEY.
 	applyProviderRegistration("load");
+}
+
+// Process-global slots shared by every copy of this module, keyed by registered symbols; only this
+// module and its siblings write them.
+function processGlobals(): Record<symbol, unknown> {
+	return globalThis as Record<symbol, unknown>;
 }

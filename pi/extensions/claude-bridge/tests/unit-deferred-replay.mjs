@@ -20,10 +20,10 @@ const assistant = () => ({ role: "assistant", content: [] });
 describe("planDeferredUserReplay", () => {
 	it("captures the complete trailing user run", () => {
 		for (const { name, messages, expected } of [
-			{ name: "both trailing users", messages: [assistant(), toolResult(), user("u_a"), user("u_b")], expected: { runStart: 2, userMessageCount: 2, prompt: "u_a\n\nu_b", blocks: null } },
-			{ name: "single trailing user", messages: [assistant(), toolResult(), user("steer")], expected: { runStart: 2, userMessageCount: 1, prompt: "steer", blocks: null } },
-			{ name: "no trailing user", messages: [assistant(), toolResult()], expected: { runStart: 2, userMessageCount: 0, prompt: null, blocks: null } },
-			{ name: "empty user run", messages: [assistant(), toolResult(), user(""), user("  ")], expected: { runStart: 2, userMessageCount: 2, prompt: null, blocks: null } },
+			{ name: "both trailing users", messages: [assistant(), toolResult(), user("u_a"), user("u_b")], expected: { runStart: 2, userMessageCount: 2, prompt: "u_a\n\nu_b", blocks: undefined } },
+			{ name: "single trailing user", messages: [assistant(), toolResult(), user("steer")], expected: { runStart: 2, userMessageCount: 1, prompt: "steer", blocks: undefined } },
+			{ name: "no trailing user", messages: [assistant(), toolResult()], expected: { runStart: 2, userMessageCount: 0, prompt: undefined, blocks: undefined } },
+			{ name: "empty user run", messages: [assistant(), toolResult(), user(""), user("  ")], expected: { runStart: 2, userMessageCount: 2, prompt: undefined, blocks: undefined } },
 		]) {
 			const plan = planDeferredUserReplay(messages);
 			assert.deepEqual({ ...plan, capturedEnd: plan.runStart + plan.userMessageCount }, { ...expected, capturedEnd: messages.length }, name);
@@ -60,13 +60,13 @@ describe("planDeferredUserReplay image blocks (kendex#993)", () => {
 
 		const plan = planDeferredUserReplay(messages);
 
-		assert.equal(plan.prompt, null);
+		assert.equal(plan.prompt, undefined);
 		assert.deepEqual(plan.blocks, [{ type: "image", source: { type: "base64", media_type: "image/png", data: "aGk=" } }]);
 	});
 
-	it("returns null blocks for a text-only run", () => {
+	it("returns no blocks for a text-only run", () => {
 		const plan = planDeferredUserReplay([{ role: "user", content: "plain" }]);
-		assert.equal(plan.blocks, null);
+		assert.equal(plan.blocks, undefined);
 		assert.equal(plan.prompt, "plain");
 	});
 });
@@ -101,8 +101,8 @@ describe("planDeferredUserReplay capture bound (kendex#1009)", () => {
 		const messages = [assistant(), toolResult(), user("steer")];
 		const plan = planDeferredUserReplay(messages, messages.length);
 
-		assert.equal(plan.prompt, null);
-		assert.equal(plan.blocks, null);
+		assert.equal(plan.prompt, undefined);
+		assert.equal(plan.blocks, undefined);
 		assert.equal(plan.userMessageCount, 0);
 		// runStart === capturedThrough === messages.length: the caller's skip
 		// branch holds the cursor there, advancing nothing.
@@ -114,7 +114,7 @@ describe("planDeferredUserReplay capture bound (kendex#1009)", () => {
 		// held the cursor at runStart (2), NOT past the empty message.
 		let messages = [assistant(), toolResult(), user("")];
 		const first = planDeferredUserReplay(messages, 0);
-		assert.equal(first.prompt, null);
+		assert.equal(first.prompt, undefined);
 		const captured = first.runStart; // caller: capturedThrough on skip
 		assert.equal(captured, 2);
 
@@ -141,6 +141,6 @@ describe("planDeferredUserReplay capture bound (kendex#1009)", () => {
 		const second = planDeferredUserReplay(messages, captured);
 
 		assert.equal(second.prompt, "follow-up text");
-		assert.equal(second.blocks, null, "the captured image must not be queued a second time");
+		assert.equal(second.blocks, undefined, "the captured image must not be queued a second time");
 	});
 });

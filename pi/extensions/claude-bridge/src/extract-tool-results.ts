@@ -4,6 +4,8 @@
 // pi may inject between toolResults. Stops at the nearest assistant message
 // (turn boundary). A module of its own so tests can import it without activating the extension.
 
+import { isRecord } from "../../lib/untyped.ts";
+
 export type McpContent = Array<
 	| { type: "text"; text: string }
 	| { type: "image"; data: string; mimeType: string }
@@ -16,29 +18,30 @@ export interface McpResult {
 	[key: string]: unknown;
 }
 
-export function toolResultToMcpContent(
-	content: string | ReadonlyArray<{ type: string; text?: string; data?: string; mimeType?: string }>,
-): McpContent {
+// Pi's tool result content: a string, or text and image blocks.
+export function toolResultToMcpContent(content: unknown): McpContent {
 	if (typeof content === "string") return [{ type: "text", text: content || "" }];
 	if (!Array.isArray(content)) return [{ type: "text", text: "" }];
 	const blocks: McpContent = [];
 	for (const block of content) {
-		if (block.type === "text" && block.text) blocks.push({ type: "text", text: block.text });
-		else if (block.type === "image" && block.data && block.mimeType) blocks.push({ type: "image", data: block.data, mimeType: block.mimeType });
+		if (!isRecord(block)) continue;
+		const { type, text, data, mimeType } = block;
+		if (type === "text" && typeof text === "string" && text) blocks.push({ type: "text", text });
+		else if (type === "image" && typeof data === "string" && data && typeof mimeType === "string" && mimeType) blocks.push({ type: "image", data, mimeType });
 	}
 	return blocks.length ? blocks : [{ type: "text", text: "" }];
 }
 
 // Returns { results, stopIdx } so callers can log the walk boundary.
 export function extractAllToolResults(
-	messages: ReadonlyArray<{ role: string; content?: unknown; toolCallId?: string; isError?: boolean; [key: string]: unknown }>,
+	messages: ReadonlyArray<{ role: string; content?: unknown; toolCallId?: string; isError?: boolean }>,
 ): { results: McpResult[]; stopIdx: number } {
 	const results: McpResult[] = [];
 	let stopIndex = -1;
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const message = messages[i];
 		if (message.role === "toolResult") {
-			results.unshift({ content: toolResultToMcpContent(message.content as string | Array<{ type: string; text?: string; data?: string; mimeType?: string }>), isError: message.isError, toolCallId: message.toolCallId });
+			results.unshift({ content: toolResultToMcpContent(message.content), isError: message.isError, toolCallId: message.toolCallId });
 		} else if (message.role === "assistant") { stopIndex = i; break; }
 		// user messages (steer/followUp injected mid-tool-execution) and system
 		// messages (a prompt or tool-set change Pi recorded at the boundary): skip

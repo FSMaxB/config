@@ -1,6 +1,8 @@
 // Canonical selection + display order for the model picker. A module of its own so tests can
 // import it without activating the extension.
 
+import type { Api, Model } from "@earendil-works/pi-ai";
+
 export const FABLE_5_2_MODEL_ID = "claude-fable-5-2";
 // Opus 4.8 is both a selectable model and the configured safety-fallback target for the Claude 5
 // primaries whose classifiers can decline a turn (Fable 5.2, Opus 5.5).
@@ -39,15 +41,10 @@ export const MODEL_IDS_IN_ORDER = [
 	HAIKU_4_5_MODEL_ID,
 ];
 
-interface BridgeModelMetadata {
-	id: string;
-	name: string;
-	reasoning: boolean;
-	thinkingLevelMap?: Record<string, string | null>;
-	input: ("text" | "image")[];
-	contextWindow: number;
-	maxTokens: number;
-}
+type BridgeModelMetadata = Pick<Model<Api>, "id" | "name" | "reasoning" | "thinkingLevelMap" | "input" | "contextWindow" | "maxTokens">;
+
+// The bridge's own models are free: Claude Code bills through the user's own login or key.
+export type BridgeModel = BridgeModelMetadata & { cost: Model<Api>["cost"] };
 
 const FALLBACK_MODELS: Record<string, BridgeModelMetadata> = {
 	[FABLE_5_2_MODEL_ID]: {
@@ -134,10 +131,10 @@ export function refusalFallbackNotice(originalModel: unknown, fallbackModel: unk
 // Project pi-ai's model entries down to the fields pi's registerProvider expects,
 // keep MODEL_IDS_IN_ORDER ordering, and fill bridge-owned metadata for supported
 // IDs absent from pi-ai. Unknown missing IDs are still dropped.
-export function buildModels<T extends { id: string; [key: string]: any }>(piAiModels: readonly T[]) {
+export function buildModels(piAiModels: readonly BridgeModelMetadata[]): BridgeModel[] {
 	return MODEL_IDS_IN_ORDER
-		.map((id) => piAiModels.find((m) => m.id === id) ?? FALLBACK_MODELS[id])
-		.filter((m) => m != null)
+		.map((id) => piAiModels.find((model) => model.id === id) ?? FALLBACK_MODELS[id])
+		.filter((model) => model !== undefined)
 		// Forward thinkingLevelMap so per-model overrides (e.g. opus-4-8 mapping
 		// xhigh→xhigh instead of xhigh→max) are visible to the effort lookup.
 		.map(({ id, name, reasoning, input, contextWindow, maxTokens, thinkingLevelMap }) => ({
