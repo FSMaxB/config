@@ -63,7 +63,7 @@ function rootAnchored(path: string, platform: "windows" | "posix"): boolean { re
  * so a host app that owns the agent dir owns
  * those paths too.
  */
-export function piUserDir(): string {
+export function piUserDirectory(): string {
 	const override = expandHome(process.env.PI_CODING_AGENT_DIR?.trim() || "");
 	return resolve(rootAnchored(override, process.platform === "win32" ? "windows" : "posix") ? override : expandHome("~/.pi/agent"));
 }
@@ -73,9 +73,9 @@ export function piUserDir(): string {
  * declares that nothing outside its explicitly configured dirs may be read.
  * Disables every cwd/home discovery fallback — all AGENTS.md discovery,
  * project `.pi/claude-bridge.json` and project APPEND_SYSTEM.md. Bridge
- * configuration comes only from `piUserDir()/claude-bridge.json`.
+ * configuration comes only from `piUserDirectory()/claude-bridge.json`.
  */
-export function isolatedFromEnv(): boolean {
+export function isolatedFromEnvironment(): boolean {
 	const v = (process.env.CLAUDE_BRIDGE_ISOLATED ?? "").trim().toLowerCase();
 	return v === "1" || v === "true" || v === "yes" || v === "on";
 }
@@ -121,7 +121,7 @@ export function recordProjectTrust(context: { cwd?: string; isProjectTrusted?: (
 	// Isolated mode never reads project config, so recording trust would only
 	// run the cwd-ancestor `.pi/settings.json` walk (a filesystem probe outside
 	// the host-owned dirs) for a result nothing consumes. Skip it entirely.
-	if (isolatedFromEnv()) return;
+	if (isolatedFromEnvironment()) return;
 	let trusted: boolean;
 	try {
 		trusted = context.isProjectTrusted?.() === true;
@@ -209,8 +209,8 @@ function normalizeProviderConfig(raw: SettingsRecord): Config["provider"] {
 }
 
 export function loadConfig(cwd: string): Config {
-	const user = fileConfig(join(piUserDir(), "claude-bridge.json"));
-	const projectSettings = isolatedFromEnv() ? undefined : projectSettingsPath(cwd);
+	const user = fileConfig(join(piUserDirectory(), "claude-bridge.json"));
+	const projectSettings = isolatedFromEnvironment() ? undefined : projectSettingsPath(cwd);
 	const project = projectSettings && projectSettingsTrusted(projectSettings)
 		? fileConfig(join(dirname(projectSettings), "claude-bridge.json")) : {};
 	return {

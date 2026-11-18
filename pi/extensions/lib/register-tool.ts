@@ -8,9 +8,9 @@ import type { TSchema } from "typebox";
 // (e.g. pi-claude-bridge) forward only the tool description. Merging the guidelines
 // into the description is the one channel that reaches every harness; native
 // sessions see the text twice, which is benign.
-export function registerToolWithGuidelines<TParams extends TSchema, TDetails = unknown>(
+export function registerToolWithGuidelines<TParameters extends TSchema, TDetails = unknown>(
   pi: ExtensionAPI,
-  definition: ToolDefinition<TParams, TDetails>,
+  definition: ToolDefinition<TParameters, TDetails>,
 ): void {
   const { description, promptGuidelines = [] } = definition;
   pi.registerTool({

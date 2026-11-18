@@ -8,8 +8,8 @@ export default function (pi: ExtensionAPI): void {
     description:
       "Review path rules with `grants`, or add one with `allow <glob>` / `deny <glob>`; prefix `execution`, `plan` or `explore` for another mode's rules",
     getArgumentCompletions: pathsCompletions,
-    handler: async (args, context) => {
-      const argument = args.trim();
+    handler: async (commandArguments, context) => {
+      const argument = commandArguments.trim();
       const command = parsePathsArgument(argument, activePathRuleStore());
       if (command === undefined) {
         context.ui.notify(`Unknown argument "${argument}". Use /paths [execution|plan|explore] [grants | allow <glob> | deny <glob>].`, "error");

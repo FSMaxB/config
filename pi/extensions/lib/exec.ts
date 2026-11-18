@@ -9,11 +9,11 @@ export interface ExecCheckedOptions {
 export async function execChecked(
   pi: ExtensionAPI,
   command: string,
-  args: readonly string[],
+  commandArguments: readonly string[],
   options: ExecCheckedOptions,
 ): Promise<string> {
-  const { stdout, stderr, code, killed, truncated } = await pi.exec(command, [...args], options);
-  const invocation = `${command} ${args.join(" ")}`;
+  const { stdout, stderr, code, killed, truncated } = await pi.exec(command, [...commandArguments], options);
+  const invocation = `${command} ${commandArguments.join(" ")}`;
 
   if (options.signal?.aborted) throw new Error(`${invocation} was aborted.`);
   if (truncated) throw new Error(`${invocation} was killed: its output exceeded pi.exec's buffer limit.`);

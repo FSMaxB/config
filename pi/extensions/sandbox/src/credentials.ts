@@ -5,7 +5,7 @@ import type { CredentialEnvVarConfig } from "@anthropic-ai/sandbox-runtime";
 // the sandbox and the proxy substitutes the real value on egress to allowed domains.
 const SENSITIVE_NAME = /(api[_-]?key|access[_-]?key|secret|token|password|passwd|credential|private[_-]?key)/i;
 
-export function credentialEnvVars(environment: NodeJS.ProcessEnv = process.env): CredentialEnvVarConfig[] {
+export function credentialEnvironmentVariables(environment: NodeJS.ProcessEnv = process.env): CredentialEnvVarConfig[] {
   return Object.keys(environment)
     .filter((name) => SENSITIVE_NAME.test(name) && environment[name] !== "")
     .sort()

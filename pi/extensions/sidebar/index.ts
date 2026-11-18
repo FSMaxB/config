@@ -36,8 +36,8 @@ export default function sidebarExtension(pi: ExtensionAPI): void {
 
   pi.registerCommand("sidebar", {
     description: "Show or hide the sidebar for this session",
-    handler: async (args, context) => {
-      const argument = args.trim().toLowerCase();
+    handler: async (commandArguments, context) => {
+      const argument = commandArguments.trim().toLowerCase();
       if (argument === "") {
         setVisibility(visibility === Visibility.On ? Visibility.Off : Visibility.On, context);
         return;

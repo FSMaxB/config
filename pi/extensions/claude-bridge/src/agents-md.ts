@@ -2,7 +2,7 @@
 //
 // Pi uses AGENTS.md for long-lived instructions; Claude Code reads the same
 // content under "# CLAUDE.md". We forward the global context file from
-// <piUserDir> (~/.pi/agent/AGENTS.md unless PI_CODING_AGENT_DIR points elsewhere)
+// <piUserDirectory> (~/.pi/agent/AGENTS.md unless PI_CODING_AGENT_DIR points elsewhere)
 // and the nearest one found walking up from cwd, and rewrite pi-specific references
 // (~/.pi, .pi/, .pi, pi) to their Claude Code equivalents so any paths or
 // references in the file still resolve inside the CC subprocess.
@@ -27,13 +27,13 @@
 
 import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { isolatedFromEnv, piUserDir } from "./config.js";
+import { isolatedFromEnvironment, piUserDirectory } from "./config.js";
 import { debug } from "./debug.js";
 import { errorCode } from "../../lib/errors.ts";
 
 const CONTEXT_FILE_CANDIDATES = ["AGENTS.override.md", "AGENTS.md", "AGENTS.MD"];
 
-function contextFileInDir(directory: string): string | undefined {
+function contextFileInDirectory(directory: string): string | undefined {
 	for (const filename of CONTEXT_FILE_CANDIDATES) {
 		const candidate = join(directory, filename);
 		try {
@@ -64,10 +64,10 @@ function contextFileInDir(directory: string): string | undefined {
 }
 
 export function resolveAgentsMdPaths(): string[] {
-	if (isolatedFromEnv()) return [];
+	if (isolatedFromEnvironment()) return [];
 	const paths: string[] = [];
 	const seen = new Set<string>();
-	for (const candidate of [contextFileInDir(piUserDir()), findAgentsMdInParents(process.cwd())]) {
+	for (const candidate of [contextFileInDirectory(piUserDirectory()), findAgentsMdInParents(process.cwd())]) {
 		if (!candidate) continue;
 		// The global file is often a symlink into a dotfiles repository; when cwd is that
 		// repository the walk-up finds the same file under a second path.
@@ -84,10 +84,10 @@ export function resolveAgentsMdPaths(): string[] {
 	return paths;
 }
 
-export function findAgentsMdInParents(startDir: string): string | undefined {
-	let current = resolve(startDir);
+export function findAgentsMdInParents(startDirectory: string): string | undefined {
+	let current = resolve(startDirectory);
 	while (true) {
-		const candidate = contextFileInDir(current);
+		const candidate = contextFileInDirectory(current);
 		if (candidate) return candidate;
 		const parent = dirname(current);
 		if (parent === current) break;

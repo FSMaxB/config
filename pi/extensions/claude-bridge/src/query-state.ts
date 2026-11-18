@@ -236,16 +236,16 @@ function normalizeForCompare(value: unknown): unknown {
 	return value;
 }
 
-function argsKey(value: unknown): string {
+function argumentsKey(value: unknown): string {
 	return JSON.stringify(normalizeForCompare(value ?? {}));
 }
 
-function sameArgs(left: unknown, right: unknown): boolean {
-	return argsKey(left) === argsKey(right);
+function sameArguments(left: unknown, right: unknown): boolean {
+	return argumentsKey(left) === argumentsKey(right);
 }
 
-function hasRecordedArgs(args: JsonObject | undefined): boolean {
-	return Object.keys(args ?? {}).length > 0;
+function hasRecordedArguments(toolArguments: JsonObject | undefined): boolean {
+	return Object.keys(toolArguments ?? {}).length > 0;
 }
 
 function unique(values: Iterable<string | undefined>): string[] {
@@ -504,25 +504,25 @@ export class QueryContext {
 		this.childSideCalls.set(key, { name: typeof rawName === "string" && rawName ? rawName : "<unknown>" });
 	}
 
-	recordToolCall(id: string | undefined, toolName: string, args: JsonObject = {}): void {
+	recordToolCall(id: string | undefined, toolName: string, toolArguments: JsonObject = {}): void {
 		if (!id) return;
 		this.queryToolNames.set(id, toolName);
-		this.queryToolArgs.set(id, args);
+		this.queryToolArgs.set(id, toolArguments);
 		if (!this.turnToolCallIds.includes(id)) this.turnToolCallIds.push(id);
 		const existing = this.turnToolCalls.find((call) => call.id === id);
 		if (existing) {
 			existing.toolName = toolName;
-			existing.arguments = args;
+			existing.arguments = toolArguments;
 			return;
 		}
-		this.turnToolCalls.push({ id, toolName, arguments: args });
+		this.turnToolCalls.push({ id, toolName, arguments: toolArguments });
 	}
 
-	updateToolCallArgs(id: string | undefined, args: JsonObject): void {
+	updateToolCallArgs(id: string | undefined, toolArguments: JsonObject): void {
 		if (!id) return;
-		this.queryToolArgs.set(id, args);
+		this.queryToolArgs.set(id, toolArguments);
 		const existing = this.turnToolCalls.find((call) => call.id === id);
-		if (existing) existing.arguments = args;
+		if (existing) existing.arguments = toolArguments;
 	}
 
 	hasRecordedToolCall(id: string | undefined): boolean {
@@ -533,10 +533,10 @@ export class QueryContext {
 		this.committedOutput = true;
 	}
 
-	claimToolCall(toolName: string, args: JsonObject = {}): ClaimedToolCall {
+	claimToolCall(toolName: string, toolArguments: JsonObject = {}): ClaimedToolCall {
 		const unclaimed = this.turnToolCalls.filter((call) => !this.claimedToolCallIds.has(call.id));
 		const byName = unclaimed.filter((call) => call.toolName === toolName);
-		const exact = byName.filter((call) => sameArgs(call.arguments, args));
+		const exact = byName.filter((call) => sameArguments(call.arguments, toolArguments));
 		// Ids whose RESULT already sits queued or parked. A handler can fire after
 		// the message boundary wiped the per-message records — by then Pi has
 		// executed its call and only these query-scoped stores still know it
@@ -547,7 +547,7 @@ export class QueryContext {
 		// result waits; without an exact match it is only a last resort.
 		const resultBacked = [...new Set([...this.pendingResults.keys(), ...this.reapedResults.keys()])]
 			.filter((id) => !this.claimedToolCallIds.has(id) && this.queryToolNames.get(id) === toolName);
-		const backedExact = resultBacked.filter((id) => sameArgs(this.queryToolArgs.get(id), args));
+		const backedExact = resultBacked.filter((id) => sameArguments(this.queryToolArgs.get(id), toolArguments));
 		const claimBacked = (id: string, via: "tool-args" | "tool-name"): ClaimedToolCall => {
 			this.claimedToolCallIds.add(id);
 			return {
@@ -555,14 +555,14 @@ export class QueryContext {
 				match: via,
 				ambiguous: via === "tool-args" && backedExact.length > 1,
 				available: unclaimed.length,
-				...(via === "tool-name" && hasRecordedArgs(this.queryToolArgs.get(id)) ? { argsMismatch: true } : {}),
+				...(via === "tool-name" && hasRecordedArguments(this.queryToolArgs.get(id)) ? { argsMismatch: true } : {}),
 			};
 		};
 		let chosen: TurnToolCallRecord | undefined;
 		let match: ClaimedToolCall["match"] = "none";
 		let ambiguous = false;
 
-		let argsMismatch = false;
+		let argumentsMismatch = false;
 		if (exact.length > 0) {
 			chosen = exact[0];
 			match = "tool-args";
@@ -586,7 +586,7 @@ export class QueryContext {
 			// cross-pairing two live calls is the one outcome worse than failing.
 			chosen = byName[0];
 			match = "tool-name";
-			argsMismatch = hasRecordedArgs(byName[0].arguments);
+			argumentsMismatch = hasRecordedArguments(byName[0].arguments);
 		}
 
 		// Last resort: nothing live matched and no exact result-backed pairing —
@@ -596,7 +596,7 @@ export class QueryContext {
 
 		if (!chosen) return { match: "none", ambiguous: false, available: unclaimed.length };
 		this.claimedToolCallIds.add(chosen.id);
-		return { toolCallId: chosen.id, match, ambiguous, available: unclaimed.length, ...(argsMismatch ? { argsMismatch } : {}) };
+		return { toolCallId: chosen.id, match, ambiguous, available: unclaimed.length, ...(argumentsMismatch ? { argsMismatch: argumentsMismatch } : {}) };
 	}
 
 	/**

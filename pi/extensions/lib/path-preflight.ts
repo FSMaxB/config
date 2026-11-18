@@ -27,15 +27,15 @@ interface RejectedEntry { path: string; verdict: Exclude<Verdict, "allow"> }
 // rule denying it as a whole still applies.
 function firstRejectedEntry(root: string, scope: GatedScope, authorization: PathAuthorization, signal?: AbortSignal): Promise<RejectedEntry | undefined> {
   const fd = locateBinary("fd", ["fdfind"]);
-  const args = ["--hidden", "--color=never", "--type", "f", "--type", "d", "--exclude", "**/.git/*", "--exclude", "**/.jj/*", "--print0"];
-  if (scope === "children") args.push("--max-depth", "1");
-  if (!insideGitRepository(root)) args.push("--no-require-git");
+  const fdArguments = ["--hidden", "--color=never", "--type", "f", "--type", "d", "--exclude", "**/.git/*", "--exclude", "**/.jj/*", "--print0"];
+  if (scope === "children") fdArguments.push("--max-depth", "1");
+  if (!insideGitRepository(root)) fdArguments.push("--no-require-git");
   // A regex pattern, not --glob: "." matches every name.
-  args.push("--", ".", root);
+  fdArguments.push("--", ".", root);
 
   return new Promise((resolve, reject) => {
     if (signal?.aborted) { reject(new Error("Path preflight aborted")); return; }
-    const child = spawn(fd, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(fd, fdArguments, { stdio: ["ignore", "pipe", "pipe"] });
     let stderrText = "", remainder = "", sawEntry = false;
     let rejected: RejectedEntry | undefined;
 

@@ -50,7 +50,7 @@ function parseDurationLiteralMs(value: string, defaultUnit: "ms" | "s" = "s"): n
 	return Number.isFinite(ms) ? ms : undefined;
 }
 
-export function streamIdleTimeoutMsFromEnv(environment: NodeJS.ProcessEnv = process.env): number {
+export function streamIdleTimeoutMsFromEnvironment(environment: NodeJS.ProcessEnv = process.env): number {
 	const raw = environment[STREAM_IDLE_TIMEOUT_ENV]?.trim();
 	if (!raw) return DEFAULT_STREAM_IDLE_TIMEOUT_MS;
 	return parseDurationLiteralMs(raw, "s") ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS;

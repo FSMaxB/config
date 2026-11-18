@@ -107,7 +107,7 @@ function rulesAreInContext(context: ExtensionContext): boolean {
   );
 }
 
-export default function iHaveAdhdExtension(pi: ExtensionAPI): void {
+export default function adhdModeExtension(pi: ExtensionAPI): void {
   const rules = loadRules();
   const policyConfig = loadPolicyConfig(join(EXTENSION_DIR, "..", "subagent"));
   let enabled = false;
@@ -173,8 +173,8 @@ export default function iHaveAdhdExtension(pi: ExtensionAPI): void {
 
   pi.registerCommand("i-have-adhd", {
     description: "Toggle ADHD-friendly output for this session",
-    handler: async (args, context) => {
-      const argument = args.trim().toLowerCase();
+    handler: async (commandArguments, context) => {
+      const argument = commandArguments.trim().toLowerCase();
 
       if (argument === "") {
         setEnabled(enabled ? "disabled" : "enabled", context);

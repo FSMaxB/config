@@ -17,7 +17,7 @@ import { modelLabel } from "./lib/default-model.ts";
 export default function (pi: ExtensionAPI): void {
   pi.registerCommand("context", {
     description: "Show detailed stats on how the context window is used",
-    handler: async (_args, context) => {
+    handler: async (_commandArguments, context) => {
       context.ui.notify(buildReport(pi, context), "info");
     },
   });

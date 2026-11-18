@@ -7,7 +7,7 @@ import { currentQueryContext, failStrandedToolCall } from "./query-state.js";
 import type { ClaudeTranscriptAnchor, QueryContext, StreamingToolCall, TurnBlock } from "./query-state.js";
 import { jsonObjectFrom, parseJsonObject } from "./json-value.js";
 import type { BetaMessage } from "@anthropic-ai/sdk/resources/beta/messages/messages";
-import { isPiDispatchable, mapToolArgs, mapToolName } from "./tool-mapping.js";
+import { isPiDispatchable, mapToolArguments, mapToolName } from "./tool-mapping.js";
 
 
 // The usage fields of the Anthropic API's message, message_start and message_delta payloads, which
@@ -212,7 +212,7 @@ export function finalizeToolUseTurnFromMcpInvocation(
 	queryContext: QueryContext,
 	toolCallId: string,
 	toolName: string,
-	mappedArgs: JsonObject,
+	mappedArguments: JsonObject,
 	rearmCount = 0,
 ): void {
 	if (!queryContext.currentPiStream || !queryContext.turnOutput) {
@@ -239,7 +239,7 @@ export function finalizeToolUseTurnFromMcpInvocation(
 			// Settling from the partial forwards `{}`-argument calls that Pi then
 			// executes and errors on, a divergence the synthesize branch below
 			// cannot have.
-			block.arguments = mappedArgs;
+			block.arguments = mappedArguments;
 			queryContext.updateToolCallArgs(block.id, block.arguments);
 			delete block.partialJson;
 			delete block.index;
@@ -259,7 +259,7 @@ export function finalizeToolUseTurnFromMcpInvocation(
 		// (observed after a tool-result+steer provider call reset the turn):
 		// synthesize the toolCall from the claim — the MCP call carries the
 		// authoritative id, name, and arguments.
-		const block: StreamingToolCall = { type: "toolCall", id: toolCallId, name: toolName, arguments: mappedArgs };
+		const block: StreamingToolCall = { type: "toolCall", id: toolCallId, name: toolName, arguments: mappedArguments };
 		queryContext.turnBlocks.push(block);
 		index = queryContext.turnBlocks.length - 1;
 		queryContext.currentPiStream.push({ type: "toolcall_start", contentIndex: index, partial: queryContext.output });
@@ -267,8 +267,8 @@ export function finalizeToolUseTurnFromMcpInvocation(
 	}
 	// Settle every OTHER still-partial block whose handler has fired: each
 	// waiting handler carries the authoritative args for its own call.
-	for (let i = 0; i < queryContext.turnBlocks.length; i++) {
-		const sibling = queryContext.turnBlocks[i];
+	for (let blockIndex = 0; blockIndex < queryContext.turnBlocks.length; blockIndex++) {
+		const sibling = queryContext.turnBlocks[blockIndex];
 		if (!isPartialToolCall(sibling)) continue;
 		const waiting = queryContext.pendingToolCalls.get(sibling.id);
 		if (!waiting) continue;
@@ -276,7 +276,7 @@ export function finalizeToolUseTurnFromMcpInvocation(
 		queryContext.updateToolCallArgs(sibling.id, sibling.arguments);
 		delete sibling.partialJson;
 		delete sibling.index;
-		queryContext.currentPiStream.push({ type: "toolcall_end", contentIndex: i, toolCall: sibling, partial: queryContext.output });
+		queryContext.currentPiStream.push({ type: "toolcall_end", contentIndex: blockIndex, toolCall: sibling, partial: queryContext.output });
 	}
 	// A block still partial here has NO fired handler: its complete arguments
 	// exist nowhere on this side of the boundary yet. Ending the turn now would
@@ -287,7 +287,7 @@ export function finalizeToolUseTurnFromMcpInvocation(
 		debug(`mcp handler: ${unsettled.length} sibling tool call(s) still streaming — re-arming grace (${rearmCount + 1}/${FINALIZE_MAX_REARMS})`);
 		scheduleToolUseTurnEnd(
 			queryContext,
-			() => finalizeToolUseTurnFromMcpInvocation(queryContext, toolCallId, toolName, mappedArgs, rearmCount + 1),
+			() => finalizeToolUseTurnFromMcpInvocation(queryContext, toolCallId, toolName, mappedArguments, rearmCount + 1),
 			`finalize-rearm:${toolName}`,
 		);
 		return;
@@ -464,7 +464,7 @@ export function processStreamEvent(
 			stream.push({ type: "thinking_end", contentIndex: index, content: block.thinking, partial: queryContext.output });
 		} else if (block.type === "toolCall") {
 			queryContext.turnSawToolCall = true;
-			block.arguments = mapToolArgs(
+			block.arguments = mapToolArguments(
 				block.name, parsePartialJson(block.partialJson ?? "", block.arguments),
 			);
 			queryContext.updateToolCallArgs(block.id, block.arguments);
@@ -557,14 +557,14 @@ function appendMissingToolUsesFromAssistant(
 		}
 		sawToolUse = true;
 		const name = mapToolName(block.name, customToolNameToPi);
-		const mappedArgs = mapToolArgs(name, block.input);
-		queryContext.recordToolCall(block.id, name, mappedArgs);
+		const mappedArguments = mapToolArguments(name, block.input);
+		queryContext.recordToolCall(block.id, name, mappedArguments);
 		if (!streamLive) continue;
 		const existing = queryContext.turnBlocks[existingIndex];
 		if (existing?.type === "toolCall") {
 			existing.name = name;
-			existing.arguments = mappedArgs;
-			queryContext.updateToolCallArgs(block.id, mappedArgs);
+			existing.arguments = mappedArguments;
+			queryContext.updateToolCallArgs(block.id, mappedArguments);
 			if (existing.partialJson !== undefined) {
 				delete existing.partialJson;
 				delete existing.index;
@@ -574,7 +574,7 @@ function appendMissingToolUsesFromAssistant(
 		}
 
 		ensureTurnStarted(queryContext);
-		const toolBlock: StreamingToolCall = { type: "toolCall", id: block.id, name, arguments: mappedArgs };
+		const toolBlock: StreamingToolCall = { type: "toolCall", id: block.id, name, arguments: mappedArguments };
 		queryContext.turnBlocks.push(toolBlock);
 		const index = queryContext.turnBlocks.length - 1;
 		queryContext.currentPiStream?.push({ type: "toolcall_start", contentIndex: index, partial: queryContext.output });
@@ -675,19 +675,19 @@ export function processAssistantMessage(message: SDKAssistantMessage, model: Mod
 			ensureTurnStarted(queryContext);
 			queryContext.turnSawToolCall = true;
 			const mappedName = mapToolName(block.name, customToolNameToPi);
-			const mappedArgs = mapToolArgs(mappedName, block.input);
-			queryContext.recordToolCall(block.id, mappedName, mappedArgs);
+			const mappedArguments = mapToolArguments(mappedName, block.input);
+			queryContext.recordToolCall(block.id, mappedName, mappedArguments);
 			// A same-message re-yield of an already-mirrored call refreshes its
 			// arguments in place — a second toolCall block would make pi dispatch
 			// the tool twice.
 			const existing = queryContext.turnBlocks.find((candidate) => isToolCallWithId(candidate, block.id));
 			if (existing?.type === "toolCall") {
 				existing.name = mappedName;
-				existing.arguments = mappedArgs;
-				queryContext.updateToolCallArgs(block.id, mappedArgs);
+				existing.arguments = mappedArguments;
+				queryContext.updateToolCallArgs(block.id, mappedArguments);
 				continue;
 			}
-			const toolBlock: StreamingToolCall = { type: "toolCall", id: block.id, name: mappedName, arguments: mappedArgs };
+			const toolBlock: StreamingToolCall = { type: "toolCall", id: block.id, name: mappedName, arguments: mappedArguments };
 			queryContext.turnBlocks.push(toolBlock);
 			const blockIndex = queryContext.turnBlocks.length - 1;
 			queryContext.currentPiStream?.push({ type: "toolcall_start", contentIndex: blockIndex, partial: queryContext.output });

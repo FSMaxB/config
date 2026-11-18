@@ -89,9 +89,9 @@ export default function (pi: ExtensionAPI): void {
 
   pi.registerCommand("cache-debug", {
     description: "Show the prompt-cache report for this session or another session id (--all lists every request)",
-    handler: async (args, context) => {
+    handler: async (commandArguments, context) => {
       await writer.flush();
-      const { verbosity, target } = parseReportArguments(args.trim().split(/\s+/).filter(Boolean));
+      const { verbosity, target } = parseReportArguments(commandArguments.trim().split(/\s+/).filter(Boolean));
       const sessionId = target ?? context.sessionManager.getSessionId();
       const report = renderReport(analyze(await readLog(logFilePath(directory, sessionId))), verbosity);
       const problems = [writer.lastError, errors.last].filter(Boolean).map((message) => `Logging error: ${message}`);

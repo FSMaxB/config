@@ -29,7 +29,7 @@ export interface BridgedTool {
 	name: string;
 	description: string;
 	parameters: unknown;
-	handler: (args: Record<string, unknown> | undefined) => Promise<McpResult>;
+	handler: (toolArguments: Record<string, unknown> | undefined) => Promise<McpResult>;
 }
 
 export function createToolServer(name: string, tools: readonly BridgedTool[]): McpSdkServerConfigWithInstance {

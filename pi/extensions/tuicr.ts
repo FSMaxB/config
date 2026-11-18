@@ -6,7 +6,7 @@ import { Type } from "typebox";
 import { execChecked } from "./lib/exec.ts";
 import { detectMultiplexer, openPane } from "./lib/panes.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
-import { findRepoRoot } from "./lib/repo.ts";
+import { findRepositoryRoot } from "./lib/repo.ts";
 import {
   activeSlugs,
   advanceQuiet,
@@ -82,48 +82,48 @@ export default function (pi: ExtensionAPI): void {
       ),
     }),
 
-    async execute(_toolCallId, params, signal, onUpdate) {
-      const { range, workingTree = false, path } = params;
-      const repo = resolve(params.repo ?? findRepoRoot());
+    async execute(_toolCallId, parameters, signal, onUpdate) {
+      const { range, workingTree = false, path } = parameters;
+      const repository = resolve(parameters.repo ?? findRepositoryRoot());
       const multiplexer = detectMultiplexer();
       if (!multiplexer) {
         throw new Error(
           "No supported multiplexer detected (tmux or zellij). " +
-            `Ask the user to run tuicr in ${repo} themselves, then call tuicr_wait, which attaches to the active session.`,
+            `Ask the user to run tuicr in ${repository} themselves, then call tuicr_wait, which attaches to the active session.`,
         );
       }
 
-      const activeBefore = activeSlugs(await listSessions(pi, repo, signal));
-      const args = [
+      const activeBefore = activeSlugs(await listSessions(pi, repository, signal));
+      const tuicrArguments = [
         "--no-update-check",
         ...(range ? ["-r", range] : []),
         ...(workingTree ? ["-w"] : []),
         ...(path ? ["-p", path] : []),
       ];
-      await openPane(pi, multiplexer, repo, ["tuicr", ...args], signal);
+      await openPane(pi, multiplexer, repository, ["tuicr", ...tuicrArguments], signal);
       onUpdate?.({
         content: [{ type: "text", text: `tuicr started in a ${multiplexer} pane, waiting for its session…` }],
         details: {},
       });
 
-      const entry = await waitForSession(pi, repo, activeBefore, signal);
+      const entry = await waitForSession(pi, repository, activeBefore, signal);
       if (!entry) {
         // Without -r/-w tuicr shows a commit selector and has no session until the
         // user picks; tuicr_wait keeps looking for it.
-        current = { repo, slug: "", seen: new Set() };
+        current = { repo: repository, slug: "", seen: new Set() };
         return text(
-          `tuicr is running in a ${multiplexer} pane for ${repo}, but has no active review session yet ` +
+          `tuicr is running in a ${multiplexer} pane for ${repository}, but has no active review session yet ` +
             "(the user may still be choosing commits). Call tuicr_wait; it attaches once a session appears.",
         );
       }
-      const existing = await readComments(pi, repo, entry.slug, signal);
-      current = { repo, slug: entry.slug, seen: new Set(existing.map((comment) => comment.id)) };
+      const existing = await readComments(pi, repository, entry.slug, signal);
+      current = { repo: repository, slug: entry.slug, seen: new Set(existing.map((comment) => comment.id)) };
       const carried =
         existing.length > 0
           ? ` The session already holds ${existing.length} comment(s) from an earlier review; pass all: true to tuicr_wait to see them.`
           : "";
       return text(
-        `tuicr is running in a ${multiplexer} pane reviewing ${describeTarget(range, workingTree ? "included" : "excluded", path)} in ${repo}.\n` +
+        `tuicr is running in a ${multiplexer} pane reviewing ${describeTarget(range, workingTree ? "included" : "excluded", path)} in ${repository}.\n` +
           `Session: ${entry.slug}.${carried}\nCall tuicr_wait to receive the user's comments.`,
       );
     },
@@ -160,17 +160,17 @@ export default function (pi: ExtensionAPI): void {
       repo: Type.Optional(Type.String({ description: "Repository directory, when not the one tuicr_open used" })),
     }),
 
-    async execute(_toolCallId, params, signal, onUpdate) {
+    async execute(_toolCallId, parameters, signal, onUpdate) {
       const {
         quietSeconds = DEFAULT_QUIET_SECONDS,
         timeoutSeconds = DEFAULT_WAIT_TIMEOUT_SECONDS,
         all = false,
-      } = params;
+      } = parameters;
       const deadline = Date.now() + timeoutSeconds * 1000;
       let quiet: QuietState | undefined;
 
       while (true) {
-        const session = await resolveSession(pi, params, deadline, signal);
+        const session = await resolveSession(pi, parameters, deadline, signal);
         const entry = (await listSessions(pi, session.repo, signal)).find(
           (candidate) => candidate.slug === session.slug,
         );
@@ -257,11 +257,11 @@ export default function (pi: ExtensionAPI): void {
       repo: Type.Optional(Type.String({ description: "Repository directory, when not the one tuicr_open used" })),
     }),
 
-    async execute(_toolCallId, params, signal) {
-      const { comments, author = DEFAULT_AUTHOR } = params;
+    async execute(_toolCallId, parameters, signal) {
+      const { comments, author = DEFAULT_AUTHOR } = parameters;
       if (comments.length === 0) throw new Error("tuicr_comment needs at least one comment.");
       // deadline = now: attach only if a session is already active
-      const session = await resolveSession(pi, params, Date.now(), signal);
+      const session = await resolveSession(pi, parameters, Date.now(), signal);
 
       for (const comment of comments) {
         const { body, path, line, endLine, side, type } = comment;
@@ -310,13 +310,13 @@ function describeTarget(range: string | undefined, workingTree: "included" | "ex
 
 async function waitForSession(
   pi: ExtensionAPI,
-  repo: string,
+  repository: string,
   activeBefore: ReadonlySet<string>,
   signal: AbortSignal | undefined,
 ): Promise<SessionEntry | undefined> {
   const deadline = Date.now() + SESSION_APPEAR_TIMEOUT;
   while (true) {
-    const entries = await listSessions(pi, repo, signal);
+    const entries = await listSessions(pi, repository, signal);
     const picked = pickNewSession(entries, activeBefore);
     if (picked) return picked;
     if (Date.now() >= deadline) return undefined;
@@ -324,35 +324,35 @@ async function waitForSession(
   }
 }
 
-interface SessionParams {
+interface SessionParameters {
   session?: string;
   repo?: string;
 }
 
 async function resolveSession(
   pi: ExtensionAPI,
-  params: SessionParams,
+  parameters: SessionParameters,
   deadline: number,
   signal: AbortSignal | undefined,
 ): Promise<Session> {
-  if (params.session) {
-    const repo = resolve(params.repo ?? current?.repo ?? findRepoRoot());
-    const seen = current?.slug === params.session ? current.seen : new Set<string>();
-    current = { repo, slug: params.session, seen };
+  if (parameters.session) {
+    const repository = resolve(parameters.repo ?? current?.repo ?? findRepositoryRoot());
+    const seen = current?.slug === parameters.session ? current.seen : new Set<string>();
+    current = { repo: repository, slug: parameters.session, seen };
     return current;
   }
   if (current && current.slug !== "") return current;
 
-  const repo = current?.repo ?? resolve(params.repo ?? findRepoRoot());
+  const repository = current?.repo ?? resolve(parameters.repo ?? findRepositoryRoot());
   while (true) {
-    const active = (await listSessions(pi, repo, signal)).filter((entry) => entry.active);
+    const active = (await listSessions(pi, repository, signal)).filter((entry) => entry.active);
     const picked = active.sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
     if (picked) {
-      current = { repo, slug: picked.slug, seen: new Set() };
+      current = { repo: repository, slug: picked.slug, seen: new Set() };
       return current;
     }
     if (Date.now() >= deadline)
-      throw new Error(`No active tuicr session in ${repo}. Call tuicr_open, or ask the user to start tuicr there.`);
+      throw new Error(`No active tuicr session in ${repository}. Call tuicr_open, or ask the user to start tuicr there.`);
     await sleep(POLL_INTERVAL, undefined, { signal });
   }
 }
@@ -365,10 +365,10 @@ const TUICR_NAMESPACE = { name: "tuicr", description: "Run terminal reviews and 
 
 async function listSessions(
   pi: ExtensionAPI,
-  repo: string,
+  repository: string,
   signal: AbortSignal | undefined,
 ): Promise<SessionEntry[]> {
-  const output = await execChecked(pi, "tuicr", ["review", "list", "--repo", repo], {
+  const output = await execChecked(pi, "tuicr", ["review", "list", "--repo", repository], {
     signal,
     timeout: TIMEOUT,
   });
@@ -379,12 +379,12 @@ async function listSessions(
 // list and here just means "gone": report no comments rather than failing the wait.
 async function readComments(
   pi: ExtensionAPI,
-  repo: string,
+  repository: string,
   slug: string,
   signal: AbortSignal | undefined,
 ): Promise<TuicrComment[]> {
   try {
-    const output = await execChecked(pi, "tuicr", ["review", "comments", "--repo", repo, "--session", slug], {
+    const output = await execChecked(pi, "tuicr", ["review", "comments", "--repo", repository, "--session", slug], {
       signal,
       timeout: TIMEOUT,
     });

@@ -24,10 +24,10 @@ export interface AgentConfig {
 export function discoverAgents(): { agents: AgentConfig[]; skipped: string[] } {
   // Agents ship next to this extension so the whole setup lives in the config repo.
   const agentsDirectory = join(dirname(fileURLToPath(import.meta.url)), "agents");
-  return loadAgentsFromDir(agentsDirectory);
+  return loadAgentsFromDirectory(agentsDirectory);
 }
 
-function loadAgentsFromDir(directory: string): { agents: AgentConfig[]; skipped: string[] } {
+function loadAgentsFromDirectory(directory: string): { agents: AgentConfig[]; skipped: string[] } {
   const pairs: { file: string; agent: AgentConfig }[] = [];
 
   let entries: Dirent[];

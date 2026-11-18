@@ -34,11 +34,6 @@
       "count": 3
     }
   },
-  "extensions/cache-debug/index.ts": {
-    "unicorn/name-replacements": {
-      "count": 1
-    }
-  },
   "extensions/cache-debug/log-file.test.ts": {
     "local/step-down": {
       "count": 2
@@ -74,9 +69,6 @@
     },
     "local/step-down": {
       "count": 2
-    },
-    "unicorn/name-replacements": {
-      "count": 2
     }
   },
   "extensions/claude-bridge/src/assistant-stream.ts": {
@@ -89,9 +81,6 @@
     "local/step-down": {
       "count": 13
     },
-    "unicorn/name-replacements": {
-      "count": 4
-    },
     "unicorn/no-null": {
       "count": 4
     }
@@ -99,9 +88,6 @@
   "extensions/claude-bridge/src/auth-presence.ts": {
     "local/step-down": {
       "count": 4
-    },
-    "unicorn/name-replacements": {
-      "count": 5
     }
   },
   "extensions/claude-bridge/src/billing-identity.ts": {
@@ -115,9 +101,6 @@
   "extensions/claude-bridge/src/bridge-commands.ts": {
     "local/step-down": {
       "count": 2
-    },
-    "unicorn/name-replacements": {
-      "count": 1
     }
   },
   "extensions/claude-bridge/src/bridge-state.ts": {
@@ -129,9 +112,6 @@
     },
     "local/step-down": {
       "count": 12
-    },
-    "unicorn/name-replacements": {
-      "count": 2
     },
     "unicorn/no-null": {
       "count": 1
@@ -151,9 +131,6 @@
     },
     "local/step-down": {
       "count": 13
-    },
-    "unicorn/name-replacements": {
-      "count": 1
     }
   },
   "extensions/claude-bridge/src/claude-failure.ts": {
@@ -176,9 +153,6 @@
     },
     "local/step-down": {
       "count": 20
-    },
-    "unicorn/name-replacements": {
-      "count": 2
     }
   },
   "extensions/claude-bridge/src/consume-query.ts": {
@@ -201,9 +175,6 @@
     },
     "local/step-down": {
       "count": 8
-    },
-    "unicorn/name-replacements": {
-      "count": 3
     }
   },
   "extensions/claude-bridge/src/debug.ts": {
@@ -218,17 +189,11 @@
     },
     "local/step-down": {
       "count": 2
-    },
-    "unicorn/name-replacements": {
-      "count": 2
     }
   },
   "extensions/claude-bridge/src/extract-tool-results.ts": {
     "local/step-down": {
       "count": 3
-    },
-    "unicorn/name-replacements": {
-      "count": 1
     }
   },
   "extensions/claude-bridge/src/flat-edit.ts": {
@@ -248,9 +213,6 @@
     },
     "local/step-down": {
       "count": 14
-    },
-    "unicorn/name-replacements": {
-      "count": 6
     },
     "unicorn/no-null": {
       "count": 3
@@ -288,9 +250,6 @@
     },
     "local/step-down": {
       "count": 7
-    },
-    "unicorn/name-replacements": {
-      "count": 4
     }
   },
   "extensions/claude-bridge/src/query-options.ts": {
@@ -299,9 +258,6 @@
     },
     "local/step-down": {
       "count": 5
-    },
-    "unicorn/name-replacements": {
-      "count": 1
     }
   },
   "extensions/claude-bridge/src/query-state.ts": {
@@ -310,9 +266,6 @@
     },
     "local/step-down": {
       "count": 24
-    },
-    "unicorn/name-replacements": {
-      "count": 8
     }
   },
   "extensions/claude-bridge/src/query-teardown.ts": {
@@ -342,9 +295,6 @@
     },
     "local/step-down": {
       "count": 2
-    },
-    "unicorn/name-replacements": {
-      "count": 1
     }
   },
   "extensions/claude-bridge/src/session-persistence.ts": {
@@ -359,9 +309,6 @@
     },
     "local/step-down": {
       "count": 23
-    },
-    "unicorn/name-replacements": {
-      "count": 8
     },
     "unicorn/no-null": {
       "count": 2
@@ -387,9 +334,6 @@
     },
     "local/step-down": {
       "count": 6
-    },
-    "unicorn/name-replacements": {
-      "count": 1
     }
   },
   "extensions/claude-bridge/src/tool-isolation.ts": {
@@ -407,9 +351,6 @@
     "local/step-down": {
       "count": 2
     },
-    "unicorn/name-replacements": {
-      "count": 2
-    },
     "unicorn/no-null": {
       "count": 1
     }
@@ -420,9 +361,6 @@
     },
     "local/step-down": {
       "count": 5
-    },
-    "unicorn/name-replacements": {
-      "count": 3
     }
   },
   "extensions/claude-bridge/src/tool-server.ts": {
@@ -434,9 +372,6 @@
     },
     "local/step-down": {
       "count": 3
-    },
-    "unicorn/name-replacements": {
-      "count": 1
     }
   },
   "extensions/claude-bridge/src/tree-resume.ts": {
@@ -448,14 +383,6 @@
     },
     "local/step-down": {
       "count": 3
-    },
-    "unicorn/name-replacements": {
-      "count": 1
-    }
-  },
-  "extensions/claude-bridge/tests/fixtures/slow-tool-extension.ts": {
-    "unicorn/name-replacements": {
-      "count": 2
     }
   },
   "extensions/context.ts": {
@@ -468,9 +395,6 @@
     "local/step-down": {
       "count": 1
     },
-    "unicorn/name-replacements": {
-      "count": 1
-    },
     "unicorn/no-null": {
       "count": 1
     }
@@ -481,26 +405,10 @@
     },
     "local/step-down": {
       "count": 3
-    },
-    "unicorn/name-replacements": {
-      "count": 16
-    }
-  },
-  "extensions/explore-mode.ts": {
-    "unicorn/name-replacements": {
-      "count": 1
     }
   },
   "extensions/files.ts": {
     "local/step-down": {
-      "count": 1
-    },
-    "unicorn/name-replacements": {
-      "count": 4
-    }
-  },
-  "extensions/foreign-thinking/index.ts": {
-    "unicorn/name-replacements": {
       "count": 1
     }
   },
@@ -541,14 +449,6 @@
   "extensions/i-have-adhd/index.ts": {
     "local/step-down": {
       "count": 6
-    },
-    "unicorn/name-replacements": {
-      "count": 2
-    }
-  },
-  "extensions/i-have-adhd/settings.ts": {
-    "unicorn/name-replacements": {
-      "count": 1
     }
   },
   "extensions/lib/agent-mode.ts": {
@@ -589,9 +489,6 @@
       "count": 1
     },
     "local/step-down": {
-      "count": 1
-    },
-    "unicorn/name-replacements": {
       "count": 1
     }
   },
@@ -658,9 +555,6 @@
   "extensions/lib/panes.ts": {
     "local/step-down": {
       "count": 1
-    },
-    "unicorn/name-replacements": {
-      "count": 1
     }
   },
   "extensions/lib/path-permission-rules.ts": {
@@ -693,9 +587,6 @@
     },
     "local/step-down": {
       "count": 12
-    },
-    "unicorn/name-replacements": {
-      "count": 4
     }
   },
   "extensions/lib/path-preflight.test.ts": {
@@ -705,9 +596,6 @@
   },
   "extensions/lib/path-preflight.ts": {
     "local/step-down": {
-      "count": 1
-    },
-    "unicorn/name-replacements": {
       "count": 1
     }
   },
@@ -758,17 +646,11 @@
   "extensions/lib/plan-commit.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 2
-    },
-    "unicorn/name-replacements": {
-      "count": 2
     }
   },
   "extensions/lib/plan-commit.ts": {
     "local/step-down": {
       "count": 6
-    },
-    "unicorn/name-replacements": {
-      "count": 4
     }
   },
   "extensions/lib/plan-file.ts": {
@@ -785,9 +667,6 @@
     "@typescript-eslint/consistent-type-assertions": {
       "count": 6
     },
-    "unicorn/name-replacements": {
-      "count": 1
-    },
     "unicorn/no-null": {
       "count": 2
     }
@@ -798,19 +677,11 @@
     },
     "local/step-down": {
       "count": 1
-    },
-    "unicorn/name-replacements": {
-      "count": 3
     }
   },
   "extensions/lib/register-tool.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 2
-    }
-  },
-  "extensions/lib/register-tool.ts": {
-    "unicorn/name-replacements": {
-      "count": 1
     }
   },
   "extensions/lib/repo.ts": {
@@ -819,9 +690,6 @@
     },
     "local/step-down": {
       "count": 1
-    },
-    "unicorn/name-replacements": {
-      "count": 2
     }
   },
   "extensions/lib/restricted-mode.ts": {
@@ -851,17 +719,11 @@
     },
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 1
-    },
-    "unicorn/name-replacements": {
-      "count": 12
     }
   },
   "extensions/lib/search-tools.ts": {
     "local/step-down": {
       "count": 8
-    },
-    "unicorn/name-replacements": {
-      "count": 11
     }
   },
   "extensions/lib/select-details.ts": {
@@ -917,19 +779,9 @@
       "count": 3
     }
   },
-  "extensions/paths.ts": {
-    "unicorn/name-replacements": {
-      "count": 1
-    }
-  },
   "extensions/pause/gate.ts": {
     "local/step-down": {
       "count": 2
-    }
-  },
-  "extensions/pause/index.ts": {
-    "unicorn/name-replacements": {
-      "count": 1
     }
   },
   "extensions/plan-mode.ts": {
@@ -939,21 +791,8 @@
     "local/step-down": {
       "count": 1
     },
-    "unicorn/name-replacements": {
-      "count": 7
-    },
     "unicorn/no-null": {
       "count": 4
-    }
-  },
-  "extensions/print-system-prompt.ts": {
-    "unicorn/name-replacements": {
-      "count": 1
-    }
-  },
-  "extensions/prompt-history.ts": {
-    "unicorn/name-replacements": {
-      "count": 1
     }
   },
   "extensions/question.ts": {
@@ -965,9 +804,6 @@
     },
     "local/step-down": {
       "count": 4
-    },
-    "unicorn/name-replacements": {
-      "count": 2
     }
   },
   "extensions/sandbox/src/bypass.test.ts": {
@@ -985,11 +821,6 @@
       "count": 3
     }
   },
-  "extensions/sandbox/src/credentials.ts": {
-    "unicorn/name-replacements": {
-      "count": 1
-    }
-  },
   "extensions/sandbox/src/escape.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 1
@@ -1001,9 +832,6 @@
   "extensions/sandbox/src/extension.ts": {
     "local/step-down": {
       "count": 4
-    },
-    "unicorn/name-replacements": {
-      "count": 5
     }
   },
   "extensions/sandbox/src/integration.test.ts": {
@@ -1070,15 +898,7 @@
     "local/step-down": {
       "count": 2
     },
-    "unicorn/name-replacements": {
-      "count": 1
-    },
     "unicorn/no-null": {
-      "count": 1
-    }
-  },
-  "extensions/sandbox/src/profile-grants.test.ts": {
-    "unicorn/name-replacements": {
       "count": 1
     }
   },
@@ -1126,9 +946,6 @@
   "extensions/sandbox/src/scratch.test.ts": {
     "local/step-down": {
       "count": 1
-    },
-    "unicorn/name-replacements": {
-      "count": 1
     }
   },
   "extensions/sandbox/src/settings-values.ts": {
@@ -1162,17 +979,11 @@
     },
     "local/step-down": {
       "count": 2
-    },
-    "unicorn/name-replacements": {
-      "count": 1
     }
   },
   "extensions/sandbox/src/vcs-policy.ts": {
     "local/step-down": {
       "count": 6
-    },
-    "unicorn/name-replacements": {
-      "count": 2
     }
   },
   "extensions/sandbox/src/violation-collector.ts": {
@@ -1199,16 +1010,10 @@
     },
     "local/step-down": {
       "count": 1
-    },
-    "unicorn/name-replacements": {
-      "count": 2
     }
   },
   "extensions/sidebar/index.ts": {
     "local/step-down": {
-      "count": 1
-    },
-    "unicorn/name-replacements": {
       "count": 1
     }
   },
@@ -1218,11 +1023,6 @@
     },
     "local/step-down": {
       "count": 5
-    }
-  },
-  "extensions/sidebar/skills.test.ts": {
-    "unicorn/name-replacements": {
-      "count": 1
     }
   },
   "extensions/sidebar/skills.ts": {
@@ -1242,9 +1042,6 @@
   },
   "extensions/subagent/agents.ts": {
     "local/step-down": {
-      "count": 1
-    },
-    "unicorn/name-replacements": {
       "count": 1
     }
   },
@@ -1268,9 +1065,6 @@
     },
     "local/step-down": {
       "count": 11
-    },
-    "unicorn/name-replacements": {
-      "count": 20
     }
   },
   "extensions/subagent/mode-restrictions.ts": {
@@ -1300,9 +1094,6 @@
     },
     "local/step-down": {
       "count": 2
-    },
-    "unicorn/name-replacements": {
-      "count": 12
     }
   }
 }

@@ -184,12 +184,12 @@ export function safeNotify(message: string, level: "info" | "warning" | "error" 
 	catch (error) { debug("notify failed:", error); }
 }
 
-export function argKeys(args: Record<string, unknown> | undefined): string[] {
-	return Object.keys(args ?? {}).sort();
+export function argumentKeys(toolArguments: Record<string, unknown> | undefined): string[] {
+	return Object.keys(toolArguments ?? {}).sort();
 }
 
 export function safeToolCallSummary(calls: readonly { id: string; toolName: string; arguments?: Record<string, unknown> }[]): { id: string; toolName: string; argKeys: string[] }[] {
-	return calls.map((call) => ({ id: call.id, toolName: call.toolName, argKeys: argKeys(call.arguments) }));
+	return calls.map((call) => ({ id: call.id, toolName: call.toolName, argKeys: argumentKeys(call.arguments) }));
 }
 
 export const INTEGRITY_CUSTOM_TYPE = "claude-bridge-integrity";

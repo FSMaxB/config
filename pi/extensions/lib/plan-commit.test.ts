@@ -154,14 +154,14 @@ async function hasBinary(command: string): Promise<boolean> {
 }
 
 // Pretends jj is not installed so the git fallback can be exercised on a machine that has jj.
-function withoutJj(command: string, args: readonly string[], cwd: string): Promise<CommandResult> {
+function withoutJj(command: string, commandArguments: readonly string[], cwd: string): Promise<CommandResult> {
   if (command === "jj") return Promise.resolve({ stdout: "", stderr: "jj: command not found", code: 127 });
-  return realExecutor(command, args, cwd);
+  return realExecutor(command, commandArguments, cwd);
 }
 
-function realExecutor(command: string, args: readonly string[], cwd: string): Promise<CommandResult> {
+function realExecutor(command: string, commandArguments: readonly string[], cwd: string): Promise<CommandResult> {
   return new Promise((resolve) => {
-    execFile(command, args, { cwd, env: { ...process.env, ...identity } }, (error, stdout, stderr) => {
+    execFile(command, commandArguments, { cwd, env: { ...process.env, ...identity } }, (error, stdout, stderr) => {
       const code = error && typeof (error as NodeJS.ErrnoException).code === "number"
         ? (error as { code: number }).code
         : error ? 127 : 0;

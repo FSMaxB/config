@@ -145,30 +145,30 @@ export type SearchDetails = GrepToolDetails & FindToolDetails;
 type SearchResult = AgentToolResult<SearchDetails | undefined>;
 
 export function createGrepExecute(): ToolDefinition<typeof grepParameters, SearchDetails | undefined>["execute"] {
-  return (_toolCallId, params, signal, _onUpdate, context) => searchGrep(params, context.cwd, signal);
+  return (_toolCallId, parameters, signal, _onUpdate, context) => searchGrep(parameters, context.cwd, signal);
 }
 
 export function createFindExecute(): ToolDefinition<typeof findParameters, SearchDetails | undefined>["execute"] {
-  return (_toolCallId, params, signal, _onUpdate, context) => searchFind(params, context.cwd, signal);
+  return (_toolCallId, parameters, signal, _onUpdate, context) => searchFind(parameters, context.cwd, signal);
 }
 
 export function createLsExecute(
   stockExecute: ToolDefinition<typeof lsParameters, LsToolDetails | undefined>["execute"],
 ): ToolDefinition<typeof lsParameters, LsToolDetails | undefined>["execute"] {
-  return (toolCallId, params, signal, onUpdate, context) => {
-    const { output, ...stockParams } = params;
+  return (toolCallId, parameters, signal, onUpdate, context) => {
+    const { output, ...stockParameters } = parameters;
     if (output !== "count") {
-      return stockExecute(toolCallId, stockParams, signal, onUpdate, context);
+      return stockExecute(toolCallId, stockParameters, signal, onUpdate, context);
     }
 
-    return countEntries(resolvePath(params.path ?? ".", context.cwd), signal);
+    return countEntries(resolvePath(parameters.path ?? ".", context.cwd), signal);
   };
 }
 
-export async function searchGrep(params: GrepParameters, cwd: string, signal: AbortSignal | undefined): Promise<SearchResult> {
+export async function searchGrep(parameters: GrepParameters, cwd: string, signal: AbortSignal | undefined): Promise<SearchResult> {
   const {
     pattern,
-    path: searchDir,
+    path: searchDirectory,
     glob,
     ignoreCase,
     literal,
@@ -176,11 +176,11 @@ export async function searchGrep(params: GrepParameters, cwd: string, signal: Ab
     limit,
     filesOnly,
     output,
-  } = params;
+  } = parameters;
 
   if (signal?.aborted) throw new Error("Operation aborted");
   const ripgrep = locateBinary("rg");
-  const searchPath = resolvePath(searchDir ?? ".", cwd);
+  const searchPath = resolvePath(searchDirectory ?? ".", cwd);
   const isDirectory = await stat(searchPath).then(
     (stats) => stats.isDirectory(),
     () => {
@@ -207,26 +207,26 @@ export async function searchGrep(params: GrepParameters, cwd: string, signal: Ab
   };
 
   // --no-config keeps the tool contract independent of RIPGREP_CONFIG_PATH.
-  const args = filesOnly
+  const ripgrepArguments = filesOnly
     ? ["--no-config", "--files-with-matches", "--color=never", "--hidden"]
     : ["--no-config", "--json", "--line-number", "--color=never", "--hidden"];
-  if (ignoreCase) args.push("--ignore-case");
-  if (literal) args.push("--fixed-strings");
-  if (glob) args.push("--glob", withoutLeadingDotSlash(glob));
+  if (ignoreCase) ripgrepArguments.push("--ignore-case");
+  if (literal) ripgrepArguments.push("--fixed-strings");
+  if (glob) ripgrepArguments.push("--glob", withoutLeadingDotSlash(glob));
   if (!filesOnly && !countOnly && contextValue > 0) {
-    args.push("--context", String(contextValue));
+    ripgrepArguments.push("--context", String(contextValue));
   }
-  if (!insideGitRepository(searchPath)) args.push("--no-require-git");
+  if (!insideGitRepository(searchPath)) ripgrepArguments.push("--no-require-git");
   // rg roots --glob at its own working directory, so a directory search runs inside searchPath.
   // It searches "." because rg canonicalizes its working directory: with an absolute path, a
   // symlinked searchPath (macOS /tmp) would no longer lie under the glob root.
-  args.push("--", pattern, isDirectory ? "." : searchPath);
+  ripgrepArguments.push("--", pattern, isDirectory ? "." : searchPath);
   const spawnOptions = { cwd: isDirectory ? searchPath : undefined, signal };
 
   if (filesOnly) {
     const matchedPaths: string[] = [];
     let fileCount = 0;
-    const run = await runLines("ripgrep", ripgrep, args, spawnOptions, (line) => {
+    const run = await runLines("ripgrep", ripgrep, ripgrepArguments, spawnOptions, (line) => {
       const filePath = line.replace(/\r$/, "").trim();
       if (!filePath) return LineOutcome.Continue;
       fileCount++;
@@ -246,7 +246,7 @@ export async function searchGrep(params: GrepParameters, cwd: string, signal: Ab
 
   if (countOnly) {
     let matchCount = 0;
-    const run = await runLines("ripgrep", ripgrep, args, spawnOptions, (line) => {
+    const run = await runLines("ripgrep", ripgrep, ripgrepArguments, spawnOptions, (line) => {
       if (parseRipgrepEvent(line)?.type === "match") matchCount++;
       return LineOutcome.Continue;
     });
@@ -255,7 +255,7 @@ export async function searchGrep(params: GrepParameters, cwd: string, signal: Ab
   }
 
   const collector = new GrepCollector(effectiveLimit, contextValue);
-  const run = await runLines("ripgrep", ripgrep, args, spawnOptions, (line) => {
+  const run = await runLines("ripgrep", ripgrep, ripgrepArguments, spawnOptions, (line) => {
     const event = parseRipgrepEvent(line);
     return event ? collector.accept(event) : LineOutcome.Continue;
   });
@@ -291,35 +291,35 @@ export async function searchGrep(params: GrepParameters, cwd: string, signal: Ab
 
 const FD_TYPES = { file: "f", directory: "d", symlink: "l" } as const;
 
-export async function searchFind(params: FindParameters, cwd: string, signal: AbortSignal | undefined): Promise<SearchResult> {
+export async function searchFind(parameters: FindParameters, cwd: string, signal: AbortSignal | undefined): Promise<SearchResult> {
   const {
     pattern,
-    path: searchDir,
+    path: searchDirectory,
     limit,
     type,
     output,
-  } = params;
+  } = parameters;
 
   if (signal?.aborted) throw new Error("Operation aborted");
   const fd = locateBinary("fd", ["fdfind"]);
-  const searchPath = resolvePath(searchDir ?? ".", cwd);
+  const searchPath = resolvePath(searchDirectory ?? ".", cwd);
   const countOnly = output === "count";
   const effectiveLimit = Math.max(1, Math.floor(limit ?? FIND_DEFAULT_LIMIT));
   const requestedPattern = withoutLeadingDotSlash(pattern);
 
-  const args = ["--glob", "--color=never", "--hidden"];
-  if (!insideGitRepository(searchPath)) args.push("--no-require-git");
+  const fdArguments = ["--glob", "--color=never", "--hidden"];
+  if (!insideGitRepository(searchPath)) fdArguments.push("--no-require-git");
 
-  if (type) args.push("--type", FD_TYPES[type]);
+  if (type) fdArguments.push("--type", FD_TYPES[type]);
   // One result past the limit proves that the limit cut results off.
-  if (!countOnly) args.push("--max-results", String(effectiveLimit + 1));
+  if (!countOnly) fdArguments.push("--max-results", String(effectiveLimit + 1));
 
   // fd --glob matches against the basename unless --full-path is set; in --full-path
   // mode it matches against the absolute candidate path, so a path-containing
   // pattern like 'src/**/*.spec.ts' needs a leading '**/' to match anything.
   let effectivePattern = requestedPattern;
   if (requestedPattern.includes("/")) {
-    args.push("--full-path");
+    fdArguments.push("--full-path");
     if (
       !requestedPattern.startsWith("/") &&
       !requestedPattern.startsWith("**/") &&
@@ -328,10 +328,10 @@ export async function searchFind(params: FindParameters, cwd: string, signal: Ab
       effectivePattern = `**/${requestedPattern}`;
     }
   }
-  args.push("--", effectivePattern, searchPath);
+  fdArguments.push("--", effectivePattern, searchPath);
 
   const results: string[] = [];
-  const run = await runLines("fd", fd, args, { signal }, (rawLine) => {
+  const run = await runLines("fd", fd, fdArguments, { signal }, (rawLine) => {
     const line = rawLine.replace(/\r$/, "").trim();
     if (line) results.push(line);
     return LineOutcome.Continue;
@@ -393,7 +393,7 @@ interface SpawnOptions {
 function runLines(
   name: string,
   command: string,
-  args: readonly string[],
+  commandArguments: readonly string[],
   { cwd, signal }: SpawnOptions,
   onLine: (line: string) => LineOutcome,
 ): Promise<RunOutcome> {
@@ -402,7 +402,7 @@ function runLines(
       reject(new Error("Operation aborted"));
       return;
     }
-    const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, commandArguments, { cwd, stdio: ["ignore", "pipe", "pipe"] });
     const lineReader = createInterface({ input: child.stdout });
     let stderr = "";
     let stoppedEarly = false;

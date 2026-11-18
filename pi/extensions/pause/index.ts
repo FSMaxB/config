@@ -12,7 +12,7 @@ export default function (pi: ExtensionAPI): void {
 
   pi.registerCommand("pause", {
     description: "Pause the agent after the current turn, or resume it",
-    handler: async (_args, context) => {
+    handler: async (_commandArguments, context) => {
       if (gate.state === "running" && context.isIdle()) {
         context.ui.notify("Nothing to pause: the agent is idle", "info");
         return;

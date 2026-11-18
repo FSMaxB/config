@@ -158,7 +158,7 @@ test("skillItems emits each skill with its references one level deeper and dims 
 
   // act
   const user = skillItems(skills, "user");
-  const repo = skillItems(skills, "repo");
+  const repository = skillItems(skills, "repo");
 
   // assert
   assert.deepEqual(user, [
@@ -167,7 +167,7 @@ test("skillItems emits each skill with its references one level deeper and dims 
     { text: "b", depth: 1, tone: ItemTone.Normal },
     { text: "lonely", depth: 0, tone: ItemTone.Dim },
   ]);
-  assert.deepEqual(repo, [
+  assert.deepEqual(repository, [
     { text: "planning", depth: 0, tone: ItemTone.Dim },
     { text: "notes", depth: 1, tone: ItemTone.Normal },
   ]);

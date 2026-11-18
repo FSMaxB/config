@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { isolatedFromEnv, piUserDir } from "./config.js";
+import { isolatedFromEnvironment, piUserDirectory } from "./config.js";
 import { debug } from "./debug.js";
 
 export interface PromptContextSettings {
@@ -26,8 +26,8 @@ function readTrimmed(path: string): string | undefined {
 	}
 }
 
-function findProjectAppendSystem(startDir: string): string | undefined {
-	let current = resolve(startDir);
+function findProjectAppendSystem(startDirectory: string): string | undefined {
+	let current = resolve(startDirectory);
 	while (true) {
 		const candidate = join(current, ".pi", "APPEND_SYSTEM.md");
 		if (existsSync(candidate)) return candidate;
@@ -40,10 +40,10 @@ function findProjectAppendSystem(startDir: string): string | undefined {
 
 export function readAppendSystemPromptFiles(cwd: string): { label: string; content: string }[] {
 	const files: { label: string; path: string }[] = [
-		{ label: "global APPEND_SYSTEM.md", path: join(piUserDir(), "APPEND_SYSTEM.md") },
+		{ label: "global APPEND_SYSTEM.md", path: join(piUserDirectory(), "APPEND_SYSTEM.md") },
 	];
 	// Isolated mode: no cwd-ancestor discovery — the host app owns the prompt surface.
-	const projectPath = isolatedFromEnv() ? undefined : findProjectAppendSystem(cwd);
+	const projectPath = isolatedFromEnvironment() ? undefined : findProjectAppendSystem(cwd);
 	if (projectPath) files.push({ label: "project .pi/APPEND_SYSTEM.md", path: projectPath });
 
 	const seen = new Set<string>();
@@ -89,7 +89,7 @@ export function buildPromptContextAppend(cwd: string, settings: PromptContextSet
 	};
 }
 
-function escapeXmlAttr(value: string): string {
+function escapeXmlAttribute(value: string): string {
 	return value
 		.replace(/&/g, "&amp;")
 		.replace(/"/g, "&quot;")
@@ -104,10 +104,10 @@ function escapeXmlText(value: string): string {
 		.replace(/>/g, "&gt;");
 }
 
-function xmlBlock(tag: string, attrs: Record<string, string>, content: string, escapeContent = true): string {
-	const attrText = Object.entries(attrs)
-		.map(([key, value]) => ` ${key}="${escapeXmlAttr(value)}"`)
+function xmlBlock(tag: string, attributes: Record<string, string>, content: string, escapeContent = true): string {
+	const attributeText = Object.entries(attributes)
+		.map(([key, value]) => ` ${key}="${escapeXmlAttribute(value)}"`)
 		.join("");
 	const body = escapeContent ? escapeXmlText(content.trim()) : content.trim();
-	return `<${tag}${attrText}>\n${body}\n</${tag}>`;
+	return `<${tag}${attributeText}>\n${body}\n</${tag}>`;
 }

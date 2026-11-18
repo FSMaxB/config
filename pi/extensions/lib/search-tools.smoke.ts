@@ -12,12 +12,12 @@ import type { FindParameters, GrepParameters, LsParameters } from "./search-tool
 
 const fixture = createFixture();
 try {
-  const grep = (params: GrepParameters, signal?: AbortSignal): Promise<AgentToolResult<unknown>> =>
-    searchGrep(params, fixture, signal);
-  const find = (params: FindParameters, signal?: AbortSignal): Promise<AgentToolResult<unknown>> =>
-    searchFind(params, fixture, signal);
+  const grep = (parameters: GrepParameters, signal?: AbortSignal): Promise<AgentToolResult<unknown>> =>
+    searchGrep(parameters, fixture, signal);
+  const find = (parameters: FindParameters, signal?: AbortSignal): Promise<AgentToolResult<unknown>> =>
+    searchFind(parameters, fixture, signal);
   // Only the count mode is this extension's own; listing delegates to pi's stock ls.
-  const ls = (_params: LsParameters, signal?: AbortSignal): Promise<AgentToolResult<unknown>> =>
+  const ls = (_parameters: LsParameters, signal?: AbortSignal): Promise<AgentToolResult<unknown>> =>
     countEntries(fixture, signal);
 
   {
@@ -258,14 +258,14 @@ try {
 
   {
     // arrange
-    const params = {
+    const parameters = {
       pattern: "transactor",
       filesOnly: true,
       output: "count",
     } as const;
 
     // act
-    const result = await run(grep, params);
+    const result = await run(grep, parameters);
 
     // assert
     assert.equal(result.text, "2 files with matches");
@@ -274,13 +274,13 @@ try {
 
   {
     // arrange
-    const params = {
+    const parameters = {
       pattern: "nothing-matches-this",
       output: "count",
     } as const;
 
     // act
-    const result = await run(grep, params);
+    const result = await run(grep, parameters);
 
     // assert
     assert.equal(result.text, "0 matches");
@@ -289,7 +289,7 @@ try {
 
   {
     // arrange
-    const params = {
+    const parameters = {
       pattern: "transactor",
       limit: 1,
       context: 2,
@@ -297,7 +297,7 @@ try {
     } as const;
 
     // act
-    const result = await run(grep, params);
+    const result = await run(grep, parameters);
 
     // assert
     assert.equal(result.text, "3 matches");
@@ -346,13 +346,13 @@ try {
 
   {
     // arrange
-    const params = {
+    const parameters = {
       pattern: "nothing-matches-this",
       output: "count",
     } as const;
 
     // act
-    const result = await run(find, params);
+    const result = await run(find, parameters);
 
     // assert
     assert.equal(result.text, "0 matching entries");
@@ -364,10 +364,10 @@ try {
     const expectedCount = flattenFind(
       (await run(find, { pattern: "**" })).text,
     ).length;
-    const params = { pattern: "**", limit: 1, output: "count" } as const;
+    const parameters = { pattern: "**", limit: 1, output: "count" } as const;
 
     // act
-    const result = await run(find, params);
+    const result = await run(find, parameters);
 
     // assert
     assert.equal(result.text, `${expectedCount} matching entries`);
@@ -376,10 +376,10 @@ try {
 
   {
     // arrange
-    const params = { output: "count", limit: 1 } as const;
+    const parameters = { output: "count", limit: 1 } as const;
 
     // act
-    const result = await run(ls, params);
+    const result = await run(ls, parameters);
 
     // assert
     assert.equal(result.text, "6 entries");
@@ -409,12 +409,12 @@ try {
   rmSync(fixture, { recursive: true, force: true });
 }
 
-async function run<TParams>(
-  search: (params: TParams, signal?: AbortSignal) => Promise<AgentToolResult<unknown>>,
-  params: TParams,
+async function run<TParameters>(
+  search: (parameters: TParameters, signal?: AbortSignal) => Promise<AgentToolResult<unknown>>,
+  parameters: TParameters,
   signal?: AbortSignal,
 ): Promise<{ text: string; details: unknown }> {
-  const result = await search(params, signal);
+  const result = await search(parameters, signal);
   const [first] = result.content;
   return { text: first?.type === "text" ? first.text : "", details: result.details };
 }

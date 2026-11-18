@@ -24,11 +24,11 @@ Pi advertises tools from the current transcript manifest through `src/index.ts::
 
 ## Config channels
 
-`src/config.ts::loadConfig` layers built-in defaults, `<piUserDir>/claude-bridge.json`, then a trusted project's `.pi/claude-bridge.json`. In isolated mode it reads only the user file. Only explicit nested `provider.*` and `promptContext.*` fields are decoded; manager `settings.json`, flat keys and removed options cannot alter the result. Effort is normalized after layering, so an invalid higher value clears a valid lower one. `recordProjectTrust` requires `isProjectTrusted?.() === true` before any project configuration is read.
+`src/config.ts::loadConfig` layers built-in defaults, `<piUserDirectory>/claude-bridge.json`, then a trusted project's `.pi/claude-bridge.json`. In isolated mode it reads only the user file. Only explicit nested `provider.*` and `promptContext.*` fields are decoded; manager `settings.json`, flat keys and removed options cannot alter the result. Effort is normalized after layering, so an invalid higher value clears a valid lower one. `recordProjectTrust` requires `isProjectTrusted?.() === true` before any project configuration is read.
 
 ## Embedding hosts
 
-- `CLAUDE_BRIDGE_ISOLATED=1` (`src/config.ts::isolatedFromEnv`) suppresses cwd-ancestor AGENTS, project configuration and project `APPEND_SYSTEM.md` discovery. Settings come only from `<piUserDir>/claude-bridge.json`; logs still resolve under `PI_CODING_AGENT_DIR`. `tests/unit-isolation.mjs`.
+- `CLAUDE_BRIDGE_ISOLATED=1` (`src/config.ts::isolatedFromEnvironment`) suppresses cwd-ancestor AGENTS, project configuration and project `APPEND_SYSTEM.md` discovery. Settings come only from `<piUserDirectory>/claude-bridge.json`; logs still resolve under `PI_CODING_AGENT_DIR`. `tests/unit-isolation.mjs`.
 - Startup preflight (`src/claude-executable.ts::preflightClaudeExecutable`) preserves `code`, `errno`, `syscall`, `path`, `cwd` and the detected executable file type on the error it hands the SDK.
 
 ## Session persistence

@@ -98,14 +98,14 @@ export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): Bu
 		: undefined;
 	const effort = resolveConfiguredEffort(requestedModel.id, requestedEffort, providerSettings);
 
-	const extraArgs: Record<string, string | null> = {};
+	const extraArguments: Record<string, string | null> = {};
 	// Opus 4.7 defaults thinking.display to "omitted" (empty thinking text in stream).
 	// Force summarized so thinking_delta events arrive.
 	// Deliberately the raw flag, NOT the typed `thinking` option: every non-disabled
 	// ThinkingConfig also emits `--thinking adaptive` or `--max-thinking-tokens`
 	// (verified in sdk.mjs flag mapping), so the typed form cannot set display
 	// without overriding the model's thinking mode alongside our `--effort`.
-	if (effort) extraArgs["thinking-display"] = "summarized";
+	if (effort) extraArguments["thinking-display"] = "summarized";
 	const fallbackModel = fallbackModelForPrimaryModel(requestedModel.id);
 
 	// Suppress claude.ai cloud MCP servers (Figma/Canva/etc. auto-discovered via OAuth
@@ -133,7 +133,7 @@ export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): Bu
 		systemPrompt: systemPromptMode === "verbatim" && systemPrompt
 			? systemPrompt
 			: { type: "preset", preset: "claude_code", append: systemPromptAppend ? systemPromptAppend : undefined },
-		extraArgs,
+		extraArgs: extraArguments,
 		...(effort ? { effort } : {}),
 		...(settingSources ? { settingSources } : {}),
 		...(resumeSessionId ? { resume: resumeSessionId, ...(forkAt ? { resumeSessionAt: forkAt, forkSession: true } : {}) } : {}),

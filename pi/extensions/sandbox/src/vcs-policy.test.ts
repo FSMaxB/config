@@ -13,14 +13,14 @@ const REPO = "/Users/max/repo";
 
 interface Tree { [name: string]: Tree | "file" }
 
-function layoutOf(tree: Tree, repoRoot = REPO): VcsLayout {
+function layoutOf(tree: Tree, repositoryRoot = REPO): VcsLayout {
   const listings = new Map<string, DirectoryListing>();
   const register = (path: string, node: Tree): void => {
     listings.set(path, { path, entries: Object.entries(node).map(([name, child]) => ({ name, directory: child !== "file" })) });
     for (const [name, child] of Object.entries(node)) if (child !== "file") register(join(path, name), child);
   };
-  for (const [name, child] of Object.entries(tree)) if (child !== "file") register(join(repoRoot, name), child);
-  return { repoRoot, listings, gitFile: undefined };
+  for (const [name, child] of Object.entries(tree)) if (child !== "file") register(join(repositoryRoot, name), child);
+  return { repoRoot: repositoryRoot, listings, gitFile: undefined };
 }
 
 const COLOCATED: Tree = {

@@ -66,14 +66,14 @@ export default function (pi: ExtensionAPI): void {
       ),
     }),
 
-    async execute(_toolCallId, params, signal, _onUpdate, context): Promise<AgentToolResult<QuestionDetails>> {
+    async execute(_toolCallId, parameters, signal, _onUpdate, context): Promise<AgentToolResult<QuestionDetails>> {
       const {
         question,
         context: contextText,
         options: rawOptions = [],
         allowFreeform = true,
         allowMultiple = false,
-      } = params;
+      } = parameters;
       const normalizedContext = contextText?.trim() || undefined;
       const options = rawOptions
         .map(coerceOption)
@@ -152,10 +152,10 @@ export default function (pi: ExtensionAPI): void {
       return result(`User answered: ${summary}${warning}`, outcome);
     },
 
-    renderCall(args, theme) {
-      const rawOptions = Array.isArray(args.options) ? args.options : [];
+    renderCall(toolArguments, theme) {
+      const rawOptions = Array.isArray(toolArguments.options) ? toolArguments.options : [];
       let text = theme.fg("toolTitle", theme.bold("question "));
-      text += theme.fg("muted", args.question ?? "");
+      text += theme.fg("muted", toolArguments.question ?? "");
       if (rawOptions.length > 0) {
         const titles = rawOptions.map(
           (option: unknown) => coerceOption(option)?.title ?? "<invalid>",
@@ -167,7 +167,7 @@ export default function (pi: ExtensionAPI): void {
             `  ${rawOptions.length} option(s): ${titles.join(", ")}`,
           );
       }
-      if (args.allowMultiple) {
+      if (toolArguments.allowMultiple) {
         text += theme.fg("dim", " [multi-select]");
       }
       return new Text(text, 0, 0);

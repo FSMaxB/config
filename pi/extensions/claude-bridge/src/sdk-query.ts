@@ -15,8 +15,8 @@ const requirePackage = createRequire(import.meta.url);
 let loadedSdk: ClaudeAgentSdk | undefined;
 let testFactory: SdkQueryFactory | undefined;
 
-export function sdkQueryFactory(...args: Parameters<SdkQueryFactory>): ReturnType<SdkQueryFactory> {
-	return (testFactory ?? claudeAgentSdk().query)(...args);
+export function sdkQueryFactory(...queryArguments: Parameters<SdkQueryFactory>): ReturnType<SdkQueryFactory> {
+	return (testFactory ?? claudeAgentSdk().query)(...queryArguments);
 }
 
 export function claudeAgentSdk(): ClaudeAgentSdk {

@@ -90,9 +90,9 @@ export default function (pi: ExtensionAPI): void {
       ),
     }),
 
-    async execute(_toolCallId, params, signal, onUpdate, context) {
-      const { args, slug } = reviewArgs(params);
-      const { plan, story } = params;
+    async execute(_toolCallId, parameters, signal, onUpdate, context) {
+      const { args, slug } = reviewArguments(parameters);
+      const { plan, story } = parameters;
       if (plan && isInPlansDirectory(plan)) {
         await commitPlanFileForUser(pi, context, plan, "review");
       }
@@ -178,13 +178,13 @@ export default function (pi: ExtensionAPI): void {
       ),
     }),
 
-    async execute(_toolCallId, params, signal, _onUpdate, context) {
-      const { args: scopeArgs } = reviewArgs(params);
+    async execute(_toolCallId, parameters, signal, _onUpdate, context) {
+      const { args: scopeArguments } = reviewArguments(parameters);
       const directory = sessionTemporaryDirectory(context.sessionManager.getSessionId());
       await mkdir(directory, { recursive: true });
       const prepPath = join(directory, "crit-story-prep.txt");
-      const guide = await execChecked(pi, "crit", ["story", "--guide", ...scopeArgs], { signal, timeout: TIMEOUT });
-      await execChecked(pi, "crit", ["story", "--prep", prepPath, ...scopeArgs], { signal, timeout: TIMEOUT });
+      const guide = await execChecked(pi, "crit", ["story", "--guide", ...scopeArguments], { signal, timeout: TIMEOUT });
+      await execChecked(pi, "crit", ["story", "--prep", prepPath, ...scopeArguments], { signal, timeout: TIMEOUT });
       const hunkIds = hunkIdsFromPrep(await readFile(prepPath, "utf8"));
       const text = [
         `Prep file with the full diff (read it): ${prepPath}`,
@@ -192,7 +192,7 @@ export default function (pi: ExtensionAPI): void {
         "",
         fillPrepPath(guide, prepPath).trim(),
       ].join("\n");
-      return { content: [{ type: "text", text }], details: { prepPath, hunkIds, args: scopeArgs } };
+      return { content: [{ type: "text", text }], details: { prepPath, hunkIds, args: scopeArguments } };
     },
   });
 
@@ -218,15 +218,15 @@ export default function (pi: ExtensionAPI): void {
       ),
     }),
 
-    async execute(_toolCallId, params, signal) {
-      const { all, plan = planSlug } = params;
-      const args = [
+    async execute(_toolCallId, parameters, signal) {
+      const { all, plan = planSlug } = parameters;
+      const commandArguments = [
         "comments",
         "--json",
         ...(all ? ["--all"] : []),
         ...(plan ? ["--plan", plan] : []),
       ];
-      return await runCrit(pi, args, signal);
+      return await runCrit(pi, commandArguments, signal);
     },
   });
 
@@ -285,8 +285,8 @@ export default function (pi: ExtensionAPI): void {
       ),
     }),
 
-    async execute(_toolCallId, params, signal) {
-      const { comments, author = DEFAULT_AUTHOR, plan = planSlug } = params;
+    async execute(_toolCallId, parameters, signal) {
+      const { comments, author = DEFAULT_AUTHOR, plan = planSlug } = parameters;
       if (comments.length === 0)
         throw new Error("crit_comment needs at least one comment.");
 
@@ -297,7 +297,7 @@ export default function (pi: ExtensionAPI): void {
           file,
           JSON.stringify(comments.map(toCritEntry), null, 2),
         );
-        const args = [
+        const commandArguments = [
           "comment",
           "--json",
           "--file",
@@ -306,7 +306,7 @@ export default function (pi: ExtensionAPI): void {
           author,
           ...(plan ? ["--plan", plan] : []),
         ];
-        return await runCrit(pi, args, signal);
+        return await runCrit(pi, commandArguments, signal);
       } finally {
         await rm(directory, { recursive: true, force: true });
       }
@@ -323,7 +323,7 @@ export default function (pi: ExtensionAPI): void {
     promptSnippet: "Show the current crit session and comment counts",
     parameters: Type.Object({}),
 
-    async execute(_toolCallId, _params, signal) {
+    async execute(_toolCallId, _parameters, signal) {
       return await runCrit(pi, ["status"], signal);
     },
   });
@@ -385,7 +385,7 @@ const STORY_SCHEMA = Type.Object(
 
 type Story = Static<typeof STORY_SCHEMA>;
 
-interface ReviewParams {
+interface ReviewParameters {
   paths?: string[];
   pr?: string;
   range?: string;
@@ -397,9 +397,9 @@ interface ReviewParams {
   baseBranch?: string;
 }
 
-function reviewArgs(params: ReviewParams): { args: string[]; slug?: string } {
+function reviewArguments(parameters: ReviewParameters): { args: string[]; slug?: string } {
   const { paths, pr, range, url, html, plan, story, session, baseBranch } =
-    params;
+    parameters;
   const targets = { paths: paths?.length, pr, range, url, html, plan, session };
   const chosen = Object.entries(targets).filter(([, value]) => Boolean(value)).map(([name]) => name);
 
@@ -434,17 +434,17 @@ function reviewArgs(params: ReviewParams): { args: string[]; slug?: string } {
 async function ingestStory(
   pi: ExtensionAPI,
   story: Story,
-  scopeArgs: readonly string[],
+  scopeArguments: readonly string[],
   signal: AbortSignal | undefined,
 ): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "pi-crit-"));
   const file = join(directory, "story.json");
   try {
     await writeFile(file, JSON.stringify(story, null, 2));
-    const args = ["story", "--story-file", file, "--refresh", ...scopeArgs];
-    const { stdout, stderr, code, killed, truncated } = await pi.exec("crit", args, { signal, timeout: TIMEOUT });
-    if (truncated) throw new Error(`crit ${args.join(" ")} was killed: its output exceeded pi.exec's buffer limit.`);
-    if (killed) throw new Error(`crit ${args.join(" ")} timed out after ${TIMEOUT / 1000}s.`);
+    const commandArguments = ["story", "--story-file", file, "--refresh", ...scopeArguments];
+    const { stdout, stderr, code, killed, truncated } = await pi.exec("crit", commandArguments, { signal, timeout: TIMEOUT });
+    if (truncated) throw new Error(`crit ${commandArguments.join(" ")} was killed: its output exceeded pi.exec's buffer limit.`);
+    if (killed) throw new Error(`crit ${commandArguments.join(" ")} timed out after ${TIMEOUT / 1000}s.`);
     if (code !== 0) {
       throw new Error(
         `crit rejected the story (exit ${code}):\n${stdout.trim()}\n${stderr.trim()}\n` +
@@ -463,7 +463,7 @@ async function ingestStory(
 // collected at the end: the review URL it prints on startup is the only way back in if the
 // browser does not open on its own.
 function streamCrit(
-  args: readonly string[],
+  commandArguments: readonly string[],
   signal: AbortSignal | undefined,
   onLine: (line: string) => void,
 ): Promise<{ output: string; stderr: string; code: number }> {
@@ -473,7 +473,7 @@ function streamCrit(
       return;
     }
 
-    const child = spawn("crit", args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn("crit", commandArguments, { stdio: ["ignore", "pipe", "pipe"] });
     const chunks: string[] = [];
     const stderrChunks: string[] = [];
     const splitter = createLineSplitter(onLine);
@@ -506,7 +506,7 @@ function streamCrit(
   });
 }
 
-interface CommentParams {
+interface CommentParameters {
   body: string;
   path?: string;
   line?: string;
@@ -516,7 +516,7 @@ interface CommentParams {
   resolve?: boolean;
 }
 
-function toCritEntry(comment: CommentParams): Record<string, unknown> {
+function toCritEntry(comment: CommentParameters): Record<string, unknown> {
   const { body, path, line, endLine, replyTo, scope, resolve } = comment;
   return {
     body,
@@ -531,14 +531,14 @@ function toCritEntry(comment: CommentParams): Record<string, unknown> {
 
 async function runCrit(
   pi: ExtensionAPI,
-  args: readonly string[],
+  commandArguments: readonly string[],
   signal: AbortSignal | undefined,
 ): Promise<AgentToolResult<unknown>> {
   const text = (
-    await execChecked(pi, "crit", args, { signal, timeout: TIMEOUT })
+    await execChecked(pi, "crit", commandArguments, { signal, timeout: TIMEOUT })
   ).trim();
   return {
     content: [{ type: "text", text: text || "(no output)" }],
-    details: { args },
+    details: { args: commandArguments },
   };
 }

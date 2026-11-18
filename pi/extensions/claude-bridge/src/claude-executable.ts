@@ -181,7 +181,7 @@ export function preflightClaudeExecutable(path: string, cwd: string): ClaudeExec
 	return { path, realPath, cwd, realCwd, fileType };
 }
 
-function envFlagEnabled(value: string | undefined): boolean {
+function environmentFlagEnabled(value: string | undefined): boolean {
 	return value === "1" || value?.toLowerCase() === "true";
 }
 
@@ -221,7 +221,7 @@ export function wrapClaudeSpawnErrorForSdk(error: Error, options: SpawnOptions):
 }
 
 export function spawnClaudeCodeWithDiagnostics(options: SpawnOptions): SpawnedProcess {
-	const pipeStderr = DEBUG || envFlagEnabled(options.env.DEBUG_CLAUDE_AGENT_SDK);
+	const pipeStderr = DEBUG || environmentFlagEnabled(options.env.DEBUG_CLAUDE_AGENT_SDK);
 	const child = spawnProcess(options.command, options.args, {
 		cwd: options.cwd,
 		env: options.env,

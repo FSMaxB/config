@@ -26,8 +26,8 @@ export default function (pi: ExtensionAPI): void {
     description:
       "Toggle explore mode, review decisions with `grants`, or add a path rule with `allow <glob>` / `deny <glob>`",
     getArgumentCompletions: explore.completions,
-    handler: async (args, context) => {
-      const argument = args.trim();
+    handler: async (commandArguments, context) => {
+      const argument = commandArguments.trim();
       if (await explore.handleCommand(argument, context)) return;
       context.ui.notify(
         `Unknown argument "${argument}". Use /explore to toggle, /explore grants to review, or /explore allow|deny <glob> to add a path rule.`,

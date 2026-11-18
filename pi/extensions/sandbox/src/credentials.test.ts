@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { credentialEnvVars } from "./credentials.ts";
+import { credentialEnvironmentVariables } from "./credentials.ts";
 
 test("credential-looking names are masked", () => {
   // arrange
@@ -14,7 +14,7 @@ test("credential-looking names are masked", () => {
   };
 
   // act
-  const entries = credentialEnvVars(environment);
+  const entries = credentialEnvironmentVariables(environment);
 
   // assert
   assert.deepEqual(
@@ -29,7 +29,7 @@ test("ordinary names are left alone", () => {
   const environment = { PATH: "/bin", HOME: "/home", EDITOR: "vim", SHELL: "/bin/sh", COLOR: "blue" };
 
   // act
-  const entries = credentialEnvVars(environment);
+  const entries = credentialEnvironmentVariables(environment);
 
   // assert
   assert.deepEqual(entries, []);
@@ -40,7 +40,7 @@ test("variables with an empty value are left alone", () => {
   const environment = { EMPTY_TOKEN: "", REAL_TOKEN: "value" };
 
   // act
-  const entries = credentialEnvVars(environment);
+  const entries = credentialEnvironmentVariables(environment);
 
   // assert
   assert.deepEqual(entries.map((entry) => entry.name), ["REAL_TOKEN"]);
@@ -51,7 +51,7 @@ test("entries are sorted by name", () => {
   const environment = { Z_TOKEN: "z", A_TOKEN: "a", M_TOKEN: "m" };
 
   // act
-  const entries = credentialEnvVars(environment);
+  const entries = credentialEnvironmentVariables(environment);
 
   // assert
   assert.deepEqual(entries.map((entry) => entry.name), ["A_TOKEN", "M_TOKEN", "Z_TOKEN"]);

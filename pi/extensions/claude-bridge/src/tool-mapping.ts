@@ -68,10 +68,10 @@ const SDK_KEY_RENAMES: Record<string, Record<string, string>> = {
 
 // Maps SDK tool args to pi tool args via key renaming + pass-through.
 // Pi's own prepareArguments hooks handle any structural transforms (e.g. edit oldText/newText → edits[]).
-export function mapToolArgs(
-	toolName: string, args: unknown,
+export function mapToolArguments(
+	toolName: string, toolArguments: unknown,
 ): JsonObject {
-	const input = jsonObjectFrom(args);
+	const input = jsonObjectFrom(toolArguments);
 	const renames = SDK_KEY_RENAMES[toolName.toLowerCase()];
 	const result: JsonObject = {};
 	for (const [key, value] of Object.entries(input)) {

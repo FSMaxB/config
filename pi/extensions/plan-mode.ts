@@ -15,7 +15,7 @@ import { activateMissingPlanTools, PLAN_PATH, SUBMIT_PLAN } from "./lib/plan-too
 import { parseThinkingLevel, PlanApproval, preferredThinkingLevel, SUBMISSION_OPTIONS, SubmissionAction, submissionAction, thinkingLevelLabel } from "./lib/plan-mode-policy.ts";
 import { commitPlanFileForUser } from "./lib/plan-commit.ts";
 import { registerPlanSubmission } from "./lib/plan-submission.ts";
-import type { PlanSubmissionOutcome, PlanSubmissionParams, PlanSubmissionResult } from "./lib/plan-submission.ts";
+import type { PlanSubmissionOutcome, PlanSubmissionParameters, PlanSubmissionResult } from "./lib/plan-submission.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 import { registerRestrictedMode } from "./lib/restricted-mode.ts";
 import { selectWithDefault } from "./lib/select-with-default.ts";
@@ -57,7 +57,7 @@ export default function (pi: ExtensionAPI): void {
       }),
     }),
 
-    async execute(_toolCallId, params, _signal, _onUpdate, context): Promise<AgentToolResult<{ path: string | null }>> {
+    async execute(_toolCallId, parameters, _signal, _onUpdate, context): Promise<AgentToolResult<{ path: string | null }>> {
       plan.flushPendingToggle(context);
       if (!plan.isActive()) {
         return {
@@ -65,7 +65,7 @@ export default function (pi: ExtensionAPI): void {
           details: { path: null },
         };
       }
-      const path = newPlanPath(params.slug);
+      const path = newPlanPath(parameters.slug);
       return {
         content: [
           {
@@ -77,9 +77,9 @@ export default function (pi: ExtensionAPI): void {
       };
     },
 
-    renderCall(args, theme) {
+    renderCall(toolArguments, theme) {
       return new Text(
-        theme.fg("toolTitle", theme.bold("plan_path ")) + theme.fg("muted", args.slug ?? ""),
+        theme.fg("toolTitle", theme.bold("plan_path ")) + theme.fg("muted", toolArguments.slug ?? ""),
         0,
         0,
       );
@@ -117,12 +117,12 @@ export default function (pi: ExtensionAPI): void {
       }),
     }),
 
-    async execute(_toolCallId, params, signal, _onUpdate, context): Promise<PlanSubmissionResult> {
-      return await submitPlan(params, signal, context, PlanApproval.Pending);
+    async execute(_toolCallId, parameters, signal, _onUpdate, context): Promise<PlanSubmissionResult> {
+      return await submitPlan(parameters, signal, context, PlanApproval.Pending);
     },
 
-    renderCall(args, theme) {
-      return new Text(theme.fg("toolTitle", theme.bold("submit_plan ")) + theme.fg("muted", args.path ?? ""), 0, 0);
+    renderCall(toolArguments, theme) {
+      return new Text(theme.fg("toolTitle", theme.bold("submit_plan ")) + theme.fg("muted", toolArguments.path ?? ""), 0, 0);
     },
 
     renderResult(result, renderOptions, theme) {
@@ -159,18 +159,18 @@ export default function (pi: ExtensionAPI): void {
       plan.flushPendingToggle(context);
       return plan.isActive();
     },
-    async submit(params, signal, context) {
+    async submit(parameters, signal, context) {
       signal?.throwIfAborted();
       plan.flushPendingToggle(context);
       if (plan.isActive() && !pi.getActiveTools().includes(SUBMIT_PLAN)) {
         throw new Error("submit_plan is deactivated, so the reviewed plan was not submitted.");
       }
-      return await submitPlan(params, signal, context, PlanApproval.Given);
+      return await submitPlan(parameters, signal, context, PlanApproval.Given);
     },
   });
 
   async function submitPlan(
-    params: PlanSubmissionParams,
+    parameters: PlanSubmissionParameters,
     signal: AbortSignal | undefined,
     context: ExtensionContext,
     approval: PlanApproval,
@@ -188,7 +188,7 @@ export default function (pi: ExtensionAPI): void {
     const blocked = plan.blockedReason(SUBMIT_PLAN);
     if (blocked) throw new Error(blocked);
 
-    const { path } = params;
+    const { path } = parameters;
     if (!isInPlansDirectory(path)) {
       return {
         content: [{ type: "text", text: `${path} is outside the plans directory (${plansDirectory()}). Call plan_path for a plan file path, write the plan there, then call submit_plan with that path.` }],
@@ -315,8 +315,8 @@ export default function (pi: ExtensionAPI): void {
     description:
       "Toggle plan mode, review decisions with `grants`, or add a path rule with `allow <glob>` / `deny <glob>`",
     getArgumentCompletions: plan.completions,
-    handler: async (args, context) => {
-      const argument = args.trim();
+    handler: async (commandArguments, context) => {
+      const argument = commandArguments.trim();
       if (await plan.handleCommand(argument, context)) return;
       if (argument === FRESH_HANDOFF_ARGUMENT) {
         await startFreshHandoffSession(context);
