@@ -12,7 +12,7 @@ import {
   isUnchanged,
 } from "./plan-commit.ts";
 import type {
-  Executor,
+  CommandResult,
 } from "./plan-commit.ts";
 
 // A fixed identity keeps the git commits below independent of the machine's git config
@@ -23,22 +23,6 @@ const identity = {
   GIT_COMMITTER_NAME: "plan-commit test",
   GIT_COMMITTER_EMAIL: "plan-commit@test.invalid",
 };
-
-const realExecutor: Executor = (command, args, cwd) =>
-  new Promise((resolve) => {
-    execFile(command, args, { cwd, env: { ...process.env, ...identity } }, (error, stdout, stderr) => {
-      const code = error && typeof (error as NodeJS.ErrnoException).code === "number"
-        ? (error as { code: number }).code
-        : error ? 127 : 0;
-      resolve({ stdout, stderr, code });
-    });
-  });
-
-// Pretends jj is not installed so the git fallback can be exercised on a machine that has jj.
-const withoutJj: Executor = (command, args, cwd) =>
-  command === "jj"
-    ? Promise.resolve({ stdout: "", stderr: "jj: command not found", code: 127 })
-    : realExecutor(command, args, cwd);
 
 test("initInvocation prefers a colocated jj repository", () => {
   // arrange / act
@@ -167,4 +151,21 @@ test("a review followed by a submit produces two commits with their own messages
 async function hasBinary(command: string): Promise<boolean> {
   const { code } = await realExecutor(command, ["--version"], process.cwd());
   return code === 0;
+}
+
+// Pretends jj is not installed so the git fallback can be exercised on a machine that has jj.
+function withoutJj(command: string, args: readonly string[], cwd: string): Promise<CommandResult> {
+  if (command === "jj") return Promise.resolve({ stdout: "", stderr: "jj: command not found", code: 127 });
+  return realExecutor(command, args, cwd);
+}
+
+function realExecutor(command: string, args: readonly string[], cwd: string): Promise<CommandResult> {
+  return new Promise((resolve) => {
+    execFile(command, args, { cwd, env: { ...process.env, ...identity } }, (error, stdout, stderr) => {
+      const code = error && typeof (error as NodeJS.ErrnoException).code === "number"
+        ? (error as { code: number }).code
+        : error ? 127 : 0;
+      resolve({ stdout, stderr, code });
+    });
+  });
 }

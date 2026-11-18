@@ -831,9 +831,6 @@
     "@typescript-eslint/consistent-type-assertions": {
       "count": 2
     },
-    "no-restricted-syntax": {
-      "count": 2
-    },
     "unicorn/name-replacements": {
       "count": 2
     }
@@ -968,11 +965,6 @@
     },
     "local/step-down": {
       "count": 4
-    }
-  },
-  "extensions/lib/skill-index.test.ts": {
-    "no-restricted-syntax": {
-      "count": 1
     }
   },
   "extensions/lib/skill-index.ts": {
@@ -1211,9 +1203,6 @@
   "extensions/sandbox/src/recording.test.ts": {
     "local/step-down": {
       "count": 2
-    },
-    "no-restricted-syntax": {
-      "count": 2
     }
   },
   "extensions/sandbox/src/recording.ts": {
@@ -1321,15 +1310,7 @@
       "count": 5
     }
   },
-  "extensions/sidebar/plans.test.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
   "extensions/sidebar/skills.test.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    },
     "unicorn/name-replacements": {
       "count": 1
     }
@@ -1341,7 +1322,7 @@
   },
   "extensions/sidebar/visibility.test.ts": {
     "no-restricted-syntax": {
-      "count": 2
+      "count": 1
     },
     "unicorn/no-null": {
       "count": 1

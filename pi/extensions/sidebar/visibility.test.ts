@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { defaultVisibility, sessionVisibility, VISIBILITY_ENTRY, Visibility } from "./visibility.ts";
 
-const toggle = (enabled: boolean) => ({ type: "custom", customType: VISIBILITY_ENTRY, data: { enabled } });
 
 test("sessionVisibility returns the latest toggle", () => {
   // arrange
@@ -60,3 +59,7 @@ test("defaultVisibility is on unless sidebar.enabled is false", () => {
     cases.map(([, expected]) => expected),
   );
 });
+
+function toggle(enabled: boolean): { type: string; customType: string; data: { enabled: boolean } } {
+  return { type: "custom", customType: VISIBILITY_ENTRY, data: { enabled } };
+}
