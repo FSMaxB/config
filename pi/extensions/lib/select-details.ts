@@ -2,10 +2,10 @@
 // helpers are injected because CI runs lib tests with plain node --test,
 // which has no pi-tui.
 
-export type TextMeasure = {
+export interface TextMeasure {
   width(text: string): number;
   wrap(text: string, width: number): string[];
-};
+}
 
 // SelectList draws "→ " or "  " before each label and keeps two more columns
 // free, so a label gets width - 4 columns before it is cut.

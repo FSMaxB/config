@@ -1,3 +1,4 @@
+import { READ_FILE_TOOLS } from "./file-tools.ts";
 import { realpathSync } from "node:fs";
 import type { ToolInfo } from "@earendil-works/pi-coding-agent";
 import type { SessionGrant } from "./session-grants.ts";
@@ -19,7 +20,7 @@ export function planToolPermission(
 export function trustedReadOnlyToolNames(tools: readonly ToolPolicyInfo[]): Set<string> {
   const owners = new Map<string, ReadonlySet<string>>();
   for (const [file, names] of [
-    ["files.ts", ["read", "ls", "find", "grep"]],
+    ["files.ts", READ_FILE_TOOLS],
     ["crit.ts", ["crit_comments", "crit_status"]],
   ] as const) {
     const path = canonicalPath(new URL(`../${file}`, import.meta.url));

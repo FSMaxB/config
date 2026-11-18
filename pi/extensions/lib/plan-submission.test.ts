@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { it } from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { canSubmitReviewedPlan, registerPlanSubmission, submitReviewedPlan } from "./plan-submission.ts";
+import type { PlanSubmissionResult, PlanSubmissionService } from "./plan-submission.ts";
 
 it("discovers across separate API wrappers and awaits the live handler", async () => {
   // arrange
@@ -9,7 +10,7 @@ it("discovers across separate API wrappers and awaits the live handler", async (
   const context = {} as ExtensionContext;
   const controller = new AbortController();
   const params = { path: "/plan.md" };
-  const expected = { content: [{ type: "text" as const, text: "handed off" }], details: { path: params.path, outcome: "handed-off" } };
+  const expected: PlanSubmissionResult = { content: [{ type: "text", text: "handed off" }], details: { path: params.path, outcome: "handed-off" } };
   let received: unknown[];
   registerPlanSubmission({ ...bus }, {
     available: (liveContext) => liveContext === context,
@@ -93,7 +94,7 @@ it("does not invoke a handler after cancellation", async () => {
   let submitted = false;
   registerPlanSubmission(bus, {
     available: () => true,
-    submit: async () => { submitted = true; return { content: [], details: { path: null, outcome: "saved" } }; },
+    submit: async (): Promise<PlanSubmissionResult> => { submitted = true; return { content: [], details: { path: null, outcome: "saved" } }; },
   });
   controller.abort();
   // act
@@ -103,7 +104,7 @@ it("does not invoke a handler after cancellation", async () => {
   assert.equal(submitted, false);
 });
 
-function savedService() {
+function savedService(): PlanSubmissionService {
   return {
     available: () => true,
     submit: async () => ({ content: [], details: { path: null, outcome: "saved" } }),

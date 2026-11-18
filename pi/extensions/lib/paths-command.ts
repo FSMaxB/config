@@ -1,5 +1,7 @@
 import { isPathRuleStore, PathRuleStore } from "./agent-mode.ts";
+import type { AutocompleteItem } from "@earendil-works/pi-tui";
 import type { RuleKind } from "./path-permission-rules.ts";
+import { completionItems, RULE_SUBCOMMANDS } from "./completions.ts";
 
 export type PathsCommand =
   | { kind: "grants"; store: PathRuleStore }
@@ -18,9 +20,6 @@ export function parsePathsArgument(argument: string, activeStore: PathRuleStore)
   return { kind: "rule", store, ruleKind: subcommand, pattern: rest.join(" ") };
 }
 
-export function pathsCompletions(prefix: string): { value: string; label: string }[] | null {
-  const completions = [...Object.values(PathRuleStore), "grants", "allow", "deny"]
-    .filter((value) => value.startsWith(prefix))
-    .map((value) => ({ value, label: value }));
-  return completions.length > 0 ? completions : null;
+export function pathsCompletions(prefix: string): AutocompleteItem[] | null {
+  return completionItems([...Object.values(PathRuleStore), ...RULE_SUBCOMMANDS], prefix);
 }

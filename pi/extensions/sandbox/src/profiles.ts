@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { shortenPath } from "../../lib/format.ts";
 import type { AccessMode, PathSelector } from "../../lib/path-permission-rules.ts";
 
 export interface ProfileTriggers {
@@ -152,9 +153,9 @@ function networkHosts({ access, allowedDomains }: ProfileNetwork): string[] {
 
 export function selectorText(selector: PathSelector, homeDirectory: string): string {
   switch (selector.kind) {
-    case "tree": return withTilde(`${selector.path}/**`, homeDirectory);
-    case "exact": return withTilde(selector.path, homeDirectory);
-    case "glob": return withTilde(`${selector.base}/${selector.pattern}`, homeDirectory);
+    case "tree": return shortenPath(`${selector.path}/**`, homeDirectory);
+    case "exact": return shortenPath(selector.path, homeDirectory);
+    case "glob": return shortenPath(`${selector.base}/${selector.pattern}`, homeDirectory);
   }
 }
 
@@ -167,11 +168,6 @@ export function addFilesystemEntry(definition: ProfileDefinition, mode: AccessMo
 export function addAllowedDomain(definition: ProfileDefinition, domain: string): ProfileDefinition {
   if (definition.network.allowedDomains.includes(domain)) return definition;
   return { ...definition, network: { ...definition.network, allowedDomains: [...definition.network.allowedDomains, domain] } };
-}
-
-function withTilde(text: string, homeDirectory: string): string {
-  if (text === homeDirectory) return "~";
-  return text.startsWith(`${homeDirectory}/`) ? `~${text.slice(homeDirectory.length)}` : text;
 }
 
 function asRecord(value: unknown, name: string): Record<string, unknown> {

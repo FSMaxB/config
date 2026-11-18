@@ -12,6 +12,8 @@ import {
   advanceQuiet,
   formatComments,
   pickNewSession,
+  parseComment,
+  parseSessionEntries,
   quietElapsed,
   unseenComments,
 } from "./lib/tuicr-session.ts";
@@ -284,7 +286,7 @@ export default function (pi: ExtensionAPI) {
         );
         // Only the comment just added counts as seen. Marking everything in the
         // session would swallow user comments written since the last tuicr_wait.
-        markSeen(session, [JSON.parse(output) as TuicrComment]);
+        markSeen(session, [parseComment(JSON.parse(output))]);
       }
 
       return text(`Added ${comments.length} comment(s) to ${session.slug} as ${author}.`);
@@ -350,7 +352,7 @@ async function resolveSession(
   }
 }
 
-function markSeen(session: Session, comments: TuicrComment[]): void {
+function markSeen(session: Session, comments: readonly TuicrComment[]): void {
   for (const comment of comments) session.seen.add(comment.id);
 }
 
@@ -365,7 +367,7 @@ async function listSessions(
     signal,
     timeout: TIMEOUT,
   });
-  return JSON.parse(output) as SessionEntry[];
+  return parseSessionEntries(JSON.parse(output));
 }
 
 // tuicr removes empty sessions when the TUI exits, so a failing read between the
@@ -381,7 +383,8 @@ async function readComments(
       signal,
       timeout: TIMEOUT,
     });
-    return JSON.parse(output) as TuicrComment[];
+    const parsed: unknown = JSON.parse(output);
+    return Array.isArray(parsed) ? parsed.map(parseComment) : [];
   } catch {
     return [];
   }

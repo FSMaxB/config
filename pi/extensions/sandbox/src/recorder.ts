@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { stat } from "node:fs/promises";
 import type { FilesystemConfig } from "@anthropic-ai/sandbox-runtime";
 import type { BashOperations, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { shellQuote } from "../../lib/panes.ts";
 import type { PathSelector } from "../../lib/path-permission-rules.ts";
 import { normalizePathSelector } from "../../lib/path-permissions.ts";
 import type { EffectivePolicy } from "../../lib/path-permissions.ts";
@@ -179,10 +180,6 @@ function streamAllowedAccesses(tag: string, onLine: (line: string) => void): Pro
       resolve(stop);
     });
   });
-}
-
-function shellQuote(text: string): string {
-  return `'${text.replaceAll("'", "'\\''")}'`;
 }
 
 type ExecOptions = Parameters<BashOperations["exec"]>[2];

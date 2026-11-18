@@ -1,9 +1,8 @@
-import { homedir } from "node:os";
 import { dirname, join, matchesGlob, relative, sep } from "node:path";
 import { AgentMode, isRestricted, PathRuleStore } from "./agent-mode.ts";
 import { contains } from "./repo.ts";
 import type { SessionGrant } from "./session-grants.ts";
-
+import { isRecord } from "./untyped.ts";
 
 export type AccessMode = "read" | "write";
 export type RuleKind = "allow" | "deny";
@@ -15,14 +14,16 @@ export type PathSelector =
   | { kind: "tree"; path: string }
   | { kind: "glob"; base: string; pattern: string };
 
-export interface PathRule {
+interface PathRuleBase {
   mode: AccessMode;
-  kind: RuleKind;
   tier: RuleTier;
   selector: PathSelector;
-  // Deny rules only: the user's reason, repeated to the agent on every denial the rule causes.
-  note?: string;
 }
+
+export type PathRule =
+  | (PathRuleBase & { kind: "allow" })
+  // The note is the user's reason, repeated to the agent on every denial the rule causes.
+  | (PathRuleBase & { kind: "deny"; note: string | undefined });
 
 export interface ModeRules {
   allow: Set<string>;
@@ -57,9 +58,10 @@ export interface DefaultAllowedOptions {
   agentMode: AgentMode;
   repoRoot: string;
   memoryDirectory: string;
-  skillRoots: string[];
+  skillRoots: readonly string[];
   agentDirectory: string;
-  temporaryDirectory?: string;
+  temporaryDirectory: string | undefined;
+  homeDirectory: string;
 }
 
 export interface RuleTiers { session: RuleSets; always: RuleSets }
@@ -162,9 +164,9 @@ export function narrowerSelectors(resolvedPath: string, entry: EntryKind, broad:
 }
 
 export function defaultAllowed(mode: AccessMode, options: DefaultAllowedOptions): PathSelector[] {
-  const { agentMode, repoRoot, memoryDirectory, skillRoots, agentDirectory, temporaryDirectory } = options;
+  const { agentMode, repoRoot, memoryDirectory, skillRoots, agentDirectory, temporaryDirectory, homeDirectory } = options;
   const scratch = [tree(memoryDirectory), tree(join(agentDirectory, "plans")), ...(temporaryDirectory ? [tree(temporaryDirectory)] : [])];
-  if (mode === "read") return [tree(repoRoot), ...scratch, tree(join(homedir(), ".crit")), ...skillRoots.map(tree)];
+  if (mode === "read") return [tree(repoRoot), ...scratch, tree(join(homeDirectory, ".crit")), ...skillRoots.map(tree)];
   // Even read-only jj commands take these locks to snapshot the working copy and import from a colocated git repository.
   const jjLocks = [join(".jj", "working_copy", "working_copy.lock"), join(".jj", "repo", "git_import_export.lock")].map((lock) => exact(join(repoRoot, lock)));
   return isRestricted(agentMode) ? [...scratch, ...jjLocks] : [tree(repoRoot), ...scratch];
@@ -196,6 +198,7 @@ export function recordRule(rule: PathRule, tiers: RuleTiers): Set<RuleTier> {
 }
 
 export function selectorFromKey(key: string): PathSelector {
+  // Keys only come from selectorKey, so their shape is known.
   const [kind, first, second] = JSON.parse(key) as [PathSelector["kind"], string, string?];
   return kind === "glob" ? glob(first, second ?? "") : { kind, path: first };
 }
@@ -213,13 +216,13 @@ function parseRuleSets(value: unknown): RuleSets {
   return { read, write };
 }
 function asRecord(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object") throw new Error("Invalid path permission rules");
-  return value as Record<string, unknown>;
+  if (!isRecord(value)) throw new Error("Invalid path permission rules");
+  return value;
 }
 function selectors(values: Iterable<string>): PathSelector[] {
   return [...values].map(selectorFromKey).sort((left, right) => selectorKey(left).localeCompare(selectorKey(right)));
 }
-function denyEntries(values: Map<string, string | undefined>): DenyEntry[] {
+function denyEntries(values: ReadonlyMap<string, string | undefined>): DenyEntry[] {
   return selectors(values.keys()).map((selector) => {
     const note = values.get(selectorKey(selector));
     return note ? { ...selector, note } : selector;
@@ -237,8 +240,8 @@ function isStrictlyInside(candidate: PathSelector, broad: PathSelector): boolean
   return candidate.kind === "exact" && matchesRule(candidate.path, broad);
 }
 function parseModeRules(value: unknown): RuleSets[AccessMode] | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const { allow, deny } = value as Record<string, unknown>;
+  if (!isRecord(value)) return undefined;
+  const { allow, deny } = value;
   if (!Array.isArray(allow) || !Array.isArray(deny)) return undefined;
   const allowed = allow.map(normalizeSelector), denied = deny.map(normalizeDenyEntry);
   if (!allowed.every(isDefined) || !denied.every(isDefined)) return undefined;
@@ -246,21 +249,24 @@ function parseModeRules(value: unknown): RuleSets[AccessMode] | undefined {
 }
 function normalizeDenyEntry(value: unknown): { selector: PathSelector; note: string | undefined } | undefined {
   const selector = normalizeSelector(value);
-  if (!selector) return undefined;
-  const { note } = value as Record<string, unknown>;
+  if (!selector || !isRecord(value)) return undefined;
+  const { note } = value;
   return { selector, note: typeof note === "string" && note !== "" ? note : undefined };
 }
 function normalizeSelector(value: unknown): PathSelector | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const { kind, path, base, pattern } = value as Record<string, unknown>;
+  if (!isRecord(value)) return undefined;
+  const { kind, path, base, pattern } = value;
   if (kind === "glob") return typeof base === "string" && typeof pattern === "string" ? glob(base, pattern) : undefined;
   return (kind === "exact" || kind === "tree") && typeof path === "string" ? pathSelector(kind, path) : undefined;
 }
 // A tree already covers its whole subtree, so a stored trailing "/**" is redundant and would
 // otherwise only match a directory literally named "**".
 function pathSelector(kind: "exact" | "tree", path: string): PathSelector {
-  return kind === "tree" && path.endsWith(`${sep}**`) ? tree(path.slice(0, -3) || sep) : { kind, path };
+  if (kind !== "tree" || !path.endsWith(TREE_SUFFIX)) return { kind, path };
+  // "/**" itself is the whole file system.
+  return tree(path.slice(0, -TREE_SUFFIX.length) || sep);
 }
+const TREE_SUFFIX = `${sep}**`;
 function isDefined<T>(value: T | undefined): value is T { return value !== undefined; }
 function matchesAny(path: string, selectorsOrKeys: Iterable<string | PathSelector>): boolean {
   for (const value of selectorsOrKeys) {

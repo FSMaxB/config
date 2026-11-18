@@ -4,10 +4,10 @@ import { addToProfileLabel, ALLOW_NARROWER, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWA
 import { ALL_DURATIONS, askPermission, Duration, userReason } from "./permission-prompt.ts";
 import type { PermissionRequest, PermissionUI } from "./permission-prompt.ts";
 
-interface SelectCall { title: string; options: string[]; preselected: string | undefined }
+interface SelectCall { title: string; options: readonly string[]; preselected: string | undefined }
 
 // Answers are consumed in order; undefined stands for Esc.
-function scriptedUI(answers: (string | undefined)[]): PermissionUI & { selects: SelectCall[]; inputs: string[] } {
+function scriptedUI(answers: readonly (string | undefined)[]): PermissionUI & { selects: SelectCall[]; inputs: string[] } {
   const queue = [...answers];
   const selects: SelectCall[] = [];
   const inputs: string[] = [];
@@ -19,7 +19,7 @@ function scriptedUI(answers: (string | undefined)[]): PermissionUI & { selects: 
   };
 }
 
-function request(overrides: Partial<PermissionRequest<string>> = {}): PermissionRequest<string> {
+function request<Destination = never>(overrides: Partial<PermissionRequest<string, Destination>> = {}): PermissionRequest<string, Destination> {
   return { title: "Allow it?", subject: "network access to example.com", scope: "broad", narrower: [], durations: ALL_DURATIONS, ...overrides };
 }
 

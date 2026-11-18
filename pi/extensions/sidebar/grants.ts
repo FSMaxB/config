@@ -1,4 +1,4 @@
-import { sep } from "node:path";
+import { shortenPath } from "../lib/format.ts";
 import type { SessionGrant } from "../lib/session-grants.ts";
 
 const KIND_ORDER: readonly SessionGrant["kind"][] = ["path", "tool", "network", "profile", "unsandboxed"];
@@ -13,7 +13,7 @@ export function grantRows(grants: readonly SessionGrant[], homeDirectory: string
 function subject(grant: SessionGrant, homeDirectory: string): string {
   switch (grant.kind) {
     case "path":
-      return `${grant.access} ${withTilde(grant.target, homeDirectory)}`;
+      return `${grant.access} ${shortenPath(grant.target, homeDirectory)}`;
     case "tool":
       return `tool ${grant.name}`;
     case "network":
@@ -23,10 +23,4 @@ function subject(grant: SessionGrant, homeDirectory: string): string {
     case "unsandboxed":
       return "unsandboxed bash";
   }
-}
-
-function withTilde(path: string, homeDirectory: string): string {
-  if (path === homeDirectory) return "~";
-  if (path.startsWith(`${homeDirectory}${sep}`)) return `~${path.slice(homeDirectory.length)}`;
-  return path;
 }

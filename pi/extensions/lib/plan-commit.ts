@@ -1,6 +1,8 @@
 import { dirname, basename, relative } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { errorMessage } from "./errors.ts";
 import { detectVcs } from "./repo.ts";
+import type { VcsInfo } from "./repo.ts";
 
 export interface CommandResult {
   stdout: string;
@@ -10,11 +12,11 @@ export interface CommandResult {
 
 export type Executor = (
   command: string,
-  args: string[],
+  args: readonly string[],
   cwd: string,
 ) => Promise<CommandResult>;
 
-export type RepositoryKind = "jj" | "git";
+export type RepositoryKind = Exclude<VcsInfo["kind"], "none">;
 
 export interface Invocation {
   command: string;
@@ -35,14 +37,14 @@ export async function commitPlanFileForUser(
   planFile: string,
   reason: CommitReason,
 ): Promise<void> {
+  // Generous for a single-file commit, which also covers jj snapshotting a large working copy.
   const TIMEOUT_MS = 30_000;
   const execute: Executor = (command, args, cwd) =>
-    pi.exec(command, args, { cwd, timeout: TIMEOUT_MS });
+    pi.exec(command, [...args], { cwd, timeout: TIMEOUT_MS });
   try {
     await commitPlanFile(execute, planFile, reason);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    context.ui.notify(`Plan file not committed: ${message}`, "warning");
+    context.ui.notify(`Plan file not committed: ${errorMessage(error)}`, "warning");
   }
 }
 

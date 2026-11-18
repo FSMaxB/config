@@ -10,15 +10,13 @@ import type {
   RipgrepEvent,
 } from "./grep-collector.ts";
 
-const match = (lineNumber: number, text: string, filePath = "a.ts"): RipgrepEvent => ({
-  type: "match",
-  data: { path: { text: filePath }, line_number: lineNumber, lines: { text: `${text}\n` } },
-});
+function match(lineNumber: number, text: string, filePath = "a.ts"): RipgrepEvent {
+  return { type: "match", path: { kind: "text", text: filePath }, lineNumber, lines: { kind: "text", text: `${text}\n` } };
+}
 
-const contextLine = (lineNumber: number, text: string, filePath = "a.ts"): RipgrepEvent => ({
-  type: "context",
-  data: { path: { text: filePath }, line_number: lineNumber, lines: { text: `${text}\n` } },
-});
+function contextLine(lineNumber: number, text: string, filePath = "a.ts"): RipgrepEvent {
+  return { type: "context", path: { kind: "text", text: filePath }, lineNumber, lines: { kind: "text", text: `${text}\n` } };
+}
 
 test("exactly the limit of matches does not report the limit as reached", () => {
   // arrange
@@ -93,56 +91,53 @@ test("context lines before the first match are kept in order", () => {
   assert.equal(collector.matchCount, 1);
 });
 
-test("events other than match and context, and unparsable lines, are ignored", () => {
+test("events other than match and context, and unparsable lines, parse to nothing", () => {
   // arrange
-  const collector = new GrepCollector(5, 0);
+  const lines = [
+    JSON.stringify({ type: "begin", data: { path: { text: "a.ts" } } }),
+    JSON.stringify({ type: "end", data: {} }),
+    JSON.stringify({ type: "summary", data: {} }),
+    "not json",
+  ];
+  const expected = [undefined, undefined, undefined, undefined];
 
   // act
-  const outcomes = [
-    collector.accept({ type: "begin", data: { path: { text: "a.ts" } } }),
-    collector.accept({ type: "end" }),
-    collector.accept({ type: "summary" }),
-  ];
+  const events = lines.map(parseRipgrepEvent);
 
   // assert
-  assert.deepEqual(outcomes, [LineOutcome.Continue, LineOutcome.Continue, LineOutcome.Continue]);
-  assert.equal(collector.rows.length, 0);
-  assert.equal(parseRipgrepEvent("not json"), undefined);
+  assert.deepEqual(events, expected);
 });
 
 test("a path reported as base64 bytes is decoded", () => {
   // arrange
   const collector = new GrepCollector(5, 0);
-  const event: RipgrepEvent = {
+  const line = JSON.stringify({
     type: "match",
-    data: {
-      path: { bytes: Buffer.from("ä.ts").toString("base64") },
-      line_number: 1,
-      lines: { text: "x\n" },
-    },
-  };
+    data: { path: { bytes: Buffer.from("ä.ts").toString("base64") }, line_number: 1, lines: { text: "x\n" } },
+  });
+  const expected = "ä.ts";
 
   // act
-  collector.accept(event);
+  const event = parseRipgrepEvent(line);
+  if (event !== undefined) collector.accept(event);
 
   // assert
-  assert.equal(collector.rows[0]?.filePath, "ä.ts");
+  assert.equal(collector.rows[0]?.filePath, expected);
 });
 
 test("a lone carriage return inside a line is kept while the line terminator is stripped", () => {
   // arrange
   const collector = new GrepCollector(5, 0);
+  const crlfLine = { ...match(2, ""), lines: { kind: "text", text: "a\r\n" } } satisfies RipgrepEvent;
+  const expected = ["a\rb", "a"];
 
   // act
   collector.accept(match(1, "a\rb"));
-  collector.accept({
-    type: "match",
-    data: { path: { text: "a.ts" }, line_number: 2, lines: { text: "a\r\n" } },
-  });
+  collector.accept(crlfLine);
 
   // assert
   assert.deepEqual(
     collector.rows.map((row) => row.text),
-    ["a\rb", "a"],
+    expected,
   );
 });

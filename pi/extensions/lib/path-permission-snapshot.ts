@@ -1,36 +1,53 @@
 import { Buffer } from "node:buffer";
 import { isAbsolute } from "node:path";
-import { AgentMode, isPathRuleStore } from "./agent-mode.ts";
-import type { PathRuleStore } from "./agent-mode.ts";
-import { emptyRules, parseRules, selectorKey } from "./path-permission-rules.ts";
+import { isAgentMode, isPathRuleStore } from "./agent-mode.ts";
+import type { AgentMode, PathRuleStore } from "./agent-mode.ts";
+import { emptyRules, parseRules, selectorFromKey, selectorKey, serializeRules } from "./path-permission-rules.ts";
 import type { PathSelector, RuleSets, SerializedRules } from "./path-permission-rules.ts";
+import { isRecord } from "./untyped.ts";
 
-// ruleStore and agentMode describe the parent; parents that predate them omit them.
+// ruleStore and agentMode describe the parent; without them the child uses its own.
 export interface ChildPathPolicy { version: 1; session: SerializedRules; readDefaults: PathSelector[]; writeDefaults: PathSelector[]; ruleStore?: PathRuleStore; agentMode?: AgentMode }
 export const CHILD_POLICY_ENV = "PI_SUBAGENT_PATH_POLICY";
+// The policy travels in an environment variable, and an exec fails with E2BIG once the
+// environment outgrows the system limit (256 KiB on macOS, shared with the arguments).
 const MAX_BYTES = 32 * 1024;
+
+// A child process without the variable is not a subagent; one with an invalid variable must not
+// fall back to its own rules, so it disables the path tools instead.
+export type InheritedPolicy = { kind: "none" } | { kind: "invalid" } | { kind: "valid"; policy: ChildPathPolicy };
+
+const INVALID: InheritedPolicy = { kind: "invalid" };
 
 export function serializeChildPathPolicy(policy: ChildPathPolicy): string {
   const encoded = JSON.stringify(policy);
-  if (Buffer.byteLength(encoded, "utf8") > MAX_BYTES) throw new Error("Inherited path policy exceeds the 32 KiB limit.");
+  if (Buffer.byteLength(encoded, "utf8") > MAX_BYTES) throw new Error(`Inherited path policy exceeds the ${MAX_BYTES / 1024} KiB limit.`);
   return encoded;
 }
-export function parseChildPathPolicy(value: string | undefined): ChildPathPolicy | null | undefined {
-  if (value === undefined) return undefined;
-  if (Buffer.byteLength(value, "utf8") > MAX_BYTES) return null;
+
+export function parseChildPathPolicy(value: string | undefined): InheritedPolicy {
+  if (value === undefined) return { kind: "none" };
+  if (Buffer.byteLength(value, "utf8") > MAX_BYTES) return INVALID;
   try {
-    const policy = JSON.parse(value) as ChildPathPolicy;
-    if (policy.version !== 1 || !policy.session || !Array.isArray(policy.readDefaults) || !Array.isArray(policy.writeDefaults)) return null;
-    if (policy.ruleStore !== undefined && !isPathRuleStore(policy.ruleStore)) return null;
-    if (policy.agentMode !== undefined && !Object.values(AgentMode).includes(policy.agentMode)) return null;
-    parseRules(policy.session);
-    parseRules({ version: 2, read: { allow: policy.readDefaults, deny: [] }, write: { allow: policy.writeDefaults, deny: [] } });
-    const selectors = [...policy.readDefaults, ...policy.writeDefaults,
-      ...(["read", "write"] as const).flatMap((mode) => [...policy.session[mode].allow, ...policy.session[mode].deny])];
-    if (!selectors.every((selector) => isAbsolute(selector.kind === "glob" ? selector.base : selector.path))) return null;
-    return policy;
-  } catch { return null; }
+    const parsed: unknown = JSON.parse(value);
+    if (!isRecord(parsed) || parsed.version !== 1) return INVALID;
+    const { ruleStore, agentMode } = parsed;
+    if (ruleStore !== undefined && !isPathRuleStore(ruleStore)) return INVALID;
+    if (agentMode !== undefined && !isAgentMode(agentMode)) return INVALID;
+    if (!Array.isArray(parsed.readDefaults) || !Array.isArray(parsed.writeDefaults)) return INVALID;
+    const session = parseRules(parsed.session);
+    const defaults = parseRules({ version: 2, read: { allow: parsed.readDefaults, deny: [] }, write: { allow: parsed.writeDefaults, deny: [] } });
+    const readDefaults = [...defaults.read.allow].map(selectorFromKey);
+    const writeDefaults = [...defaults.write.allow].map(selectorFromKey);
+    const selectors = [...readDefaults, ...writeDefaults,
+      ...(["read", "write"] as const).flatMap((mode) => [...session[mode].allow, ...session[mode].deny.keys()].map(selectorFromKey))];
+    if (!selectors.every((selector) => isAbsolute(selector.kind === "glob" ? selector.base : selector.path))) return INVALID;
+    return { kind: "valid", policy: { version: 1, session: serializeRules(session), readDefaults, writeDefaults, ruleStore, agentMode } };
+  } catch {
+    return INVALID;
+  }
 }
+
 export function inheritedRules(policy: ChildPathPolicy): RuleSets {
   const rules = emptyRules();
   for (const mode of ["read", "write"] as const) {

@@ -13,17 +13,23 @@ export function collectContextMessages<Entry, Message>(
 }
 
 export function splitContextMessages<Message extends { role: string }>(
-  messages: Message[],
-): { messages: Message[]; systemMessages: TranscriptSystemMessage[] } {
+  messages: readonly Message[],
+): { messages: Message[]; systemMessages: Extract<Message, { role: "system" }>[] } {
   return {
     messages: messages.filter((message) => message.role !== "system"),
     systemMessages: messages.filter(
-      (message) => message.role === "system",
-    ) as unknown as TranscriptSystemMessage[],
+      (message): message is Extract<Message, { role: "system" }> => message.role === "system",
+    ),
   };
 }
 
-export function measureTranscriptSystem(messages: TranscriptSystemMessage[]) {
+export interface TranscriptSystemSize {
+  instructionCharacters: number;
+  toolCharacters: number;
+  toolDeclarations: number;
+}
+
+export function measureTranscriptSystem(messages: readonly TranscriptSystemMessage[]): TranscriptSystemSize {
   let instructionCharacters = 0;
   let toolCharacters = 0;
   let toolDeclarations = 0;

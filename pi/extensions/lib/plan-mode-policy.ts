@@ -22,11 +22,14 @@ export function submissionAction(choice: string | undefined): SubmissionAction {
 
 // Mirrors pi's own choice when switching models, so the preselected level is the one
 // the model would get without this dialog.
+// pi's own default when the settings name no level.
+const PI_DEFAULT_THINKING_LEVEL = "medium";
+
 export function preferredThinkingLevel(
   modelLabel: string,
   settings: { modelThinkingLevels?: Record<string, string>; defaultThinkingLevel?: string },
 ): string {
-  return settings.modelThinkingLevels?.[modelLabel] ?? settings.defaultThinkingLevel ?? "medium";
+  return settings.modelThinkingLevels?.[modelLabel] ?? settings.defaultThinkingLevel ?? PI_DEFAULT_THINKING_LEVEL;
 }
 
 export function thinkingLevelLabel(level: string, defaultLevel: string, currentLevel: string): string {

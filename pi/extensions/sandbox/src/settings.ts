@@ -1,7 +1,6 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { hostname } from "node:os";
-import { basename, dirname, join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { withFileLock } from "../../lib/file-lock.ts";
+import { writeJsonFileAtomically } from "../../lib/json.ts";
 import { expandHome } from "../../lib/path-resolution.ts";
 import { parseActivationDecisions, parseProfileDefinition, parseProfiles, serializeActivationDecisions } from "./profiles.ts";
 import type { ActivationDecisions, Profile, ProfileDefinition } from "./profiles.ts";
@@ -44,10 +43,10 @@ export function resolveSettings(file: SettingsFile): Settings {
     allowedDomains: unique([...DEFAULT_ALLOWED_DOMAINS, ...network.allowedDomains]),
     deniedDomains: unique(network.deniedDomains),
     deniedDomainReasons: new Map(Object.entries(network.deniedDomainReasons)),
-    allowUnixSockets: network.allowUnixSockets.map(expandHome),
+    allowUnixSockets: network.allowUnixSockets.map((path) => expandHome(path)),
     allowLocalBinding: network.allowLocalBinding,
-    toolchainRead: unique([...DEFAULT_TOOLCHAIN_READ, ...filesystem.allowRead].map(expandHome)),
-    extraDenyRead: filesystem.denyRead.map(expandHome),
+    toolchainRead: unique([...DEFAULT_TOOLCHAIN_READ, ...filesystem.allowRead].map((path) => expandHome(path))),
+    extraDenyRead: filesystem.denyRead.map((path) => expandHome(path)),
   };
 }
 
@@ -146,9 +145,9 @@ async function readRawSettings(filePath: string): Promise<Record<string, unknown
 }
 
 async function rewriteSettings(filePath: string, mutate: (raw: Record<string, unknown>) => Record<string, unknown>): Promise<void> {
-  await withLock(filePath, async () => {
+  await withFileLock(filePath, "sandbox settings", async () => {
     const raw = await readRawSettings(filePath);
-    await writeAtomically(filePath, `${JSON.stringify(mutate(raw), null, 2)}\n`);
+    await writeJsonFileAtomically(filePath, mutate(raw));
   });
 }
 
@@ -164,37 +163,6 @@ interface DomainLists {
   allowedDomains: Set<string>;
   deniedDomains: Set<string>;
   deniedDomainReasons: Map<string, string>;
-}
-
-async function withLock<T>(filePath: string, operation: () => Promise<T>): Promise<T> {
-  const lockPath = `${filePath}.lock`;
-  await mkdir(dirname(filePath), { recursive: true });
-  const deadline = Date.now() + 10_000;
-  for (let locked = false; !locked;) {
-    try {
-      await mkdir(lockPath);
-      await writeFile(join(lockPath, "owner"), `${process.pid} ${hostname()} ${new Date().toISOString()}\n`, { mode: 0o600 });
-      locked = true;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST" || Date.now() >= deadline) throw new Error(`Could not acquire sandbox settings lock ${lockPath}; remove it manually if no process owns it.`);
-      await new Promise((resolve) => setTimeout(resolve, 25 + Math.random() * 50));
-    }
-  }
-  try {
-    return await operation();
-  } finally {
-    await rm(lockPath, { recursive: true, force: true }).catch(() => undefined);
-  }
-}
-
-async function writeAtomically(filePath: string, content: string): Promise<void> {
-  const temporaryPath = join(dirname(filePath), `.${basename(filePath)}.${randomUUID()}.tmp`);
-  try {
-    await writeFile(temporaryPath, content, { mode: 0o600 });
-    await rename(temporaryPath, filePath);
-  } finally {
-    await rm(temporaryPath, { force: true }).catch(() => undefined);
-  }
 }
 
 function asRecord(value: unknown, name: string): Record<string, unknown> {

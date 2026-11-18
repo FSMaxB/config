@@ -16,7 +16,7 @@ const HEADER = "This is the current agent-mode state. It supersedes all earlier 
 test("the planning snapshot carries the workflow, plans directory and denials with their notes", () => {
   // arrange
   const state = snapshot({
-    denials: [{ name: "web_search", note: "Use the docs in the repository" }, { name: "bash" }],
+    denials: [{ name: "web_search", note: "Use the docs in the repository" }, { name: "bash", note: undefined }],
   });
 
   // act
@@ -35,7 +35,7 @@ test("the planning snapshot carries the workflow, plans directory and denials wi
 
 test("the exploring snapshot has no plan workflow and tells the model to report instead", () => {
   // arrange
-  const state = snapshot({ mode: AgentMode.Exploring, denials: [{ name: "bash" }] });
+  const state = snapshot({ mode: AgentMode.Exploring, denials: [{ name: "bash", note: undefined }] });
 
   // act
   const content = renderSnapshot(state);
@@ -103,9 +103,9 @@ test("the execution snapshot revokes both modes' instructions and ignores mode-o
 
 test("denial order does not change the rendered content, but notes do", () => {
   // arrange
-  const forward = snapshot({ denials: [{ name: "a" }, { name: "b", note: "x" }] });
-  const backward = snapshot({ denials: [{ name: "b", note: "x" }, { name: "a" }] });
-  const changedNote = snapshot({ denials: [{ name: "a" }, { name: "b", note: "y" }] });
+  const forward = snapshot({ denials: [{ name: "a", note: undefined }, { name: "b", note: "x" }] });
+  const backward = snapshot({ denials: [{ name: "b", note: "x" }, { name: "a", note: undefined }] });
+  const changedNote = snapshot({ denials: [{ name: "a", note: undefined }, { name: "b", note: "y" }] });
 
   // act
   const forwardContent = renderSnapshot(forward);

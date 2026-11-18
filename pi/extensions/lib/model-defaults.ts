@@ -26,5 +26,8 @@ function isHaikuBefore5_5(modelId: string): boolean {
   const match = /haiku-(\d{1,2})(?!\d)(?:[-.](\d{1,2})(?!\d))?/i.exec(modelId);
   if (!match) return true;
   const [, major, minor = "0"] = match;
-  return Number(major) < 5 || (Number(major) === 5 && Number(minor) < 5);
+  return Number(major) < CURRENT_HAIKU.major || (Number(major) === CURRENT_HAIKU.major && Number(minor) < CURRENT_HAIKU.minor);
 }
+
+// The first Haiku generation that supports effort levels, below which a subagent needs another model.
+const CURRENT_HAIKU = { major: 5, minor: 5 } as const;

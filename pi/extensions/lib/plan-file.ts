@@ -10,8 +10,8 @@ export function newPlanPath(slug: string): string {
   return planPathIn(plansDirectory(), slug);
 }
 
-export function plansDirectory(): string {
-  return join(plansRoot(), cwdSlug(process.cwd()));
+export function plansDirectory(cwd: string = process.cwd()): string {
+  return join(plansRoot(), cwdSlug(cwd));
 }
 
 /** Parent of every working directory's plans directory. */
@@ -20,6 +20,6 @@ export function plansRoot(): string {
 }
 
 // Relative paths are resolved against the process cwd, the same base the file tools use.
-export function isInPlansDirectory(path: string): boolean {
-  return contains(plansDirectory(), resolve(path));
+export function isInPlansDirectory(path: string, cwd: string = process.cwd()): boolean {
+  return contains(plansDirectory(cwd), resolve(cwd, path));
 }

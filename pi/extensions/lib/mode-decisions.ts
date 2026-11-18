@@ -19,8 +19,8 @@ export async function readPersistedDecisions(mode: RestrictedMode): Promise<{
 
 export async function writePersistedDecisions(
   mode: RestrictedMode,
-  allowed: Set<string>,
-  denied: Map<string, string | undefined>,
+  allowed: ReadonlySet<string>,
+  denied: ReadonlyMap<string, string | undefined>,
 ): Promise<void> {
   const file = decisionsFile(mode);
   // A file that no longer parses may hold decisions this session never loaded, so it must not be replaced.

@@ -25,6 +25,8 @@ function comment(overrides: Partial<TuicrComment>): TuicrComment {
   return {
     id: "79c9b3e1",
     location: "src/main.rs:42",
+    path: undefined,
+    side: undefined,
     comment_type: "none",
     content: "Handle the empty case here.",
     ...overrides,

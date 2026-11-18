@@ -26,7 +26,7 @@ import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { formatDuration, shortenPath } from "../lib/format.ts";
 import { createLineSplitter } from "../lib/lines.ts";
-import { isRestricted, MODE_IDENTITIES, READ_ONLY_JJ_NOTE } from "../lib/agent-mode.ts";
+import { AgentMode, isRestricted, MODE_IDENTITIES, READ_ONLY_JJ_NOTE } from "../lib/agent-mode.ts";
 import type { RestrictedMode } from "../lib/agent-mode.ts";
 import { readPersistedDecisions } from "../lib/mode-decisions.ts";
 import { activeRestrictedMode } from "../lib/mode-entry.ts";
@@ -119,7 +119,7 @@ export default function (pi: ExtensionAPI) {
 
     async execute(_toolCallId, params, signal, onUpdate, context) {
       const active = activeRestrictedMode(context.sessionManager);
-      const restriction = isRestricted(active.mode) && active.entry
+      const restriction = active.mode !== AgentMode.Execution
         ? {
             mode: active.mode,
             allowedTools: restrictedModeAllowedTools(

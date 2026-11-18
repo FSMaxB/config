@@ -1,11 +1,13 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { AgentMode, MODE_IDENTITIES, READ_ONLY_JJ_NOTE } from "./agent-mode.ts";
 import { FILE_TOOLS } from "./file-tools.ts";
+import type { Denial } from "./mode-entry.ts";
+import { isRecord } from "./untyped.ts";
 import { PLAN_PATH, SUBMIT_PLAN } from "./plan-tools.ts";
 
 export const MODE_MESSAGE_TYPE = "agent-mode-state";
-// Sessions saved before explore mode recorded their snapshots under this type.
-const LEGACY_MODE_MESSAGE_TYPE = "plan-mode-state";
+// The snapshot type of sessions saved when plan mode was the only restricted mode.
+const PLAN_MODE_MESSAGE_TYPE = "plan-mode-state";
 
 export const SandboxStatus = { Active: "active", Inactive: "inactive" } as const;
 export type SandboxStatus = (typeof SandboxStatus)[keyof typeof SandboxStatus];
@@ -14,7 +16,7 @@ export interface ModeSnapshot {
   mode: AgentMode;
   plansDirectory: string;
   sandbox: SandboxStatus;
-  denials: readonly { name: string; note?: string }[];
+  denials: readonly Denial[];
 }
 
 export interface ModeMessages {
@@ -105,7 +107,23 @@ function denialLines(denials: ModeSnapshot["denials"]): string[] {
   ];
 }
 
-export function createModeDelivery(send: (content: string) => void) {
+// The shape of pi's custom messages (CustomMessage, which the package does not export).
+interface SnapshotMessage {
+  role: "custom";
+  customType: string;
+  content: string;
+  display: boolean;
+  timestamp: number;
+}
+
+export interface ModeDelivery {
+  announce(content: string, visible: readonly unknown[]): void;
+  initialMessage(prepare: () => string, visible: readonly unknown[]): string | undefined;
+  requestMessages<Message>(messages: readonly Message[], content: string, visible: readonly unknown[]): (Message | SnapshotMessage)[] | undefined;
+  reset(): void;
+}
+
+export function createModeDelivery(send: (content: string) => void, now: () => number = Date.now): ModeDelivery {
   // Content handed to sendMessage that the session may not show yet: while the agent streams,
   // Pi holds custom messages until the tool results of the current turn are in.
   let queued: string | undefined;
@@ -147,13 +165,13 @@ export function createModeDelivery(send: (content: string) => void) {
       return needed ? content : undefined;
     },
 
-    requestMessages<Message>(messages: Message[], content: string, visible: readonly unknown[]): Message[] | undefined {
+    requestMessages<Message>(messages: readonly Message[], content: string, visible: readonly unknown[]): (Message | SnapshotMessage)[] | undefined {
       observe(visible);
       if (latestSnapshotContent(messages) === content) return undefined;
       // The request-local copy covers this request; the durable copy keeps later requests from
       // needing the fallback, unless the session already has it and only this request lost it.
       if (latestSnapshotContent(visible) !== content && queued !== content) queue(content);
-      return [...messages, snapshotMessage(content) as Message];
+      return [...messages, snapshotMessage(content, now())];
     },
 
     reset(): void {
@@ -166,21 +184,21 @@ const Announcements = { Sent: "sent", Held: "held" } as const;
 type Announcements = (typeof Announcements)[keyof typeof Announcements];
 
 export function latestSnapshotContent(messages: readonly unknown[]): string | undefined {
-  const latest = (messages as readonly { role?: unknown; customType?: unknown; content?: unknown }[]).findLast(
-    (message) => message.role === "custom" && (message.customType === MODE_MESSAGE_TYPE || message.customType === LEGACY_MODE_MESSAGE_TYPE),
+  const latest = messages.findLast(
+    (message) => isRecord(message) && message.role === "custom" && (message.customType === MODE_MESSAGE_TYPE || message.customType === PLAN_MODE_MESSAGE_TYPE),
   );
-  return latest === undefined ? undefined : normalizedContent(latest.content);
+  return isRecord(latest) ? normalizedContent(latest.content) : undefined;
 }
 
 function normalizedContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content
-    .filter((block): block is { type: "text"; text: string } => block?.type === "text" && typeof block.text === "string")
-    .map((block) => block.text)
+    .map((block: unknown) => (isRecord(block) && block.type === "text" && typeof block.text === "string" ? block.text : undefined))
+    .filter((text) => text !== undefined)
     .join("\n");
 }
 
-function snapshotMessage(content: string) {
-  return { role: "custom", customType: MODE_MESSAGE_TYPE, content, display: false, timestamp: Date.now() };
+function snapshotMessage(content: string, timestamp: number): SnapshotMessage {
+  return { role: "custom", customType: MODE_MESSAGE_TYPE, content, display: false, timestamp };
 }
