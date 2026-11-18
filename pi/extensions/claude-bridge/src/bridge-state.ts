@@ -289,7 +289,7 @@ export function reportToolResultMismatch(
 			reason,
 			cwd,
 			progress,
-			activeQueryExists: queryContext.activeQuery !== null,
+			activeQueryExists: queryContext.activeQuery !== undefined,
 			detachedFromSharedSession: queryContext.detachedFromSharedSession,
 			sharedSession: sharedSession ? {
 				sessionId: sharedSession.sessionId.slice(0, 8),

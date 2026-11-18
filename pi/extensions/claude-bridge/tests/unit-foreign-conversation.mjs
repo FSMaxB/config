@@ -168,7 +168,7 @@ describe("foreign-conversation completion (#1001)", () => {
 			{ sessionId: "foreign-unresolved-tool" },
 		));
 		// The pi stream ends at the toolUse boundary; teardown runs after.
-		assert.equal(await waitFor(() => runInRequestLane("foreign-unresolved-tool", () => currentQueryContext().activeQuery === null)), true, "foreign query teardown completed");
+		assert.equal(await waitFor(() => runInRequestLane("foreign-unresolved-tool", () => currentQueryContext().activeQuery === undefined)), true, "foreign query teardown completed");
 
 		assert.ok(events.some((event) => event.type === "done" && event.reason === "toolUse"));
 		assert.equal(

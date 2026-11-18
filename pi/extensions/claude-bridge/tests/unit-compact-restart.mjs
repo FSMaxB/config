@@ -175,7 +175,7 @@ async function withBridge(run, openingQuery = toolCallQuery) {
 		const preCompaction = { messages: [user("earlier prompt"), assistantText("earlier reply"), user("run the tool")], tools: [tool] };
 		const opened = await collect(streamNormalized(model, preCompaction, { cwd: root, signal: abort.signal }));
 		assert.equal(opened.filter((event) => event.type === "done").length, 1, "the tool-call turn reached pi");
-		assert.notEqual(currentQueryContext().activeQuery, null, "the query stays active, waiting for the tool result");
+		assert.notEqual(currentQueryContext().activeQuery, undefined, "the query stays active, waiting for the tool result");
 		await run({ root, calls, queued, firstQuery, abort, opened, diagPath: env.CLAUDE_BRIDGE_DIAG_PATH, oldSession: { path: oldSession.jsonlPath, bytes: oldSessionBytes } });
 	} finally {
 		firstQuery.release();
@@ -229,7 +229,7 @@ describe("compaction while a bridge query waits for a tool result", () => {
 
 			// The rotation has to outlive startup: the child reports the session it
 			// was handed, and that id is what the settled record keeps.
-			assert.equal(await waitFor(() => currentQueryContext().activeQuery === null), true, "the replacement settled");
+			assert.equal(await waitFor(() => currentQueryContext().activeQuery === undefined), true, "the replacement settled");
 			assert.equal(__testGetBridgeIntegrityState().sharedSession?.sessionId, calls[1].options.resume, "the record keeps the rotated session, not the killed child's");
 		});
 	});
@@ -240,7 +240,7 @@ describe("compaction while a bridge query waits for a tool result", () => {
 
 			assert.equal(calls.length, 1, "an ordinary tool result opens no second query");
 			assert.equal(firstQuery.closed, false, "the running query keeps the turn");
-			assert.notEqual(currentQueryContext().activeQuery, null, "and stays active");
+			assert.notEqual(currentQueryContext().activeQuery, undefined, "and stays active");
 			assert.equal(currentQueryContext().pendingResults.get("t0")?.content[0].text, TOOL_OUTPUT, "the result is delivered to it");
 			assert.equal(__testGetBridgeIntegrityState().sharedSession?.needsRebuild, undefined, "the record is left alone");
 		});
@@ -250,7 +250,7 @@ describe("compaction while a bridge query waits for a tool result", () => {
 		await withBridge(async ({ root, calls, firstQuery }) => {
 			onPiHistoryReplaced("session_compact");
 			firstQuery.release(); // the turn answers instead of calling the tool again
-			assert.equal(await waitFor(() => currentQueryContext().activeQuery === null), true, "the query settled with no restart");
+			assert.equal(await waitFor(() => currentQueryContext().activeQuery === undefined), true, "the query settled with no restart");
 			assert.equal(__testGetBridgeIntegrityState().sharedSession?.needsRebuild, true, "pi's replacement outlives it");
 			assert.equal(__testGetBridgeIntegrityState().sharedSession?.forceRotate, undefined, "and the settled query leaves no rotation behind");
 
@@ -320,7 +320,7 @@ describe("compaction while a bridge query waits for a tool result", () => {
 				// The record this query writes as it ends is what the next turn reads,
 				// so the rebuild only counts if it survives settlement.
 				firstQuery.release();
-				assert.equal(await waitFor(() => currentQueryContext().activeQuery === null), true, "the declined turn settled");
+				assert.equal(await waitFor(() => currentQueryContext().activeQuery === undefined), true, "the declined turn settled");
 				assert.equal(__testGetBridgeIntegrityState().sharedSession?.needsRebuild, true, "the next turn still rebuilds");
 			}, (record) => childSideQuery(record, toolName));
 		});
@@ -375,7 +375,7 @@ describe("compaction while a bridge query waits for a tool result", () => {
 		await withBridge(async ({ root, calls, queued, firstQuery }) => {
 			// The previous query's foreign-call guard must not leak into a new query.
 			firstQuery.release();
-			assert.equal(await waitFor(() => currentQueryContext().activeQuery === null), true, "the foreign-call turn settled");
+			assert.equal(await waitFor(() => currentQueryContext().activeQuery === undefined), true, "the foreign-call turn settled");
 
 			const second = {};
 			queued.push(() => toolCallQuery(second));

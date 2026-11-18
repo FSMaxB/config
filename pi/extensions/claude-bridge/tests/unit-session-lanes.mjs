@@ -262,7 +262,7 @@ describe("provider request session lanes", () => {
 				runInRequestLane(label, () => __testGetBridgeIntegrityState().sharedSession?.sessionId),
 				`sdk-${label}`,
 			);
-			assert.equal(runInRequestLane(label, () => currentQueryContext().activeQuery), null);
+			assert.equal(runInRequestLane(label, () => currentQueryContext().activeQuery), undefined);
 		}
 	});
 
@@ -308,8 +308,8 @@ describe("provider request session lanes", () => {
 			["answer-parent"],
 		);
 		assert.ok(child.some((event) => event.type === "error" && event.reason === "aborted"));
-		assert.equal(runInRequestLane("parent", () => currentQueryContext().activeQuery), null);
-		assert.equal(runInRequestLane("child", () => currentQueryContext().activeQuery), null);
+		assert.equal(runInRequestLane("parent", () => currentQueryContext().activeQuery), undefined);
+		assert.equal(runInRequestLane("child", () => currentQueryContext().activeQuery), undefined);
 	});
 
 	it("does not let one lane overwrite another lane's mutable state", () => {
@@ -417,7 +417,7 @@ describe("provider request session lanes", () => {
 		assert.ok(streamNormalized(model, toolLoopContext("B"), { sessionId: "B" }));
 		assert.equal(runInRequestLane("B", () => currentQueryContext().pendingResults.has("call-B")), true, "B queued its own result");
 		assert.equal(runInRequestLane("A", () => currentQueryContext().pendingResults.size), 0, "A untouched by B's delivery");
-		assert.equal(runInRequestLane("A", () => currentQueryContext().activeQuery !== null), true, "A still active after B's delivery");
+		assert.equal(runInRequestLane("A", () => currentQueryContext().activeQuery !== undefined), true, "A still active after B's delivery");
 
 		// A result carrying B's call id delivered on lane A is refused, not applied.
 		assert.ok(streamNormalized(model, toolLoopContext("A", "B", "misrouted"), { sessionId: "A" }));
@@ -425,9 +425,9 @@ describe("provider request session lanes", () => {
 		assert.equal(runInRequestLane("B", () => currentQueryContext().pendingResults.get("call-B")?.content?.[0]?.text), "B-output", "B's queued result is intact");
 
 		for (const gate of gates.values()) gate.resolve();
-		assert.equal(await waitFor(() => ["A", "B"].every((lane) => runInRequestLane(lane, () => currentQueryContext().activeQuery === null))), true, "both query teardowns completed");
-		assert.equal(runInRequestLane("A", () => currentQueryContext().activeQuery), null);
-		assert.equal(runInRequestLane("B", () => currentQueryContext().activeQuery), null);
+		assert.equal(await waitFor(() => ["A", "B"].every((lane) => runInRequestLane(lane, () => currentQueryContext().activeQuery === undefined))), true, "both query teardowns completed");
+		assert.equal(runInRequestLane("A", () => currentQueryContext().activeQuery), undefined);
+		assert.equal(runInRequestLane("B", () => currentQueryContext().activeQuery), undefined);
 	});
 
 	it("marks only the aborted lane when the abort comes from another lane's context", async () => {
@@ -450,7 +450,7 @@ describe("provider request session lanes", () => {
 		assert.ok(runInRequestLane("child", () => currentQueryContext().activeQuery), "child is mid tool call");
 		runInRequestLane("parent", () => childAbort.abort());
 		await child;
-		assert.equal(await waitFor(() => runInRequestLane("child", () => currentQueryContext().activeQuery === null)), true, "child teardown completed");
+		assert.equal(await waitFor(() => runInRequestLane("child", () => currentQueryContext().activeQuery === undefined)), true, "child teardown completed");
 		assert.deepEqual(
 			runInRequestLane("parent", () => __testGetBridgeIntegrityState().sharedSession),
 			parentRecord,
@@ -465,7 +465,7 @@ describe("provider request session lanes", () => {
 		assert.ok(currentQueryContext().activeQuery, "direct-host query is mid tool call");
 		runInRequestLane("parent", () => directAbort.abort());
 		await direct;
-		assert.equal(await waitFor(() => currentQueryContext().activeQuery === null), true, "direct-host teardown completed");
+		assert.equal(await waitFor(() => currentQueryContext().activeQuery === undefined), true, "direct-host teardown completed");
 		assert.deepEqual(runInRequestLane("parent", () => __testGetBridgeIntegrityState().sharedSession), parentRecord, "named lane untouched by a default-lane abort");
 		assert.equal(__testGetBridgeIntegrityState().sharedSession?.needsRebuild, true, "the default lane record carries the abort mark");
 		assert.equal(__testGetBridgeIntegrityState().sharedSession?.forceRotate, undefined, "the fake SDK spawns no child, so there is no writer to rotate away from");

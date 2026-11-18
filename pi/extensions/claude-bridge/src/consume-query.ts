@@ -2,8 +2,8 @@
 // consumeQuery iterates one SDK query's generator and pushes events into the
 // query's captured Pi stream.
 
-import type { Model } from "@earendil-works/pi-ai";
-import type { AccountInfo, query } from "@anthropic-ai/claude-agent-sdk";
+import type { Model, Api } from "@earendil-works/pi-ai";
+import type { AccountInfo, query, SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk";
 import { classifyClaudeFailure, rateLimitResetFromInfo, rateLimitResetMs, rateLimitTypeFromInfo } from "./claude-failure.js";
 import type { ClaudeFailureKind } from "./claude-failure.js";
 import { ensureTurnStarted, processAssistantMessage, processStreamEvent, updateTurnOutputModel } from "./assistant-stream.js";
@@ -14,6 +14,7 @@ import { refusalFallbackNotice } from "./models.js";
 import type { QueryContext } from "./query-state.js";
 import { RATE_LIMIT_AUTO_RESUME_EVENT, RATE_LIMIT_TOKEN, formatAllowedRateLimitWarning, formatResetTimestamp, isUsageLimitMessage, uniqueNonEmptyLines } from "./rate-limit.js";
 import { activeStreamIdleWatchdogs } from "./stream-idle-watchdog.js";
+import { stringProperty } from "../../lib/untyped.ts";
 
 export function emitRateLimitEvent(payload: Record<string, unknown>): void {
 	try {
@@ -27,7 +28,7 @@ export function emitRateLimitEvent(payload: Record<string, unknown>): void {
 // Surface the typed fast_mode_disabled_reason (SDK 0.3.219+) once per distinct
 // reason so an enabled-but-inert setting explains itself instead of looking
 // broken. Module-level dedup: the same reason repeats on every init message.
-let lastFastModeDisabledNoticeReason: string | null = null;
+let lastFastModeDisabledNoticeReason: string | undefined;
 
 const FAST_MODE_DISABLED_REASON_TEXT: Record<string, string> = {
 	disabled_by_env: "disabled by an environment variable",
@@ -41,9 +42,9 @@ const FAST_MODE_DISABLED_REASON_TEXT: Record<string, string> = {
 	unknown: "unavailable for an unknown reason",
 };
 
-function noteFastModeDisabledReason(message: unknown, bridgeConfig: Config): void {
+function noteFastModeDisabledReason(message: object, bridgeConfig: Config): void {
 	if (bridgeConfig.provider?.fastMode !== true) return;
-	const reason = (message as { fast_mode_disabled_reason?: unknown }).fast_mode_disabled_reason;
+	const reason: unknown = Reflect.get(message, "fast_mode_disabled_reason");
 	// "pending" means the CLI is still deciding — not a verdict worth announcing.
 	if (typeof reason !== "string" || reason === "pending") return;
 	if (reason === lastFastModeDisabledNoticeReason) return;
@@ -76,7 +77,7 @@ export async function consumeQuery(
 	// child session id could stamp the subagent's context.
 	queryContext: QueryContext,
 	customToolNameToPi: ReadonlyMap<string, string>,
-	model: Model<any>,
+	model: Model<Api>,
 	bridgeConfig: Config,
 	wasAborted: () => boolean,
 	recordBillingIdentity: (info: AccountInfo) => void,
@@ -126,7 +127,7 @@ export async function consumeQuery(
 					// The no-stream-events assistant fallback may have already rendered
 					// this exact text (it does not set turnSawStreamEvent) — re-pushing
 					// it here is the other half of the duplicated-output bug.
-					if (queryContext.turnBlocks.some((b: any) => b.type === "text" && b.text === text)) {
+					if (queryContext.turnBlocks.some((block) => block.type === "text" && block.text === text)) {
 						debug("consumeQuery: result text already rendered by assistant fallback; skipping duplicate");
 						break;
 					}
@@ -137,20 +138,21 @@ export async function consumeQuery(
 					queryContext.currentPiStream?.push({ type: "text_delta", contentIndex: index, delta: text, partial: queryContext.output });
 					queryContext.currentPiStream?.push({ type: "text_end", contentIndex: index, content: text, partial: queryContext.output });
 				} else if (message.subtype !== "success") {
-					const errorLines = Array.isArray((message as any).errors) ? uniqueNonEmptyLines((message as any).errors) : [];
-					const errors = errorLines.length > 0 ? errorLines.join("\n") : String((message as any).result || message.subtype || "Claude Code request failed");
+					const errorLines = Array.isArray(message.errors) ? uniqueNonEmptyLines(message.errors) : [];
+					// Some CLI versions put the error text in `result`, which the SDK's error type leaves out.
+					const errors = errorLines.length > 0 ? errorLines.join("\n") : stringProperty(message, "result") || message.subtype || "Claude Code request failed";
 					const usageLimit = isUsageLimitMessage(message);
 					holdFailure({ kind: usageLimit ? "rate-limit" : classifyClaudeFailure(errors), message: errors });
 					if (usageLimit) {
 						// isUsageLimitMessage matches the CLI's own usage-limit copy (SDK
-						// USAGE_LIMIT_ERROR_PREFIXES). Surface it immediately, exactly as
-						// before, and suppress the SDK's raw follow-up throw.
+						// USAGE_LIMIT_ERROR_PREFIXES). Surface it immediately, and suppress
+						// the SDK's raw follow-up throw.
 						queryContext.handledTerminalError = true;
 						queryContext.turnOutput.stopReason = "error";
 						queryContext.turnOutput.errorMessage = errors;
 						queryContext.currentPiStream?.push({ type: "error", reason: "error", error: queryContext.turnOutput });
 						queryContext.currentPiStream?.end();
-						queryContext.currentPiStream = null;
+						queryContext.currentPiStream = undefined;
 					}
 					// Other non-success subtypes (error_max_turns,
 					// error_during_execution) surface at completion via the held
@@ -160,8 +162,8 @@ export async function consumeQuery(
 				break;
 			case "system":
 				if (!streamLive) break;
-				if ((message as any).subtype === "init" && (message as any).session_id) {
-					capturedSessionId = (message as any).session_id;
+				if (message.subtype === "init" && message.session_id) {
+					capturedSessionId = message.session_id;
 					queryContext.claudeSessionId = capturedSessionId;
 					noteFastModeDisabledReason(message, bridgeConfig);
 					// Which login this child authenticated as is published for other
@@ -175,9 +177,9 @@ export async function consumeQuery(
 							.then((info) => recordBillingIdentity(info))
 							.catch((error) => debug("consumeQuery: billing identity probe rejected:", error));
 					}
-				} else if ((message as any).subtype === "model_refusal_fallback") {
-					const originalModel = (message as any).original_model;
-					const fallbackModel = (message as any).fallback_model;
+				} else if (message.subtype === "model_refusal_fallback") {
+					const originalModel = message.original_model;
+					const fallbackModel = message.fallback_model;
 					updateTurnOutputModel(fallbackModel, queryContext);
 					debug("consumeQuery: model_refusal_fallback", JSON.stringify({ originalModel, fallbackModel }));
 					const notice = refusalFallbackNotice(originalModel, fallbackModel);
@@ -188,7 +190,7 @@ export async function consumeQuery(
 				break;
 			case "rate_limit_event": {
 				if (!streamLive) break;
-				const info = (message as any).rate_limit_info as Record<string, unknown> | undefined;
+				const info: SDKRateLimitInfo | undefined = message.rate_limit_info;
 				debug("consumeQuery: rate_limit_event", JSON.stringify(info).slice(0, 300));
 				if (info?.status === "rejected") {
 					const rateLimitType = rateLimitTypeFromInfo(info);

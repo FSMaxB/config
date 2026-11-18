@@ -46,7 +46,7 @@ beforeEach(() => {
 
 afterEach(async () => {
 	for (const { gate } of queries.values()) gate.resolve();
-	await waitFor(() => runInRequestLane(PARENT, () => currentQueryContext().activeQuery === null));
+	await waitFor(() => runInRequestLane(PARENT, () => currentQueryContext().activeQuery === undefined));
 	for (const close of cleanups.splice(0)) await close();
 	queries.clear();
 	server = undefined;
@@ -157,7 +157,7 @@ describe("one-shot requests on a busy session id", () => {
 		assert.deepEqual(errorReasons(await foreign), ["aborted"]);
 		assert.equal(parentAbort.signal.aborted, false);
 		assert.ok(runInRequestLane(PARENT, () => currentQueryContext().activeQuery), "the parent query keeps running");
-		assert.equal(runInRequestLane(PARENT, () => currentQueryContext().currentPiStream), null);
+		assert.equal(runInRequestLane(PARENT, () => currentQueryContext().currentPiStream), undefined);
 	});
 });
 

@@ -26,7 +26,7 @@ describe("stack isolation and restore", () => {
 
 		// Push — child should be clean
 		pushContext();
-		assert.strictEqual(currentQueryContext().activeQuery, null);
+		assert.strictEqual(currentQueryContext().activeQuery, undefined);
 		assert.strictEqual(currentQueryContext().pendingToolCalls.size, 0);
 		assert.strictEqual(currentQueryContext().pendingResults.size, 0);
 		assert.strictEqual(currentQueryContext().latestCursor, 0);

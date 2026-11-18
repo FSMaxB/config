@@ -1,3 +1,5 @@
+import type { JsonObject } from "@earendil-works/pi-ai";
+import { jsonObjectFrom } from "./json-value.js";
 import { MCP_SERVER_NAME, MCP_TOOL_PREFIX } from "./skills.js";
 
 // Pi bash has no default timeout, so a call the model left unbounded gets this one.
@@ -67,11 +69,11 @@ const SDK_KEY_RENAMES: Record<string, Record<string, string>> = {
 // Maps SDK tool args to pi tool args via key renaming + pass-through.
 // Pi's own prepareArguments hooks handle any structural transforms (e.g. edit oldText/newText → edits[]).
 export function mapToolArgs(
-	toolName: string, args: Record<string, unknown> | undefined,
-): Record<string, unknown> {
-	const input = args ?? {};
+	toolName: string, args: unknown,
+): JsonObject {
+	const input = jsonObjectFrom(args);
 	const renames = SDK_KEY_RENAMES[toolName.toLowerCase()];
-	const result: Record<string, unknown> = {};
+	const result: JsonObject = {};
 	for (const [key, value] of Object.entries(input)) {
 		const piKey = renames?.[key] ?? key;
 		if (!(piKey in result)) result[piKey] = value; // first alias wins

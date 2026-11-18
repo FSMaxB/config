@@ -6,7 +6,7 @@
 // Separate from index.ts so tests can import it without activating the extension.
 
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources";
-import type { AssistantMessage, AssistantMessageEventStream, Model, SimpleStreamOptions, TranscriptContext } from "@earendil-works/pi-ai";
+import type { AssistantMessage, AssistantMessageEventStream, JsonObject, Model, SimpleStreamOptions, TextContent, ThinkingContent, ToolCall, TranscriptContext, Api } from "@earendil-works/pi-ai";
 import type { McpResult } from "./extract-tool-results.js";
 import { currentRequestLaneId } from "./request-lane.js";
 
@@ -36,7 +36,7 @@ export function summarizeDroppedUserMessages(site: string, dropped: readonly Def
  *  it ran: the callback's own model, context, options and stream, so the
  *  replacement runs under the current request instead of the dead query's. */
 export interface QueryRestartRequest {
-	model: Model<any>;
+	model: Model<Api>;
 	context: TranscriptContext;
 	options: SimpleStreamOptions | undefined;
 	stream: AssistantMessageEventStream;
@@ -49,7 +49,7 @@ export interface PendingToolCall {
 	 *  finalize settles a still-partial streamed block from here instead of from
 	 *  its truncated partial JSON (a `{}` settle would make Pi execute
 	 *  empty-argument calls). */
-	args: Record<string, unknown>;
+	args: JsonObject;
 	/** `QueryContext.callbackGeneration` at registration. A handler from an older
 	 *  generation whose id was never forwarded to Pi can never be answered — see
 	 *  drainStrandedToolCalls. */
@@ -134,19 +134,14 @@ export function failStrandedToolCall(queryContext: QueryContext, id: string): bo
  *  streaming and the forward may simply not have happened yet. Failed ids are
  *  marked dead exactly like failStrandedToolCall. */
 export function drainStrandedToolCalls(queryContext: QueryContext): Array<{ id: string; toolName: string }> {
-	const stranded: Array<{ id: string; toolName: string }> = [];
-	for (const [id, pending] of queryContext.pendingToolCalls) {
-		if (pending.generation >= queryContext.callbackGeneration) continue;
-		if (queryContext.forwardedToolCallIds.has(id)) continue;
-		stranded.push({ id, toolName: pending.toolName });
-	}
-	for (const { id } of stranded) {
-		const pending = queryContext.pendingToolCalls.get(id)!;
+	const stranded = [...queryContext.pendingToolCalls].filter(([id, pending]) =>
+		pending.generation < queryContext.callbackGeneration && !queryContext.forwardedToolCallIds.has(id));
+	for (const [id, pending] of stranded) {
 		queryContext.pendingToolCalls.delete(id);
 		queryContext.deadToolCallIds.add(id);
 		pending.resolve(strandedToolCallResult());
 	}
-	return stranded;
+	return stranded.map(([id, pending]) => ({ id, toolName: pending.toolName }));
 }
 
 /** Consume a result waiting for `id`, checking the live queue first and the
@@ -167,6 +162,26 @@ export function takeQueuedOrParkedResult(queryContext: QueryContext, id: string)
 	return undefined;
 }
 
+// A content block of the in-flight turn. A streamed block carries its stream index until
+// content_block_stop, and a streamed tool call the raw JSON its arguments are parsed from; both
+// fields are deleted before the turn ends.
+export type TurnBlock =
+	| (TextContent & { index?: number })
+	| (ThinkingContent & { index?: number })
+	| StreamingToolCall;
+
+export interface StreamingToolCall extends ToolCall {
+	index?: number;
+	partialJson?: string;
+}
+
+export interface ScheduledToolUseEnd {
+	stream: unknown;
+	timer: ReturnType<typeof setTimeout>;
+	action: () => void;
+	source: string;
+}
+
 export interface ChildSideCallState {
 	name: string;
 }
@@ -174,7 +189,7 @@ export interface ChildSideCallState {
 export interface TurnToolCallRecord {
 	id: string;
 	toolName: string;
-	arguments: Record<string, unknown>;
+	arguments: JsonObject;
 }
 
 export interface ClaimedToolCall {
@@ -212,8 +227,7 @@ function normalizeForCompare(value: unknown): unknown {
 	if (Array.isArray(value)) return value.map(normalizeForCompare);
 	if (value && typeof value === "object") {
 		const out: Record<string, unknown> = {};
-		for (const key of Object.keys(value as Record<string, unknown>).sort()) {
-			const child = (value as Record<string, unknown>)[key];
+		for (const [key, child] of Object.entries(value).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))) {
 			if (child !== undefined) out[key] = normalizeForCompare(child);
 		}
 		return out;
@@ -229,7 +243,7 @@ function sameArgs(left: unknown, right: unknown): boolean {
 	return argsKey(left) === argsKey(right);
 }
 
-function hasRecordedArgs(args: Record<string, unknown> | undefined): boolean {
+function hasRecordedArgs(args: JsonObject | undefined): boolean {
 	return Object.keys(args ?? {}).length > 0;
 }
 
@@ -246,8 +260,8 @@ function unique(values: Iterable<string | undefined>): string[] {
 
 export class QueryContext {
 	// Query-scoped (fully isolated per query)
-	activeQuery: unknown | null = null;
-	currentPiStream: AssistantMessageEventStream | null = null;
+	activeQuery: unknown = undefined;
+	currentPiStream: AssistantMessageEventStream | undefined = undefined;
 	/** Pi replaced the history this query's Claude session was built from
 	 *  (compaction, history navigation) while the query was still running.
 	 *  Delivering further tool results into it would keep Claude Code on history
@@ -263,7 +277,7 @@ export class QueryContext {
 	/** The provider callback that observed `piHistoryReplaced`. The dying query's
 	 *  own promise chain runs it, after teardown released the query state, and
 	 *  feeds the replacement query's events into that callback's stream. */
-	restartRequest: QueryRestartRequest | null = null;
+	restartRequest: QueryRestartRequest | undefined = undefined;
 	latestCursor = 0;
 	/** Claude Code's session id from this query's init message. The SDK throws
 	 *  out of the generator after an interrupted turn's error result, which
@@ -326,7 +340,7 @@ export class QueryContext {
 	 *  per-message records must still be able to exact-match the parked/queued
 	 *  result of ITS OWN call — without stored args the only fallback is
 	 *  sole-same-name, which can hand it a LIVE sibling's id. */
-	queryToolArgs = new Map<string, Record<string, unknown>>();
+	queryToolArgs = new Map<string, JsonObject>();
 	claimedToolCallIds = new Set<string>();
 	deliveredToolResultIds = new Set<string>();
 	resolvedToolResultIds = new Set<string>();
@@ -353,7 +367,7 @@ export class QueryContext {
 	 *  stream event restarts it (see postponeToolUseTurnEnd in
 	 *  assistant-stream.ts), which is why it remembers its action. Managed by
 	 *  schedule/cancelToolUseTurnEnd in assistant-stream.ts. */
-	scheduledToolUseEnd: { stream: unknown; timer: ReturnType<typeof setTimeout>; action: () => void; source: string } | null = null;
+	scheduledToolUseEnd: ScheduledToolUseEnd | undefined = undefined;
 
 	/** Unexpected child-side calls are absent from Pi history, so a history
 	 *  handover must not replay them. Query-scoped across message boundaries. */
@@ -425,12 +439,12 @@ export class QueryContext {
 	}
 
 	// Per-turn (reset together)
-	turnOutput: AssistantMessage | null = null;
+	turnOutput: AssistantMessage | undefined = undefined;
 	turnStarted = false;
 	turnSawStreamEvent = false;
 	turnSawToolCall = false;
 
-	get turnBlocks(): Array<any> {
+	get turnBlocks(): TurnBlock[] {
 		if (!this.turnOutput) throw new Error("turn-state-uninitialized=turnBlocks\nturnBlocks accessed before resetTurnState");
 		return this.turnOutput.content;
 	}
@@ -441,7 +455,7 @@ export class QueryContext {
 		return this.turnOutput;
 	}
 
-	resetTurnState(model: Model<any>): void {
+	resetTurnState(model: Model<Api>): void {
 		this.turnOutput = {
 			role: "assistant", content: [],
 			api: model.api, provider: model.provider, model: model.id,
@@ -457,7 +471,7 @@ export class QueryContext {
 		// armed end-timer for it must not fire into this turn's state.
 		if (this.scheduledToolUseEnd) {
 			clearTimeout(this.scheduledToolUseEnd.timer);
-			this.scheduledToolUseEnd = null;
+			this.scheduledToolUseEnd = undefined;
 		}
 		// Usage accounting IS per-Pi-message, so it resets with the message it
 		// describes — unlike tool-call tracking below.
@@ -489,7 +503,7 @@ export class QueryContext {
 		this.childSideCalls.set(key, { name: typeof rawName === "string" && rawName ? rawName : "<unknown>" });
 	}
 
-	recordToolCall(id: string | undefined, toolName: string, args: Record<string, unknown> = {}): void {
+	recordToolCall(id: string | undefined, toolName: string, args: JsonObject = {}): void {
 		if (!id) return;
 		this.queryToolNames.set(id, toolName);
 		this.queryToolArgs.set(id, args);
@@ -503,7 +517,7 @@ export class QueryContext {
 		this.turnToolCalls.push({ id, toolName, arguments: args });
 	}
 
-	updateToolCallArgs(id: string | undefined, args: Record<string, unknown>): void {
+	updateToolCallArgs(id: string | undefined, args: JsonObject): void {
 		if (!id) return;
 		this.queryToolArgs.set(id, args);
 		const existing = this.turnToolCalls.find((call) => call.id === id);
@@ -518,7 +532,7 @@ export class QueryContext {
 		this.committedOutput = true;
 	}
 
-	claimToolCall(toolName: string, args: Record<string, unknown> = {}): ClaimedToolCall {
+	claimToolCall(toolName: string, args: JsonObject = {}): ClaimedToolCall {
 		const unclaimed = this.turnToolCalls.filter((call) => !this.claimedToolCallIds.has(call.id));
 		const byName = unclaimed.filter((call) => call.toolName === toolName);
 		const exact = byName.filter((call) => sameArgs(call.arguments, args));
@@ -705,6 +719,7 @@ interface QueryLaneStoreV1 {
 
 const QUERY_LANES_SYMBOL = Symbol.for("kendex.pi.claude-bridge.query-lanes.v1");
 
+// Every copy of this module in the process shares one store; only this function writes it.
 function queryLaneStore(): QueryLaneStoreV1 {
 	const host = globalThis as Record<symbol, unknown>;
 	let store = host[QUERY_LANES_SYMBOL] as QueryLaneStoreV1 | undefined;
@@ -743,10 +758,10 @@ export function pushContext(): void {
 
 export function popContext(): void {
 	const state = lane();
-	if (state.stack.length === 0) throw new Error("query-stack-pop=empty\npopContext() called with empty stack");
-	const parent = state.stack[state.stack.length - 1];
+	const parent = state.stack.pop();
+	if (parent === undefined) throw new Error("query-stack-pop=empty\npopContext() called with empty stack");
 	parent.deferredUserMessages.push(...state.current.deferredUserMessages);
-	state.current = state.stack.pop()!;
+	state.current = parent;
 }
 
 /** Pop the context that belongs to ONE specific query, wherever it sits.

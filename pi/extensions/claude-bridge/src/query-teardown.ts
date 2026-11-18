@@ -59,7 +59,7 @@ export function teardownQuery(
 		// (not popContext): a live subagent context may sit above this one.
 		if (!popContextFor(queryContext)) debug("provider: query teardown found context already popped; skipping pop");
 	} else {
-		queryContext.activeQuery = null;
+		queryContext.activeQuery = undefined;
 	}
 	return true;
 }

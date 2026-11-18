@@ -1,14 +1,25 @@
 import { calculateCost } from "@earendil-works/pi-ai";
-import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { AssistantMessage, JsonObject, Model, Api } from "@earendil-works/pi-ai";
+import type { SDKAssistantMessage, SDKPartialAssistantMessage } from "@anthropic-ai/claude-agent-sdk";
 import { appendIntegrityEntry, safeNotify } from "./bridge-state.js";
 import { debug, diagDump } from "./debug.js";
 import { currentQueryContext, failStrandedToolCall } from "./query-state.js";
-import type { ClaudeTranscriptAnchor, QueryContext, StampedAssistantMessage } from "./query-state.js";
+import type { ClaudeTranscriptAnchor, QueryContext, StreamingToolCall, TurnBlock } from "./query-state.js";
+import { jsonObjectFrom, parseJsonObject } from "./json-value.js";
+import type { BetaMessage } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import { isPiDispatchable, mapToolArgs, mapToolName } from "./tool-mapping.js";
 
 
-function updateUsage(output: AssistantMessage, usage: Record<string, number | undefined>, model: Model<any>, queryContext: QueryContext): void {
+// The usage fields of the Anthropic API's message, message_start and message_delta payloads, which
+// report a counter they do not know as null.
+interface ReportedUsage {
+	input_tokens?: number | null;
+	output_tokens?: number | null;
+	cache_read_input_tokens?: number | null;
+	cache_creation_input_tokens?: number | null;
+}
+
+function updateUsage(output: AssistantMessage, usage: ReportedUsage, model: Model<Api>, queryContext: QueryContext): void {
 	// Anthropic reports per-message counters and RE-reports them as the message
 	// grows, so the in-flight message's figures replace, never accumulate. What
 	// accumulates is every child message already finished in this Pi turn — see
@@ -34,7 +45,7 @@ function updateUsage(output: AssistantMessage, usage: Record<string, number | un
 }
 
 
-function mapStopReason(reason: string | undefined): "stop" | "length" | "toolUse" {
+function mapStopReason(reason: string | null | undefined): "stop" | "length" | "toolUse" {
 	switch (reason) {
 		case "tool_use": return "toolUse";
 		case "max_tokens": return "length";
@@ -42,9 +53,18 @@ function mapStopReason(reason: string | undefined): "stop" | "length" | "toolUse
 	}
 }
 
-export function parsePartialJson(input: string, fallback: Record<string, unknown>): Record<string, unknown> {
+export function parsePartialJson(input: string, fallback: JsonObject): JsonObject {
 	if (!input) return fallback;
-	try { return JSON.parse(input); } catch { return fallback; }
+	return parseJsonObject(input) ?? fallback;
+}
+
+function isToolCallWithId(block: TurnBlock, id: string): block is StreamingToolCall {
+	return block.type === "toolCall" && block.id === id;
+}
+
+// A streamed tool call whose arguments are still a partial parse; it must never execute.
+function isPartialToolCall(block: TurnBlock): block is StreamingToolCall {
+	return block.type === "toolCall" && block.partialJson !== undefined;
 }
 
 // Both take the query context explicitly (defaulting to the live one) so the
@@ -62,11 +82,11 @@ export function finalizeCurrentStream(stopReason?: string, queryContext: QueryCo
 	debug(`provider: finalizeCurrentStream called, stopReason=${stopReason}, turnOutput=${JSON.stringify({stopReason: queryContext.turnOutput.stopReason, error: queryContext.turnOutput.errorMessage})}`);
 	if (!queryContext.turnStarted) ensureTurnStarted(queryContext);
 	const reason = stopReason === "length" ? "length" : "stop";
-	if (anchor) (queryContext.turnOutput as StampedAssistantMessage).claudeBridge = anchor;
+	if (anchor) Object.assign(queryContext.turnOutput, { claudeBridge: anchor });
 	queryContext.markCurrentMessageBilled();
 	queryContext.currentPiStream.push({ type: "done", reason, message: queryContext.turnOutput });
 	queryContext.currentPiStream.end();
-	queryContext.currentPiStream = null;
+	queryContext.currentPiStream = undefined;
 }
 
 //
@@ -99,31 +119,31 @@ const TOOL_USE_END_GRACE_MS = 1500;
 export function endToolUseTurn(queryContext: QueryContext): void {
 	if (!queryContext.currentPiStream || !queryContext.turnOutput) return;
 	cancelScheduledToolUseEnd(queryContext);
-	const partial = (queryContext.turnOutput.content as Array<any>).filter((b) => b?.type === "toolCall" && "partialJson" in b);
+	const partial = queryContext.turnBlocks.filter(isPartialToolCall);
 	if (partial.length > 0) {
-		const calls = partial.map((b) => ({ id: b.id, name: b.name }));
+		const calls = partial.map((block) => ({ id: block.id, name: block.name }));
 		debug(`endToolUseTurn: pruning ${partial.length} still-partial tool call(s) — truncated arguments never execute:`, calls.map((entry) => `${entry.name} [${entry.id}]`).join(", "));
 		diagDump("partial_tool_calls_pruned", { count: partial.length, calls });
 		appendIntegrityEntry("partial_tool_calls_pruned", { count: partial.length, calls });
-		queryContext.turnOutput.content = (queryContext.turnOutput.content as Array<any>).filter((b) => !(b?.type === "toolCall" && "partialJson" in b));
+		queryContext.turnOutput.content = queryContext.turnBlocks.filter((block) => !isPartialToolCall(block));
 	}
 	// Every tool call Pi is about to execute from this turn is owed a result and
 	// must never be dispatched again: a lagging stream replays the same tool_use
 	// into the NEXT turn, whose per-message dedup cannot see it.
-	for (const block of queryContext.turnOutput.content as Array<{ type?: string; id?: unknown }>) {
-		if (block?.type === "toolCall" && typeof block.id === "string") queryContext.forwardedToolCallIds.add(block.id);
+	for (const block of queryContext.turnOutput.content) {
+		if (block.type === "toolCall") queryContext.forwardedToolCallIds.add(block.id);
 	}
 	queryContext.turnOutput.stopReason = "toolUse";
 	queryContext.markCurrentMessageBilled();
 	queryContext.currentPiStream.push({ type: "done", reason: "toolUse", message: queryContext.turnOutput });
 	queryContext.currentPiStream.end();
-	queryContext.currentPiStream = null;
+	queryContext.currentPiStream = undefined;
 }
 
 export function cancelScheduledToolUseEnd(queryContext: QueryContext): void {
 	if (!queryContext.scheduledToolUseEnd) return;
 	clearTimeout(queryContext.scheduledToolUseEnd.timer);
-	queryContext.scheduledToolUseEnd = null;
+	queryContext.scheduledToolUseEnd = undefined;
 }
 
 /**
@@ -195,7 +215,7 @@ export function finalizeToolUseTurnFromMcpInvocation(
 	queryContext: QueryContext,
 	toolCallId: string,
 	toolName: string,
-	mappedArgs: Record<string, unknown>,
+	mappedArgs: JsonObject,
 	rearmCount = 0,
 ): void {
 	if (!queryContext.currentPiStream || !queryContext.turnOutput) {
@@ -211,10 +231,11 @@ export function finalizeToolUseTurnFromMcpInvocation(
 		}
 		return;
 	}
-	let index = queryContext.turnBlocks.findIndex((b: any) => b.type === "toolCall" && b.id === toolCallId);
-	if (index >= 0) {
-		const block = queryContext.turnBlocks[index] as any;
-		if ("partialJson" in block) {
+	let index = queryContext.turnBlocks.findIndex((block) => isToolCallWithId(block, toolCallId));
+	const existing = queryContext.turnBlocks[index];
+	if (existing?.type === "toolCall") {
+		const block = existing;
+		if (block.partialJson !== undefined) {
 			// Stream ended before content_block_stop. The SDK invoked this handler
 			// with the COMPLETE schema-validated input, so the handler's copy is
 			// authoritative — the streamed partial JSON is by definition behind it.
@@ -241,17 +262,17 @@ export function finalizeToolUseTurnFromMcpInvocation(
 		// (observed after a tool-result+steer provider call reset the turn):
 		// synthesize the toolCall from the claim — the MCP call carries the
 		// authoritative id, name, and arguments.
-		queryContext.turnBlocks.push({ type: "toolCall", id: toolCallId, name: toolName, arguments: mappedArgs });
+		const block: StreamingToolCall = { type: "toolCall", id: toolCallId, name: toolName, arguments: mappedArgs };
+		queryContext.turnBlocks.push(block);
 		index = queryContext.turnBlocks.length - 1;
-		const block = queryContext.turnBlocks[index] as any;
 		queryContext.currentPiStream.push({ type: "toolcall_start", contentIndex: index, partial: queryContext.output });
 		queryContext.currentPiStream.push({ type: "toolcall_end", contentIndex: index, toolCall: block, partial: queryContext.output });
 	}
 	// Settle every OTHER still-partial block whose handler has fired: each
 	// waiting handler carries the authoritative args for its own call.
 	for (let i = 0; i < queryContext.turnBlocks.length; i++) {
-		const sibling = queryContext.turnBlocks[i] as any;
-		if (sibling.type !== "toolCall" || !("partialJson" in sibling)) continue;
+		const sibling = queryContext.turnBlocks[i];
+		if (!isPartialToolCall(sibling)) continue;
 		const waiting = queryContext.pendingToolCalls.get(sibling.id);
 		if (!waiting) continue;
 		sibling.arguments = waiting.args;
@@ -264,7 +285,7 @@ export function finalizeToolUseTurnFromMcpInvocation(
 	// exist nowhere on this side of the boundary yet. Ending the turn now would
 	// hand Pi truncated arguments to execute — a truncated bash command is not a
 	// hypothetical hazard — so give the lagging stream more grace first.
-	const unsettled = queryContext.turnBlocks.filter((b: any) => b.type === "toolCall" && "partialJson" in b);
+	const unsettled = queryContext.turnBlocks.filter(isPartialToolCall);
 	if (unsettled.length > 0 && rearmCount < FINALIZE_MAX_REARMS) {
 		debug(`mcp handler: ${unsettled.length} sibling tool call(s) still streaming — re-arming grace (${rearmCount + 1}/${FINALIZE_MAX_REARMS})`);
 		scheduleToolUseTurnEnd(
@@ -282,7 +303,7 @@ export function finalizeToolUseTurnFromMcpInvocation(
 	// no settled siblings), leave the stream to its own terminal events — an
 	// empty tool_use turn would make Pi execute nothing and record an empty
 	// assistant message for it.
-	const executable = queryContext.turnBlocks.some((b: any) => b.type === "toolCall" && !("partialJson" in b));
+	const executable = queryContext.turnBlocks.some((block) => block.type === "toolCall" && !isPartialToolCall(block));
 	if (!executable) {
 		debug(`mcp handler: nothing executable in this turn after suppression — leaving the stream to its own terminal events (${toolName} [${toolCallId}])`);
 		return;
@@ -295,28 +316,30 @@ export function finalizeToolUseTurnFromMcpInvocation(
 /** Maps Anthropic stream events to pi stream events (text, thinking, toolcall).
  *  On message_stop with tool_use: ends currentPiStream so pi can execute the tool. */
 export function processStreamEvent(
-	message: SDKMessage,
+	message: SDKPartialAssistantMessage,
 	customToolNameToPi: ReadonlyMap<string, string>,
-	model: Model<any>,
+	model: Model<Api>,
 	// The consuming query's CAPTURED context, never the live currentQueryContext() (see the
 	// note in consumeQuery): a reentrant subagent can be pushed while the parent
 	// iterator is suspended, and live-state reads would hit the wrong query.
 	queryContext: QueryContext = currentQueryContext(),
 ): void {
 	if (!queryContext.currentPiStream || !queryContext.turnOutput) return;
-	const event = (message as SDKMessage & { event: any }).event;
-	if (event?.type === "ping") return;
+	const { event } = message;
+	// Claude Code forwards the API's keep-alive pings too, which the SDK's event type leaves out.
+	const eventType: string = event.type;
+	if (eventType === "ping") return;
 	// Any event proves the stream is alive, matched or not (the completed-message
 	// yield strips block indexes, so later content_block_stop events show up as
 	// unmatched): the grace timer exists for streams that go silent, not for slow
 	// ones. Pings are excluded so a keep-alive can never hold a dead turn open.
 	postponeToolUseTurnEnd(queryContext);
-	if (event?.type === "message_stop" && !queryContext.turnSawToolCall) {
+	if (event.type === "message_stop" && !queryContext.turnSawToolCall) {
 		debug("processStreamEvent: ignoring bare message_stop with no streamed content/tool call");
 		return;
 	}
 
-	if (event?.type === "message_start") {
+	if (event.type === "message_start") {
 		// The child moving on to another message is where a still-queued result
 		// would start poisoning mismatch reports: park it, consumable by a late
 		// handler (see reapStaleQueuedResults).
@@ -325,13 +348,14 @@ export function processStreamEvent(
 		// Another child message begins: bank what the previous one billed before
 		// its counters are replaced. No-op on the turn's first, and no-op if this
 		// same message was already declared (see beginChildMessage).
+		// Test doubles and older CLIs send partial messages, so every field is optional here.
 		queryContext.beginChildMessage(event.message?.id);
 		updateTurnOutputModel(event.message?.model, queryContext);
 		if (event.message?.usage) updateUsage(queryContext.turnOutput, event.message.usage, model, queryContext);
 		return;
 	}
 
-	if (event?.type === "content_block_start") {
+	if (event.type === "content_block_start") {
 		queryContext.turnSawStreamEvent = true;
 		ensureTurnStarted(queryContext);
 		// This block owns its index from here on, so release any child-executed
@@ -339,21 +363,23 @@ export function processStreamEvent(
 		// message_start: without this a stale index could silently swallow a later
 		// text block's deltas.
 		queryContext.suppressedStreamIndexes.delete(event.index);
-		if (event.content_block?.type === "tool_use" && !isPiDispatchable(event.content_block.name, customToolNameToPi)) {
+		const contentBlock = event.content_block;
+		if (contentBlock?.type === "tool_use" && !isPiDispatchable(contentBlock.name, customToolNameToPi)) {
 			queryContext.suppressedStreamIndexes.add(event.index);
-			queryContext.noteUnexpectedChildCall(event.content_block.id, event.content_block.name);
-			debug(`processStreamEvent: non-dispatchable tool ${event.content_block.name} [${event.content_block.id}] — not mirrored as a Pi tool call`);
+			queryContext.noteUnexpectedChildCall(contentBlock.id, contentBlock.name);
+			debug(`processStreamEvent: non-dispatchable tool ${contentBlock.name} [${contentBlock.id}] — not mirrored as a Pi tool call`);
 			return;
 		}
-		if (event.content_block?.type === "text") {
+		const stream = queryContext.currentPiStream;
+		if (contentBlock?.type === "text") {
 			queryContext.turnBlocks.push({ type: "text", text: "", index: event.index });
-			queryContext.currentPiStream!.push({ type: "text_start", contentIndex: queryContext.turnBlocks.length - 1, partial: queryContext.output });
-		} else if (event.content_block?.type === "thinking") {
+			stream.push({ type: "text_start", contentIndex: queryContext.turnBlocks.length - 1, partial: queryContext.output });
+		} else if (contentBlock?.type === "thinking") {
 			queryContext.turnBlocks.push({ type: "thinking", thinking: "", thinkingSignature: "", index: event.index });
-			queryContext.currentPiStream!.push({ type: "thinking_start", contentIndex: queryContext.turnBlocks.length - 1, partial: queryContext.output });
-		} else if (event.content_block?.type === "tool_use") {
-			const streamedId: unknown = event.content_block.id;
-			if (typeof streamedId === "string" && (queryContext.forwardedToolCallIds.has(streamedId) || queryContext.deadToolCallIds.has(streamedId))) {
+			stream.push({ type: "thinking_start", contentIndex: queryContext.turnBlocks.length - 1, partial: queryContext.output });
+		} else if (contentBlock?.type === "tool_use") {
+			const streamedId = contentBlock.id;
+			if (queryContext.forwardedToolCallIds.has(streamedId) || queryContext.deadToolCallIds.has(streamedId)) {
 				// A lagging stream replaying a call Pi already executed — or one whose
 				// handler was already failed as stranded — into a later turn. Mirroring
 				// it would make Pi dispatch it a second time.
@@ -361,7 +387,7 @@ export function processStreamEvent(
 				debug(`processStreamEvent: tool_use ${streamedId} already ${queryContext.forwardedToolCallIds.has(streamedId) ? "forwarded" : "dead"} — suppressing duplicate stream block`);
 				return;
 			}
-			if (typeof streamedId === "string" && queryContext.turnBlocks.some((b: any) => b.type === "toolCall" && b.id === streamedId)) {
+			if (queryContext.turnBlocks.some((block) => isToolCallWithId(block, streamedId))) {
 				// Same turn, same id: the completed-message yield beat the stream (its
 				// block is already recorded with complete arguments). A second
 				// partialJson copy would ship the id twice in one done message — and
@@ -371,60 +397,62 @@ export function processStreamEvent(
 				return;
 			}
 			queryContext.turnSawToolCall = true;
-			const mappedName = mapToolName(event.content_block.name, customToolNameToPi);
-			queryContext.recordToolCall(event.content_block.id, mappedName, {});
+			const mappedName = mapToolName(contentBlock.name, customToolNameToPi);
+			queryContext.recordToolCall(contentBlock.id, mappedName, {});
 			queryContext.turnBlocks.push({
-				type: "toolCall", id: event.content_block.id,
+				type: "toolCall", id: contentBlock.id,
 				name: mappedName,
-				arguments: (event.content_block.input as Record<string, unknown>) ?? {},
+				arguments: jsonObjectFrom(contentBlock.input),
 				partialJson: "", index: event.index,
 			});
-			queryContext.currentPiStream!.push({ type: "toolcall_start", contentIndex: queryContext.turnBlocks.length - 1, partial: queryContext.output });
+			stream.push({ type: "toolcall_start", contentIndex: queryContext.turnBlocks.length - 1, partial: queryContext.output });
 		} else {
-			debug("processStreamEvent: unhandled content_block_start type", event.content_block?.type);
+			debug("processStreamEvent: unhandled content_block_start type", contentBlock?.type);
 		}
 		return;
 	}
 
-	if (event?.type === "content_block_delta") {
+	if (event.type === "content_block_delta") {
 		// Suppressed calls have no Pi block; their deltas are not unmatched.
 		if (queryContext.suppressedStreamIndexes.has(event.index)) {
 			queryContext.turnSawStreamEvent = true;
 			return;
 		}
-		const index = queryContext.turnBlocks.findIndex((b: any) => b.index === event.index);
+		const index = queryContext.turnBlocks.findIndex((block) => block.index === event.index);
 		const block = queryContext.turnBlocks[index];
 		if (!block) {
 			debug("processStreamEvent: ignoring unmatched content_block_delta", event.index);
 			return;
 		}
 		queryContext.turnSawStreamEvent = true;
-		if (event.delta?.type === "text_delta" && block.type === "text") {
-			block.text += event.delta.text;
-			queryContext.currentPiStream!.push({ type: "text_delta", contentIndex: index, delta: event.delta.text, partial: queryContext.output });
-		} else if (event.delta?.type === "thinking_delta" && block.type === "thinking") {
-			block.thinking += event.delta.thinking;
-			queryContext.currentPiStream!.push({ type: "thinking_delta", contentIndex: index, delta: event.delta.thinking, partial: queryContext.output });
-		} else if (event.delta?.type === "input_json_delta" && block.type === "toolCall") {
-			block.partialJson += event.delta.partial_json;
+		const { delta } = event;
+		const stream = queryContext.currentPiStream;
+		if (delta?.type === "text_delta" && block.type === "text") {
+			block.text += delta.text;
+			stream.push({ type: "text_delta", contentIndex: index, delta: delta.text, partial: queryContext.output });
+		} else if (delta?.type === "thinking_delta" && block.type === "thinking") {
+			block.thinking += delta.thinking;
+			stream.push({ type: "thinking_delta", contentIndex: index, delta: delta.thinking, partial: queryContext.output });
+		} else if (delta?.type === "input_json_delta" && block.type === "toolCall") {
+			block.partialJson = (block.partialJson ?? "") + delta.partial_json;
 			block.arguments = parsePartialJson(block.partialJson, block.arguments);
-			queryContext.currentPiStream!.push({ type: "toolcall_delta", contentIndex: index, delta: event.delta.partial_json, partial: queryContext.output });
-		} else if (event.delta?.type === "signature_delta" && block.type === "thinking") {
-			block.thinkingSignature = (block.thinkingSignature ?? "") + event.delta.signature;
+			stream.push({ type: "toolcall_delta", contentIndex: index, delta: delta.partial_json, partial: queryContext.output });
+		} else if (delta?.type === "signature_delta" && block.type === "thinking") {
+			block.thinkingSignature = (block.thinkingSignature ?? "") + delta.signature;
 		} else {
-			debug("processStreamEvent: unhandled content_block_delta type", event.delta?.type);
+			debug("processStreamEvent: unhandled content_block_delta type", delta?.type);
 		}
 		return;
 	}
 
-	if (event?.type === "content_block_stop") {
+	if (event.type === "content_block_stop") {
 		// Same as the delta case: the block was never mirrored, so there is nothing
 		// to seal and nothing unmatched about it.
 		if (queryContext.suppressedStreamIndexes.has(event.index)) {
 			queryContext.turnSawStreamEvent = true;
 			return;
 		}
-		const index = queryContext.turnBlocks.findIndex((b: any) => b.index === event.index);
+		const index = queryContext.turnBlocks.findIndex((block) => block.index === event.index);
 		const block = queryContext.turnBlocks[index];
 		if (!block) {
 			debug("processStreamEvent: ignoring unmatched content_block_stop", event.index);
@@ -432,29 +460,30 @@ export function processStreamEvent(
 		}
 		queryContext.turnSawStreamEvent = true;
 		delete block.index;
+		const stream = queryContext.currentPiStream;
 		if (block.type === "text") {
-			queryContext.currentPiStream!.push({ type: "text_end", contentIndex: index, content: block.text, partial: queryContext.output });
+			stream.push({ type: "text_end", contentIndex: index, content: block.text, partial: queryContext.output });
 		} else if (block.type === "thinking") {
-			queryContext.currentPiStream!.push({ type: "thinking_end", contentIndex: index, content: block.thinking, partial: queryContext.output });
+			stream.push({ type: "thinking_end", contentIndex: index, content: block.thinking, partial: queryContext.output });
 		} else if (block.type === "toolCall") {
 			queryContext.turnSawToolCall = true;
 			block.arguments = mapToolArgs(
-				block.name, parsePartialJson(block.partialJson, block.arguments),
+				block.name, parsePartialJson(block.partialJson ?? "", block.arguments),
 			);
 			queryContext.updateToolCallArgs(block.id, block.arguments);
 			delete block.partialJson;
-			queryContext.currentPiStream!.push({ type: "toolcall_end", contentIndex: index, toolCall: block, partial: queryContext.output });
+			stream.push({ type: "toolcall_end", contentIndex: index, toolCall: block, partial: queryContext.output });
 		}
 		return;
 	}
 
-	if (event?.type === "message_delta") {
+	if (event.type === "message_delta") {
 		queryContext.turnOutput.stopReason = mapStopReason(event.delta?.stop_reason);
 		if (event.usage) updateUsage(queryContext.turnOutput, event.usage, model, queryContext);
 		return;
 	}
 
-	if (event?.type === "message_stop" && queryContext.turnSawToolCall) {
+	if (event.type === "message_stop" && queryContext.turnSawToolCall) {
 		// Tool call complete — end this pi stream, disarming any grace timer the
 		// MCP-invocation or assistant-boundary path armed. This is the NORMAL end
 		// for a tool-use turn: message_delta already delivered the message's real
@@ -468,8 +497,8 @@ export function processStreamEvent(
 		return;
 	}
 
-	if (event?.type !== "message_stop" && event?.type !== "ping") {
-		debug("processStreamEvent: unhandled event type", event?.type);
+	if (eventType !== "message_stop") {
+		debug("processStreamEvent: unhandled event type", eventType);
 	}
 }
 
@@ -486,7 +515,7 @@ function armToolUseTurnEnd(queryContext: QueryContext, stream: unknown, action: 
 	const timer = setTimeout(() => {
 		if (queryContext.currentPiStream !== stream) return;
 		debug(`scheduleToolUseTurnEnd: no stream event for ${TOOL_USE_END_GRACE_MS}ms (${source}) — force-ending tool_use turn`);
-		queryContext.scheduledToolUseEnd = null;
+		queryContext.scheduledToolUseEnd = undefined;
 		action();
 	}, TOOL_USE_END_GRACE_MS);
 	timer.unref?.();
@@ -500,8 +529,8 @@ function armToolUseTurnEnd(queryContext: QueryContext, stream: unknown, action: 
 // the same stream lifecycle as processStreamEvent — including ending the stream on
 // tool_use to prevent deadlock with the MCP handler.
 function appendMissingToolUsesFromAssistant(
-	assistantMessage: { content?: Array<any>; usage?: Record<string, number | undefined> },
-	model: Model<any>,
+	assistantMessage: BetaMessage,
+	model: Model<Api>,
 	customToolNameToPi: ReadonlyMap<string, string>,
 	queryContext: QueryContext,
 ): boolean {
@@ -521,7 +550,7 @@ function appendMissingToolUsesFromAssistant(
 			debug(`assistant message: non-dispatchable tool ${block.name} [${block.id}] — not mirrored as a Pi tool call`);
 			continue;
 		}
-		const existingIndex = queryContext.turnBlocks.findIndex((b: any) => b.type === "toolCall" && b.id === block.id);
+		const existingIndex = queryContext.turnBlocks.findIndex((existing) => isToolCallWithId(existing, block.id));
 		if (existingIndex < 0 && (queryContext.forwardedToolCallIds.has(block.id) || queryContext.deadToolCallIds.has(block.id))) {
 			// Completed-message replay of a call Pi already executed in a turn that
 			// has ended (or one already failed as stranded). Not a live Pi turn
@@ -534,12 +563,12 @@ function appendMissingToolUsesFromAssistant(
 		const mappedArgs = mapToolArgs(name, block.input);
 		queryContext.recordToolCall(block.id, name, mappedArgs);
 		if (!streamLive) continue;
-		if (existingIndex >= 0) {
-			const existing = queryContext.turnBlocks[existingIndex] as any;
+		const existing = queryContext.turnBlocks[existingIndex];
+		if (existing?.type === "toolCall") {
 			existing.name = name;
 			existing.arguments = mappedArgs;
 			queryContext.updateToolCallArgs(block.id, mappedArgs);
-			if ("partialJson" in existing) {
+			if (existing.partialJson !== undefined) {
 				delete existing.partialJson;
 				delete existing.index;
 				queryContext.currentPiStream?.push({ type: "toolcall_end", contentIndex: existingIndex, toolCall: existing, partial: queryContext.output });
@@ -548,15 +577,11 @@ function appendMissingToolUsesFromAssistant(
 		}
 
 		ensureTurnStarted(queryContext);
-		queryContext.turnBlocks.push({
-			type: "toolCall", id: block.id,
-			name,
-			arguments: mappedArgs,
-		});
+		const toolBlock: StreamingToolCall = { type: "toolCall", id: block.id, name, arguments: mappedArgs };
+		queryContext.turnBlocks.push(toolBlock);
 		const index = queryContext.turnBlocks.length - 1;
-		const toolBlock = queryContext.turnBlocks[index];
 		queryContext.currentPiStream?.push({ type: "toolcall_start", contentIndex: index, partial: queryContext.output });
-		queryContext.currentPiStream?.push({ type: "toolcall_end", contentIndex: index, toolCall: toolBlock as any, partial: queryContext.output });
+		queryContext.currentPiStream?.push({ type: "toolcall_end", contentIndex: index, toolCall: toolBlock, partial: queryContext.output });
 	}
 	// Only while the stream is still live: the SDK's assistant yields carry the
 	// message_start placeholder usage, and once the done event has delivered
@@ -566,8 +591,8 @@ function appendMissingToolUsesFromAssistant(
 	return sawToolUse;
 }
 
-export function processAssistantMessage(message: SDKMessage, model: Model<any>, customToolNameToPi: ReadonlyMap<string, string>, queryContext: QueryContext = currentQueryContext()): void {
-	const assistantMessage = (message as any).message;
+export function processAssistantMessage(message: SDKAssistantMessage, model: Model<Api>, customToolNameToPi: ReadonlyMap<string, string>, queryContext: QueryContext = currentQueryContext()): void {
+	const assistantMessage = message.message;
 	if (!assistantMessage?.content) return;
 	updateTurnOutputModel(assistantMessage.model, queryContext);
 	if (queryContext.turnSawStreamEvent) {
@@ -604,7 +629,7 @@ export function processAssistantMessage(message: SDKMessage, model: Model<any>, 
 	// for a message whose `message_start` already streamed — any message that
 	// produced no content blocks, since `turnSawStreamEvent` only tracks those.
 	queryContext.beginChildMessage(assistantMessage.id);
-	debug(`processAssistantMessage fallback: ${assistantMessage.content.length} blocks, types=${assistantMessage.content.map((b: any) => b.type).join(",")}${sameMessage ? " (same message re-yield)" : ""}`);
+	debug(`processAssistantMessage fallback: ${assistantMessage.content.length} blocks, types=${assistantMessage.content.map((block) => block.type).join(",")}${sameMessage ? " (same message re-yield)" : ""}`);
 	// Deduped against the WHOLE current turn, not just same-id re-yields: a
 	// rejected turn's synthesized error message ("You've hit your weekly limit")
 	// arrives as multiple assistant yields whose ids DIFFER or are absent (one
@@ -612,8 +637,10 @@ export function processAssistantMessage(message: SDKMessage, model: Model<any>, 
 	// still renders it twice. A model legitimately
 	// producing two byte-identical full blocks in one turn is vanishingly rare;
 	// rendering such a duplicate once is the better failure mode.
-	const alreadyRendered = (type: string, content: string): boolean =>
-		queryContext.turnBlocks.some((b: any) => b.type === type && (type === "text" ? b.text : b.thinking) === content);
+	const alreadyRendered = (type: "text" | "thinking", content: string): boolean =>
+		queryContext.turnBlocks.some((block) =>
+			(type === "text" && block.type === "text" && block.text === content)
+			|| (type === "thinking" && block.type === "thinking" && block.thinking === content));
 	for (const block of assistantMessage.content) {
 		if (block.type === "text" && block.text) {
 			if (alreadyRendered("text", block.text)) continue;
@@ -627,17 +654,17 @@ export function processAssistantMessage(message: SDKMessage, model: Model<any>, 
 			if (alreadyRendered("thinking", block.thinking ?? "")) continue;
 			ensureTurnStarted(queryContext);
 			queryContext.turnBlocks.push({ type: "thinking", thinking: block.thinking ?? "", thinkingSignature: block.signature ?? "" });
-			const idx = queryContext.turnBlocks.length - 1;
-			queryContext.currentPiStream?.push({ type: "thinking_start", contentIndex: idx, partial: queryContext.output });
-			if (block.thinking) queryContext.currentPiStream?.push({ type: "thinking_delta", contentIndex: idx, delta: block.thinking, partial: queryContext.output });
-			queryContext.currentPiStream?.push({ type: "thinking_end", contentIndex: idx, content: block.thinking ?? "", partial: queryContext.output });
+			const blockIndex = queryContext.turnBlocks.length - 1;
+			queryContext.currentPiStream?.push({ type: "thinking_start", contentIndex: blockIndex, partial: queryContext.output });
+			if (block.thinking) queryContext.currentPiStream?.push({ type: "thinking_delta", contentIndex: blockIndex, delta: block.thinking, partial: queryContext.output });
+			queryContext.currentPiStream?.push({ type: "thinking_end", contentIndex: blockIndex, content: block.thinking ?? "", partial: queryContext.output });
 		} else if (block.type === "tool_use") {
 			if (!isPiDispatchable(block.name, customToolNameToPi)) {
 				queryContext.noteUnexpectedChildCall(block.id, block.name);
 				debug(`processAssistantMessage fallback: non-dispatchable tool ${block.name} [${block.id}] — not mirrored as a Pi tool call`);
 				continue;
 			}
-			if (!queryContext.turnBlocks.some((b: any) => b.type === "toolCall" && b.id === block.id)
+			if (!queryContext.turnBlocks.some((existing) => isToolCallWithId(existing, block.id))
 				&& (queryContext.forwardedToolCallIds.has(block.id) || queryContext.deadToolCallIds.has(block.id))) {
 				// A cross-turn replay of a call Pi already executed (or one whose
 				// handler was already failed as stranded). This is the path a
@@ -656,23 +683,18 @@ export function processAssistantMessage(message: SDKMessage, model: Model<any>, 
 			// A same-message re-yield of an already-mirrored call refreshes its
 			// arguments in place — a second toolCall block would make pi dispatch
 			// the tool twice.
-			const existingIndex = queryContext.turnBlocks.findIndex((b: any) => b.type === "toolCall" && b.id === block.id);
-			if (existingIndex >= 0) {
-				const existing = queryContext.turnBlocks[existingIndex] as any;
+			const existing = queryContext.turnBlocks.find((candidate) => isToolCallWithId(candidate, block.id));
+			if (existing?.type === "toolCall") {
 				existing.name = mappedName;
 				existing.arguments = mappedArgs;
 				queryContext.updateToolCallArgs(block.id, mappedArgs);
 				continue;
 			}
-			queryContext.turnBlocks.push({
-				type: "toolCall", id: block.id,
-				name: mappedName,
-				arguments: mappedArgs,
-			});
-			const idx = queryContext.turnBlocks.length - 1;
-			const toolBlock = queryContext.turnBlocks[idx];
-			queryContext.currentPiStream?.push({ type: "toolcall_start", contentIndex: idx, partial: queryContext.output });
-			queryContext.currentPiStream?.push({ type: "toolcall_end", contentIndex: idx, toolCall: toolBlock as any, partial: queryContext.output });
+			const toolBlock: StreamingToolCall = { type: "toolCall", id: block.id, name: mappedName, arguments: mappedArgs };
+			queryContext.turnBlocks.push(toolBlock);
+			const blockIndex = queryContext.turnBlocks.length - 1;
+			queryContext.currentPiStream?.push({ type: "toolcall_start", contentIndex: blockIndex, partial: queryContext.output });
+			queryContext.currentPiStream?.push({ type: "toolcall_end", contentIndex: blockIndex, toolCall: toolBlock, partial: queryContext.output });
 		} else if (block.type === "fallback") {
 			updateTurnOutputModel(block.to?.model, queryContext);
 		} else {

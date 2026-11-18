@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
-import type { AssistantMessage, AssistantMessageEventStream, Message, Model, SimpleStreamOptions, Tool, TranscriptContext } from "@earendil-works/pi-ai";
+import type { AssistantMessage, AssistantMessageEventStream, Message, Model, SimpleStreamOptions, Tool, TranscriptContext, Api } from "@earendil-works/pi-ai";
 import * as piAi from "@earendil-works/pi-ai";
 import type { ExtensionAPI, SessionProjection } from "@earendil-works/pi-coding-agent";
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -60,7 +60,7 @@ export { classifyClaudeFailure, rateLimitResetFromInfo, rateLimitResetMs, rateLi
 
 // Uses the factory when pi-ai provides one (pi-ai ≥0.66), else the constructor (gsd-pi etc.).
 const _piAi = piAi as any;
-const getModels = await resolveGetModels(_piAi) as (provider: string) => Array<Model<any>>;
+const getModels = await resolveGetModels(_piAi) as (provider: string) => Array<Model<Api>>;
 const newAssistantMessageEventStream: () => AssistantMessageEventStream =
 	typeof _piAi.createAssistantMessageEventStream === "function"
 		? _piAi.createAssistantMessageEventStream
@@ -494,7 +494,7 @@ export function onPiHistoryReplaced(event: string): void {
 	// conversation, so pi's replacement is not its history and it is never
 	// restarted on it. Read here rather than off piHistoryReplaced below, which
 	// outlives a query that ended without its restart.
-	const running = queryContext.activeQuery !== null;
+	const running = queryContext.activeQuery !== undefined;
 	const restarts = running && !queryContext.detachedFromSharedSession;
 	if (running) {
 		if (restarts) queryContext.piHistoryReplaced = true;
@@ -521,7 +521,7 @@ export function onPiHistoryReplaced(event: string): void {
  *  restart path, which rotates the session id because the killed child may
  *  still be writing. Exported for the tree-resume unit tests. */
 export function adoptTreeResumeTarget(sessionManager: { buildSessionProjection(): SessionProjection; getCwd(): string }): void {
-	if (currentQueryContext().activeQuery !== null) return;
+	if (currentQueryContext().activeQuery !== undefined) return;
 	const target = findTreeResumeTarget(sessionManager.buildSessionProjection());
 	if (typeof target === "string") {
 		debug(`tree-resume: rebuilding instead (${target})`);
@@ -547,7 +547,7 @@ export function adoptTreeResumeTarget(sessionManager: { buildSessionProjection()
 /** Provider entry point. Pi calls this for each prompt and each tool result.
  *  Two cases: tool result delivery (active query) or fresh query. Exported for
  *  the rotation-stream unit tests, which drive it with a fake SDK factory. */
-export function streamClaudeAgentSdk(model: Model<any>, context: TranscriptContext, options?: SimpleStreamOptions): AssistantMessageEventStream {
+export function streamClaudeAgentSdk(model: Model<Api>, context: TranscriptContext, options?: SimpleStreamOptions): AssistantMessageEventStream {
 	return runInRequestLane(requestLaneId(options), () => streamClaudeAgentSdkInLane(model, context, options));
 }
 
@@ -564,7 +564,7 @@ function requestLaneId(options?: SimpleStreamOptions): string | undefined {
 	return options?.sessionId;
 }
 
-function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContext, options?: SimpleStreamOptions): AssistantMessageEventStream {
+function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContext, options?: SimpleStreamOptions): AssistantMessageEventStream {
 	const stream = newAssistantMessageEventStream();
 	// Every index below (cursor, prompt window, deferred replay, fingerprint)
 	// is taken over the conversation; the system messages only feed the
@@ -587,7 +587,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 	// DEBUG: trace followUp message triggering
 	const lastMsgRole = conversation[conversation.length - 1]?.role;
 	const cwd = (options as { cwd?: string } | undefined)?.cwd ?? process.cwd();
-	debug(`provider: streamClaudeAgentSdk called, activeQuery=${!!currentQueryContext().activeQuery}, lastMsgRole=${lastMsgRole}, isReentrant=${currentQueryContext().activeQuery !== null}`);
+	debug(`provider: streamClaudeAgentSdk called, activeQuery=${!!currentQueryContext().activeQuery}, lastMsgRole=${lastMsgRole}, isReentrant=${currentQueryContext().activeQuery !== undefined}`);
 
 	// Pi appends tool results to context and calls back. Extract this turn's results
 	// (everything after the last assistant message) and match against waiting MCP
@@ -598,7 +598,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 		// that arrives while it is still open does not continue this conversation:
 		// another caller reused the session id. Taking over the stream would orphan
 		// the stream Pi is waiting on and leave this request unanswered.
-		if (queryContext.currentPiStream !== null) {
+		if (queryContext.currentPiStream !== undefined) {
 			debug(`provider: refusing a request (${conversation.length} message(s)) while this session's response stream is still open`);
 			queueMicrotask(() => {
 				stream.push({ type: "error", reason: "error", error: standaloneErrorMessage(model, "error", CONCURRENT_REQUEST_MESSAGE) });
@@ -638,7 +638,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 				queryContext.piHistoryReplaced = false;
 				queryContext.restartRequest = { model, context, options, stream };
 				// Nothing the dying query still emits belongs to the new history.
-				queryContext.currentPiStream = null;
+				queryContext.currentPiStream = undefined;
 				debug(`provider: pi replaced this query's history; restarting from ${conversation.length} message(s)`);
 				abortSdkQuery(queryContext.activeQuery);
 				return stream;
@@ -652,7 +652,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 		if (callbackSignal && callbackSignal !== queryContext.querySignal) {
 			const endOnAbort = (): void => {
 				if (queryContext.currentPiStream !== stream) return;
-				queryContext.currentPiStream = null;
+				queryContext.currentPiStream = undefined;
 				stream.push({ type: "error", reason: "aborted", error: standaloneErrorMessage(model, "aborted", "Operation aborted") });
 				stream.end();
 			};
@@ -842,7 +842,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 	}
 
 	// 1. Determine reentrancy and push parent context if needed.
-	const isReentrant = currentQueryContext().activeQuery !== null;
+	const isReentrant = currentQueryContext().activeQuery !== undefined;
 	if (isReentrant) pushContext();
 	debug(`provider: fresh query setup, isReentrant=${isReentrant}, stackDepth=${stackDepth()}`);
 
@@ -927,7 +927,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 			lastMsgRole: lastMessage?.role,
 			isReentrant,
 			stackDepth: stackDepth(),
-			activeQueryExists: currentQueryContext().activeQuery !== null,
+			activeQueryExists: currentQueryContext().activeQuery !== undefined,
 			cursorBeforeSync,
 			promptStart,
 			promptRoles: promptMessages.map((m) => m.role).join(" "),
@@ -998,7 +998,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 		// still be flushing to the session jsonl.
 		// Observed and not yet acted on, or already consumed into a pending
 		// restart: both mean pi replaced the history after this query started.
-		const restartPending = abortContext.restartRequest !== null;
+		const restartPending = abortContext.restartRequest !== undefined;
 		const replaced = next && (abortContext.piHistoryReplaced || restartPending)
 			? { ...next, needsRebuild: true, rebuildReason: "pi replaced the history while the query ran", ...(restartPending ? { forceRotate: true } : {}) }
 			: next;
@@ -1062,7 +1062,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 				}
 				abortContext.currentPiStream?.push({ type: "error", reason: "error", error: abortContext.turnOutput! });
 				abortContext.currentPiStream?.end();
-				abortContext.currentPiStream = null;
+				abortContext.currentPiStream = undefined;
 				abortSdkQuery(sdkQuery);
 			},
 			timeoutMs: streamIdleTimeoutMs,
@@ -1114,7 +1114,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 		}
 		abortContext.currentPiStream?.push({ type: "error", reason: aborted ? "aborted" : "error", error: abortContext.turnOutput! });
 		abortContext.currentPiStream?.end();
-		abortContext.currentPiStream = null;
+		abortContext.currentPiStream = undefined;
 	};
 
 	// Both abort endings land here: the generator finishing, or throwing the
@@ -1360,7 +1360,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 			// the callback that observed the replacement, not to this one.
 			const restart = abortContext.restartRequest;
 			if (restart) {
-				abortContext.restartRequest = null;
+				abortContext.restartRequest = undefined;
 				reentryStream = restart.stream;
 				if (wasAborted || options?.signal?.aborted || restart.options?.signal?.aborted) {
 					// The request died between the restart and this teardown: rebuilding
@@ -1393,7 +1393,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 			// stream pi is holding, and clear it so nothing stale outlives this chain.
 			const restart = abortContext.restartRequest;
 			if (restart) {
-				abortContext.restartRequest = null;
+				abortContext.restartRequest = undefined;
 				reentryStream = restart.stream;
 				// Same reason as the abort branch above: without a restart this
 				// message would be the delivered pre-compaction turn.
@@ -1416,7 +1416,7 @@ const CONCURRENT_REQUEST_MESSAGE = "Claude bridge: another request for this Pi s
 
 /** An error or abort outcome for a request the running query does not serve,
  *  built without touching that query's turn state. */
-function standaloneErrorMessage(model: Model<any>, stopReason: "error" | "aborted", errorMessage: string): AssistantMessage {
+function standaloneErrorMessage(model: Model<Api>, stopReason: "error" | "aborted", errorMessage: string): AssistantMessage {
 	return {
 		role: "assistant", content: [],
 		api: model.api, provider: model.provider, model: model.id,

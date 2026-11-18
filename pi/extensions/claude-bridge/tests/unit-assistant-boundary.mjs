@@ -52,8 +52,8 @@ describe("assistant tool-use boundary fallback", () => {
 		} }, new Map(), model);
 		processStreamEvent({ type: "stream_event", event: { type: "message_stop" } }, new Map(), model);
 
-		assert.equal(c.currentPiStream, null);
-		assert.equal(c.scheduledToolUseEnd, null, "grace timer disarmed at turn end");
+		assert.equal(c.currentPiStream, undefined);
+		assert.equal(c.scheduledToolUseEnd, undefined, "grace timer disarmed at turn end");
 		assert.equal(c.turnOutput.stopReason, "toolUse");
 		assert.equal(c.turnOutput.usage.output, 187, "message_delta usage must reach the delivered message");
 		assert.equal(events.at(-2).type, "done");
@@ -87,7 +87,7 @@ describe("assistant tool-use boundary fallback", () => {
 		assert.equal(c.turnBlocks[0].name, "read");
 		assert.equal(c.turnBlocks[0].arguments.path, "README.md");
 		processStreamEvent({ type: "stream_event", event: { type: "message_stop" } }, new Map([["mcp__custom-tools__read", "read"]]), model);
-		assert.equal(c.currentPiStream, null);
+		assert.equal(c.currentPiStream, undefined);
 		assert.deepEqual(events.map((event) => event.type), ["start", "toolcall_start", "toolcall_end", "done", "stream_end"]);
 	});
 
@@ -115,8 +115,8 @@ describe("assistant tool-use boundary fallback", () => {
 
 		t.mock.timers.tick(1500);
 
-		assert.equal(c.currentPiStream, null, "grace elapsed — turn force-ended");
-		assert.equal(c.scheduledToolUseEnd, null);
+		assert.equal(c.currentPiStream, undefined, "grace elapsed — turn force-ended");
+		assert.equal(c.scheduledToolUseEnd, undefined);
 		assert.equal(events.at(-2).type, "done");
 		assert.equal(events.at(-2).reason, "toolUse");
 		assert.equal(events.at(-1).type, "stream_end");
@@ -169,12 +169,12 @@ describe("assistant tool-use boundary fallback", () => {
 		t.mock.timers.tick(1000);
 		processStreamEvent(streamEvent({ type: "content_block_stop", index: 9 }), new Map(), model);
 		t.mock.timers.tick(1499);
-		const liveBeforeGraceElapsed = c.currentPiStream !== null;
+		const liveBeforeGraceElapsed = c.currentPiStream !== undefined;
 		t.mock.timers.tick(1);
 
 		// assert
 		assert.equal(liveBeforeGraceElapsed, true, "an unmatched event still counts as activity");
-		assert.equal(c.currentPiStream, null, "silence for the full grace period ends the turn");
+		assert.equal(c.currentPiStream, undefined, "silence for the full grace period ends the turn");
 	});
 
 	it("records assistant tool-use ids even after the stream already ended", () => {
@@ -182,7 +182,7 @@ describe("assistant tool-use boundary fallback", () => {
 		c.resetTurnState(model);
 		c.turnSawStreamEvent = true;
 		c.turnSawToolCall = true;
-		c.currentPiStream = null;
+		c.currentPiStream = undefined;
 		c.recordToolCall("toolu_streamed", "bash", { command: "echo first", timeout: 120 });
 		c.turnBlocks.push({
 			type: "toolCall",
@@ -214,7 +214,7 @@ describe("assistant tool-use boundary fallback", () => {
 			["mcp__custom-tools__write", "write"],
 		]));
 
-		assert.equal(c.currentPiStream, null);
+		assert.equal(c.currentPiStream, undefined);
 		assert.deepEqual(c.turnToolCallIds, ["toolu_streamed", "toolu_missing_after_stop"]);
 		// Ids are recorded (claims and result matching need them), but the content
 		// array is NOT appended to: after endToolUseTurn it is the message Pi
@@ -233,7 +233,7 @@ describe("assistant tool-use boundary fallback", () => {
 		processStreamEvent({ type: "stream_event", event: { type: "message_stop" } }, new Map(), model);
 
 		assert.equal(c.turnSawStreamEvent, false, "late stop-only event must not mask assistant fallback");
-		assert.equal(c.currentPiStream !== null, true);
+		assert.equal(c.currentPiStream !== undefined, true);
 
 		processAssistantMessage({
 			type: "assistant",

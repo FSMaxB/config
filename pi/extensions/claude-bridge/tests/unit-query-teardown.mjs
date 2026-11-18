@@ -48,7 +48,7 @@ describe("teardownQuery", () => {
 		queryCtx.pendingResults.set("call-2", { content: [], isError: false });
 
 		assert.equal(teardownQuery(queryCtx, sdkQuery, "query-end", "/tmp", false), true);
-		assert.equal(queryCtx.activeQuery, null);
+		assert.equal(queryCtx.activeQuery, undefined);
 		assert.equal(queryCtx.pendingToolCalls.size, 0);
 		assert.equal(queryCtx.pendingResults.size, 0);
 		const result = await waiting;
@@ -88,12 +88,12 @@ describe("teardownQuery", () => {
 		const result = await parentWaiting;
 		assert.equal(result.isError, true);
 		assert.equal(result.content[0].text.split("\n")[0], "tool-call-drain=abort");
-		assert.equal(parent.activeQuery, null);
+		assert.equal(parent.activeQuery, undefined);
 
 		// Child completely untouched and still the live context.
 		assert.equal(currentQueryContext(), child);
 		assert.equal(child.pendingToolCalls.size, 1);
-		assert.notEqual(child.activeQuery, null);
+		assert.notEqual(child.activeQuery, undefined);
 		assert.equal(stackDepth(), 1);
 	});
 

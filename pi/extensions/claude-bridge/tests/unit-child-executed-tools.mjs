@@ -41,7 +41,7 @@ for (const row of childRoutes) it(row.name, () => {
 		toolBoundary: c.turnSawToolCall,
 		toolIds: c.turnToolCallIds,
 		queued: c.pendingResults.size,
-		streamOpen: c.currentPiStream !== null,
+		streamOpen: c.currentPiStream !== undefined,
 		unexpected: [...c.childSideCalls].map(([id, entry]) => [id, entry.name]),
 	}, { blocks: row.route === "fallback" ? ["text"] : [], toolBoundary: false, toolIds: [], queued: 0, streamOpen: true, unexpected: [[row.id, row.tool]] });
 	if (row.route === "stream") assert.deepEqual({ events: events.map((event) => event.type), skipped: c.suppressedStreamIndexes.has(0) }, { events: ["start"], skipped: true });
@@ -124,8 +124,8 @@ it("still mirrors a Pi tool call alongside a foreign call in the same message", 
 		assert.equal(c.turnSawToolCall, true);
 		assert.ok(c.scheduledToolUseEnd, "a real Pi tool call arms the deferred turn end");
 		processStreamEvent(streamEvent({ type: "message_stop" }), new Map(), model);
-		assert.equal(c.currentPiStream, null, "message_stop ends the tool-use turn");
-		assert.equal(c.scheduledToolUseEnd, null, "grace timer disarmed at turn end");
+		assert.equal(c.currentPiStream, undefined, "message_stop ends the tool-use turn");
+		assert.equal(c.scheduledToolUseEnd, undefined, "grace timer disarmed at turn end");
 	});
 
 it("still mirrors a Pi tool coincidentally named like a child built-in", () => {

@@ -1,7 +1,7 @@
 // Pure assembly of the Claude Agent SDK query options for one bridge query:
 // no closures — reads config, env, and the provided context only.
 
-import type { Model, Tool } from "@earendil-works/pi-ai";
+import type { Model, Tool, Api } from "@earendil-works/pi-ai";
 import type { McpSdkServerConfigWithInstance, query, EffortLevel, SettingSource, SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 import { extractAgentsAppend } from "./agents-md.js";
 import { spawnClaudeCodeWithDiagnostics } from "./claude-executable.js";
@@ -43,7 +43,7 @@ export function resolveConfiguredEffort(
 export interface BuildClaudeQueryOptionsInput {
 	cwd: string;
 	/** The model Pi requested. */
-	requestedModel: Model<any>;
+	requestedModel: Model<Api>;
 	bridgeConfig: Config;
 	systemPrompt?: string;
 	/** Tools the transcript currently offers; decides the system prompt mode. */

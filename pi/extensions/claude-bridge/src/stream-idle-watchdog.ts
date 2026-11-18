@@ -8,9 +8,9 @@ export const STREAM_IDLE_TIMEOUT_ENV = "CLAUDE_BRIDGE_STREAM_IDLE_TIMEOUT";
 type TimerHandle = ReturnType<typeof setTimeout>;
 
 export interface StreamIdleWatchdogState {
-	activeQuery: unknown | null;
-	currentPiStream: AssistantMessageEventStream | null;
-	turnOutput: AssistantMessage | null;
+	activeQuery: unknown;
+	currentPiStream: AssistantMessageEventStream | undefined;
+	turnOutput: AssistantMessage | undefined;
 	turnSawStreamEvent: boolean;
 	turnStarted: boolean;
 }
@@ -84,13 +84,13 @@ export function createStreamIdleWatchdog({
 }): StreamIdleWatchdog {
 	let disposed = false;
 	let lastChunkAt = now();
-	let timer: TimerHandle | null = null;
+	let timer: TimerHandle | undefined;
 	let didTimeout = false;
 
 	const clear = () => {
 		if (!timer) return;
 		try { clearTimer(timer); } catch { /* best effort */ }
-		timer = null;
+		timer = undefined;
 	};
 
 	const shouldMonitor = (state: StreamIdleWatchdogState): boolean => Boolean(

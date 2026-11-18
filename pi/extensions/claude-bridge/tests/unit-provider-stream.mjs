@@ -291,7 +291,7 @@ describe("ordinary provider stream", () => {
 		}));
 		// act
 		const parentStream = streamNormalized(model, context, { sessionId: "parent" });
-		assert.equal(await waitFor(() => runInRequestLane("parent", () => currentQueryContext().activeQuery !== null)), true);
+		assert.equal(await waitFor(() => runInRequestLane("parent", () => currentQueryContext().activeQuery !== undefined)), true);
 		const subagentStream = streamNormalized(model, { messages: [{ role: "user", content: "", timestamp: Date.now() }] }, { sessionId: "subagent" });
 		// assert
 		assert.deepEqual(sessionFor("parent"), parent);
@@ -341,7 +341,7 @@ describe("ordinary provider stream", () => {
 		const events = await collect(streamNormalized(model, withTool, { sessionId: "post-boundary-failure" }));
 		// assert
 		assert.ok(events.some((event) => event.type === "done" && event.reason === "toolUse"));
-		assert.equal(await waitFor(() => runInRequestLane("post-boundary-failure", () => currentQueryContext().activeQuery === null)), true);
+		assert.equal(await waitFor(() => runInRequestLane("post-boundary-failure", () => currentQueryContext().activeQuery === undefined)), true);
 		assert.equal(sessionFor("post-boundary-failure")?.sessionId, "session-tool");
 	});
 });

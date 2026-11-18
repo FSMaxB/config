@@ -26,7 +26,7 @@ describe("grace finalize argument settlement", () => {
 		const done = events.find((e) => e.type === "done");
 		assert.equal(done.reason, "toolUse");
 		assert.deepEqual(done.message.content[0].arguments, { url: "https://example.com/CHANGELOG.md" });
-		assert.equal(c.currentPiStream, null, "turn ended");
+		assert.equal(c.currentPiStream, undefined, "turn ended");
 		assert.ok(c.forwardedToolCallIds.has("t1"), "executed call is marked forwarded");
 	});
 

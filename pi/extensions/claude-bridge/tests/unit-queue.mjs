@@ -64,7 +64,7 @@ async function withBridge(ids, run) {
 			},
 			deliver(results) {
 				// Pi calls back only after the previous response stream ended.
-				currentQueryContext().currentPiStream = null;
+				currentQueryContext().currentPiStream = undefined;
 				streamNormalized(model, { messages: [
 					{ role: "assistant", content: ids.map((id) => ({ type: "toolCall", id, name: "echo", arguments: { id } })) },
 					...results.map(({ id, text = id, isError = false }) => ({ role: "toolResult", toolCallId: id, content: [{ type: "text", text }], isError })),
