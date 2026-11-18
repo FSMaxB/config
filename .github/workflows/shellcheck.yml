@@ -10,6 +10,7 @@ on:
       - ".shellrc-common"
       - ".ansi-colors"
       - ".git_template/hooks/**"
+      - "scripts/**"
       - "pi/extensions/sandbox/bin/**"
       - "pi/extensions/sandbox/shims/**"
       - ".github/scripts/shellcheck.sh"

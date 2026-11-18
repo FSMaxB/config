@@ -18,6 +18,10 @@ Symlinks configs into `$HOME`, sets global git config, and syncs vim (vim-plug) 
 
 By default the script only downloads the host platform; `--all` gets all three. Downloads happen in a scratch directory, so nothing is left behind in `binaries/` on failure. To bump a version: edit the `*_VERSION` variable, and for bat, jj and tuicr also the pinned digests in `download_platform` (they publish no checksum assets), then re-run the script.
 
+## Scripts
+
+`scripts/` holds the user's own commands. `.shellrc-common` appends it to `PATH`, and the pi sandbox can read it from any repository. Scripts there are portable POSIX `sh` (macOS and Linux), have no file extension and are executable.
+
 ## pi extensions
 
 `pi/extensions/` is symlinked to `~/.pi/agent/extensions`, so every `*.ts` there is loaded globally. Nothing hot-reloads: pi has to be restarted before a change takes effect, and there is no typecheck for these files.
@@ -72,7 +76,7 @@ Sandbox profiles (`sandbox/src/profile-*.ts`, `profiles.ts`, `recorder.ts`, `rec
 
 `.github/workflows/` has six workflows with 8 independent jobs in total. GitHub's `paths:` filter works per workflow, so jobs that share inputs live in one workflow, each with a `push` (to `main`) and `pull_request` `paths:` filter (shared through a YAML anchor) that always includes the workflow's own file. `workflow_dispatch` and `schedule` ignore `paths:` and always run every job. `nvim`, `vim`, `extensions` and `binaries` also run weekly, to catch upstream breakage that a push wouldn't (`stable` nvim, vim-plug plugins, which have no lockfile, `latest` node, dead release URLs); `shellcheck` and `actionlint` don't, since their tools are pinned.
 
-Known gap: the `shellcheck` paths cover `.sh` files plus the extensionless shell files by name (`.ansi-colors`, `.shellrc-common`, `.git_template/hooks/`); a new extensionless shell script elsewhere won't trigger it on its own PR, so add its path to `shellcheck.yml`.
+Known gap: the `shellcheck` paths cover `.sh` files plus the extensionless shell files by name (`.ansi-colors`, `.shellrc-common`, `.git_template/hooks/`, `scripts/`); a new extensionless shell script elsewhere won't trigger it on its own PR, so add its path to `shellcheck.yml`.
 
 `shellcheck.yml` (paths: shell files and `.github/scripts/shellcheck.sh`), `actionlint.yml` (paths: `.github/workflows/**`), `nvim.yml` (paths: `nvim/**`, `nvim-check.lua`), `vim.yml` (paths: `.vimrc`, `.vim/**`), `extensions.yml` (paths: `pi/extensions/**`, because `sandbox` imports from `pi/extensions/lib/`) and `binaries.yml` (paths: `binaries/download.sh`):
 
