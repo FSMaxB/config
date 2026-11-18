@@ -1,4 +1,4 @@
-import { ctx } from "../../src/query-state.ts";
+import { currentQueryContext } from "../../src/query-state.ts";
 
 export const model = {
 	api: "claude-bridge",
@@ -9,7 +9,7 @@ export const model = {
 
 export function installFakeStream() {
 	const events = [];
-	ctx().currentPiStream = {
+	currentQueryContext().currentPiStream = {
 		push(event) { events.push(event); },
 		end(result) { events.push({ type: "stream_end", result }); },
 	};

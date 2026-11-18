@@ -5,7 +5,7 @@
  */
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { ctx, resetStack } from "../src/query-state.js";
+import { currentQueryContext, resetStack } from "../src/query-state.js";
 
 const fakeModel = { api: "anthropic", provider: "anthropic", id: "test-model" };
 
@@ -13,67 +13,67 @@ describe("QueryContext class", () => {
 	beforeEach(() => resetStack());
 
 	it("turnBlocks throws before resetTurnState", () => {
-		assert.throws(() => ctx().turnBlocks, (error) => error.message.split("\n")[0] === "turn-state-uninitialized=turnBlocks");
+		assert.throws(() => currentQueryContext().turnBlocks, (error) => error.message.split("\n")[0] === "turn-state-uninitialized=turnBlocks");
 	});
 
 	it("turnBlocks reflects turnOutput.content after resetTurnState", () => {
-		ctx().resetTurnState(fakeModel);
-		assert.ok(Array.isArray(ctx().turnBlocks));
-		assert.strictEqual(ctx().turnBlocks.length, 0);
+		currentQueryContext().resetTurnState(fakeModel);
+		assert.ok(Array.isArray(currentQueryContext().turnBlocks));
+		assert.strictEqual(currentQueryContext().turnBlocks.length, 0);
 
-		ctx().turnBlocks.push({ type: "text", text: "hello" });
-		assert.strictEqual(ctx().turnOutput.content.length, 1);
-		assert.strictEqual(ctx().turnOutput.content[0].text, "hello");
+		currentQueryContext().turnBlocks.push({ type: "text", text: "hello" });
+		assert.strictEqual(currentQueryContext().turnOutput.content.length, 1);
+		assert.strictEqual(currentQueryContext().turnOutput.content[0].text, "hello");
 		// Same array reference
-		assert.strictEqual(ctx().turnBlocks, ctx().turnOutput.content);
+		assert.strictEqual(currentQueryContext().turnBlocks, currentQueryContext().turnOutput.content);
 	});
 
 	it("resetTurnState preserves active tool tracking across result-delivery callbacks", () => {
-		ctx().turnToolCallIds = ["id1", "id2"];
-		ctx().recordToolCall("id1", "read", { path: "a" });
-		ctx().markToolResultDelivered("id1");
-		ctx().resetTurnState(fakeModel);
+		currentQueryContext().turnToolCallIds = ["id1", "id2"];
+		currentQueryContext().recordToolCall("id1", "read", { path: "a" });
+		currentQueryContext().markToolResultDelivered("id1");
+		currentQueryContext().resetTurnState(fakeModel);
 
-		assert.deepStrictEqual(ctx().turnToolCallIds, ["id1", "id2"]);
-		assert.deepStrictEqual(ctx().turnToolCalls.map((call) => call.id), ["id1"]);
-		assert.ok(ctx().deliveredToolResultIds.has("id1"));
+		assert.deepStrictEqual(currentQueryContext().turnToolCallIds, ["id1", "id2"]);
+		assert.deepStrictEqual(currentQueryContext().turnToolCalls.map((call) => call.id), ["id1"]);
+		assert.ok(currentQueryContext().deliveredToolResultIds.has("id1"));
 	});
 
 	it("resetToolTracking clears tool-call matching state for a new assistant message", () => {
-		ctx().recordToolCall("id1", "read", { path: "a" });
-		ctx().markToolResultDelivered("id1");
-		ctx().markToolResultResolved("id1");
-		ctx().resetToolTracking();
+		currentQueryContext().recordToolCall("id1", "read", { path: "a" });
+		currentQueryContext().markToolResultDelivered("id1");
+		currentQueryContext().markToolResultResolved("id1");
+		currentQueryContext().resetToolTracking();
 
-		assert.deepStrictEqual(ctx().turnToolCallIds, []);
-		assert.deepStrictEqual(ctx().turnToolCalls, []);
-		assert.strictEqual(ctx().deliveredToolResultIds.size, 0);
-		assert.strictEqual(ctx().resolvedToolResultIds.size, 0);
+		assert.deepStrictEqual(currentQueryContext().turnToolCallIds, []);
+		assert.deepStrictEqual(currentQueryContext().turnToolCalls, []);
+		assert.strictEqual(currentQueryContext().deliveredToolResultIds.size, 0);
+		assert.strictEqual(currentQueryContext().resolvedToolResultIds.size, 0);
 	});
 
 	it("claimToolCall matches handler invocation by tool name and args, not stream position", () => {
-		ctx().recordToolCall("call-read", "read", { path: "a.txt" });
-		ctx().recordToolCall("call-grep", "grep", { pattern: "needle", path: "src" });
+		currentQueryContext().recordToolCall("call-read", "read", { path: "a.txt" });
+		currentQueryContext().recordToolCall("call-grep", "grep", { pattern: "needle", path: "src" });
 
-		const second = ctx().claimToolCall("grep", { path: "src", pattern: "needle" });
+		const second = currentQueryContext().claimToolCall("grep", { path: "src", pattern: "needle" });
 		assert.equal(second.toolCallId, "call-grep");
 		assert.equal(second.match, "tool-args");
 
-		const first = ctx().claimToolCall("read", { path: "a.txt" });
+		const first = currentQueryContext().claimToolCall("read", { path: "a.txt" });
 		assert.equal(first.toolCallId, "call-read");
 		assert.equal(first.match, "tool-args");
 	});
 
 	it("claimToolCall handles same-tool parallel calls invoked out of stream order", () => {
-		ctx().recordToolCall("read-a", "read", { path: "a.txt" });
-		ctx().recordToolCall("read-b", "read", { path: "b.txt" });
-		ctx().recordToolCall("grep-src", "grep", { path: "src", pattern: "needle" });
-		ctx().recordToolCall("grep-tests", "grep", { path: "tests", pattern: "needle" });
+		currentQueryContext().recordToolCall("read-a", "read", { path: "a.txt" });
+		currentQueryContext().recordToolCall("read-b", "read", { path: "b.txt" });
+		currentQueryContext().recordToolCall("grep-src", "grep", { path: "src", pattern: "needle" });
+		currentQueryContext().recordToolCall("grep-tests", "grep", { path: "tests", pattern: "needle" });
 
-		const readSecond = ctx().claimToolCall("read", { path: "b.txt" });
-		const grepSecond = ctx().claimToolCall("grep", { pattern: "needle", path: "tests" });
-		const readFirst = ctx().claimToolCall("read", { path: "a.txt" });
-		const grepFirst = ctx().claimToolCall("grep", { path: "src", pattern: "needle" });
+		const readSecond = currentQueryContext().claimToolCall("read", { path: "b.txt" });
+		const grepSecond = currentQueryContext().claimToolCall("grep", { pattern: "needle", path: "tests" });
+		const readFirst = currentQueryContext().claimToolCall("read", { path: "a.txt" });
+		const grepFirst = currentQueryContext().claimToolCall("grep", { path: "src", pattern: "needle" });
 
 		assert.equal(readSecond.toolCallId, "read-b");
 		assert.equal(grepSecond.toolCallId, "grep-tests");
@@ -86,20 +86,20 @@ describe("QueryContext class", () => {
 	});
 
 	it("claimToolCall refuses to fall back to a different tool type", () => {
-		ctx().recordToolCall("bash-1", "bash", { command: "echo ok", timeout: 120 });
+		currentQueryContext().recordToolCall("bash-1", "bash", { command: "echo ok", timeout: 120 });
 
-		const claim = ctx().claimToolCall("write", { path: "out.txt", content: "ok" });
+		const claim = currentQueryContext().claimToolCall("write", { path: "out.txt", content: "ok" });
 
 		assert.equal(claim.toolCallId, undefined);
 		assert.equal(claim.match, "none");
 		assert.equal(claim.available, 1);
-		assert.equal(ctx().claimedToolCallIds.has("bash-1"), false);
+		assert.equal(currentQueryContext().claimedToolCallIds.has("bash-1"), false);
 	});
 
 	it("claimToolCall allows sole same-name call before arguments finalize", () => {
-		ctx().recordToolCall("read-pending", "read", {});
+		currentQueryContext().recordToolCall("read-pending", "read", {});
 
-		const claim = ctx().claimToolCall("read", { path: "README.md" });
+		const claim = currentQueryContext().claimToolCall("read", { path: "README.md" });
 
 		assert.equal(claim.toolCallId, "read-pending");
 		assert.equal(claim.match, "tool-name");
@@ -110,21 +110,21 @@ describe("QueryContext class", () => {
 		// Recorded args = raw streamed input; handler args = the raw MCP arguments too.
 		// A stray/extra key must not strand the only call this handler can be (the
 		// argsMismatch fallback now guards against future schema/validator drift).
-		ctx().recordToolCall("edit-1", "edit", { path: "a.ts", edits: [{ oldText: "x", newText: "y", stray: true }] });
+		currentQueryContext().recordToolCall("edit-1", "edit", { path: "a.ts", edits: [{ oldText: "x", newText: "y", stray: true }] });
 
-		const claim = ctx().claimToolCall("edit", { path: "a.ts", edits: [{ oldText: "x", newText: "y" }] });
+		const claim = currentQueryContext().claimToolCall("edit", { path: "a.ts", edits: [{ oldText: "x", newText: "y" }] });
 
 		assert.equal(claim.toolCallId, "edit-1");
 		assert.equal(claim.match, "tool-name");
 		assert.equal(claim.argsMismatch, true);
-		assert.equal(ctx().claimedToolCallIds.has("edit-1"), true);
+		assert.equal(currentQueryContext().claimedToolCallIds.has("edit-1"), true);
 	});
 
 	it("claimToolCall still refuses when several same-name calls all mismatch", () => {
-		ctx().recordToolCall("edit-a", "edit", { path: "a.ts", edits: [] });
-		ctx().recordToolCall("edit-b", "edit", { path: "b.ts", edits: [] });
+		currentQueryContext().recordToolCall("edit-a", "edit", { path: "a.ts", edits: [] });
+		currentQueryContext().recordToolCall("edit-b", "edit", { path: "b.ts", edits: [] });
 
-		const claim = ctx().claimToolCall("edit", { path: "c.ts", edits: [] });
+		const claim = currentQueryContext().claimToolCall("edit", { path: "c.ts", edits: [] });
 
 		assert.equal(claim.toolCallId, undefined);
 		assert.equal(claim.match, "none");
@@ -132,29 +132,29 @@ describe("QueryContext class", () => {
 	});
 
 	it("takeStaleQueuedResults drains the queue and names tools across message resets", () => {
-		ctx().recordToolCall("bash-lost", "bash", { command: "echo hi", timeout: 120 });
-		ctx().pendingResults.set("bash-lost", { content: [{ type: "text", text: "hi" }] });
-		ctx().resetToolTracking(); // per-message records are cleared at a child-message boundary
+		currentQueryContext().recordToolCall("bash-lost", "bash", { command: "echo hi", timeout: 120 });
+		currentQueryContext().pendingResults.set("bash-lost", { content: [{ type: "text", text: "hi" }] });
+		currentQueryContext().resetToolTracking(); // per-message records are cleared at a child-message boundary
 
-		const progress = ctx().toolResultProgress();
+		const progress = currentQueryContext().toolResultProgress();
 		assert.equal(progress.queuedCount, 1);
 		assert.deepEqual(progress.toolNames, [{ name: "bash", count: 1 }], "query-scoped names survive the reset");
 
-		const stale = ctx().takeStaleQueuedResults();
+		const stale = currentQueryContext().takeStaleQueuedResults();
 		assert.deepEqual(stale, [{ id: "bash-lost", toolName: "bash" }]);
-		assert.equal(ctx().pendingResults.size, 0);
-		assert.deepEqual(ctx().takeStaleQueuedResults(), [], "second drain is empty");
+		assert.equal(currentQueryContext().pendingResults.size, 0);
+		assert.deepEqual(currentQueryContext().takeStaleQueuedResults(), [], "second drain is empty");
 	});
 
 	it("toolResultProgress reports teardown mismatch counts", () => {
-		ctx().recordToolCall("t0", "read", { path: "a" });
-		ctx().recordToolCall("t1", "grep", { pattern: "x" });
-		ctx().markToolResultDelivered("t0");
-		ctx().markToolResultResolved("t0");
-		ctx().pendingResults.set("t1", { toolCallId: "t1", content: [{ type: "text", text: "queued" }] });
-		ctx().markToolResultDelivered("t1");
+		currentQueryContext().recordToolCall("t0", "read", { path: "a" });
+		currentQueryContext().recordToolCall("t1", "grep", { pattern: "x" });
+		currentQueryContext().markToolResultDelivered("t0");
+		currentQueryContext().markToolResultResolved("t0");
+		currentQueryContext().pendingResults.set("t1", { toolCallId: "t1", content: [{ type: "text", text: "queued" }] });
+		currentQueryContext().markToolResultDelivered("t1");
 
-		const progress = ctx().toolResultProgress();
+		const progress = currentQueryContext().toolResultProgress();
 		assert.equal(progress.expectedCount, 2);
 		assert.equal(progress.deliveredCount, 2);
 		assert.equal(progress.resolvedCount, 1);
@@ -164,10 +164,10 @@ describe("QueryContext class", () => {
 	});
 
 	it("toolResultProgress reports unmatched result ids", () => {
-		ctx().recordToolCall("t0", "read", { path: "a" });
-		ctx().markToolResultUnmatched("unknown-result");
+		currentQueryContext().recordToolCall("t0", "read", { path: "a" });
+		currentQueryContext().markToolResultUnmatched("unknown-result");
 
-		const progress = ctx().toolResultProgress();
+		const progress = currentQueryContext().toolResultProgress();
 
 		assert.deepStrictEqual(progress.unmatchedResultIds, ["unknown-result"]);
 		assert.equal(progress.unmatchedResultCount, 1);

@@ -38,7 +38,11 @@ export function bridgeOnlyToolHook(): HookCallback {
 	};
 }
 
-function denyTool(name: unknown) {
+interface PreToolUseDenial {
+	hookSpecificOutput: { hookEventName: "PreToolUse"; permissionDecision: "deny"; permissionDecisionReason: string };
+}
+
+function denyTool(name: unknown): PreToolUseDenial {
 	return {
 		hookSpecificOutput: {
 			hookEventName: "PreToolUse" as const,

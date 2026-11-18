@@ -1,5 +1,8 @@
 import { MCP_SERVER_NAME, MCP_TOOL_PREFIX } from "./skills.js";
 
+// Pi bash has no default timeout, so a call the model left unbounded gets this one.
+const DEFAULT_BASH_TIMEOUT_SECONDS = 120;
+
 const SDK_TO_PI_TOOL_NAME: Record<string, string> = {
 	read: "read", write: "write", edit: "edit", bash: "bash",
 };
@@ -11,7 +14,6 @@ const BRIDGED_TOOL_PREFIXES = [
 	`mcp/${MCP_SERVER_NAME.replace(/-/g, "_")}/`,
 ];
 
-// --- Provider helpers: tool name mapping ---
 
 function bridgedToolSuffix(normalized: string): string | undefined {
 	const prefix = BRIDGED_TOOL_PREFIXES.find((candidate) => normalized.startsWith(candidate));
@@ -24,7 +26,7 @@ export function isForeignMcpTool(name: unknown): boolean {
 	return (normalized.startsWith("mcp__") || normalized.startsWith("mcp/")) && bridgedToolSuffix(normalized) === undefined;
 }
 
-export function isPiDispatchable(name: unknown, customToolNameToPi?: Map<string, string>): boolean {
+export function isPiDispatchable(name: unknown, customToolNameToPi?: ReadonlyMap<string, string>): boolean {
 	if (typeof name !== "string" || !name) return false;
 	const normalized = name.toLowerCase();
 	if (customToolNameToPi?.has(name) || customToolNameToPi?.has(normalized)) return true;
@@ -39,7 +41,7 @@ export function isPiDispatchable(name: unknown, customToolNameToPi?: Map<string,
 	return false;
 }
 
-export function mapToolName(name: string, customToolNameToPi?: Map<string, string>): string {
+export function mapToolName(name: string, customToolNameToPi?: ReadonlyMap<string, string>): string {
 	const normalized = name.toLowerCase();
 	const builtin = SDK_TO_PI_TOOL_NAME[normalized];
 	if (builtin) return builtin;
@@ -74,9 +76,8 @@ export function mapToolArgs(
 		const piKey = renames?.[key] ?? key;
 		if (!(piKey in result)) result[piKey] = value; // first alias wins
 	}
-	// Pi bash has no default timeout; add a safety default
 	if (toolName.toLowerCase() === "bash" && result.timeout == null) {
-		result.timeout = 120;
+		result.timeout = DEFAULT_BASH_TIMEOUT_SECONDS;
 	}
 	return result;
 }

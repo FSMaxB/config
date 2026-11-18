@@ -1,6 +1,6 @@
 // Pure session-file integrity check. Returns an array of warning strings;
-// callers decide how to surface them (debug log, piUI, diagDump, etc.).
-// Extracted from index.ts so tests can import without activating the extension.
+// callers decide how to surface them (debug log, piUI, diagDump, etc.). A module of its own so
+// tests can import it without activating the extension.
 
 import { closeSync, openSync, readSync, statSync } from "node:fs";
 import { StringDecoder } from "node:string_decoder";
@@ -11,9 +11,12 @@ interface JsonlSummary {
 	lastLine?: string;
 }
 
+// One buffer per read; the size only trades read calls against memory.
+const READ_CHUNK_BYTES = 64 * 1024;
+
 function forEachJsonlLine(path: string, onLine: (line: string) => void): void {
 	const fd = openSync(path, "r");
-	const buffer = Buffer.allocUnsafe(64 * 1024);
+	const buffer = Buffer.allocUnsafe(READ_CHUNK_BYTES);
 	const decoder = new StringDecoder("utf8");
 	let pending = "";
 	try {
@@ -56,15 +59,15 @@ export function verifyWrittenSession(jsonlPath: string, expectedSessionId: strin
 	let st;
 	try {
 		st = statSync(jsonlPath);
-	} catch (e) {
-		warnings.push(`session-file-missing=${jsonlPath}\nFile missing after save: ${e.message}`);
+	} catch (error) {
+		warnings.push(`session-file-missing=${jsonlPath}\nFile missing after save: ${error.message}`);
 		return warnings;
 	}
 	let summary;
 	try {
 		summary = summarizeJsonl(jsonlPath);
-	} catch (e) {
-		warnings.push(`session-file-unreadable=${jsonlPath}\nFile unreadable: size=${st.size} error=${e.message}`);
+	} catch (error) {
+		warnings.push(`session-file-unreadable=${jsonlPath}\nFile unreadable: size=${st.size} error=${error.message}`);
 		return warnings;
 	}
 	if (summary.count !== expectedRecordCount) {
@@ -77,8 +80,8 @@ export function verifyWrittenSession(jsonlPath: string, expectedSessionId: strin
 		if (firstRec.sessionId !== expectedSessionId || lastRec.sessionId !== expectedSessionId) {
 			warnings.push(`session-id-drift=${expectedSessionId} first=${firstRec.sessionId} last=${lastRec.sessionId}\nSession identity differs from the expected identity.`);
 		}
-	} catch (e) {
-		warnings.push(`session-json-invalid=${jsonlPath}\nMalformed JSONL: ${e.message}`);
+	} catch (error) {
+		warnings.push(`session-json-invalid=${jsonlPath}\nMalformed JSONL: ${error.message}`);
 	}
 	return warnings;
 }

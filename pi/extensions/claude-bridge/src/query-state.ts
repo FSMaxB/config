@@ -23,7 +23,7 @@ export interface DeferredUserMessage {
  *  The messages are user-authored prompt text and the diag log sits outside
  *  any host app's retention boundary, so no content — not even a preview —
  *  may appear in the entry. */
-export function summarizeDroppedUserMessages(site: string, dropped: DeferredUserMessage[]): Record<string, unknown> {
+export function summarizeDroppedUserMessages(site: string, dropped: readonly DeferredUserMessage[]): Record<string, unknown> {
 	return {
 		site,
 		count: dropped.length,
@@ -90,12 +90,12 @@ export function toolCallDrainCause(flags: { wasAborted?: boolean; signalAborted?
 /** Resolves every handler still waiting on `queryCtx` with an error result naming
  *  `cause`, clears the map, and returns how many were drained. Scoped to the one
  *  context it is given — never touches a sibling or parent query's handlers. */
-export function drainPendingToolCalls(queryCtx: QueryContext, cause: ToolCallDrainCause): number {
-	const drained = queryCtx.pendingToolCalls.size;
+export function drainPendingToolCalls(queryContext: QueryContext, cause: ToolCallDrainCause): number {
+	const drained = queryContext.pendingToolCalls.size;
 	if (drained === 0) return 0;
 	const result = interruptedToolCallResult(cause);
-	for (const pending of queryCtx.pendingToolCalls.values()) pending.resolve(result);
-	queryCtx.pendingToolCalls.clear();
+	for (const pending of queryContext.pendingToolCalls.values()) pending.resolve(result);
+	queryContext.pendingToolCalls.clear();
 	return drained;
 }
 
@@ -115,12 +115,12 @@ export function strandedToolCallResult(): McpResult {
  *  never forward it AFTER the model was told it failed — that late forward
  *  would execute the call a second time behind the model's back.
  *  Returns true when a handler was failed. */
-export function failStrandedToolCall(queryCtx: QueryContext, id: string): boolean {
-	if (queryCtx.forwardedToolCallIds.has(id)) return false;
-	const pending = queryCtx.pendingToolCalls.get(id);
+export function failStrandedToolCall(queryContext: QueryContext, id: string): boolean {
+	if (queryContext.forwardedToolCallIds.has(id)) return false;
+	const pending = queryContext.pendingToolCalls.get(id);
 	if (!pending) return false;
-	queryCtx.pendingToolCalls.delete(id);
-	queryCtx.deadToolCallIds.add(id);
+	queryContext.pendingToolCalls.delete(id);
+	queryContext.deadToolCallIds.add(id);
 	pending.resolve(strandedToolCallResult());
 	return true;
 }
@@ -133,17 +133,17 @@ export function failStrandedToolCall(queryCtx: QueryContext, id: string): boolea
  *  Handlers from the current generation stay untouched: their turn is still
  *  streaming and the forward may simply not have happened yet. Failed ids are
  *  marked dead exactly like failStrandedToolCall. */
-export function drainStrandedToolCalls(queryCtx: QueryContext): Array<{ id: string; toolName: string }> {
+export function drainStrandedToolCalls(queryContext: QueryContext): Array<{ id: string; toolName: string }> {
 	const stranded: Array<{ id: string; toolName: string }> = [];
-	for (const [id, pending] of queryCtx.pendingToolCalls) {
-		if (pending.generation >= queryCtx.callbackGeneration) continue;
-		if (queryCtx.forwardedToolCallIds.has(id)) continue;
+	for (const [id, pending] of queryContext.pendingToolCalls) {
+		if (pending.generation >= queryContext.callbackGeneration) continue;
+		if (queryContext.forwardedToolCallIds.has(id)) continue;
 		stranded.push({ id, toolName: pending.toolName });
 	}
 	for (const { id } of stranded) {
-		const pending = queryCtx.pendingToolCalls.get(id)!;
-		queryCtx.pendingToolCalls.delete(id);
-		queryCtx.deadToolCallIds.add(id);
+		const pending = queryContext.pendingToolCalls.get(id)!;
+		queryContext.pendingToolCalls.delete(id);
+		queryContext.deadToolCallIds.add(id);
 		pending.resolve(strandedToolCallResult());
 	}
 	return stranded;
@@ -153,15 +153,15 @@ export function drainStrandedToolCalls(queryCtx: QueryContext): Array<{ id: stri
  *  reap-parked store second. Late handlers land here: Pi delivers every result
  *  of a turn in one callback, while the SDK staggers handler invocations, so a
  *  handler can fire after a message boundary already parked its result. */
-export function takeQueuedOrParkedResult(queryCtx: QueryContext, id: string): McpResult | undefined {
-	const queued = queryCtx.pendingResults.get(id);
+export function takeQueuedOrParkedResult(queryContext: QueryContext, id: string): McpResult | undefined {
+	const queued = queryContext.pendingResults.get(id);
 	if (queued !== undefined) {
-		queryCtx.pendingResults.delete(id);
+		queryContext.pendingResults.delete(id);
 		return queued;
 	}
-	const parked = queryCtx.reapedResults.get(id);
+	const parked = queryContext.reapedResults.get(id);
 	if (parked !== undefined) {
-		queryCtx.reapedResults.delete(id);
+		queryContext.reapedResults.delete(id);
 		return parked;
 	}
 	return undefined;
@@ -665,7 +665,7 @@ export class QueryContext {
 	}
 }
 
-type UsageCounters = { input: number; output: number; cacheRead: number; cacheWrite: number };
+interface UsageCounters { input: number; output: number; cacheRead: number; cacheWrite: number }
 
 function unbilledUsage(current: UsageCounters, billed: UsageCounters | undefined): UsageCounters {
 	if (!billed) return { ...current };
@@ -724,7 +724,7 @@ function lane(): QueryLaneState {
 	return state;
 }
 
-export function ctx(): QueryContext { return lane().current; }
+export function currentQueryContext(): QueryContext { return lane().current; }
 
 export function stackDepth(): number { return lane().stack.length; }
 
@@ -745,7 +745,7 @@ export function popContext(): void {
 
 /** Pop the context that belongs to ONE specific query, wherever it sits.
  *
- *  The common case is `target === ctx()` and this is exactly popContext(). The
+ *  The common case is `target === currentQueryContext()` and this is exactly popContext(). The
  *  reason this exists: a reentrant parent query can end ABNORMALLY (abort, child
  *  process death) while its own subagent's context is still pushed above it. A
  *  bare popContext() there would discard the live grandchild's context and
@@ -760,11 +760,11 @@ export function popContextFor(target: QueryContext): boolean {
 		popContext();
 		return true;
 	}
-	const idx = state.stack.indexOf(target);
-	if (idx < 0) return false;
-	const parent = idx > 0 ? state.stack[idx - 1] : undefined;
+	const index = state.stack.indexOf(target);
+	if (index < 0) return false;
+	const parent = index > 0 ? state.stack[index - 1] : undefined;
 	parent?.deferredUserMessages.push(...target.deferredUserMessages);
-	state.stack.splice(idx, 1);
+	state.stack.splice(index, 1);
 	return true;
 }
 

@@ -156,10 +156,10 @@ export function takeStartedLane(sessionManager: object): string | undefined {
  *  `forceRotate` additionally rotates the session UUID; set it only when a
  *  killed CC child may still be writing its JSONL (see the field docs on
  *  SessionState). */
-export function markSessionForRebuild(reason: string, opts: { forceRotate?: boolean } = {}): void {
+export function markSessionForRebuild(reason: string, options: { forceRotate?: boolean } = {}): void {
 	const sharedSession = getSharedSession();
 	if (!sharedSession) return;
-	setSharedSession({ ...sharedSession, needsRebuild: true, rebuildReason: reason, ...(opts.forceRotate ? { forceRotate: true } : {}) });
+	setSharedSession({ ...sharedSession, needsRebuild: true, rebuildReason: reason, ...(options.forceRotate ? { forceRotate: true } : {}) });
 }
 
 export function setExtensionApi(next: ExtensionAPI | undefined): void {
@@ -186,7 +186,7 @@ export function argKeys(args: Record<string, unknown> | undefined): string[] {
 	return Object.keys(args ?? {}).sort();
 }
 
-export function safeToolCallSummary(calls: Array<{ id: string; toolName: string; arguments?: Record<string, unknown> }>): Array<{ id: string; toolName: string; argKeys: string[] }> {
+export function safeToolCallSummary(calls: ReadonlyArray<{ id: string; toolName: string; arguments?: Record<string, unknown> }>): Array<{ id: string; toolName: string; argKeys: string[] }> {
 	return calls.map((call) => ({ id: call.id, toolName: call.toolName, argKeys: argKeys(call.arguments) }));
 }
 
@@ -215,13 +215,13 @@ export function appendIntegrityEntry(label: string, data: Record<string, unknown
 	}
 }
 
-function compactToolNameSummary(names: Array<{ name: string; count: number }>, limit = 12): string[] {
+function compactToolNameSummary(names: ReadonlyArray<{ name: string; count: number }>, limit = 12): string[] {
 	const shown = names.slice(0, limit).map(({ name, count }) => count > 1 ? `${name}×${count}` : name);
 	if (names.length > limit) shown.push(`+${names.length - limit} more`);
 	return shown;
 }
 
-export function reportSyntheticToolResultRepair(missing: MissingToolResult[], context: Record<string, unknown>): void {
+export function reportSyntheticToolResultRepair(missing: readonly MissingToolResult[], context: Record<string, unknown>): void {
 	try {
 		if (missing.length === 0) return;
 		const toolNames = summarizeMissingToolNames(missing);
@@ -251,19 +251,19 @@ export function reportSyntheticToolResultRepair(missing: MissingToolResult[], co
 }
 
 export function reportToolResultMismatch(
-	queryCtx: QueryContext,
+	queryContext: QueryContext,
 	reason: string,
 	cwd: string | undefined,
-	opts: { expectedInterruption?: boolean; forceRotate?: boolean } = {},
+	options: { expectedInterruption?: boolean; forceRotate?: boolean } = {},
 ): boolean {
 	try {
-		if (queryCtx.reportedToolResultMismatch) return false;
-		const progress = queryCtx.toolResultProgress();
+		if (queryContext.reportedToolResultMismatch) return false;
+		const progress = queryContext.toolResultProgress();
 		const hasMismatch = progress.expectedCount > 0
 			? progress.unresolvedIds.length > 0 || progress.waitingCount > 0 || progress.queuedCount > 0 || progress.unmatchedResultCount > 0
 			: progress.waitingCount > 0 || progress.queuedCount > 0 || progress.unmatchedResultCount > 0;
 		if (!hasMismatch) return false;
-		queryCtx.reportedToolResultMismatch = true;
+		queryContext.reportedToolResultMismatch = true;
 		// The single choke point every mismatch path funnels through (abort,
 		// unmatched result, stream-idle, teardown). A context with no claim on
 		// the shared record (reentrant subagent or foreign one-shot,)
@@ -271,10 +271,10 @@ export function reportToolResultMismatch(
 		// its own — marking the PARENT's record needsRebuild/forceRotate here
 		// would flush the parent's prompt cache for a query that never touched
 		// its session.
-		if (!queryCtx.detachedFromSharedSession) markSessionForRebuild(`tool result delivery interrupted during ${reason}`, opts);
+		if (!queryContext.detachedFromSharedSession) markSessionForRebuild(`tool result delivery interrupted during ${reason}`, options);
 		// A user abort interrupting in-flight tool calls is expected teardown, not
 		// an integrity fault: mark the rebuild but skip the diag dump and toast.
-		if (opts.expectedInterruption) {
+		if (options.expectedInterruption) {
 			debug(
 				`tool result delivery interrupted as expected during ${reason}; ` +
 				`delivered=${progress.deliveredCount}/${progress.expectedCount} ` +
@@ -289,8 +289,8 @@ export function reportToolResultMismatch(
 			reason,
 			cwd,
 			progress,
-			activeQueryExists: queryCtx.activeQuery !== null,
-			detachedFromSharedSession: queryCtx.detachedFromSharedSession,
+			activeQueryExists: queryContext.activeQuery !== null,
+			detachedFromSharedSession: queryContext.detachedFromSharedSession,
 			sharedSession: sharedSession ? {
 				sessionId: sharedSession.sessionId.slice(0, 8),
 				cursor: sharedSession.cursor,
@@ -314,7 +314,7 @@ export function reportToolResultMismatch(
 			`delivered ${progress.deliveredCount}/${progress.expectedCount}, resolved ${progress.resolvedCount}/${progress.expectedCount}, ` +
 			`waiting=${progress.waitingCount}, queued=${progress.queuedCount}, unmatched=${progress.unmatchedResultCount}` +
 			`${toolNameSummary.length ? `, tools=${toolNameSummary.join(", ")}` : ""}. ` +
-			(queryCtx.detachedFromSharedSession
+			(queryContext.detachedFromSharedSession
 				? `Detached one-shot query — shared Claude session record left untouched; ${diagGuidance()}.`
 				: `Claude session will rebuild before the next turn; ${diagGuidance()}.`),
 			"error",

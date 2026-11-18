@@ -1,5 +1,5 @@
 // End-of-query teardown, extracted from streamClaudeAgentSdk's .finally so it
-// operates on the ONE context captured at query start — never the live ctx().
+// operates on the ONE context captured at query start — never the live currentQueryContext().
 // The two only differ while a reentrant (subagent) context is pushed, which is
 // exactly when a parent query ending abnormally (abort, child process death)
 // teardown must run against the parent state. Using the subagent state skips
@@ -40,26 +40,26 @@ export function abortSdkQuery(sdkQuery: unknown): void {
  *  is not the context's active one (a continuation replaced it, or teardown
  *  already ran). Returns true when teardown actually ran. */
 export function teardownQuery(
-	queryCtx: QueryContext,
+	queryContext: QueryContext,
 	sdkQuery: unknown,
 	cause: ToolCallDrainCause,
 	cwd: string,
 	isReentrant: boolean,
 ): boolean {
-	if (queryCtx.activeQuery !== sdkQuery) return false;
-	reportToolResultMismatch(queryCtx, "query teardown", cwd, { forceRotate: cause !== "query-end" });
+	if (queryContext.activeQuery !== sdkQuery) return false;
+	reportToolResultMismatch(queryContext, "query teardown", cwd, { forceRotate: cause !== "query-end" });
 	// Drain pending handlers for this query as errors naming the cause —
 	// their results are never coming.
-	const drained = drainPendingToolCalls(queryCtx, cause);
+	const drained = drainPendingToolCalls(queryContext, cause);
 	if (drained > 0) debug(`provider: query teardown drained ${drained} waiting MCP handler(s) as errors (cause=${cause})`);
-	queryCtx.pendingResults.clear();
+	queryContext.pendingResults.clear();
 
 	if (isReentrant) {
 		// Merges deferred messages and restores/repairs the stack. popContextFor
 		// (not popContext): a live subagent context may sit above this one.
-		if (!popContextFor(queryCtx)) debug("provider: query teardown found context already popped; skipping pop");
+		if (!popContextFor(queryContext)) debug("provider: query teardown found context already popped; skipping pop");
 	} else {
-		queryCtx.activeQuery = null;
+		queryContext.activeQuery = null;
 	}
 	return true;
 }

@@ -50,8 +50,8 @@ function parseDurationLiteralMs(value: string, defaultUnit: "ms" | "s" = "s"): n
 	return Number.isFinite(ms) ? ms : undefined;
 }
 
-export function streamIdleTimeoutMsFromEnv(env: NodeJS.ProcessEnv = process.env): number {
-	const raw = env[STREAM_IDLE_TIMEOUT_ENV]?.trim();
+export function streamIdleTimeoutMsFromEnv(environment: NodeJS.ProcessEnv = process.env): number {
+	const raw = environment[STREAM_IDLE_TIMEOUT_ENV]?.trim();
 	if (!raw) return DEFAULT_STREAM_IDLE_TIMEOUT_MS;
 	return parseDurationLiteralMs(raw, "s") ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS;
 }
@@ -72,14 +72,14 @@ export function createStreamIdleWatchdog({
 	getState,
 	now = () => Date.now(),
 	onTimeout,
-	setTimer = (fn: () => void, delayMs: number) => setTimeout(fn, delayMs),
+	setTimer = (callback: () => void, delayMs: number) => setTimeout(callback, delayMs),
 	timeoutMs,
 }: {
 	clearTimer?: (timer: TimerHandle) => void;
 	getState: () => StreamIdleWatchdogState;
 	now?: () => number;
 	onTimeout: (info: StreamIdleTimeoutInfo) => void;
-	setTimer?: (fn: () => void, delayMs: number) => TimerHandle;
+	setTimer?: (callback: () => void, delayMs: number) => TimerHandle;
 	timeoutMs: number;
 }): StreamIdleWatchdog {
 	let disposed = false;

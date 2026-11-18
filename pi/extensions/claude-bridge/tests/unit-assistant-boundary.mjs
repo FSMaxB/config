@@ -1,15 +1,15 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { processAssistantMessage, processStreamEvent } from "../src/index.ts";
-import { ctx, resetStack } from "../src/query-state.ts";
+import { currentQueryContext, resetStack } from "../src/query-state.ts";
 import { model, installFakeStream, streamEvent } from "./lib/tool-stream.mjs";
 import { cancelScheduledToolUseEnd } from "../src/assistant-stream.ts";
-afterEach(() => cancelScheduledToolUseEnd(ctx()));
+afterEach(() => cancelScheduledToolUseEnd(currentQueryContext()));
 describe("assistant tool-use boundary fallback", () => {
 	beforeEach(() => resetStack());
 
 	it("defers the streamed tool-use turn end to message_stop so message_delta usage lands", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		const events = installFakeStream();
 		c.turnSawStreamEvent = true;
@@ -63,7 +63,7 @@ describe("assistant tool-use boundary fallback", () => {
 	});
 
 	it("adds missing tool-use blocks from assistant message before ending the turn", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		const events = installFakeStream();
 		c.turnSawStreamEvent = true;
@@ -93,7 +93,7 @@ describe("assistant tool-use boundary fallback", () => {
 
 	it("grace timer force-ends the tool-use turn when terminal events never arrive", (t) => {
 		t.mock.timers.enable({ apis: ["setTimeout"] });
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		const events = installFakeStream();
 		c.turnSawStreamEvent = true;
@@ -125,7 +125,7 @@ describe("assistant tool-use boundary fallback", () => {
 	it("keeps the tool-use turn open while the stream keeps delivering events", (t) => {
 		// arrange
 		t.mock.timers.enable({ apis: ["setTimeout"] });
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		const events = installFakeStream();
 		c.turnSawStreamEvent = true;
@@ -156,7 +156,7 @@ describe("assistant tool-use boundary fallback", () => {
 	it("force-ends the tool-use turn after a full grace period of silence", (t) => {
 		// arrange
 		t.mock.timers.enable({ apis: ["setTimeout"] });
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		installFakeStream();
 		c.turnSawStreamEvent = true;
@@ -178,7 +178,7 @@ describe("assistant tool-use boundary fallback", () => {
 	});
 
 	it("records assistant tool-use ids even after the stream already ended", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		c.turnSawStreamEvent = true;
 		c.turnSawToolCall = true;
@@ -226,7 +226,7 @@ describe("assistant tool-use boundary fallback", () => {
 	});
 
 	it("ignores a late bare message_stop so the next assistant fallback still renders text", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		installFakeStream();
 
@@ -248,7 +248,7 @@ describe("assistant tool-use boundary fallback", () => {
 	});
 
 	it("ignores late unmatched content_block events so assistant fallback is not masked", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		installFakeStream();
 
@@ -270,7 +270,7 @@ describe("assistant tool-use boundary fallback", () => {
 	});
 
 	it("updates the Pi assistant model when Claude Code switches models at message_start", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState({ ...model, id: "claude-fable-5-2" });
 		installFakeStream();
 
@@ -290,7 +290,7 @@ describe("assistant tool-use boundary fallback", () => {
 	});
 
 	it("records fallback assistant blocks without rendering them as text", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState({ ...model, id: "claude-fable-5-2" });
 		installFakeStream();
 

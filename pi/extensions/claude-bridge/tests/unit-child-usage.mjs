@@ -1,15 +1,15 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { processAssistantMessage, processStreamEvent } from "../src/index.ts";
-import { ctx, resetStack } from "../src/query-state.ts";
+import { currentQueryContext, resetStack } from "../src/query-state.ts";
 import { model, installFakeStream, streamEvent } from "./lib/tool-stream.mjs";
 import { cancelScheduledToolUseEnd, endToolUseTurn } from "../src/assistant-stream.ts";
-afterEach(() => cancelScheduledToolUseEnd(ctx()));
+afterEach(() => cancelScheduledToolUseEnd(currentQueryContext()));
 describe("usage across a Pi turn that spans several child messages", () => {
 	beforeEach(() => resetStack());
 
 	it("accumulates what each finished child message billed", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		installFakeStream();
 
@@ -41,7 +41,7 @@ describe("usage across a Pi turn that spans several child messages", () => {
 	});
 
 	it("replaces rather than doubles within one child message", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		installFakeStream();
 
@@ -61,7 +61,7 @@ describe("usage across a Pi turn that spans several child messages", () => {
 		// The SDK can deliver a turn as complete `assistant` messages with no
 		// stream events. That path begins the following child message, so
 		// it must bank the previous one exactly as `message_start` does.
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		installFakeStream();
 
@@ -83,7 +83,7 @@ describe("usage across a Pi turn that spans several child messages", () => {
 		// NO content blocks leaves `turnSawStreamEvent` false, so the SDK's completed
 		// copy of that SAME message lands on the no-stream-events path. Banking per
 		// call site counted it twice; banking per message id does not.
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		installFakeStream();
 
@@ -104,7 +104,7 @@ describe("usage across a Pi turn that spans several child messages", () => {
 
 	it("still accumulates when the SDK reports no message ids", () => {
 		// Older/streamless shapes carry no id. Each call then means what it says.
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		installFakeStream();
 
@@ -122,7 +122,7 @@ describe("usage across a Pi turn that spans several child messages", () => {
 	});
 
 	it("starts fresh for the next Pi message", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		installFakeStream();
 		processStreamEvent(streamEvent({
@@ -157,7 +157,7 @@ describe("usage of a child message split across Pi turns", () => {
 
 	it("bills nothing again for a replayed turn of an already billed message", () => {
 		// arrange
-		const c = ctx();
+		const c = currentQueryContext();
 		deliverFirstTurn(c);
 		c.resetTurnState(model);
 		const events = installFakeStream();
@@ -178,7 +178,7 @@ describe("usage of a child message split across Pi turns", () => {
 
 	it("bills output that arrives after the first turn was delivered", () => {
 		// arrange
-		const c = ctx();
+		const c = currentQueryContext();
 		deliverFirstTurn(c);
 		c.resetTurnState(model);
 		installFakeStream();
@@ -196,7 +196,7 @@ describe("usage of a child message split across Pi turns", () => {
 
 	it("does not bank an already billed message into the next message's turn", () => {
 		// arrange
-		const c = ctx();
+		const c = currentQueryContext();
 		deliverFirstTurn(c);
 		c.resetTurnState(model);
 		installFakeStream();

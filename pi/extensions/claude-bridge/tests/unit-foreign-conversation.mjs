@@ -25,7 +25,7 @@ import {
 import { streamNormalized } from "./lib/stream-normalized.mjs";
 import { conversationFingerprint } from "../src/session-persistence.ts";
 import { setExtensionApi } from "../src/bridge-state.ts";
-import { ctx, resetStack } from "../src/query-state.ts";
+import { currentQueryContext, resetStack } from "../src/query-state.ts";
 import { runInRequestLane } from "../src/request-lane.ts";
 
 const model = {
@@ -168,11 +168,11 @@ describe("foreign-conversation completion (#1001)", () => {
 			{ sessionId: "foreign-unresolved-tool" },
 		));
 		// The pi stream ends at the toolUse boundary; teardown runs after.
-		assert.equal(await waitFor(() => runInRequestLane("foreign-unresolved-tool", () => ctx().activeQuery === null)), true, "foreign query teardown completed");
+		assert.equal(await waitFor(() => runInRequestLane("foreign-unresolved-tool", () => currentQueryContext().activeQuery === null)), true, "foreign query teardown completed");
 
 		assert.ok(events.some((event) => event.type === "done" && event.reason === "toolUse"));
 		assert.equal(
-			runInRequestLane("foreign-unresolved-tool", () => ctx().detachedFromSharedSession),
+			runInRequestLane("foreign-unresolved-tool", () => currentQueryContext().detachedFromSharedSession),
 			true,
 			"the foreign non-claim must ride the query context",
 		);

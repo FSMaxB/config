@@ -2,15 +2,15 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { processAssistantMessage, processStreamEvent } from "../src/index.ts";
 import { endToolUseTurn, finalizeToolUseTurnFromMcpInvocation } from "../src/assistant-stream.ts";
-import { ctx, resetStack } from "../src/query-state.ts";
+import { currentQueryContext, resetStack } from "../src/query-state.ts";
 import { model, installFakeStream } from "./lib/tool-stream.mjs";
 import { cancelScheduledToolUseEnd } from "../src/assistant-stream.ts";
-afterEach(() => cancelScheduledToolUseEnd(ctx()));
+afterEach(() => cancelScheduledToolUseEnd(currentQueryContext()));
 describe("cross-turn duplicate dispatch suppression", () => {
 	beforeEach(() => resetStack());
 
 	function endTurnWithCall(id) {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		installFakeStream();
 		c.recordToolCall(id, "bash", { command: "x" });

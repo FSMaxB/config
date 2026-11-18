@@ -29,7 +29,7 @@ export interface BridgedTool {
 	handler: (args: Record<string, unknown> | undefined) => Promise<McpResult>;
 }
 
-export function createToolServer(name: string, tools: BridgedTool[]): McpSdkServerConfigWithInstance {
+export function createToolServer(name: string, tools: readonly BridgedTool[]): McpSdkServerConfigWithInstance {
 	const { Server } = requirePackage("@modelcontextprotocol/sdk/server/index.js") as McpServerModule;
 	const { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } =
 		requirePackage("@modelcontextprotocol/sdk/types.js") as McpTypesModule;

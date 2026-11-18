@@ -32,9 +32,9 @@ import { debug } from "./debug.js";
 
 const CONTEXT_FILE_CANDIDATES = ["AGENTS.override.md", "AGENTS.md", "AGENTS.MD"];
 
-function contextFileInDir(dir: string): string | undefined {
+function contextFileInDir(directory: string): string | undefined {
 	for (const filename of CONTEXT_FILE_CANDIDATES) {
-		const candidate = join(dir, filename);
+		const candidate = join(directory, filename);
 		try {
 			if (statSync(candidate).isFile()) return candidate;
 		} catch (error) {
@@ -105,7 +105,7 @@ export function extractAgentsAppend(): string | undefined {
 			if (sanitized.length > 0) sections.push(sanitized);
 		} catch (error) {
 			// An unreadable AGENTS.md silently drops the user's standing instructions
-			// from every child prompt — degrade as before, but leave a trace.
+			// from every child prompt — keep going without it, but leave a trace.
 			debug(`agents-md: failed to read ${agentsPath}:`, error instanceof Error ? error.message : String(error));
 		}
 	}

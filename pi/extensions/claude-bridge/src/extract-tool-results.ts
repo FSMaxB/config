@@ -2,8 +2,7 @@
 // tool results. Pi appends results to context and calls the provider again;
 // this scrapes them back out. Walks past user messages (steer/followUp) that
 // pi may inject between toolResults. Stops at the nearest assistant message
-// (turn boundary).
-// Extracted from index.ts so tests can import without activating the extension.
+// (turn boundary). A module of its own so tests can import it without activating the extension.
 
 export type McpContent = Array<
 	| { type: "text"; text: string }
@@ -18,7 +17,7 @@ export interface McpResult {
 }
 
 export function toolResultToMcpContent(
-	content: string | Array<{ type: string; text?: string; data?: string; mimeType?: string }>,
+	content: string | ReadonlyArray<{ type: string; text?: string; data?: string; mimeType?: string }>,
 ): McpContent {
 	if (typeof content === "string") return [{ type: "text", text: content || "" }];
 	if (!Array.isArray(content)) return [{ type: "text", text: "" }];
@@ -32,17 +31,17 @@ export function toolResultToMcpContent(
 
 // Returns { results, stopIdx } so callers can log the walk boundary.
 export function extractAllToolResults(
-	messages: Array<{ role: string; content?: unknown; toolCallId?: string; isError?: boolean; [key: string]: unknown }>,
+	messages: ReadonlyArray<{ role: string; content?: unknown; toolCallId?: string; isError?: boolean; [key: string]: unknown }>,
 ): { results: McpResult[]; stopIdx: number } {
 	const results: McpResult[] = [];
-	let stopIdx = -1;
+	let stopIndex = -1;
 	for (let i = messages.length - 1; i >= 0; i--) {
-		const msg = messages[i];
-		if (msg.role === "toolResult") {
-			results.unshift({ content: toolResultToMcpContent(msg.content as string | Array<{ type: string; text?: string; data?: string; mimeType?: string }>), isError: msg.isError, toolCallId: msg.toolCallId });
-		} else if (msg.role === "assistant") { stopIdx = i; break; }
+		const message = messages[i];
+		if (message.role === "toolResult") {
+			results.unshift({ content: toolResultToMcpContent(message.content as string | Array<{ type: string; text?: string; data?: string; mimeType?: string }>), isError: message.isError, toolCallId: message.toolCallId });
+		} else if (message.role === "assistant") { stopIndex = i; break; }
 		// user messages (steer/followUp injected mid-tool-execution) and system
 		// messages (a prompt or tool-set change Pi recorded at the boundary): skip
 	}
-	return { results, stopIdx };
+	return { results, stopIdx: stopIndex };
 }

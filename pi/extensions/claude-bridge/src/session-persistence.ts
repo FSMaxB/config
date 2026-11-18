@@ -16,7 +16,6 @@ import {
 	recoverLaterToolResults,
 } from "./tool-pairing-audit.js";
 
-// --- Session persistence ---
 
 const BRIDGE_SESSION_CUSTOM_TYPE = "claude-bridge-session";
 
@@ -65,7 +64,7 @@ function shortHash(text: string): string {
  *  open to the pre-fingerprint behavior, never treat it as a mismatch.
  *  Distinct from fingerprintMessages below, which hashes a cursor slice for
  *  restore integrity. */
-export function conversationFingerprint(messages: Message[]): string | undefined {
+export function conversationFingerprint(messages: readonly Message[]): string | undefined {
 	const firstUser = messages.find((message) => (message as { role?: string }).role === "user");
 	if (!firstUser) return undefined;
 	const userText = normalizedMessageText(firstUser);
@@ -76,7 +75,7 @@ export function conversationFingerprint(messages: Message[]): string | undefined
 
 /** The first assistant message with any text or tool call, normalized. An
  *  assistant message with neither (an aborted turn) is skipped. */
-function firstAssistantIdentity(messages: Message[]): string {
+function firstAssistantIdentity(messages: readonly Message[]): string {
 	for (const message of messages) {
 		if ((message as { role?: string }).role !== "assistant") continue;
 		const identity = normalizedAssistantIdentity(message);
@@ -140,7 +139,7 @@ function conversationFingerprintUpgrade(recorded: string | undefined, incoming: 
 	return rec && inc && !rec.assistant && inc.assistant && rec.user === inc.user ? incoming : undefined;
 }
 
-function fingerprintMessages(messages: Message[]): string {
+function fingerprintMessages(messages: readonly Message[]): string {
 	const normalized = messages.map((message) => {
 		if (message.role === "assistant") {
 			return {
@@ -236,22 +235,22 @@ export function shouldRestorePersistedBridgeEntry(
 	return undefined;
 }
 
-export function restoreSharedSessionFromPi(ctx: { sessionManager?: unknown; cwd?: string }): void {
-	const persisted = latestPersistedBridgeSession(ctx.sessionManager);
+export function restoreSharedSessionFromPi(context: { sessionManager?: unknown; cwd?: string }): void {
+	const persisted = latestPersistedBridgeSession(context.sessionManager);
 	if (!persisted) return;
 	// Reject before interpreting a routed UUID as an ambient-login session.
 	if (Object.hasOwn(persisted, "accountProfileId")) {
 		debug("restoreSharedSession: legacy profile marker — rebuilding from Pi history");
 		return;
 	}
-	const currentPiSessionId = typeof (ctx.sessionManager as any)?.getSessionId === "function" ? (ctx.sessionManager as any).getSessionId() : undefined;
-	const currentCwd = typeof (ctx.sessionManager as any)?.getCwd === "function" ? (ctx.sessionManager as any).getCwd() : ctx.cwd;
+	const currentPiSessionId = typeof (context.sessionManager as any)?.getSessionId === "function" ? (context.sessionManager as any).getSessionId() : undefined;
+	const currentCwd = typeof (context.sessionManager as any)?.getCwd === "function" ? (context.sessionManager as any).getCwd() : context.cwd;
 	const rejection = shouldRestorePersistedBridgeEntry(persisted, currentPiSessionId, currentCwd);
 	if (rejection) {
 		debug(`restoreSharedSession: ${rejection} — forcing rebuild`);
 		return;
 	}
-	const built = readBuiltSessionContext(ctx.sessionManager);
+	const built = readBuiltSessionContext(context.sessionManager);
 	if (!built) return;
 	const cursor = Math.max(0, Math.min(persisted.cursor, built.messages.length));
 	const fingerprint = fingerprintMessages(built.messages.slice(0, cursor));
@@ -363,8 +362,8 @@ export function schedulePersistSharedSession(ctxLike?: { sessionManager?: unknow
 // sequence stays valid before repairToolPairing runs.
 function convertAndImportMessages(
 	session: ReturnType<typeof createSession>,
-	messages: Message[],
-	customToolNameToSdk?: Map<string, string>,
+	messages: readonly Message[],
+	customToolNameToSdk?: ReadonlyMap<string, string>,
 	cwd?: string,
 ): void {
 	const { anthropicMessages, sanitizedIds } = convertPiMessages(messages, customToolNameToSdk);
@@ -448,7 +447,7 @@ export interface IncrementalPromptBatchPlan {
  * here is a caller bug.
  */
 export function planIncrementalPromptBatch(
-	messages: Message[],
+	messages: readonly Message[],
 	cursor: number,
 	interruptedToolCallIds: readonly string[] = [],
 ): IncrementalPromptBatchPlan | undefined {
@@ -499,8 +498,8 @@ export function verifyWrittenSession(
 	claudeDir: string | undefined,
 ): void {
 	const warnings = _verifyWrittenSession(jsonlPath, expectedSessionId, expectedRecordCount);
-	for (const msg of warnings) {
-		debug(`WARNING session verify: ${msg}`);
+	for (const message of warnings) {
+		debug(`WARNING session verify: ${message}`);
 		// No CLAUDE_CONFIG_DIR value here: this text asks to be pasted into a
 		// public issue and config-dir paths are account-identifying (see the
 		// persisted-shape note at the top of this file). The diagDump below
@@ -508,18 +507,18 @@ export function verifyWrittenSession(
 		// reason — an absolute cwd carries the username; the diagDump keeps the
 		// absolute forms.
 		safeNotify(
-			`${msg}\n` +
+			`${message}\n` +
 			`cwd=${displayPath(cwd)} realpath=${displayPath(safeRealpath(cwd))}\n` +
 			`Please copy and paste this message into a new issue at https://github.com/vanillagreencom/kendex/issues/new` +
 			(DEBUG ? ` and attach ${DEBUG_LOG_PATH}` : ` (rerun with CLAUDE_BRIDGE_DEBUG=1 to capture a debug log)`),
 			"warning",
 		);
-		diagDump("session_verify_fail", { msg, jsonlPath, cwd, realpath: safeRealpath(cwd), claudeConfigDir: claudeDir ?? null });
+		diagDump("session_verify_fail", { msg: message, jsonlPath, cwd, realpath: safeRealpath(cwd), claudeConfigDir: claudeDir ?? null });
 	}
 }
 
 function safeRealpath(p: string): string {
-	try { return realpathSync(p); } catch (e) { return `<failed: ${(e as Error).message}>`; }
+	try { return realpathSync(p); } catch (error) { return `<failed: ${(error as Error).message}>`; }
 }
 
 // Diagnostic snapshot of where a session file was just written. Catches the
@@ -578,9 +577,9 @@ function debugSessionPaths(label: string, cwd: string, jsonlPath: string, claude
 // the provider lane filters the transcript before calling, so a `system` message
 // here is a caller bug.
 export function syncSharedSession(
-	messages: Message[],
+	messages: readonly Message[],
 	cwd: string,
-	customToolNameToSdk?: Map<string, string>,
+	customToolNameToSdk?: ReadonlyMap<string, string>,
 	modelId?: string,
 ): SyncResult {
 	const sharedSession = getSharedSession();

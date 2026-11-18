@@ -1,6 +1,6 @@
 // Background SDK-stream consumer + the failure/metadata capture that rides it.
-// Extracted from index.ts (pure move): consumeQuery iterates one SDK query's
-// generator and pushes events into the query's captured Pi stream.
+// consumeQuery iterates one SDK query's generator and pushes events into the
+// query's captured Pi stream.
 
 import type { Model } from "@earendil-works/pi-ai";
 import type { AccountInfo, query } from "@anthropic-ai/claude-agent-sdk";
@@ -69,13 +69,13 @@ export interface ConsumeQueryResult {
 
 export async function consumeQuery(
 	sdkQuery: ReturnType<typeof query>,
-	// The CAPTURED context of the query being consumed, never the live ctx():
+	// The CAPTURED context of the query being consumed, never the live currentQueryContext():
 	// an MCP tool can push a reentrant subagent context while this iterator is
 	// suspended, and reading live state then would consult the WRONG query — a
 	// recovered success could retain its failure and surface an error, or a
 	// child session id could stamp the subagent's context.
-	queryCtx: QueryContext,
-	customToolNameToPi: Map<string, string>,
+	queryContext: QueryContext,
+	customToolNameToPi: ReadonlyMap<string, string>,
 	model: Model<any>,
 	bridgeConfig: Config,
 	wasAborted: () => boolean,
@@ -94,20 +94,20 @@ export async function consumeQuery(
 		// and exits by itself. `break` would call the iterator's return(), which is
 		// close(), and kill it mid-write.
 		if (wasAborted()) continue;
-		activeStreamIdleWatchdogs.get(queryCtx)?.noteChunk();
-		if (!queryCtx.turnOutput) continue;
+		activeStreamIdleWatchdogs.get(queryContext)?.noteChunk();
+		if (!queryContext.turnOutput) continue;
 		// Only rendering needs a live Pi stream; failure metadata may arrive
 		// after a tool-use turn boundary closed it.
-		const streamLive = Boolean(queryCtx.currentPiStream);
+		const streamLive = Boolean(queryContext.currentPiStream);
 
 		switch (message.type) {
 			case "stream_event":
 				if (!streamLive) break;
-				processStreamEvent(message, customToolNameToPi, model, queryCtx);
+				processStreamEvent(message, customToolNameToPi, model, queryContext);
 				break;
 			case "assistant": {
-				if (!streamLive && !queryCtx.turnSawToolCall) break;
-				processAssistantMessage(message, model, customToolNameToPi, queryCtx);
+				if (!streamLive && !queryContext.turnSawToolCall) break;
+				processAssistantMessage(message, model, customToolNameToPi, queryContext);
 				break;
 			}
 			case "result":
@@ -116,26 +116,26 @@ export async function consumeQuery(
 				// rejected rate limit) means the query ultimately SUCCEEDED: the
 				// failure was informational and must neither surface an error after
 				// the answer nor skip session persistence.
-				if (failure && message.subtype === "success" && queryCtx.committedOutput) {
+				if (failure && message.subtype === "success" && queryContext.committedOutput) {
 					debug(`consumeQuery: clearing informational ${failure.kind ?? "unclassified"} failure — query recovered with committed output`);
 					holdFailure(undefined);
 				}
-				if (!queryCtx.turnSawStreamEvent && message.subtype === "success") {
+				if (!queryContext.turnSawStreamEvent && message.subtype === "success") {
 					if (!streamLive) break;
 					const text = message.result || "";
 					// The no-stream-events assistant fallback may have already rendered
 					// this exact text (it does not set turnSawStreamEvent) — re-pushing
 					// it here is the other half of the duplicated-output bug.
-					if (queryCtx.turnBlocks.some((b: any) => b.type === "text" && b.text === text)) {
+					if (queryContext.turnBlocks.some((b: any) => b.type === "text" && b.text === text)) {
 						debug("consumeQuery: result text already rendered by assistant fallback; skipping duplicate");
 						break;
 					}
-					ensureTurnStarted(queryCtx);
-					queryCtx.turnBlocks.push({ type: "text", text });
-					const idx = queryCtx.turnBlocks.length - 1;
-					queryCtx.currentPiStream?.push({ type: "text_start", contentIndex: idx, partial: queryCtx.turnOutput });
-					queryCtx.currentPiStream?.push({ type: "text_delta", contentIndex: idx, delta: text, partial: queryCtx.turnOutput });
-					queryCtx.currentPiStream?.push({ type: "text_end", contentIndex: idx, content: text, partial: queryCtx.turnOutput });
+					ensureTurnStarted(queryContext);
+					queryContext.turnBlocks.push({ type: "text", text });
+					const index = queryContext.turnBlocks.length - 1;
+					queryContext.currentPiStream?.push({ type: "text_start", contentIndex: index, partial: queryContext.turnOutput });
+					queryContext.currentPiStream?.push({ type: "text_delta", contentIndex: index, delta: text, partial: queryContext.turnOutput });
+					queryContext.currentPiStream?.push({ type: "text_end", contentIndex: index, content: text, partial: queryContext.turnOutput });
 				} else if (message.subtype !== "success") {
 					const errorLines = Array.isArray((message as any).errors) ? uniqueNonEmptyLines((message as any).errors) : [];
 					const errors = errorLines.length > 0 ? errorLines.join("\n") : String((message as any).result || message.subtype || "Claude Code request failed");
@@ -145,12 +145,12 @@ export async function consumeQuery(
 						// isUsageLimitMessage matches the CLI's own usage-limit copy (SDK
 						// USAGE_LIMIT_ERROR_PREFIXES). Surface it immediately, exactly as
 						// before, and suppress the SDK's raw follow-up throw.
-						queryCtx.handledTerminalError = true;
-						queryCtx.turnOutput.stopReason = "error";
-						queryCtx.turnOutput.errorMessage = errors;
-						queryCtx.currentPiStream?.push({ type: "error", reason: "error", error: queryCtx.turnOutput });
-						queryCtx.currentPiStream?.end();
-						queryCtx.currentPiStream = null;
+						queryContext.handledTerminalError = true;
+						queryContext.turnOutput.stopReason = "error";
+						queryContext.turnOutput.errorMessage = errors;
+						queryContext.currentPiStream?.push({ type: "error", reason: "error", error: queryContext.turnOutput });
+						queryContext.currentPiStream?.end();
+						queryContext.currentPiStream = null;
 					}
 					// Other non-success subtypes (error_max_turns,
 					// error_during_execution) surface at completion via the held
@@ -162,7 +162,7 @@ export async function consumeQuery(
 				if (!streamLive) break;
 				if ((message as any).subtype === "init" && (message as any).session_id) {
 					capturedSessionId = (message as any).session_id;
-					queryCtx.claudeSessionId = capturedSessionId;
+					queryContext.claudeSessionId = capturedSessionId;
 					noteFastModeDisabledReason(message, bridgeConfig);
 					// Which login this child authenticated as is published for other
 					// extensions. Nothing waits for
@@ -178,7 +178,7 @@ export async function consumeQuery(
 				} else if ((message as any).subtype === "model_refusal_fallback") {
 					const originalModel = (message as any).original_model;
 					const fallbackModel = (message as any).fallback_model;
-					updateTurnOutputModel(fallbackModel, queryCtx);
+					updateTurnOutputModel(fallbackModel, queryContext);
 					debug("consumeQuery: model_refusal_fallback", JSON.stringify({ originalModel, fallbackModel }));
 					const notice = refusalFallbackNotice(originalModel, fallbackModel);
 					if (notice) safeNotify(notice, "info");

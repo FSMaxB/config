@@ -1,13 +1,13 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { ctx, resetStack, takeQueuedOrParkedResult } from "../src/query-state.ts";
+import { currentQueryContext, resetStack, takeQueuedOrParkedResult } from "../src/query-state.ts";
 import { cancelScheduledToolUseEnd } from "../src/assistant-stream.ts";
-afterEach(() => cancelScheduledToolUseEnd(ctx()));
+afterEach(() => cancelScheduledToolUseEnd(currentQueryContext()));
 describe("parked early results", () => {
 	beforeEach(() => resetStack());
 
 	it("a message-boundary reap parks results for a late handler instead of destroying them", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.queryToolNames.set("a", "web_fetch");
 		c.pendingResults.set("a", { toolCallId: "a", content: [{ type: "text", text: "real output" }] });
 
@@ -21,7 +21,7 @@ describe("parked early results", () => {
 	});
 
 	it("takeQueuedOrParkedResult prefers the live queue over the parked store", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.pendingResults.set("a", { toolCallId: "a", content: [{ type: "text", text: "queued" }] });
 		c.reapedResults.set("a", { toolCallId: "a", content: [{ type: "text", text: "parked" }] });
 
@@ -30,7 +30,7 @@ describe("parked early results", () => {
 	});
 
 	it("an id present in both stores is one claim candidate, not an ambiguous pair", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.recordToolCall("a", "web_fetch", { url: "https://a.example" });
 		c.pendingResults.set("a", { toolCallId: "a", content: [{ type: "text", text: "queued" }] });
 		c.reapedResults.set("a", { toolCallId: "a", content: [{ type: "text", text: "parked" }] });

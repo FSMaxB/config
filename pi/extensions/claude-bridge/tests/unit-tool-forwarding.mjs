@@ -2,15 +2,15 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { processAssistantMessage, processStreamEvent } from "../src/index.ts";
 import { FINALIZE_MAX_REARMS, endToolUseTurn, finalizeToolUseTurnFromMcpInvocation } from "../src/assistant-stream.ts";
-import { ctx, resetStack } from "../src/query-state.ts";
+import { currentQueryContext, resetStack } from "../src/query-state.ts";
 import { model, installFakeStream } from "./lib/tool-stream.mjs";
 import { cancelScheduledToolUseEnd } from "../src/assistant-stream.ts";
-afterEach(() => cancelScheduledToolUseEnd(ctx()));
+afterEach(() => cancelScheduledToolUseEnd(currentQueryContext()));
 describe("grace finalize argument settlement", () => {
 	beforeEach(() => resetStack());
 
 	it("settles a still-partial block from the handler's authoritative args, never the partial JSON", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		const events = installFakeStream();
 		c.recordToolCall("t1", "web_fetch", {});
@@ -31,7 +31,7 @@ describe("grace finalize argument settlement", () => {
 	});
 
 	it("settles fired siblings from their handlers' args and re-arms for silent ones instead of truncating", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		const events = installFakeStream();
 		for (const [id, name] of [["t1", "bash"], ["t2", "bash"], ["t3", "bash"]]) {
@@ -64,7 +64,7 @@ describe("turn-end safety invariants", () => {
 	beforeEach(() => resetStack());
 
 	it("endToolUseTurn never ships a still-partial block", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		const events = installFakeStream();
 		c.recordToolCall("sealed", "bash", { command: "ls" });
@@ -81,7 +81,7 @@ describe("turn-end safety invariants", () => {
 	});
 
 	it("a completed-message block suppresses its lagging same-turn stream twin", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		const events = installFakeStream();
 		c.turnSawStreamEvent = true;
@@ -106,7 +106,7 @@ describe("turn-end safety invariants", () => {
 	});
 
 	it("finalize for a forwarded id still ends the turn for its executable siblings", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.forwardedToolCallIds.add("old");
 		c.resetTurnState(model);
 		const events = installFakeStream();
@@ -121,7 +121,7 @@ describe("turn-end safety invariants", () => {
 	});
 
 	it("a completed-message yield on a dead stream never mutates the delivered turn", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		installFakeStream();
 		c.recordToolCall("t1", "bash", { command: "ls" });

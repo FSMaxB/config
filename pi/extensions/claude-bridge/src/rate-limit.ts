@@ -26,7 +26,7 @@ function usageLimitPrefixes(): readonly string[] {
 	return Array.isArray(prefixes) ? prefixes : [];
 }
 
-export function uniqueNonEmptyLines(values: unknown[]): string[] {
+export function uniqueNonEmptyLines(values: readonly unknown[]): string[] {
 	const seen = new Set<string>();
 	const out: string[] = [];
 	for (const value of values) {

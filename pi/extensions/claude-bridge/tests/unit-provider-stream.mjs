@@ -10,7 +10,7 @@ import { __testSetBridgeIntegrityState, __testGetBridgeIntegrityState, __testSet
 import { streamNormalized } from "./lib/stream-normalized.mjs";
 import { RATE_LIMIT_TOKEN } from "../src/rate-limit.ts";
 import { setExtensionApi } from "../src/bridge-state.ts";
-import { ctx, resetStack } from "../src/query-state.ts";
+import { currentQueryContext, resetStack } from "../src/query-state.ts";
 import { runInRequestLane } from "../src/request-lane.ts";
 
 const model = {
@@ -78,7 +78,7 @@ describe("ordinary provider stream", () => {
 			if (options.length > 1) return query([{ type: "result", subtype: "success", result: "second" }]);
 			return {
 				async *[Symbol.asyncIterator]() {
-					ctx().deferredUserMessages.push({ text: "later" });
+					currentQueryContext().deferredUserMessages.push({ text: "later" });
 					yield { type: "system", subtype: "init", session_id: "sess-forked" };
 					yield { type: "result", subtype: "success", result: "first" };
 				}, close() {}, async interrupt() {}, async accountInfo() { return {}; },
@@ -192,7 +192,7 @@ describe("ordinary provider stream", () => {
 			calls++;
 			return {
 				async *[Symbol.asyncIterator]() {
-					ctx().deferredUserMessages.push({ text: "queued steer" });
+					currentQueryContext().deferredUserMessages.push({ text: "queued steer" });
 					yield { type: "system", subtype: "init", session_id: "session-failure" };
 					yield { type: "result", subtype: "error_max_turns", errors: ["max turns exceeded"] };
 				}, close() {}, async interrupt() {},
@@ -217,7 +217,7 @@ describe("ordinary provider stream", () => {
 			if (options.length === 1) {
 				return {
 					async *[Symbol.asyncIterator]() {
-						ctx().deferredUserMessages.push({ text: "later" });
+						currentQueryContext().deferredUserMessages.push({ text: "later" });
 						yield { type: "system", subtype: "init", session_id: "first-session" };
 						yield { type: "result", subtype: "success", result: "first" };
 					}, close() {}, async interrupt() {}, async accountInfo() { return {}; },
@@ -291,7 +291,7 @@ describe("ordinary provider stream", () => {
 		}));
 		// act
 		const parentStream = streamNormalized(model, context, { sessionId: "parent" });
-		assert.equal(await waitFor(() => runInRequestLane("parent", () => ctx().activeQuery !== null)), true);
+		assert.equal(await waitFor(() => runInRequestLane("parent", () => currentQueryContext().activeQuery !== null)), true);
 		const subagentStream = streamNormalized(model, { messages: [{ role: "user", content: "", timestamp: Date.now() }] }, { sessionId: "subagent" });
 		// assert
 		assert.deepEqual(sessionFor("parent"), parent);
@@ -341,7 +341,7 @@ describe("ordinary provider stream", () => {
 		const events = await collect(streamNormalized(model, withTool, { sessionId: "post-boundary-failure" }));
 		// assert
 		assert.ok(events.some((event) => event.type === "done" && event.reason === "toolUse"));
-		assert.equal(await waitFor(() => runInRequestLane("post-boundary-failure", () => ctx().activeQuery === null)), true);
+		assert.equal(await waitFor(() => runInRequestLane("post-boundary-failure", () => currentQueryContext().activeQuery === null)), true);
 		assert.equal(sessionFor("post-boundary-failure")?.sessionId, "session-tool");
 	});
 });

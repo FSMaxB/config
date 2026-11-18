@@ -24,6 +24,7 @@ Differences from upstream:
 - A request with `cacheRetention: "none"` (Pi's compaction and summary one-shots, pi-web-access's answer mode) always runs as its own query in a private request lane, even when it carries the session id of a conversation whose query is running. Upstream routes it into that conversation's lane, where it is taken for a tool-result callback of the running query, never answered, and releasing the lane deletes the conversation's session state.
 - Every Claude Code refusal fallback is announced. Claude Code picks the fallback model per refusal category (for example Opus 5 for bio refusals of Fable 5.2), so upstream's rule of announcing only the bridge's own pairing hid most reroutes.
 - Claude Code always runs from the binary bundled with the Claude Agent SDK unless `pathToClaudeCodeExecutable` names another one. Upstream prefers a `claude` found on `PATH`, which can be older than the SDK and not know newer models: Claude Code 2.1.319 gives an unknown Fable 5.2 a 200k window instead of 1M, so long sessions fail with "Prompt is too long".
+- Parts of the TypeScript follow this repo's code style (the `code-style` skill): full words instead of `ctx`, `msg`, `idx` and similar abbreviations (`ctx()` is `currentQueryContext()`), readonly parameters, interfaces for object shapes, explicit return types, named constants, and no separator comments or comments about the code's history. The `any` types and casts around the Claude Agent SDK's messages are still upstream's.
 
 ## Install
 

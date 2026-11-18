@@ -1,6 +1,5 @@
-// Pure assembly of the Claude Agent SDK query options for one bridge query.
-// Extracted from index.ts (pure move): no closures — reads config, env, and
-// the provided context only.
+// Pure assembly of the Claude Agent SDK query options for one bridge query:
+// no closures — reads config, env, and the provided context only.
 
 import type { Model, Tool } from "@earendil-works/pi-ai";
 import type { McpSdkServerConfigWithInstance, query, EffortLevel, SettingSource, SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
@@ -15,7 +14,6 @@ import { fallbackModelForPrimaryModel } from "./models.js";
 import { buildPromptContextAppend } from "./prompt-context.js";
 import { extractSkillsBlock, MCP_SERVER_NAME } from "./skills.js";
 
-// --- Effort level mapping ---
 // Pi reasoning levels → CC SDK effort levels
 
 const REASONING_TO_EFFORT: Record<string, EffortLevel> = {
@@ -120,7 +118,7 @@ export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): Bu
 	// also autocompact would double-flush the prompt cache and races pi's
 		// threshold with CC's, including CC's anti-thrashing guard.
 	// Manual /compact in CC still works (we never invoke it).
-	const childEnv = {
+	const childEnvironment = {
 		...process.env,
 		ENABLE_CLAUDEAI_MCP_SERVERS: "0",
 		DISABLE_AUTO_COMPACT: "1",
@@ -146,7 +144,7 @@ export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): Bu
 		strictMcpConfig: true,
 		hooks: { PreToolUse: [{ hooks: [bridgeOnlyToolHook()] }] },
 		mcpServers: mcpServers?.[MCP_SERVER_NAME] ? { [MCP_SERVER_NAME]: mcpServers[MCP_SERVER_NAME] } : {},
-		env: childEnv,
+		env: childEnvironment,
 	};
 
 	return {
@@ -163,6 +161,6 @@ export function systemPromptModeForQuery(tools: readonly Tool[], systemPrompt: s
 	return tools.length === 0 && systemPrompt ? "verbatim" : "claude-code-preset";
 }
 
-export function settingSourcesForQuery(appendSystemPrompt: boolean, configured?: SettingSource[]): SettingSource[] | undefined {
-	return appendSystemPrompt ? undefined : configured ?? ["user", "project"];
+export function settingSourcesForQuery(appendSystemPrompt: boolean, configured?: readonly SettingSource[]): SettingSource[] | undefined {
+	return appendSystemPrompt ? undefined : configured === undefined ? ["user", "project"] : [...configured];
 }

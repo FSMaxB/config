@@ -21,21 +21,21 @@ export interface ClaudeExecutablePreflightResult {
 	fileType: ClaudeExecutableFileType;
 }
 
-function errnoValue(err: unknown): string | number | undefined {
-	return typeof (err as NodeJS.ErrnoException)?.errno === "number" ? (err as NodeJS.ErrnoException).errno : undefined;
+function errnoValue(error: unknown): string | number | undefined {
+	return typeof (error as NodeJS.ErrnoException)?.errno === "number" ? (error as NodeJS.ErrnoException).errno : undefined;
 }
 
-function syscallValue(err: unknown): string | undefined {
-	return typeof (err as NodeJS.ErrnoException)?.syscall === "string" ? (err as NodeJS.ErrnoException).syscall : undefined;
+function syscallValue(error: unknown): string | undefined {
+	return typeof (error as NodeJS.ErrnoException)?.syscall === "string" ? (error as NodeJS.ErrnoException).syscall : undefined;
 }
 
-function pathValue(err: unknown): string | undefined {
-	const value = (err as NodeJS.ErrnoException)?.path;
+function pathValue(error: unknown): string | undefined {
+	const value = (error as NodeJS.ErrnoException)?.path;
 	return typeof value === "string" ? value : undefined;
 }
 
-function codeValue(err: unknown, fallback: string): string {
-	const value = (err as NodeJS.ErrnoException)?.code;
+function codeValue(error: unknown, fallback: string): string {
+	const value = (error as NodeJS.ErrnoException)?.code;
 	return typeof value === "string" ? value : fallback;
 }
 
@@ -102,15 +102,15 @@ export function preflightClaudeExecutable(path: string, cwd: string): ClaudeExec
 		}
 		accessSync(cwd, fsConstants.X_OK);
 		realCwd = realpathSync(cwd);
-	} catch (err) {
-		if ((err as Error).name === "ClaudeExecutablePreflightError") throw err;
+	} catch (error) {
+		if ((error as Error).name === "ClaudeExecutablePreflightError") throw error;
 		throw makeClaudePreflightError("Claude Code spawn cwd preflight failed: cwd is not reachable before spawning Claude Code.", {
-			code: codeValue(err, "EACCES"),
-			errno: errnoValue(err),
-			syscall: syscallValue(err),
-			path: pathValue(err) ?? cwd,
+			code: codeValue(error, "EACCES"),
+			errno: errnoValue(error),
+			syscall: syscallValue(error),
+			path: pathValue(error) ?? cwd,
 			cwd,
-			cause: err,
+			cause: error,
 		});
 	}
 
@@ -127,30 +127,30 @@ export function preflightClaudeExecutable(path: string, cwd: string): ClaudeExec
 		}
 		accessSync(path, fsConstants.X_OK);
 		realPath = realpathSync(path);
-	} catch (err) {
-		if ((err as Error).name === "ClaudeExecutablePreflightError") throw err;
+	} catch (error) {
+		if ((error as Error).name === "ClaudeExecutablePreflightError") throw error;
 		throw makeClaudePreflightError("Claude Code executable preflight failed: cannot access resolved executable before spawning Claude Code.", {
-			code: codeValue(err, "ENOENT"),
-			errno: errnoValue(err),
-			syscall: syscallValue(err),
-			path: pathValue(err) ?? path,
+			code: codeValue(error, "ENOENT"),
+			errno: errnoValue(error),
+			syscall: syscallValue(error),
+			path: pathValue(error) ?? path,
 			cwd,
-			cause: err,
+			cause: error,
 		});
 	}
 
 	let fileType: ClaudeExecutableFileType;
 	try {
 		fileType = classifyClaudeExecutableBytes(readFileSync(realPath).subarray(0, 16));
-	} catch (err) {
+	} catch (error) {
 		throw makeClaudePreflightError("Claude Code executable preflight failed: cannot read executable header before spawning Claude Code.", {
-			code: codeValue(err, "EACCES"),
-			errno: errnoValue(err),
-			syscall: syscallValue(err),
-			path: pathValue(err) ?? realPath,
+			code: codeValue(error, "EACCES"),
+			errno: errnoValue(error),
+			syscall: syscallValue(error),
+			path: pathValue(error) ?? realPath,
 			cwd,
 			realPath,
-			cause: err,
+			cause: error,
 		});
 	}
 
@@ -172,15 +172,15 @@ function envFlagEnabled(value: string | undefined): boolean {
 	return value === "1" || value?.toLowerCase() === "true";
 }
 
-export function wrapClaudeSpawnErrorForSdk(err: Error, options: SpawnOptions): Error & NodeJS.ErrnoException & { cwd: string; originalCode?: string; originalMessage?: string } {
-	const originalCode = codeValue(err, "SPAWN_ERROR");
-	const originalMessage = err.message;
-	const spawnPath = pathValue(err) ?? options.command;
+export function wrapClaudeSpawnErrorForSdk(error: Error, options: SpawnOptions): Error & NodeJS.ErrnoException & { cwd: string; originalCode?: string; originalMessage?: string } {
+	const originalCode = codeValue(error, "SPAWN_ERROR");
+	const originalMessage = error.message;
+	const spawnPath = pathValue(error) ?? options.command;
 	const cwd = options.cwd ?? process.cwd();
 	const detail = [
 		`code=${originalCode}`,
-		`errno=${displayValue(errnoValue(err))}`,
-		`syscall=${displayValue(syscallValue(err))}`,
+		`errno=${displayValue(errnoValue(error))}`,
+		`syscall=${displayValue(syscallValue(error))}`,
 		`path=${spawnPath}`,
 		`cwd=${cwd}`,
 		`command=${options.command}`,
@@ -193,9 +193,9 @@ export function wrapClaudeSpawnErrorForSdk(err: Error, options: SpawnOptions): E
 	wrapped.code = originalCode === "ENOENT" ? "CLAUDE_BRIDGE_SPAWN_FAILED" : originalCode;
 	wrapped.originalCode = originalCode;
 	wrapped.originalMessage = originalMessage;
-	const errno = errnoValue(err);
+	const errno = errnoValue(error);
 	if (errno !== undefined) wrapped.errno = typeof errno === "number" ? errno : Number(errno);
-	const syscall = syscallValue(err);
+	const syscall = syscallValue(error);
 	if (syscall) wrapped.syscall = syscall;
 	wrapped.path = spawnPath;
 	wrapped.cwd = cwd;
@@ -222,16 +222,16 @@ export function spawnClaudeCodeWithDiagnostics(options: SpawnOptions): SpawnedPr
 			}
 		});
 	}
-	child.prependListener("error", (err) => {
-		const originalStack = err.stack;
-		const wrapped = wrapClaudeSpawnErrorForSdk(err, options);
-		Object.assign(err, wrapped);
-		err.name = wrapped.name;
-		err.message = wrapped.message;
+	child.prependListener("error", (error) => {
+		const originalStack = error.stack;
+		const wrapped = wrapClaudeSpawnErrorForSdk(error, options);
+		Object.assign(error, wrapped);
+		error.name = wrapped.name;
+		error.message = wrapped.message;
 		// Keep V8's stack from the actual Node spawn failure, not the wrapper
 		// construction site. Diagnostic fields above remain enumerable and
 		// JSON-serializable; stack stays the spawn-time breadcrumb for operators.
-		if (originalStack) err.stack = originalStack;
+		if (originalStack) error.stack = originalStack;
 	});
 	return {
 		stdin: child.stdin,

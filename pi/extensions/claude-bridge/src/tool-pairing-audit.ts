@@ -47,7 +47,7 @@ function toolResultIds(content: unknown): Set<string> {
  * copying is therefore required to keep both assistant messages valid.
  */
 export function recoverLaterToolResults(
-	messages: Array<{ role?: string; content?: unknown }>,
+	messages: ReadonlyArray<{ role?: string; content?: unknown }>,
 ): RecoveredToolResult[] {
 	const recovered: RecoveredToolResult[] = [];
 	for (let i = 0; i < messages.length; i++) {
@@ -101,12 +101,12 @@ export function recoverLaterToolResults(
  * be followed by a user message containing matching tool_result blocks. Return
  * every tool_use that would force repairToolPairing to synthesize a result.
  */
-export function findUnpairedToolUses(messages: Array<{ role?: string; content?: unknown }>): MissingToolResult[] {
+export function findUnpairedToolUses(messages: ReadonlyArray<{ role?: string; content?: unknown }>): MissingToolResult[] {
 	const missing: MissingToolResult[] = [];
 	for (let i = 0; i < messages.length; i++) {
-		const msg = messages[i];
-		if (msg?.role !== "assistant") continue;
-		const uses = toolUses(msg.content);
+		const message = messages[i];
+		if (message?.role !== "assistant") continue;
+		const uses = toolUses(message.content);
 		if (uses.length === 0) continue;
 
 		const next = messages[i + 1];
@@ -142,7 +142,7 @@ export const LOST_TOOL_RESULT_TEXT =
  */
 export function insertLostToolResultPlaceholders(
 	messages: Array<{ role?: string; content?: unknown }>,
-	missing: MissingToolResult[],
+	missing: readonly MissingToolResult[],
 ): void {
 	const block = (id: string) => ({ type: "tool_result", tool_use_id: id, content: LOST_TOOL_RESULT_TEXT, is_error: true });
 	const byAssistant = new Map<number, MissingToolResult[]>();
@@ -169,7 +169,7 @@ export function insertLostToolResultPlaceholders(
 	}
 }
 
-export function summarizeMissingToolNames(missing: MissingToolResult[]): Array<{ name: string; count: number }> {
+export function summarizeMissingToolNames(missing: readonly MissingToolResult[]): Array<{ name: string; count: number }> {
 	const counts = new Map<string, number>();
 	for (const item of missing) counts.set(item.toolName, (counts.get(item.toolName) ?? 0) + 1);
 	return [...counts.entries()]

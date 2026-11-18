@@ -8,7 +8,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { __testSetBridgeIntegrityState, __testSetSdkQueryFactory } from "../src/index.ts";
 import { streamNormalized } from "./lib/stream-normalized.mjs";
-import { ctx, resetStack } from "../src/query-state.ts";
+import { currentQueryContext, resetStack } from "../src/query-state.ts";
 import { cancelScheduledToolUseEnd } from "../src/assistant-stream.ts";
 
 const model = { id: "claude-haiku-4-5", api: "claude-bridge", provider: "pi-claude", cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } };
@@ -52,27 +52,27 @@ async function withBridge(ids, run) {
 		await client.connect(clientTransport);
 		await client.listTools();
 		const bridge = {
-			query: ctx(),
+			query: currentQueryContext(),
 			async handler(id) {
 				const result = client.callTool({ name: "echo", arguments: { id } });
 				pending.push(result);
 				// Transport dispatch and schema validation are microtasks. Observe the
 				// production handler registration rather than advancing a wall clock.
-				for (let turn = 0; turn < 100 && !ctx().claimedToolCallIds.has(id); turn++) await Promise.resolve();
-				assert.equal(ctx().claimedToolCallIds.has(id), true, `handler registered: ${id}`);
+				for (let turn = 0; turn < 100 && !currentQueryContext().claimedToolCallIds.has(id); turn++) await Promise.resolve();
+				assert.equal(currentQueryContext().claimedToolCallIds.has(id), true, `handler registered: ${id}`);
 				return { result };
 			},
 			deliver(results) {
 				// Pi calls back only after the previous response stream ended.
-				ctx().currentPiStream = null;
+				currentQueryContext().currentPiStream = null;
 				streamNormalized(model, { messages: [
 					{ role: "assistant", content: ids.map((id) => ({ type: "toolCall", id, name: "echo", arguments: { id } })) },
 					...results.map(({ id, text = id, isError = false }) => ({ role: "toolResult", toolCallId: id, content: [{ type: "text", text }], isError })),
 				] }, { cwd: root });
 			},
 			counts(waiting, queued) {
-				assert.deepEqual([ctx().pendingToolCalls.size, ctx().pendingResults.size], [waiting, queued]);
-				for (const id of ctx().pendingToolCalls.keys()) assert.equal(ctx().pendingResults.has(id), false, id);
+				assert.deepEqual([currentQueryContext().pendingToolCalls.size, currentQueryContext().pendingResults.size], [waiting, queued]);
+				for (const id of currentQueryContext().pendingToolCalls.keys()) assert.equal(currentQueryContext().pendingResults.has(id), false, id);
 			},
 			abort() { abort.abort(); },
 		};
@@ -81,7 +81,7 @@ async function withBridge(ids, run) {
 		abort.abort();
 		gate.resolve();
 		await finished.promise;
-		cancelScheduledToolUseEnd(ctx());
+		cancelScheduledToolUseEnd(currentQueryContext());
 		await client?.close();
 		await server?.close();
 		await Promise.allSettled(pending);

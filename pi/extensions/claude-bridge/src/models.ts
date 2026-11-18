@@ -1,5 +1,5 @@
-// Canonical selection + display order for the model picker.
-// Extracted from index.ts so tests can import without activating the extension.
+// Canonical selection + display order for the model picker. A module of its own so tests can
+// import it without activating the extension.
 
 export const FABLE_5_2_MODEL_ID = "claude-fable-5-2";
 // Opus 4.8 is both a selectable model and the configured safety-fallback target for the Claude 5
@@ -39,7 +39,7 @@ export const MODEL_IDS_IN_ORDER = [
 	HAIKU_4_5_MODEL_ID,
 ];
 
-type BridgeModelMetadata = {
+interface BridgeModelMetadata {
 	id: string;
 	name: string;
 	reasoning: boolean;
@@ -47,7 +47,7 @@ type BridgeModelMetadata = {
 	input: ("text" | "image")[];
 	contextWindow: number;
 	maxTokens: number;
-};
+}
 
 const FALLBACK_MODELS: Record<string, BridgeModelMetadata> = {
 	[FABLE_5_2_MODEL_ID]: {
@@ -134,7 +134,7 @@ export function refusalFallbackNotice(originalModel: unknown, fallbackModel: unk
 // Project pi-ai's model entries down to the fields pi's registerProvider expects,
 // keep MODEL_IDS_IN_ORDER ordering, and fill bridge-owned metadata for supported
 // IDs absent from pi-ai. Unknown missing IDs are still dropped.
-export function buildModels<T extends { id: string; [key: string]: any }>(piAiModels: T[]) {
+export function buildModels<T extends { id: string; [key: string]: any }>(piAiModels: readonly T[]) {
 	return MODEL_IDS_IN_ORDER
 		.map((id) => piAiModels.find((m) => m.id === id) ?? FALLBACK_MODELS[id])
 		.filter((m) => m != null)
