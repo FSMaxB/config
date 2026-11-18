@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ItemTone } from "./panel.ts";
 import { LOADED_PLAN_ENTRY, planItems, planPathForToolPath, plansOnBranch, withPlan } from "./plans.ts";
-import type { RealPath } from "./tool-path.ts";
+import type { RealPath } from "../lib/tool-path.ts";
 
 const root = "/home/u/.pi/agent/plans";
 const plan = `${root}/Users-u-config/20261116-1401-sidebar.md`;

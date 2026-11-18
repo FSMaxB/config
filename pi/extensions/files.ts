@@ -5,6 +5,8 @@ import { lstat, unlink } from "node:fs/promises";
 import type {
   ExtensionAPI,
   LsToolDetails,
+  ReadToolInput,
+  Theme,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -14,7 +16,10 @@ import {
   createLsToolDefinition,
   createReadToolDefinition,
   createWriteToolDefinition,
+  formatReadLineRange,
+  keyText,
 } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import type { TSchema } from "typebox";
 import { errorCode } from "./lib/errors.ts";
@@ -26,6 +31,8 @@ import {
 } from "./lib/path-permissions.ts";
 import { provideSessionGrants } from "./lib/session-grants.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
+import { buildSkillIndex, skillLoadForReadPath, skillReferenceLabel } from "./lib/skill-index.ts";
+import type { SkillIndex, SkillReference } from "./lib/skill-index.ts";
 import {
   createFindExecute,
   createGrepExecute,
@@ -51,7 +58,7 @@ export default function (pi: ExtensionAPI): void {
   registerToolWithGuidelines(
     pi,
     withNote(
-      gatedTool(createReadToolDefinition(cwd), "read"),
+      withSkillReferenceLabel(pi, gatedTool(createReadToolDefinition(cwd), "read")),
       "Use read to examine files instead of cat or sed.",
     ),
   );
@@ -126,6 +133,40 @@ function withNote<TParams extends TSchema, TDetails>(
     description: `${definition.description}\n\n${ACCESS_NOTE}`,
     promptGuidelines: [guideline],
   };
+}
+
+type ReadDefinition = ReturnType<typeof createReadToolDefinition>;
+
+/** Labels collapsed reads of a skill's other files the way pi labels reads of its SKILL.md. */
+function withSkillReferenceLabel(pi: ExtensionAPI, definition: ReadDefinition): ReadDefinition {
+  const stockRenderCall = definition.renderCall;
+  if (stockRenderCall === undefined) return definition;
+  let skillIndex: SkillIndex = new Map();
+  // The skill set only changes on /reload, which emits session_start again.
+  pi.on("session_start", () => {
+    skillIndex = buildSkillIndex(pi.getCommands());
+  });
+  return {
+    ...definition,
+    renderCall(args, theme, context) {
+      const load = context.expanded ? undefined : skillLoadForReadPath(skillIndex, args.path, context.cwd);
+      if (load?.kind !== "reference") return stockRenderCall(args, theme, context);
+      const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+      text.setText(skillReferenceCall(load, args, theme));
+      return text;
+    },
+  };
+}
+
+function skillReferenceCall(reference: SkillReference, args: ReadToolInput, theme: Theme): string {
+  const range = formatReadLineRange(args.offset, args.limit);
+  return (
+    theme.fg("customMessageLabel", theme.bold("[skill reference]")) +
+    " " +
+    theme.fg("customMessageText", `${reference.skill.name} › ${skillReferenceLabel(reference.path)}`) +
+    (range === "" ? "" : theme.fg("warning", range)) +
+    theme.fg("dim", ` (${keyText("app.tools.expand")} to expand)`)
+  );
 }
 
 function lsDefinition(cwd: string): ToolDefinition<typeof lsParameters, LsToolDetails | undefined> {
