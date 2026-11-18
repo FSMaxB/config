@@ -98,9 +98,6 @@
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 34
     },
-    "@typescript-eslint/switch-exhaustiveness-check": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 13
     },
@@ -237,9 +234,6 @@
       "count": 1
     },
     "@typescript-eslint/restrict-template-expressions": {
-      "count": 1
-    },
-    "@typescript-eslint/switch-exhaustiveness-check": {
       "count": 1
     },
     "@typescript-eslint/use-unknown-in-catch-callback-variable": {
@@ -614,9 +608,6 @@
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 1
     },
-    "@typescript-eslint/switch-exhaustiveness-check": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 1
     },
@@ -875,11 +866,6 @@
   },
   "extensions/lib/model-defaults.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
-    }
-  },
-  "extensions/lib/notify.ts": {
-    "@typescript-eslint/switch-exhaustiveness-check": {
       "count": 1
     }
   },

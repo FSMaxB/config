@@ -46,11 +46,9 @@ function updateUsage(output: AssistantMessage, usage: ReportedUsage, model: Mode
 
 
 function mapStopReason(reason: string | null | undefined): "stop" | "length" | "toolUse" {
-	switch (reason) {
-		case "tool_use": return "toolUse";
-		case "max_tokens": return "length";
-		case "end_turn": default: return "stop";
-	}
+	if (reason === "tool_use") return "toolUse";
+	if (reason === "max_tokens") return "length";
+	return "stop";
 }
 
 export function parsePartialJson(input: string, fallback: JsonObject): JsonObject {

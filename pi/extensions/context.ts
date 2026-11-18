@@ -231,6 +231,9 @@ function buildMessageRows(
       case "branchSummary":
         tally(totals, "summary", estimateTokens(message));
         break;
+      case "system":
+        // splitContextMessages moves system messages into the system rows.
+        break;
     }
   }
 

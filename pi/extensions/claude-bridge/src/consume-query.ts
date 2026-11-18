@@ -213,7 +213,11 @@ export async function consumeQuery(
 				}
 				break;
 			}
-			default:
+			case "auth_status":
+			case "conversation_reset":
+			case "prompt_suggestion":
+			case "tool_progress":
+			case "tool_use_summary":
 				debug("consumeQuery: unhandled SDK message type", message.type);
 				break;
 		}
