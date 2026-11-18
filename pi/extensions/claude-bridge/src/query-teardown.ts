@@ -45,7 +45,7 @@ export function teardownQuery(
 	sdkQuery: unknown,
 	cause: ToolCallDrainCause,
 	cwd: string,
-	isReentrant: boolean,
+	stack: "reentrant" | "outermost",
 ): boolean {
 	if (queryContext.activeQuery !== sdkQuery) return false;
 	reportToolResultMismatch(queryContext, "query teardown", cwd, { forceRotate: cause !== "query-end" });
@@ -55,7 +55,7 @@ export function teardownQuery(
 	if (drained > 0) debug(`provider: query teardown drained ${drained} waiting MCP handler(s) as errors (cause=${cause})`);
 	queryContext.pendingResults.clear();
 
-	if (isReentrant) {
+	if (stack === "reentrant") {
 		// Merges deferred messages and restores/repairs the stack. popContextFor
 		// (not popContext): a live subagent context may sit above this one.
 		if (!popContextFor(queryContext)) debug("provider: query teardown found context already popped; skipping pop");

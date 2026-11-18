@@ -55,7 +55,7 @@ function expandHome(input: string): string {
  * means it, which `isAbsolute` is not: it calls a driveless `\root` absolute
  * where the renderer does not, putting the two on different roots. Hoisted, so
  * a circular import cannot reach it inside a temporal dead zone. */
-function rootAnchored(path: string, windows: boolean): boolean { return windows ? /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/]+[\\/][^\\/]+)/.test(path) : path.startsWith("/"); }
+function rootAnchored(path: string, platform: "windows" | "posix"): boolean { return platform === "windows" ? /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/]+[\\/][^\\/]+)/.test(path) : path.startsWith("/"); }
 
 /**
  * The Pi agent config dir: `PI_CODING_AGENT_DIR` when it names a root-anchored
@@ -65,7 +65,7 @@ function rootAnchored(path: string, windows: boolean): boolean { return windows 
  */
 export function piUserDir(): string {
 	const override = expandHome(process.env.PI_CODING_AGENT_DIR?.trim() || "");
-	return resolve(rootAnchored(override, process.platform === "win32") ? override : expandHome("~/.pi/agent"));
+	return resolve(rootAnchored(override, process.platform === "win32" ? "windows" : "posix") ? override : expandHome("~/.pi/agent"));
 }
 
 /**

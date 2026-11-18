@@ -123,7 +123,7 @@ export default function (pi: ExtensionAPI): void {
           ? ` The session already holds ${existing.length} comment(s) from an earlier review; pass all: true to tuicr_wait to see them.`
           : "";
       return text(
-        `tuicr is running in a ${multiplexer} pane reviewing ${describeTarget(range, workingTree, path)} in ${repo}.\n` +
+        `tuicr is running in a ${multiplexer} pane reviewing ${describeTarget(range, workingTree ? "included" : "excluded", path)} in ${repo}.\n` +
           `Session: ${entry.slug}.${carried}\nCall tuicr_wait to receive the user's comments.`,
       );
     },
@@ -299,11 +299,11 @@ export default function (pi: ExtensionAPI): void {
   });
 }
 
-function describeTarget(range: string | undefined, workingTree: boolean, path: string | undefined): string {
+function describeTarget(range: string | undefined, workingTree: "included" | "excluded", path: string | undefined): string {
   let target: string;
-  if (range && workingTree) target = `${range} plus the working tree`;
+  if (range && workingTree === "included") target = `${range} plus the working tree`;
   else if (range) target = range;
-  else if (workingTree) target = "the working tree";
+  else if (workingTree === "included") target = "the working tree";
   else target = "commits the user picks";
   return path ? `${target} (limited to ${path})` : target;
 }

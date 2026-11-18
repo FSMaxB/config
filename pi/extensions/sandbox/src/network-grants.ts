@@ -116,8 +116,8 @@ export function releaseOnceGrants(once: OnceNetworkGrants, execution: number): v
 
 // Subagents get no network at all: an empty allowlist plus a deny-all entry, and no local sockets.
 // Active profiles add their hosts and sockets; a session deny of the same host still wins, as it does over the settings file.
-export function networkConfig(settings: Settings, grants: NetworkGrants, subagent: boolean, profile: NetworkAllowances): NetworkConfig {
-  if (subagent) return { allowedDomains: [], deniedDomains: ["*"], allowUnixSockets: [], allowLocalBinding: false };
+export function networkConfig(settings: Settings, grants: NetworkGrants, role: "subagent" | "main", profile: NetworkAllowances): NetworkConfig {
+  if (role === "subagent") return { allowedDomains: [], deniedDomains: ["*"], allowUnixSockets: [], allowLocalBinding: false };
   const { allowedDomains, deniedDomains } = effectiveNetwork(settings, grants);
   const profileDomains = profile.allowedDomains.filter((host) => !grants.deny.has(host));
   return {

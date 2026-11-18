@@ -1362,7 +1362,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 			activeStreamIdleWatchdogs.delete(abortContext);
 			if (options?.signal) options.signal.removeEventListener("abort", onAbort);
 			const cause = toolCallDrainCause({ wasAborted, signalAborted: options?.signal?.aborted, streamIdleTimedOut });
-			teardownQuery(abortContext, sdkQuery, cause, cwd, isReentrant);
+			teardownQuery(abortContext, sdkQuery, cause, cwd, isReentrant ? "reentrant" : "outermost");
 			closeSdkQuery(sdkQuery);
 		})
 		.then(async () => {

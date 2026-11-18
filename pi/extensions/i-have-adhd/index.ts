@@ -129,13 +129,13 @@ export default function iHaveAdhdExtension(pi: ExtensionAPI): void {
    * session is left alone: `before_agent_start` injects with the first prompt, so
    * the model selected until then still decides the default.
    */
+  const requiredChange = (context: ExtensionContext): ContextChange =>
+    requiredContextChange(enabled ? "enabled" : "disabled", rulesAreInContext(context) ? "in-context" : "missing");
+
   const syncContext = (context: ExtensionContext): void => {
     if (isEmpty(context)) return;
 
-    const message = contextMessage(
-      requiredContextChange(enabled, rulesAreInContext(context)),
-      rules,
-    );
+    const message = contextMessage(requiredChange(context), rules);
     if (message === undefined) return;
 
     pi.sendMessage(message, { triggerTurn: false });
@@ -157,8 +157,8 @@ export default function iHaveAdhdExtension(pi: ExtensionAPI): void {
     updateStatus(context);
   };
 
-  const setEnabled = (nextEnabled: boolean, context: ExtensionContext): void => {
-    enabled = nextEnabled;
+  const setEnabled = (next: "enabled" | "disabled", context: ExtensionContext): void => {
+    enabled = next === "enabled";
     pi.appendEntry(STATE_ENTRY_TYPE, { enabled } satisfies AdhdModeState);
     updateStatus(context);
     syncContext(context);
@@ -177,17 +177,17 @@ export default function iHaveAdhdExtension(pi: ExtensionAPI): void {
       const argument = args.trim().toLowerCase();
 
       if (argument === "") {
-        setEnabled(!enabled, context);
+        setEnabled(enabled ? "disabled" : "enabled", context);
         return;
       }
 
       if (argument === "on") {
-        setEnabled(true, context);
+        setEnabled("enabled", context);
         return;
       }
 
       if (argument === "off" || argument === "stop") {
-        setEnabled(false, context);
+        setEnabled("disabled", context);
         return;
       }
 
@@ -201,12 +201,12 @@ export default function iHaveAdhdExtension(pi: ExtensionAPI): void {
     // Keep the built-in skill command working as an alias without letting Pi
     // expand a second copy of the same rules into the conversation.
     if (input === "/skill:i-have-adhd") {
-      setEnabled(true, context);
+      setEnabled("enabled", context);
       return { action: "handled" };
     }
 
     if (enabled && STOP_PHRASES.has(input)) {
-      setEnabled(false, context);
+      setEnabled("disabled", context);
 
       if (context.hasUI) {
         return { action: "handled" };
@@ -228,10 +228,7 @@ export default function iHaveAdhdExtension(pi: ExtensionAPI): void {
   pi.on("before_agent_start", async (_event, context) => {
     followModel(context, context.model);
 
-    const message = contextMessage(
-      requiredContextChange(enabled, rulesAreInContext(context)),
-      rules,
-    );
+    const message = contextMessage(requiredChange(context), rules);
     if (message === undefined) return;
 
     // Returning the message would put it after the user prompt; the pending

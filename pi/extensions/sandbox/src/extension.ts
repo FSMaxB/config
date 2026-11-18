@@ -378,7 +378,7 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
     if (choice.kind === "missing") activeContext?.ui.notify(`${OLD_BASH_WARNING} Checked: ${choice.checked.join(", ")}.`, "warning");
     await manager().initialize(
       {
-        network: networkConfig(settings, grants, subagent, profileNetwork),
+        network: networkConfig(settings, grants, subagent ? "subagent" : "main", profileNetwork),
         filesystem: filesystemConfig(await currentPolicy(), policyOptions(await vcsRules())),
         credentials: { envVars: credentialEnvVars() },
         allowPty: false,
@@ -423,7 +423,7 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
     if (!sandboxManager || !settings) return;
     const config = sandboxManager.getConfig();
     if (!config) return;
-    sandboxManager.updateConfig({ ...config, network: { ...config.network, ...networkConfig(settings, grants, subagent, profileNetwork) } });
+    sandboxManager.updateConfig({ ...config, network: { ...config.network, ...networkConfig(settings, grants, subagent ? "subagent" : "main", profileNetwork) } });
   }
 
   // srt reads local binding and sockets from its global config, so the profile network settings of every

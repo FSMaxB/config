@@ -20,7 +20,7 @@ test("subagents get no network even when settings and grants allow hosts and soc
   recordGrant(grants, "allow", "example.com", undefined);
 
   // act
-  const config = networkConfig(settings, grants, true, NO_PROFILE_NETWORK);
+  const config = networkConfig(settings, grants, "subagent", NO_PROFILE_NETWORK);
 
   // assert
   assert.deepEqual(config, { allowedDomains: [], deniedDomains: ["*"], allowUnixSockets: [], allowLocalBinding: false });
@@ -32,7 +32,7 @@ test("the main session gets the effective lists and the settings' socket flags",
   recordGrant(grants, "allow", "example.com", undefined);
 
   // act
-  const config = networkConfig(settings, grants, false, NO_PROFILE_NETWORK);
+  const config = networkConfig(settings, grants, "main", NO_PROFILE_NETWORK);
 
   // assert
   assert.deepEqual(config, { ...effectiveNetwork(settings, grants), allowUnixSockets: ["/tmp/agent.sock"], allowLocalBinding: true });
@@ -204,7 +204,7 @@ test("profile network adds hosts and sockets and ORs local binding, but a sessio
   const quiet = { ...settings, allowLocalBinding: false };
 
   // act
-  const config = networkConfig(quiet, grants, false, profile);
+  const config = networkConfig(quiet, grants, "main", profile);
 
   // assert
   assert.deepEqual(config.allowedDomains, ["github.com", "bcr.example"]);
@@ -220,7 +220,7 @@ test("a profile that allows every host keeps the wildcard while session denials 
   const profile = { allowedDomains: ["*"], allowLocalBinding: false, allowUnixSockets: [] };
 
   // act
-  const config = networkConfig(settings, grants, false, profile);
+  const config = networkConfig(settings, grants, "main", profile);
 
   // assert
   assert.ok(config.allowedDomains.includes("*"));
@@ -232,7 +232,7 @@ test("subagents ignore profile network", () => {
   const profile = { allowedDomains: ["bcr.example"], allowLocalBinding: true, allowUnixSockets: ["/profile.sock"] };
 
   // act
-  const config = networkConfig(settings, emptyGrants(), true, profile);
+  const config = networkConfig(settings, emptyGrants(), "subagent", profile);
 
   // assert
   assert.deepEqual(config, { allowedDomains: [], deniedDomains: ["*"], allowUnixSockets: [], allowLocalBinding: false });

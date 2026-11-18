@@ -6,10 +6,10 @@ export const ContextChange = {
 export type ContextChange = (typeof ContextChange)[keyof typeof ContextChange];
 
 export function requiredContextChange(
-  enabled: boolean,
-  rulesInContext: boolean,
+  mode: "enabled" | "disabled",
+  rules: "in-context" | "missing",
 ): ContextChange {
-  if (enabled && !rulesInContext) return ContextChange.InjectRules;
-  if (!enabled && rulesInContext) return ContextChange.DisableRules;
+  if (mode === "enabled" && rules === "missing") return ContextChange.InjectRules;
+  if (mode === "disabled" && rules === "in-context") return ContextChange.DisableRules;
   return ContextChange.None;
 }

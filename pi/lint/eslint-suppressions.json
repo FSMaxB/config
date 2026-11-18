@@ -180,9 +180,6 @@
     "local/step-down": {
       "count": 20
     },
-    "no-restricted-syntax": {
-      "count": 1
-    },
     "unicorn/name-replacements": {
       "count": 2
     }
@@ -309,9 +306,6 @@
     "local/step-down": {
       "count": 5
     },
-    "no-restricted-syntax": {
-      "count": 1
-    },
     "unicorn/name-replacements": {
       "count": 1
     }
@@ -323,9 +317,6 @@
     "local/step-down": {
       "count": 24
     },
-    "no-restricted-syntax": {
-      "count": 1
-    },
     "unicorn/name-replacements": {
       "count": 8
     }
@@ -333,9 +324,6 @@
   "extensions/claude-bridge/src/query-teardown.ts": {
     "local/step-down": {
       "count": 2
-    },
-    "no-restricted-syntax": {
-      "count": 1
     }
   },
   "extensions/claude-bridge/src/rate-limit.ts": {
@@ -577,17 +565,11 @@
   "extensions/i-have-adhd/context-sync.ts": {
     "local/step-down": {
       "count": 1
-    },
-    "no-restricted-syntax": {
-      "count": 2
     }
   },
   "extensions/i-have-adhd/index.ts": {
     "local/step-down": {
       "count": 6
-    },
-    "no-restricted-syntax": {
-      "count": 1
     },
     "unicorn/name-replacements": {
       "count": 2
@@ -1016,9 +998,6 @@
     "local/step-down": {
       "count": 4
     },
-    "no-restricted-syntax": {
-      "count": 2
-    },
     "unicorn/name-replacements": {
       "count": 2
     }
@@ -1072,9 +1051,6 @@
   "extensions/sandbox/src/network-grants.ts": {
     "local/step-down": {
       "count": 9
-    },
-    "no-restricted-syntax": {
-      "count": 1
     }
   },
   "extensions/sandbox/src/platform.ts": {
@@ -1287,9 +1263,6 @@
     }
   },
   "extensions/sidebar/visibility.test.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    },
     "unicorn/no-null": {
       "count": 1
     }
@@ -1362,9 +1335,6 @@
     },
     "local/step-down": {
       "count": 2
-    },
-    "no-restricted-syntax": {
-      "count": 1
     },
     "unicorn/name-replacements": {
       "count": 12

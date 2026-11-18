@@ -47,7 +47,7 @@ describe("teardownQuery", () => {
 		const waiting = registerWaitingCall(queryCtx, "call-1");
 		queryCtx.pendingResults.set("call-2", { content: [], isError: false });
 
-		assert.equal(teardownQuery(queryCtx, sdkQuery, "query-end", "/tmp", false), true);
+		assert.equal(teardownQuery(queryCtx, sdkQuery, "query-end", "/tmp", "outermost"), true);
 		assert.equal(queryCtx.activeQuery, undefined);
 		assert.equal(queryCtx.pendingToolCalls.size, 0);
 		assert.equal(queryCtx.pendingResults.size, 0);
@@ -61,7 +61,7 @@ describe("teardownQuery", () => {
 		queryCtx.activeQuery = replacement;
 		registerWaitingCall(queryCtx, "call-1");
 
-		assert.equal(teardownQuery(queryCtx, { id: "original" }, "query-end", "/tmp", false), false);
+		assert.equal(teardownQuery(queryCtx, { id: "original" }, "query-end", "/tmp", "outermost"), false);
 		assert.equal(queryCtx.activeQuery, replacement);
 		assert.equal(queryCtx.pendingToolCalls.size, 1);
 	});
@@ -82,7 +82,7 @@ describe("teardownQuery", () => {
 		child.recordToolCall("child-call", "read", { path: "b" });
 		registerWaitingCall(child, "child-call");
 
-		assert.equal(teardownQuery(parent, parentQuery, "abort", "/tmp", false), true);
+		assert.equal(teardownQuery(parent, parentQuery, "abort", "/tmp", "outermost"), true);
 
 		// Parent handler drained as an abort error; parent released.
 		const result = await parentWaiting;
@@ -112,7 +112,7 @@ describe("teardownQuery", () => {
 		const grandchild = currentQueryContext();
 		grandchild.activeQuery = { id: "grandchild-query" };
 
-		assert.equal(teardownQuery(mid, midQuery, "query-end", "/tmp", true), true);
+		assert.equal(teardownQuery(mid, midQuery, "query-end", "/tmp", "reentrant"), true);
 
 		const result = await midWaiting;
 		assert.equal(result.isError, true);
@@ -134,7 +134,7 @@ describe("teardownQuery", () => {
 		child.activeQuery = childQuery;
 		child.deferredUserMessages.push("child-steer");
 
-		assert.equal(teardownQuery(child, childQuery, "query-end", "/tmp", true), true);
+		assert.equal(teardownQuery(child, childQuery, "query-end", "/tmp", "reentrant"), true);
 		assert.equal(currentQueryContext(), parent);
 		assert.equal(stackDepth(), 0);
 		assert.deepEqual(parent.deferredUserMessages, ["child-steer"]);

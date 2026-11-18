@@ -5,16 +5,14 @@ import { ContextChange, requiredContextChange } from "./context-sync.ts";
 test("the context change follows the mode and whether the rules are in context", () => {
   // arrange
   const cases = [
-    { enabled: true, rulesInContext: false },
-    { enabled: false, rulesInContext: true },
-    { enabled: true, rulesInContext: true },
-    { enabled: false, rulesInContext: false },
-  ];
+    { mode: "enabled", rules: "missing" },
+    { mode: "disabled", rules: "in-context" },
+    { mode: "enabled", rules: "in-context" },
+    { mode: "disabled", rules: "missing" },
+  ] as const;
 
   // act
-  const results = cases.map(({ enabled, rulesInContext }) =>
-    requiredContextChange(enabled, rulesInContext),
-  );
+  const results = cases.map(({ mode, rules }) => requiredContextChange(mode, rules));
 
   // assert
   assert.deepEqual(results, [

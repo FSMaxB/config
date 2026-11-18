@@ -548,14 +548,14 @@ export class QueryContext {
 		const resultBacked = [...new Set([...this.pendingResults.keys(), ...this.reapedResults.keys()])]
 			.filter((id) => !this.claimedToolCallIds.has(id) && this.queryToolNames.get(id) === toolName);
 		const backedExact = resultBacked.filter((id) => sameArgs(this.queryToolArgs.get(id), args));
-		const claimBacked = (id: string, viaExact: boolean): ClaimedToolCall => {
+		const claimBacked = (id: string, via: "tool-args" | "tool-name"): ClaimedToolCall => {
 			this.claimedToolCallIds.add(id);
 			return {
 				toolCallId: id,
-				match: viaExact ? "tool-args" : "tool-name",
-				ambiguous: viaExact && backedExact.length > 1,
+				match: via,
+				ambiguous: via === "tool-args" && backedExact.length > 1,
 				available: unclaimed.length,
-				...(!viaExact && hasRecordedArgs(this.queryToolArgs.get(id)) ? { argsMismatch: true } : {}),
+				...(via === "tool-name" && hasRecordedArgs(this.queryToolArgs.get(id)) ? { argsMismatch: true } : {}),
 			};
 		};
 		let chosen: TurnToolCallRecord | undefined;
@@ -568,7 +568,7 @@ export class QueryContext {
 			match = "tool-args";
 			ambiguous = exact.length > 1;
 		} else if (backedExact.length > 0) {
-			return claimBacked(backedExact[0], true);
+			return claimBacked(backedExact[0], "tool-args");
 		} else if (byName.length === 1) {
 			// A single unclaimed call of this tool type is the only call this
 			// handler can possibly belong to, so claim it even when the recorded
@@ -592,7 +592,7 @@ export class QueryContext {
 		// Last resort: nothing live matched and no exact result-backed pairing —
 		// a sole result-backed same-name id is still this handler's only possible
 		// owner, same reasoning as the live sole-candidate fallback above.
-		if (!chosen && resultBacked.length === 1) return claimBacked(resultBacked[0], false);
+		if (!chosen && resultBacked.length === 1) return claimBacked(resultBacked[0], "tool-name");
 
 		if (!chosen) return { match: "none", ambiguous: false, available: unclaimed.length };
 		this.claimedToolCallIds.add(chosen.id);

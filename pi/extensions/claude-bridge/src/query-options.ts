@@ -88,7 +88,7 @@ export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): Bu
 
 	// The default prompt mode avoids filesystem settings. When users opt into
 	// settings, strict MCP config still prevents auto-discovered MCP servers.
-	const settingSources = settingSourcesForQuery(appendSystemPrompt, providerSettings.settingSources);
+	const settingSources = settingSourcesForQuery(appendSystemPrompt ? "append" : "omit", providerSettings.settingSources);
 	// Prefer the model's own thinkingLevelMap when present (pi-ai 0.72+ ships
 	// per-model overrides — e.g. opus-4-8 wants xhigh→xhigh, not xhigh→max).
 	// Fall back to our generic table for older pi-ai or unmapped levels.
@@ -161,6 +161,6 @@ export function systemPromptModeForQuery(tools: readonly Tool[], systemPrompt: s
 	return tools.length === 0 && systemPrompt ? "verbatim" : "claude-code-preset";
 }
 
-export function settingSourcesForQuery(appendSystemPrompt: boolean, configured?: readonly SettingSource[]): SettingSource[] | undefined {
-	return appendSystemPrompt ? undefined : configured === undefined ? ["user", "project"] : [...configured];
+export function settingSourcesForQuery(promptAppend: "append" | "omit", configured?: readonly SettingSource[]): SettingSource[] | undefined {
+	return promptAppend === "append" ? undefined : configured === undefined ? ["user", "project"] : [...configured];
 }
