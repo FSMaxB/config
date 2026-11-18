@@ -17,21 +17,26 @@ export async function withFileLock<T>(filePath: string, description: string, ope
   const lockPath = `${filePath}.lock`;
   await mkdir(dirname(filePath), { recursive: true });
   const deadline = now() + LOCK_TIMEOUT_MILLISECONDS;
-  while (true) {
-    try {
-      await mkdir(lockPath);
-      break;
-    } catch (error) {
-      if (errorCode(error) !== "EEXIST" || now() >= deadline) {
-        throw new Error(`Could not acquire ${description} lock ${lockPath}; remove it manually if no process owns it.`, { cause: error });
-      }
-      await new Promise((resolve) => setTimeout(resolve, RETRY_BASE_MILLISECONDS + Math.random() * RETRY_JITTER_MILLISECONDS));
-    }
+  while (!(await lockAcquired(lockPath, deadline, now, description))) {
+    await new Promise((resolve) => setTimeout(resolve, RETRY_BASE_MILLISECONDS + Math.random() * RETRY_JITTER_MILLISECONDS));
   }
   try {
     await writeFile(join(lockPath, "owner"), `${process.pid} ${hostname()} ${new Date(now()).toISOString()}\n`, { mode: OWNER_ONLY_FILE_MODE });
     return await operation();
   } finally {
     await rm(lockPath, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+// False while another process holds the lock; throws once the deadline passes or mkdir fails otherwise.
+async function lockAcquired(lockPath: string, deadline: number, now: () => number, description: string): Promise<boolean> {
+  try {
+    await mkdir(lockPath);
+    return true;
+  } catch (error) {
+    if (errorCode(error) !== "EEXIST" || now() >= deadline) {
+      throw new Error(`Could not acquire ${description} lock ${lockPath}; remove it manually if no process owns it.`, { cause: error });
+    }
+    return false;
   }
 }

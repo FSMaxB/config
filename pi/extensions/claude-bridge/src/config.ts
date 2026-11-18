@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { debug } from "./debug.js";
+import { ancestorDirectories } from "../../lib/repo.ts";
 import { isRecord } from "../../lib/untyped.ts";
 
 export type BridgeEffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
@@ -89,15 +90,12 @@ function isSettingSources(value: unknown): value is SettingSource[] {
 }
 
 function projectSettingsPath(cwd: string): string {
-	let current = resolve(cwd);
-	while (true) {
-		const candidate = join(current, ".pi", "settings.json");
+	for (const directory of ancestorDirectories(cwd)) {
+		const candidate = join(directory, ".pi", "settings.json");
 		if (existsSync(candidate)) return candidate;
-		if (existsSync(join(current, ".pi")) || existsSync(join(current, ".git"))) return candidate;
-		const parent = dirname(current);
-		if (parent === current) return join(resolve(cwd), ".pi", "settings.json");
-		current = parent;
+		if (existsSync(join(directory, ".pi")) || existsSync(join(directory, ".git"))) return candidate;
 	}
+	return join(resolve(cwd), ".pi", "settings.json");
 }
 
 const PROJECT_TRUST_SYMBOL = Symbol.for("kendex.pi.project-trust");

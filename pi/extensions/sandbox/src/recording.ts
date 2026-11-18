@@ -131,18 +131,16 @@ function accessMode(text: string | undefined): AccessMode | undefined {
 
 // Repeats until nothing changes, so a collapsed parent can itself collapse into its own parent.
 function collapseSiblings(directories: readonly string[], homeDirectory: string): string[] {
-  let current = [...new Set(directories)];
-  while (true) {
-    const byParent = new Map<string, string[]>();
-    for (const directory of current) {
-      const parent = dirname(directory);
-      byParent.set(parent, [...(byParent.get(parent) ?? []), directory]);
-    }
-    const collapsing = [...byParent].filter(([parent, children]) => children.length >= SIBLINGS_BEFORE_COLLAPSE && isCollapsible(parent, homeDirectory));
-    if (collapsing.length === 0) return current;
-    const replaced = new Set(collapsing.flatMap(([, children]) => children));
-    current = [...new Set([...current.filter((directory) => !replaced.has(directory)), ...collapsing.map(([parent]) => parent)])];
+  const current = [...new Set(directories)];
+  const byParent = new Map<string, string[]>();
+  for (const directory of current) {
+    const parent = dirname(directory);
+    byParent.set(parent, [...(byParent.get(parent) ?? []), directory]);
   }
+  const collapsing = [...byParent].filter(([parent, children]) => children.length >= SIBLINGS_BEFORE_COLLAPSE && isCollapsible(parent, homeDirectory));
+  if (collapsing.length === 0) return current;
+  const replaced = new Set(collapsing.flatMap(([, children]) => children));
+  return collapseSiblings([...current.filter((directory) => !replaced.has(directory)), ...collapsing.map(([parent]) => parent)], homeDirectory);
 }
 
 // Never `/`, `/Users`, `/private/var`, `~` or `~/Library`: a collapse that wide would grant far more than was used.

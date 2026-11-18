@@ -64,9 +64,6 @@
     }
   },
   "extensions/claude-bridge/src/agents-md.ts": {
-    "@typescript-eslint/no-unnecessary-condition": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 2
     }
@@ -143,9 +140,6 @@
   },
   "extensions/claude-bridge/src/config.ts": {
     "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unnecessary-condition": {
       "count": 1
     },
     "@typescript-eslint/prefer-nullish-coalescing": {
@@ -245,9 +239,6 @@
     }
   },
   "extensions/claude-bridge/src/prompt-context.ts": {
-    "@typescript-eslint/no-unnecessary-condition": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 7
     }
@@ -484,11 +475,6 @@
       "count": 1
     }
   },
-  "extensions/lib/file-lock.ts": {
-    "@typescript-eslint/no-unnecessary-condition": {
-      "count": 1
-    }
-  },
   "extensions/lib/format.ts": {
     "@typescript-eslint/no-magic-numbers": {
       "count": 7
@@ -576,15 +562,7 @@
       "count": 1
     }
   },
-  "extensions/lib/path-resolution.ts": {
-    "@typescript-eslint/no-unnecessary-condition": {
-      "count": 1
-    }
-  },
   "extensions/lib/path-rule-commands.ts": {
-    "@typescript-eslint/no-unnecessary-condition": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 2
     }
@@ -611,9 +589,6 @@
   },
   "extensions/lib/permission-prompt.ts": {
     "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unnecessary-condition": {
       "count": 1
     },
     "local/step-down": {
@@ -649,9 +624,6 @@
     }
   },
   "extensions/lib/repo.ts": {
-    "@typescript-eslint/no-unnecessary-condition": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 1
     }
@@ -881,9 +853,6 @@
     }
   },
   "extensions/sandbox/src/recording.ts": {
-    "@typescript-eslint/no-unnecessary-condition": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 4
     }
@@ -1000,7 +969,7 @@
       "count": 17
     },
     "@typescript-eslint/no-unnecessary-condition": {
-      "count": 11
+      "count": 10
     },
     "@typescript-eslint/prefer-nullish-coalescing": {
       "count": 13
@@ -1030,9 +999,6 @@
   "extensions/tuicr.ts": {
     "@typescript-eslint/no-magic-numbers": {
       "count": 5
-    },
-    "@typescript-eslint/no-unnecessary-condition": {
-      "count": 4
     },
     "local/step-down": {
       "count": 2

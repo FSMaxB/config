@@ -33,14 +33,22 @@ function findVcsRoot(from: string): string | undefined {
 
 // The nearest directory from `from` upwards that contains one of the marker entries.
 export function findAncestorWith(from: string, markers: readonly string[]): string | undefined {
-  let current = resolve(from);
-  while (true) {
-    if (markers.some((marker) => existsSync(join(current, marker)))) return current;
-
-    const parent = dirname(current);
-    if (parent === current) return undefined;
-    current = parent;
+  for (const directory of ancestorDirectories(from)) {
+    if (markers.some((marker) => existsSync(join(directory, marker)))) return directory;
   }
+  return undefined;
+}
+
+/** `from` and each of its ancestors up to the filesystem root, nearest first. */
+export function* ancestorDirectories(from: string): Generator<string, void, undefined> {
+  let current = resolve(from);
+  let parent = dirname(current);
+  while (parent !== current) {
+    yield current;
+    current = parent;
+    parent = dirname(current);
+  }
+  yield current;
 }
 
 // Keep this in one place so file tools and other extensions agree on where project memory

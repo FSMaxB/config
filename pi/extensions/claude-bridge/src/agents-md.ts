@@ -26,10 +26,11 @@
 // disabled. Embedding hosts provide their instruction surface explicitly.
 
 import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { join } from "node:path";
 import { isolatedFromEnvironment, piUserDirectory } from "./config.js";
 import { debug } from "./debug.js";
 import { errorCode } from "../../lib/errors.ts";
+import { ancestorDirectories } from "../../lib/repo.ts";
 
 const CONTEXT_FILE_CANDIDATES = ["AGENTS.override.md", "AGENTS.md", "AGENTS.MD"];
 
@@ -85,13 +86,9 @@ export function resolveAgentsMdPaths(): string[] {
 }
 
 export function findAgentsMdInParents(startDirectory: string): string | undefined {
-	let current = resolve(startDirectory);
-	while (true) {
-		const candidate = contextFileInDirectory(current);
+	for (const directory of ancestorDirectories(startDirectory)) {
+		const candidate = contextFileInDirectory(directory);
 		if (candidate) return candidate;
-		const parent = dirname(current);
-		if (parent === current) break;
-		current = parent;
 	}
 	return undefined;
 }

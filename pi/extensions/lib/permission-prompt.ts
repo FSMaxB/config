@@ -53,15 +53,20 @@ type AnyAnswer<Scope, Destination> =
 // Backing out of a follow-up (Esc, or an empty reason) returns to the main prompt instead.
 export async function askPermission<Scope, Destination = never>(ui: PermissionUI, request: PermissionRequest<Scope, Destination>): Promise<PermissionAnswer<Scope, Destination>> {
   const options = menuOptions(request);
-  while (true) {
-    const choice = await ui.select(request.title, options.map(({ label }) => label), request.preselected);
-    const option = options.find(({ label }) => label === choice);
-    if (!option) return { decision: "deny", duration: Duration.Once, note: undefined };
-    const answer = await resolveOption(ui, request, option);
-    // resolveOption only answers "allow-to" for a destination of the request, and a request
-    // without destinations has Destination = never, which drops that branch from the type.
-    if (answer) return answer as PermissionAnswer<Scope, Destination>;
-  }
+  let answer = await askOnce(ui, request, options);
+  while (answer === undefined) answer = await askOnce(ui, request, options);
+  return answer;
+}
+
+// undefined sends the user back to the main prompt.
+async function askOnce<Scope, Destination>(ui: PermissionUI, request: PermissionRequest<Scope, Destination>, options: readonly MenuOption<Scope, Destination>[]): Promise<PermissionAnswer<Scope, Destination> | undefined> {
+  const choice = await ui.select(request.title, options.map(({ label }) => label), request.preselected);
+  const option = options.find(({ label }) => label === choice);
+  if (!option) return { decision: "deny", duration: Duration.Once, note: undefined };
+  const answer = await resolveOption(ui, request, option);
+  // resolveOption only answers "allow-to" for a destination of the request, and a request
+  // without destinations has Destination = never, which drops that branch from the type.
+  return answer === undefined ? undefined : (answer as PermissionAnswer<Scope, Destination>);
 }
 
 export function userReason(note: string | undefined): string {

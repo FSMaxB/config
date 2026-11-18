@@ -17,30 +17,32 @@ async function resolvePath(
   absolute: string,
   followedLinks: Set<string>,
 ): Promise<string> {
-  const missing: string[] = [];
-  let existing = absolute;
+  return await resolveFromExisting(absolute, absolute, [], followedLinks);
+}
 
-  while (true) {
-    try {
-      const stats = await lstat(existing);
-      if (stats.isSymbolicLink()) {
-        if (followedLinks.has(existing)) {
-          throw new Error(`Cannot resolve ${absolute}: symbolic link cycle at ${existing}.`);
-        }
-        followedLinks.add(existing);
-        const target = await readlink(existing);
-        const linked = resolve(dirname(existing), target);
-        return await resolvePath(join(linked, ...missing), followedLinks);
-      }
-      return join(await realpath(existing), ...missing);
-    } catch (error) {
-      const code = errorCode(error);
-      if (code !== "ENOENT" && code !== "ENOTDIR") throw error;
-
-      const parent = dirname(existing);
-      if (parent === existing) return absolute;
-      missing.unshift(basename(existing));
-      existing = parent;
+// Walks up from `existing` until an entry exists, resolves it, and appends the `missing` tail again.
+async function resolveFromExisting(
+  absolute: string,
+  existing: string,
+  missing: readonly string[],
+  followedLinks: Set<string>,
+): Promise<string> {
+  try {
+    const stats = await lstat(existing);
+    if (!stats.isSymbolicLink()) return join(await realpath(existing), ...missing);
+    if (followedLinks.has(existing)) {
+      throw new Error(`Cannot resolve ${absolute}: symbolic link cycle at ${existing}.`);
     }
+    followedLinks.add(existing);
+    const target = await readlink(existing);
+    const linked = resolve(dirname(existing), target);
+    return await resolvePath(join(linked, ...missing), followedLinks);
+  } catch (error) {
+    const code = errorCode(error);
+    if (code !== "ENOENT" && code !== "ENOTDIR") throw error;
+
+    const parent = dirname(existing);
+    if (parent === existing) return absolute;
+    return await resolveFromExisting(absolute, parent, [basename(existing), ...missing], followedLinks);
   }
 }

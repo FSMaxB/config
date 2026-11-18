@@ -52,7 +52,8 @@ export function pickNewSession(
 ): SessionEntry | undefined {
   return entries
     .filter((entry) => entry.active && !activeBefore.has(entry.slug))
-    .sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
+    .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+    .at(0);
 }
 
 export function activeSlugs(entries: readonly SessionEntry[]): Set<string> {

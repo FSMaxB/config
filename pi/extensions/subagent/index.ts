@@ -850,9 +850,7 @@ async function mapWithConcurrencyLimit<TIn, TOut>(
   const results = new Array<TOut>(items.length);
   let nextIndex = 0;
   const workers = new Array(limit).fill(null).map(async () => {
-    while (true) {
-      const current = nextIndex++;
-      if (current >= items.length) return;
+    for (let current = nextIndex++; current < items.length; current = nextIndex++) {
       results[current] = await mapper(items[current], current);
     }
   });

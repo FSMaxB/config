@@ -42,12 +42,8 @@ export async function managePathRules(store: PathRuleStore, context: ExtensionCo
 
 // Lets the user remove decisions one at a time until they pick Done, clear them all, or none are left.
 export async function manageDecisions(list: DecisionList, context: ExtensionContext): Promise<void> {
-  while (true) {
-    const entries = await list.entries();
-    if (entries.length === 0) {
-      context.ui.notify(list.emptyMessage);
-      return;
-    }
+  let entries = await list.entries();
+  while (entries.length > 0) {
     const choice = await context.ui.select(list.title, [...entries.map((entry) => entry.label), CLEAR_ALL, DONE]);
     if (choice === CLEAR_ALL) {
       await list.clearAll();
@@ -58,7 +54,9 @@ export async function manageDecisions(list: DecisionList, context: ExtensionCont
     if (entry === undefined) return;
     await entry.remove();
     await list.removed();
+    entries = await list.entries();
   }
+  context.ui.notify(list.emptyMessage);
 }
 
 // `command` is everything before the rule kind in the usage hint, e.g. "/plan" or "/paths plan".

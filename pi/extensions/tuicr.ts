@@ -161,68 +161,14 @@ export default function (pi: ExtensionAPI): void {
     }),
 
     async execute(_toolCallId, parameters, signal, onUpdate) {
-      const {
-        quietSeconds = DEFAULT_QUIET_SECONDS,
-        timeoutSeconds = DEFAULT_WAIT_TIMEOUT_SECONDS,
-        all = false,
-      } = parameters;
-      const deadline = Date.now() + timeoutSeconds * 1000;
-      let quiet: QuietState | undefined;
-
-      while (true) {
-        const session = await resolveSession(pi, parameters, deadline, signal);
-        const entry = (await listSessions(pi, session.repo, signal)).find(
-          (candidate) => candidate.slug === session.slug,
-        );
-        const comments = entry ? await readComments(pi, session.repo, session.slug, signal) : [];
-        const unseen = unseenComments(comments, session.seen);
-
-        if (all) {
-          markSeen(session, comments);
-          return text(formatComments(comments), { comments });
-        }
-
-        // A session that vanished or went inactive means the TUI exited (tuicr
-        // deletes empty sessions on exit, so absence counts as exit too).
-        if (!entry?.active) {
-          markSeen(session, comments);
-          const body =
-            unseen.length > 0
-              ? `${formatComments(unseen)}\n\ntuicr has exited; the review is over.`
-              : "tuicr has exited without new comments; the review is over.";
-          return text(body, { comments: unseen, exited: true });
-        }
-
-        const now = Date.now();
-        quiet = advanceQuiet(quiet, unseen.length, now);
-        if (quietElapsed(quiet, now, quietSeconds * 1000)) {
-          markSeen(session, unseen);
-          return text(
-            `${formatComments(unseen)}\n\ntuicr is still open. Address these comments, then call tuicr_wait again.`,
-            { comments: unseen, exited: false },
-          );
-        }
-        if (now >= deadline) {
-          return text(
-            `No new comments after ${Math.round(timeoutSeconds / 60)} minutes; tuicr is still open. Call tuicr_wait again to keep waiting.`,
-            { comments: [], exited: false },
-          );
-        }
-
-        onUpdate?.({
-          content: [
-            {
-              type: "text",
-              text:
-                unseen.length > 0
-                  ? `${unseen.length} new comment(s), waiting for the user to pause…`
-                  : `Waiting for comments in ${session.slug}…`,
-            },
-          ],
-          details: {},
-        });
+      const deadline = Date.now() + (parameters.timeoutSeconds ?? DEFAULT_WAIT_TIMEOUT_SECONDS) * 1000;
+      let step = await waitStep(pi, parameters, deadline, signal, undefined);
+      while (step.kind === "waiting") {
+        onUpdate?.({ content: [{ type: "text", text: step.progress }], details: {} });
         await sleep(POLL_INTERVAL, undefined, { signal });
+        step = await waitStep(pi, parameters, deadline, signal, step.quiet);
       }
+      return step.result;
     },
   });
 
@@ -308,6 +254,75 @@ function describeTarget(range: string | undefined, workingTree: "included" | "ex
   return path ? `${target} (limited to ${path})` : target;
 }
 
+// One poll of tuicr_wait: either the finished tool result or the progress to report before polling again.
+async function waitStep(
+  pi: ExtensionAPI,
+  parameters: WaitParameters,
+  deadline: number,
+  signal: AbortSignal | undefined,
+  previousQuiet: QuietState | undefined,
+): Promise<WaitStep> {
+  const { quietSeconds = DEFAULT_QUIET_SECONDS, timeoutSeconds = DEFAULT_WAIT_TIMEOUT_SECONDS, all = false } = parameters;
+  const session = await resolveSession(pi, parameters, deadline, signal);
+  const entry = (await listSessions(pi, session.repo, signal)).find((candidate) => candidate.slug === session.slug);
+  const comments = entry ? await readComments(pi, session.repo, session.slug, signal) : [];
+  const unseen = unseenComments(comments, session.seen);
+
+  if (all) {
+    markSeen(session, comments);
+    return { kind: "done", result: text(formatComments(comments), { comments }) };
+  }
+
+  // A session that vanished or went inactive means the TUI exited (tuicr
+  // deletes empty sessions on exit, so absence counts as exit too).
+  if (!entry?.active) {
+    markSeen(session, comments);
+    const body =
+      unseen.length > 0
+        ? `${formatComments(unseen)}\n\ntuicr has exited; the review is over.`
+        : "tuicr has exited without new comments; the review is over.";
+    return { kind: "done", result: text(body, { comments: unseen, exited: true }) };
+  }
+
+  const now = Date.now();
+  const quiet = advanceQuiet(previousQuiet, unseen.length, now);
+  if (quietElapsed(quiet, now, quietSeconds * 1000)) {
+    markSeen(session, unseen);
+    return {
+      kind: "done",
+      result: text(
+        `${formatComments(unseen)}\n\ntuicr is still open. Address these comments, then call tuicr_wait again.`,
+        { comments: unseen, exited: false },
+      ),
+    };
+  }
+  if (now >= deadline) {
+    return {
+      kind: "done",
+      result: text(
+        `No new comments after ${Math.round(timeoutSeconds / 60)} minutes; tuicr is still open. Call tuicr_wait again to keep waiting.`,
+        { comments: [], exited: false },
+      ),
+    };
+  }
+
+  const progress =
+    unseen.length > 0
+      ? `${unseen.length} new comment(s), waiting for the user to pause…`
+      : `Waiting for comments in ${session.slug}…`;
+  return { kind: "waiting", progress, quiet };
+}
+
+interface WaitParameters extends SessionParameters {
+  quietSeconds?: number;
+  timeoutSeconds?: number;
+  all?: boolean;
+}
+
+type WaitStep =
+  | { kind: "done"; result: AgentToolResult<unknown> }
+  | { kind: "waiting"; progress: string; quiet: QuietState | undefined };
+
 async function waitForSession(
   pi: ExtensionAPI,
   repository: string,
@@ -315,13 +330,7 @@ async function waitForSession(
   signal: AbortSignal | undefined,
 ): Promise<SessionEntry | undefined> {
   const deadline = Date.now() + SESSION_APPEAR_TIMEOUT;
-  while (true) {
-    const entries = await listSessions(pi, repository, signal);
-    const picked = pickNewSession(entries, activeBefore);
-    if (picked) return picked;
-    if (Date.now() >= deadline) return undefined;
-    await sleep(POLL_INTERVAL, undefined, { signal });
-  }
+  return await pollUntil(deadline, signal, async () => pickNewSession(await listSessions(pi, repository, signal), activeBefore));
 }
 
 interface SessionParameters {
@@ -344,17 +353,29 @@ async function resolveSession(
   if (current && current.slug !== "") return current;
 
   const repository = current?.repo ?? resolve(parameters.repo ?? findRepositoryRoot());
-  while (true) {
-    const active = (await listSessions(pi, repository, signal)).filter((entry) => entry.active);
-    const picked = active.sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
-    if (picked) {
-      current = { repo: repository, slug: picked.slug, seen: new Set() };
-      return current;
-    }
-    if (Date.now() >= deadline)
-      throw new Error(`No active tuicr session in ${repository}. Call tuicr_open, or ask the user to start tuicr there.`);
-    await sleep(POLL_INTERVAL, undefined, { signal });
+  const picked = await pollUntil(deadline, signal, async () => newestActive(await listSessions(pi, repository, signal)));
+  if (picked === undefined) {
+    throw new Error(`No active tuicr session in ${repository}. Call tuicr_open, or ask the user to start tuicr there.`);
   }
+  current = { repo: repository, slug: picked.slug, seen: new Set() };
+  return current;
+}
+
+function newestActive(entries: readonly SessionEntry[]): SessionEntry | undefined {
+  return entries
+    .filter((entry) => entry.active)
+    .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+    .at(0);
+}
+
+// Calls `probe` until it returns a value or `deadline` passes, waiting POLL_INTERVAL between calls.
+async function pollUntil<T>(deadline: number, signal: AbortSignal | undefined, probe: () => Promise<T | undefined>): Promise<T | undefined> {
+  let result = await probe();
+  while (result === undefined && Date.now() < deadline) {
+    await sleep(POLL_INTERVAL, undefined, { signal });
+    result = await probe();
+  }
+  return result;
 }
 
 function markSeen(session: Session, comments: readonly TuicrComment[]): void {

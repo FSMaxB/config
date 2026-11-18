@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { join } from "node:path";
 import { isolatedFromEnvironment, piUserDirectory } from "./config.js";
 import { debug } from "./debug.js";
+import { ancestorDirectories } from "../../lib/repo.ts";
 
 export interface PromptContextSettings {
 	includeAppendSystemPromptMd?: boolean;
@@ -27,13 +28,9 @@ function readTrimmed(path: string): string | undefined {
 }
 
 function findProjectAppendSystem(startDirectory: string): string | undefined {
-	let current = resolve(startDirectory);
-	while (true) {
-		const candidate = join(current, ".pi", "APPEND_SYSTEM.md");
+	for (const directory of ancestorDirectories(startDirectory)) {
+		const candidate = join(directory, ".pi", "APPEND_SYSTEM.md");
 		if (existsSync(candidate)) return candidate;
-		const parent = dirname(current);
-		if (parent === current) break;
-		current = parent;
 	}
 	return undefined;
 }
