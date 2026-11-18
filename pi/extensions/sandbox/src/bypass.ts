@@ -1,4 +1,5 @@
-import { AgentMode, isRestricted } from "../../lib/agent-mode.ts";
+import type { AgentMode } from "../../lib/agent-mode.ts";
+import { isRestricted } from "../../lib/agent-mode.ts";
 import { ALLOW_ONCE, DENY_ONCE } from "../../lib/permission-choices.ts";
 import { Duration, userReason } from "../../lib/permission-prompt.ts";
 import type { PermissionAnswer } from "../../lib/permission-prompt.ts";

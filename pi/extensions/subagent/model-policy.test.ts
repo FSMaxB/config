@@ -83,5 +83,5 @@ function createModel(provider: string, id: string, baseUrl = `https://${provider
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 128_000,
     maxTokens: 16_000,
-  } as Model<Api>;
+  };
 }

@@ -13,11 +13,13 @@
 
 import { createRequire } from "node:module";
 import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
+import type * as McpServerNamespace from "@modelcontextprotocol/sdk/server/index.js";
+import type * as McpTypesNamespace from "@modelcontextprotocol/sdk/types.js";
 import type { McpResult } from "./extract-tool-results.js";
 import { isRecord } from "../../lib/untyped.ts";
 
-type McpServerModule = typeof import("@modelcontextprotocol/sdk/server/index.js");
-type McpTypesModule = typeof import("@modelcontextprotocol/sdk/types.js");
+type McpServerModule = typeof McpServerNamespace;
+type McpTypesModule = typeof McpTypesNamespace;
 
 // Required on first use, not imported: the MCP SDK (with zod and ajv) cost every pi startup
 // ~60 ms although only a query ever builds a tool server.

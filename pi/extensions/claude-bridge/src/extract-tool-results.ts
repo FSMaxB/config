@@ -6,10 +6,10 @@
 
 import { isRecord } from "../../lib/untyped.ts";
 
-export type McpContent = Array<
+export type McpContent = (
 	| { type: "text"; text: string }
 	| { type: "image"; data: string; mimeType: string }
->;
+)[];
 
 export interface McpResult {
 	content: McpContent;
@@ -34,7 +34,7 @@ export function toolResultToMcpContent(content: unknown): McpContent {
 
 // Returns { results, stopIdx } so callers can log the walk boundary.
 export function extractAllToolResults(
-	messages: ReadonlyArray<{ role: string; content?: unknown; toolCallId?: string; isError?: boolean }>,
+	messages: readonly { role: string; content?: unknown; toolCallId?: string; isError?: boolean }[],
 ): { results: McpResult[]; stopIdx: number } {
 	const results: McpResult[] = [];
 	let stopIndex = -1;

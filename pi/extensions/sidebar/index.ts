@@ -38,9 +38,18 @@ export default function sidebarExtension(pi: ExtensionAPI): void {
     description: "Show or hide the sidebar for this session",
     handler: async (args, context) => {
       const argument = args.trim().toLowerCase();
-      if (argument === "") return setVisibility(visibility === Visibility.On ? Visibility.Off : Visibility.On, context);
-      if (argument === "on") return setVisibility(Visibility.On, context);
-      if (argument === "off") return setVisibility(Visibility.Off, context);
+      if (argument === "") {
+        setVisibility(visibility === Visibility.On ? Visibility.Off : Visibility.On, context);
+        return;
+      }
+      if (argument === "on") {
+        setVisibility(Visibility.On, context);
+        return;
+      }
+      if (argument === "off") {
+        setVisibility(Visibility.Off, context);
+        return;
+      }
       context.ui.notify("Usage: /sidebar [on|off]. Persistent default: sidebar.enabled in settings.json", "warning");
     },
   });
@@ -86,7 +95,7 @@ export default function sidebarExtension(pi: ExtensionAPI): void {
     // overlay kept open through ui.custom would silence notify-ask for the rest of the session. ui.custom is the
     // only way to reach the TUI: the panel is shown with tui.showOverlay, and done() runs before the
     // factory returns, which makes pi skip its own overlay and settle the call right away.
-    void context.ui.custom<void>((tui, theme, _keybindings, done) => {
+    void context.ui.custom<undefined>((tui, theme, _keybindings, done) => {
       const panel = new SidebarPanel(theme, measure, visibleSections);
       state.requestRender = () => tui.requestRender();
       state.handle = tui.showOverlay(panel, {
@@ -100,7 +109,7 @@ export default function sidebarExtension(pi: ExtensionAPI): void {
         margin: { top: 1, right: 1 },
         visible: (termWidth: number) => termWidth >= MIN_TERMINAL_WIDTH,
       });
-      done();
+      done(undefined);
       return panel;
     });
     return state;

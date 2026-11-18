@@ -298,7 +298,7 @@ function persistSessions(): void { state.persistSession?.(serializeStoredRules(s
 // An entry in any other format than the current one (version 3) gives empty session rules.
 function parseSession(value: unknown): StoredRules { try { return isRecord(value) ? parseStoredRules(value) : emptyStoredRules(); } catch { return emptyStoredRules(); } }
 
-const GLOB_COMPONENT = /[*?\[\]{}]|\([^)]*[?+*@!]\)|\([^)]*\)/;
+const GLOB_COMPONENT = /[*?[\]{}]|\([^)]*[?+*@!]\)|\([^)]*\)/;
 
 export async function normalizePathSelector(input: string, cwd: string): Promise<PathSelector> {
   const expanded = expandHome(input);

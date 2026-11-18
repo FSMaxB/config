@@ -79,7 +79,7 @@ export function advanceQuiet(
   now: number,
 ): QuietState | undefined {
   if (unseenCount === 0) return undefined;
-  if (previous && previous.count === unseenCount) return previous;
+  if (previous?.count === unseenCount) return previous;
   return { count: unseenCount, since: now };
 }
 

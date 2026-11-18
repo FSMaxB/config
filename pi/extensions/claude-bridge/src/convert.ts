@@ -31,7 +31,7 @@ export function mapPiToolNameToSdk(name: string, customToolNameToSdk?: ReadonlyM
 }
 
 export function messageContentToText(
-	content: string | ReadonlyArray<{ type: string; text?: string; data?: string; mimeType?: string }>,
+	content: string | readonly { type: string; text?: string; data?: string; mimeType?: string }[],
 ): string {
 	if (typeof content === "string") return content;
 	const blocks: unknown = content;

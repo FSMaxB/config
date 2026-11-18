@@ -34,7 +34,7 @@ try {
       `unexpected headers: ${text}`,
     );
     assert.equal(rows.length, 3, `expected 3 match rows, got: ${text}`);
-    for (const row of rows) assert.match(row, /^  \d+: /);
+    for (const row of rows) assert.match(row, /^ {2}\d+: /);
     assert.ok(
       !text.includes("ignored.txt"),
       `gitignored file matched: ${text}`,

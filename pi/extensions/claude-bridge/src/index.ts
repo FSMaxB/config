@@ -10,8 +10,8 @@ import { buildModels } from "./models.js";
 import { MCP_SERVER_NAME, MCP_TOOL_PREFIX } from "./skills.js";
 import { extractAllToolResults as _extractAllToolResults } from "./extract-tool-results.js";
 import type { McpResult } from "./extract-tool-results.js";
-import { QueryContext, currentQueryContext, deleteQueryLane, drainStrandedToolCalls, stackDepth, pushContext, summarizeDroppedUserMessages, takeQueuedOrParkedResult, toolCallDrainCause } from "./query-state.js";
-import type { DeferredUserMessage, QueryRestartRequest } from "./query-state.js";
+import { currentQueryContext, deleteQueryLane, drainStrandedToolCalls, stackDepth, pushContext, summarizeDroppedUserMessages, takeQueuedOrParkedResult, toolCallDrainCause } from "./query-state.js";
+import type { DeferredUserMessage, QueryRestartRequest, QueryContext } from "./query-state.js";
 import { abortRebuildReason, abortSdkQuery, closeSdkQuery, interruptSdkQuery, teardownQuery } from "./query-teardown.js";
 import { abortExitGraceMs, createChildExitTracker } from "./child-exit.js";
 import { loadConfig, recordProjectTrust } from "./config.js";
@@ -1324,7 +1324,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 			const anchor = anchorSessionId && abortContext.currentMessageId ? { sessionId: anchorSessionId, messageId: abortContext.currentMessageId } : undefined;
 			finalizeCurrentStream(abortContext.turnOutput?.stopReason, abortContext, anchor);
 		})
-		.catch(async (error) => {
+		.catch(async (error: unknown) => {
 			debug(`provider: query error, model=${model.id}, aborted=${Boolean(options?.signal?.aborted)}, error=`, error);
 			if (abortContext.restartRequest) {
 				// Killed for the restart: the replacement query surfaces the outcome.
@@ -1396,7 +1396,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 				return;
 			}
 		})
-		.catch((error) => {
+		.catch((error: unknown) => {
 			debug("provider: re-entry pipeline failed:", error);
 			// A throw BEFORE the re-entry ran — teardown, or closing the stale query
 			// — skips it, leaving reentryStream on this call's own stream, which has
@@ -1532,5 +1532,5 @@ export default function (pi: ExtensionAPI): void {
 // Process-global slots shared by every copy of this module, keyed by registered symbols; only this
 // module and its siblings write them.
 function processGlobals(): Record<symbol, unknown> {
-	return globalThis as Record<symbol, unknown>;
+	return globalThis;
 }

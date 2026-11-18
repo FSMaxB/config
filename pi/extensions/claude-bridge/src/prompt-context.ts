@@ -38,8 +38,8 @@ function findProjectAppendSystem(startDir: string): string | undefined {
 	return undefined;
 }
 
-export function readAppendSystemPromptFiles(cwd: string): Array<{ label: string; content: string }> {
-	const files: Array<{ label: string; path: string }> = [
+export function readAppendSystemPromptFiles(cwd: string): { label: string; content: string }[] {
+	const files: { label: string; path: string }[] = [
 		{ label: "global APPEND_SYSTEM.md", path: join(piUserDir(), "APPEND_SYSTEM.md") },
 	];
 	// Isolated mode: no cwd-ancestor discovery — the host app owns the prompt surface.
@@ -47,7 +47,7 @@ export function readAppendSystemPromptFiles(cwd: string): Array<{ label: string;
 	if (projectPath) files.push({ label: "project .pi/APPEND_SYSTEM.md", path: projectPath });
 
 	const seen = new Set<string>();
-	const output: Array<{ label: string; content: string }> = [];
+	const output: { label: string; content: string }[] = [];
 	for (const file of files) {
 		if (seen.has(file.path)) continue;
 		seen.add(file.path);

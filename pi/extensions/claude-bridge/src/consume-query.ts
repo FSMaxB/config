@@ -175,7 +175,7 @@ export async function consumeQuery(
 						accountInfoProbe = (async () => sdkQuery.accountInfo())();
 						void accountInfoProbe
 							.then((info) => recordBillingIdentity(info))
-							.catch((error) => debug("consumeQuery: billing identity probe rejected:", error));
+							.catch((error: unknown) => debug("consumeQuery: billing identity probe rejected:", error));
 					}
 				} else if (message.subtype === "model_refusal_fallback") {
 					const originalModel = message.original_model;

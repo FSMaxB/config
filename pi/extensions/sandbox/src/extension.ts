@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { createBashToolDefinition, createLocalBashOperations, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { AgentToolResult, BashOperations, BashSpawnContext, BashToolDetails, ExtensionAPI, ExtensionCommandContext, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import type * as SandboxRuntime from "@anthropic-ai/sandbox-runtime";
 import { Type } from "typebox";
 import type { TSchema } from "typebox";
 import { currentAgentMode, currentPolicy, grantPathAccess } from "../../lib/path-permissions.ts";
@@ -104,7 +105,7 @@ interface Runtime {
   shutdown(): Promise<void>;
 }
 
-type SandboxManagerType = typeof import("@anthropic-ai/sandbox-runtime")["SandboxManager"];
+type SandboxManagerType = (typeof SandboxRuntime)["SandboxManager"];
 
 export default function (pi: ExtensionAPI): void {
   if (process.env.PI_SANDBOX === "0") return;
@@ -127,7 +128,10 @@ export default function (pi: ExtensionAPI): void {
     getArgumentCompletions: async (prefix) => profileCompletions(prefix, await runtime.profileNames().catch(() => [])),
     handler: async (args, context) => {
       const command = parseProfileCommand(args);
-      if (command.kind === "error") return context.ui.notify(command.message, "error");
+      if (command.kind === "error") {
+        context.ui.notify(command.message, "error");
+        return;
+      }
       await runtime.runProfileCommand(command, context);
     },
   });
@@ -352,7 +356,7 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
   }
 
   function ensureInitialized(): Promise<void> {
-    initialization ??= initialize().catch((error) => {
+    initialization ??= initialize().catch((error: unknown) => {
       initialization = undefined;
       throw error;
     });
@@ -644,17 +648,28 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
     switch (command.kind) {
       case "list": {
         const text = profileListText(await loadProfiles(SETTINGS_FILE), profileState, await loadActivationDecisions(SETTINGS_FILE));
-        return context.ui.notify(text, "info");
+        context.ui.notify(text, "info");
+        return;
       }
-      case "record": return await recorder.arm(command.name, context);
-      case "stop": return await recorder.stop(context);
-      case "edit": return await editProfile(command.name, context);
+      case "record": {
+        await recorder.arm(command.name, context);
+        return;
+      }
+      case "stop": {
+        await recorder.stop(context);
+        return;
+      }
+      case "edit": {
+        await editProfile(command.name, context);
+        return;
+      }
       case "forget": {
         await updateActivationDecisions(SETTINGS_FILE, ({ allowed, denied }) => { allowed.delete(command.name); denied.delete(command.name); });
         profileState.allowed.delete(command.name);
         profileState.denied.delete(command.name);
         persistProfileState();
-        return context.ui.notify(`Forgot the stored and session decisions for ${command.name}; it prompts again.`, "info");
+        context.ui.notify(`Forgot the stored and session decisions for ${command.name}; it prompts again.`, "info");
+        return;
       }
       case "delete": {
         if (!(await knownProfile(command.name, context))) return;
@@ -664,7 +679,8 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
         profileState.denied.delete(command.name);
         persistProfileState();
         await refreshNetwork();
-        return context.ui.notify(`Deleted profile ${command.name}.`, "info");
+        context.ui.notify(`Deleted profile ${command.name}.`, "info");
+        return;
       }
     }
   }
@@ -684,7 +700,8 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
       const parsed = parseProfileDefinition(JSON.parse(edited), name);
       await updateProfile(SETTINGS_FILE, name, () => parsed);
     } catch (error) {
-      return context.ui.notify(`Profile ${name} was not saved: ${errorMessage(error)}`, "error");
+      context.ui.notify(`Profile ${name} was not saved: ${errorMessage(error)}`, "error");
+      return;
     }
     await refreshNetwork();
     context.ui.notify(`Saved profile ${name}.`, "info");

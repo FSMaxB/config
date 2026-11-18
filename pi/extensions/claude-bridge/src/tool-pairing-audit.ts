@@ -19,11 +19,11 @@ export interface MissingToolResult {
 	userIndex: number | undefined;
 }
 
-function contentBlocks(content: unknown): Array<Record<string, unknown>> {
+function contentBlocks(content: unknown): Record<string, unknown>[] {
 	return Array.isArray(content) ? content.filter(isRecord) : [];
 }
 
-function toolUses(content: unknown): Array<{ id: string; name: string }> {
+function toolUses(content: unknown): { id: string; name: string }[] {
 	return contentBlocks(content).flatMap((block) => {
 		if (block.type !== "tool_use" || typeof block.id !== "string") return [];
 		return [{ id: block.id, name: typeof block.name === "string" && block.name ? block.name : "unknown" }];
@@ -51,7 +51,7 @@ function toolResultIds(content: unknown): Set<string> {
  * copying is therefore required to keep both assistant messages valid.
  */
 export function recoverLaterToolResults(
-	messages: ReadonlyArray<{ role?: string; content?: unknown }>,
+	messages: readonly { role?: string; content?: unknown }[],
 ): RecoveredToolResult[] {
 	const recovered: RecoveredToolResult[] = [];
 	for (let i = 0; i < messages.length; i++) {
@@ -105,7 +105,7 @@ export function recoverLaterToolResults(
  * be followed by a user message containing matching tool_result blocks. Return
  * every tool_use that would force repairToolPairing to synthesize a result.
  */
-export function findUnpairedToolUses(messages: ReadonlyArray<{ role?: string; content?: unknown }>): MissingToolResult[] {
+export function findUnpairedToolUses(messages: readonly { role?: string; content?: unknown }[]): MissingToolResult[] {
 	const missing: MissingToolResult[] = [];
 	for (let i = 0; i < messages.length; i++) {
 		const message = messages[i];
@@ -145,7 +145,7 @@ export const LOST_TOOL_RESULT_TEXT =
  * follows. `missing` must come from findUnpairedToolUses on the same array.
  */
 export function insertLostToolResultPlaceholders(
-	messages: Array<{ role?: string; content?: unknown }>,
+	messages: { role?: string; content?: unknown }[],
 	missing: readonly MissingToolResult[],
 ): void {
 	const block = (id: string): Record<string, unknown> => ({ type: "tool_result", tool_use_id: id, content: LOST_TOOL_RESULT_TEXT, is_error: true });
@@ -173,7 +173,7 @@ export function insertLostToolResultPlaceholders(
 	}
 }
 
-export function summarizeMissingToolNames(missing: readonly MissingToolResult[]): Array<{ name: string; count: number }> {
+export function summarizeMissingToolNames(missing: readonly MissingToolResult[]): { name: string; count: number }[] {
 	const counts = new Map<string, number>();
 	for (const item of missing) counts.set(item.toolName, (counts.get(item.toolName) ?? 0) + 1);
 	return [...counts.entries()]

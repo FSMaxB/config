@@ -346,7 +346,7 @@ function fakeSession(initial: Partial<ModeSnapshot>, prepare: (state: ModeSnapsh
         sent.push({ message: custom, options });
         if (fixture.streaming) fixture.pending.push(custom);
         else fixture.persisted.push(custom);
-      }) as never,
+      }),
     },
     {
       snapshot: () => ({ ...state }),

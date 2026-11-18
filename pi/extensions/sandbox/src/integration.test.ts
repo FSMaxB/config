@@ -127,7 +127,7 @@ test("the trace profile reports a read the normal sandbox would deny", { skip: !
 
   // assert
   assert.equal(status, 0);
-  assert.ok(lines.some((line) => / allow file-read-data /.test(line) && line.includes(target)), lines.join("\n"));
+  assert.ok(lines.some((line) => line.includes(" allow file-read-data ") && line.includes(target)), lines.join("\n"));
 });
 
 test("secrets under the home directory are unreadable", { skip: !enabled }, async () => {
@@ -338,7 +338,10 @@ test("mktemp creates its files in TMPDIR through the shim", { skip: !enabled || 
 test("here-documents work from a read-only directory with the resolved shell", { skip: !enabled }, async (context) => {
   // arrange
   const choice = await resolveSandboxShell(process.env.PATH);
-  if (choice.kind === "missing") return context.skip("no bash 5.1 or newer installed");
+  if (choice.kind === "missing") {
+    context.skip("no bash 5.1 or newer installed");
+    return;
+  }
   // The second heredoc is larger than the pipe buffer, so bash 5.1+ writes it to a temp file under $TMPDIR.
   const command = `export TMPDIR='${workDirectory}'; cat <<'EOF'\nsmall\nEOF\ncat <<EOF | wc -c\n$(head -c 100000 /dev/zero | tr '\\0' x)\nEOF`;
 
@@ -494,7 +497,7 @@ function policyFilesystem(extraReadAllow: PathSelector[] = [], extraWriteAllow: 
   return filesystemConfig(policy, { platform: testPlatform(), homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [], vcs: undefined });
 }
 
-async function runSandboxed(command: string, filesystem = policyFilesystem(), cwd = workDirectory, shell: string | undefined = undefined): Promise<{ exitCode: number | null; output: string; commandId: string }> {
+async function runSandboxed(command: string, filesystem = policyFilesystem(), cwd = workDirectory, shell?: string): Promise<{ exitCode: number | null; output: string; commandId: string }> {
   const commandId = `${Date.now()}-${Math.random()}`;
   collector.track(commandId);
   const wrapped = await SandboxManager.wrapWithSandbox(command, shell, { filesystem }, undefined, { commandId, commandText: command });

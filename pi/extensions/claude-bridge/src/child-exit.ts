@@ -38,7 +38,7 @@ export function __testSetAbortExitGraceMs(ms?: number): void {
 }
 
 export function createChildExitTracker(): ChildExitTracker {
-	const exits: Array<Promise<void>> = [];
+	const exits: Promise<void>[] = [];
 	return {
 		spawn(options) {
 			const child = spawnClaudeCodeProcessImpl(options);

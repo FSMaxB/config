@@ -134,7 +134,7 @@ export function failStrandedToolCall(queryContext: QueryContext, id: string): bo
  *  Handlers from the current generation stay untouched: their turn is still
  *  streaming and the forward may simply not have happened yet. Failed ids are
  *  marked dead exactly like failStrandedToolCall. */
-export function drainStrandedToolCalls(queryContext: QueryContext): Array<{ id: string; toolName: string }> {
+export function drainStrandedToolCalls(queryContext: QueryContext): { id: string; toolName: string }[] {
 	const stranded = [...queryContext.pendingToolCalls].filter(([id, pending]) =>
 		pending.generation < queryContext.callbackGeneration && !queryContext.forwardedToolCallIds.has(id));
 	for (const [id, pending] of stranded) {
@@ -215,7 +215,7 @@ export interface ToolResultProgress {
 	unmatchedResultIds: string[];
 	missingDeliveredIds: string[];
 	unresolvedIds: string[];
-	toolNames: Array<{ name: string; count: number }>;
+	toolNames: { name: string; count: number }[];
 	expectedCount: number;
 	deliveredCount: number;
 	resolvedCount: number;
@@ -612,7 +612,7 @@ export class QueryContext {
 	 * instead of dropping: reports stay clean, and a late handler still gets its
 	 * real result through takeQueuedOrParkedResult.
 	 */
-	takeStaleQueuedResults(): Array<{ id: string; toolName: string }> {
+	takeStaleQueuedResults(): { id: string; toolName: string }[] {
 		if (this.pendingResults.size === 0) return [];
 		const stale = [...this.pendingResults.entries()].map(([id, result]) => {
 			this.reapedResults.set(id, result);
