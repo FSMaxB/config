@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  type ExtensionAPI,
-  type ExtensionContext,
+import type {
+  ExtensionAPI,
+  ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
   contextMessages,
@@ -11,7 +11,9 @@ import {
 } from "./context-compat";
 import {
   loadPolicyConfig,
-  type SubagentModelConfig,
+} from "../subagent/model-policy.ts";
+import type {
+  SubagentModelConfig,
 } from "../subagent/model-policy.ts";
 import { ContextChange, requiredContextChange } from "./context-sync.ts";
 import { isOffByDefaultModel } from "../lib/model-defaults.ts";

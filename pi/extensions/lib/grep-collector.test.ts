@@ -5,7 +5,9 @@ import {
   GrepRowKind,
   LineOutcome,
   parseRipgrepEvent,
-  type RipgrepEvent,
+} from "./grep-collector.ts";
+import type {
+  RipgrepEvent,
 } from "./grep-collector.ts";
 
 const match = (lineNumber: number, text: string, filePath = "a.ts"): RipgrepEvent => ({

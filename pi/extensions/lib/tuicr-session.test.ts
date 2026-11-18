@@ -6,8 +6,10 @@ import {
   formatComments,
   pickNewSession,
   quietElapsed,
-  type SessionEntry,
-  type TuicrComment,
+} from "./tuicr-session.ts";
+import type {
+  SessionEntry,
+  TuicrComment,
 } from "./tuicr-session.ts";
 
 function entry(overrides: Partial<SessionEntry>): SessionEntry {

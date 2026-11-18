@@ -2,7 +2,8 @@
  * Agent discovery and configuration
  */
 
-import { readdirSync, readFileSync, type Dirent } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import type { Dirent } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";

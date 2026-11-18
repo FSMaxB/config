@@ -1,7 +1,9 @@
 import { basename, sep } from "node:path";
-import { ItemTone, type PanelItem } from "./panel.ts";
+import { ItemTone } from "./panel.ts";
+import type { PanelItem } from "./panel.ts";
 import type { BranchEntry } from "./section.ts";
-import { type RealPath, resolveToolPath, safeRealPath } from "./tool-path.ts";
+import { resolveToolPath, safeRealPath } from "./tool-path.ts";
+import type { RealPath } from "./tool-path.ts";
 
 export const LOADED_PLAN_ENTRY = "loaded-plan";
 

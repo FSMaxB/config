@@ -1,9 +1,11 @@
 import { join } from "node:path";
-import { isRestricted, type AgentMode } from "../../lib/agent-mode.ts";
+import { isRestricted } from "../../lib/agent-mode.ts";
+import type { AgentMode } from "../../lib/agent-mode.ts";
 import type { PathSelector } from "../../lib/path-permission-rules.ts";
 import type { OnceGrant } from "../../lib/path-permissions.ts";
 import { contains } from "../../lib/repo.ts";
-import { profileFingerprint, type Profile } from "./profiles.ts";
+import { profileFingerprint } from "./profiles.ts";
+import type { Profile } from "./profiles.ts";
 
 export interface ProfileInputs {
   agentMode: AgentMode;

@@ -11,7 +11,9 @@ import {
   initInvocation,
   isUnchanged,
   statusInvocation,
-  type Executor,
+} from "./plan-commit.ts";
+import type {
+  Executor,
 } from "./plan-commit.ts";
 
 // A fixed identity keeps the git commits below independent of the machine's git config

@@ -1,5 +1,6 @@
 import { dirname } from "node:path";
-import { matchesRule, tree, type AccessMode, type PathSelector } from "../../lib/path-permission-rules.ts";
+import { matchesRule, tree } from "../../lib/path-permission-rules.ts";
+import type { AccessMode, PathSelector } from "../../lib/path-permission-rules.ts";
 import type { EffectivePolicy } from "../../lib/path-permissions.ts";
 import { contains } from "../../lib/repo.ts";
 import { selectorText } from "./profiles.ts";

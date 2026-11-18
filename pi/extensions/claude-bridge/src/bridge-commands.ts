@@ -1,6 +1,6 @@
 // The /pi-claude status command.
 
-import { type ExtensionAPI, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "./config.js";
 
 const COMMANDS_REGISTERED_KEY = Symbol.for("claude-bridge:commandsRegistered");

@@ -6,7 +6,9 @@ import {
   latestSnapshotContent,
   renderSnapshot,
   SandboxStatus,
-  type ModeSnapshot,
+} from "./mode-messages.ts";
+import type {
+  ModeSnapshot,
 } from "./mode-messages.ts";
 
 const HEADER = "This is the current agent-mode state. It supersedes all earlier agent-mode and plan-mode state messages.";

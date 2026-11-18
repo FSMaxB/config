@@ -7,7 +7,9 @@ import {
   registerModeMessages,
   renderSnapshot,
   SandboxStatus,
-  type ModeSnapshot,
+} from "./mode-messages.ts";
+import type {
+  ModeSnapshot,
 } from "./mode-messages.ts";
 
 test("the first prompt receives the current snapshot and unchanged prompts do not repeat it", async () => {

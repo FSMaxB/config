@@ -1,9 +1,11 @@
 import { AgentMode, isRestricted } from "../../lib/agent-mode.ts";
 import { ALLOW_ONCE, ALLOW_SESSION } from "../../lib/permission-choices.ts";
-import { Duration, userReason, type PermissionAnswer } from "../../lib/permission-prompt.ts";
+import { Duration, userReason } from "../../lib/permission-prompt.ts";
+import type { PermissionAnswer } from "../../lib/permission-prompt.ts";
 import type { SessionGrant } from "../../lib/session-grants.ts";
 import type { TriggerMatch } from "./profile-triggers.ts";
-import { NetworkAccess, type ActivationDecisions, type Profile, type ProfileNetwork } from "./profiles.ts";
+import { NetworkAccess } from "./profiles.ts";
+import type { ActivationDecisions, Profile, ProfileNetwork } from "./profiles.ts";
 
 export const PROFILE_ENTRY_TYPE = "sandbox-profiles";
 

@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { emptyProfileState } from "./profile-activation.ts";
 import { parseProfileCommand, profileCompletions, profileListText } from "./profile-command.ts";
-import { NetworkAccess, emptyActivationDecisions, emptyProfileDefinition, type Profile } from "./profiles.ts";
+import { NetworkAccess, emptyActivationDecisions, emptyProfileDefinition } from "./profiles.ts";
+import type { Profile } from "./profiles.ts";
 
 test("every subcommand parses", () => {
   // arrange

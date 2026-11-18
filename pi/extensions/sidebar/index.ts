@@ -1,6 +1,8 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { type OverlayHandle, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { MIN_TERMINAL_WIDTH, type PanelSection, SidebarPanel, type TextMeasure } from "./panel.ts";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import type { OverlayHandle } from "@earendil-works/pi-tui";
+import { MIN_TERMINAL_WIDTH, SidebarPanel } from "./panel.ts";
+import type { PanelSection, TextMeasure } from "./panel.ts";
 import type { SidebarSection } from "./section.ts";
 import { createGrantsSection } from "./grants-section.ts";
 import { createPlansSection } from "./plans-section.ts";

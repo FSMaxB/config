@@ -1,8 +1,10 @@
 import { mkdir } from "node:fs/promises";
 import { tree } from "../../lib/path-permission-rules.ts";
-import { normalizePathSelector, type OnceGrant } from "../../lib/path-permissions.ts";
+import { normalizePathSelector } from "../../lib/path-permissions.ts";
+import type { OnceGrant } from "../../lib/path-permissions.ts";
 import { resolveThroughSymlinks } from "../../lib/repo.ts";
-import { expandTilde, type ProfileInputs } from "./profile-grants.ts";
+import { expandTilde } from "./profile-grants.ts";
+import type { ProfileInputs } from "./profile-grants.ts";
 import type { Profile } from "./profiles.ts";
 
 // Profile paths enter the policy as once grants. The shim reads and writes its state through the

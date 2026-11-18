@@ -1,8 +1,10 @@
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { MODE_IDENTITIES, type RestrictedMode } from "./agent-mode.ts";
+import { MODE_IDENTITIES } from "./agent-mode.ts";
+import type { RestrictedMode } from "./agent-mode.ts";
 import { readJsonObjectFile, writeJsonFileAtomically } from "./json.ts";
-import { denialList, stringList, type Denial } from "./mode-entry.ts";
+import { denialList, stringList } from "./mode-entry.ts";
+import type { Denial } from "./mode-entry.ts";
 
 export async function readPersistedDecisions(mode: RestrictedMode): Promise<{
   alwaysAllowed: string[];

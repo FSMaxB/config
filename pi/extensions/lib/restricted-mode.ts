@@ -5,11 +5,14 @@ import type {
   Theme,
   ToolCallEvent,
 } from "@earendil-works/pi-coding-agent";
-import { AgentMode, isRestricted, MODE_IDENTITIES, RESTRICTED_MODES, storeForMode, type ModeIdentity, type PathRuleStore, type RestrictedMode } from "./agent-mode.ts";
+import { AgentMode, isRestricted, MODE_IDENTITIES, RESTRICTED_MODES, storeForMode } from "./agent-mode.ts";
+import type { ModeIdentity, PathRuleStore, RestrictedMode } from "./agent-mode.ts";
 import { FILE_TOOLS } from "./file-tools.ts";
 import { readPersistedDecisions, writePersistedDecisions } from "./mode-decisions.ts";
-import { activeRestrictedMode, latestModeEntry, type ActiveRestrictedMode } from "./mode-entry.ts";
-import { registerModeMessages, SandboxStatus, type ModeMessages, type ModeSnapshot } from "./mode-messages.ts";
+import { activeRestrictedMode, latestModeEntry } from "./mode-entry.ts";
+import type { ActiveRestrictedMode } from "./mode-entry.ts";
+import { registerModeMessages, SandboxStatus } from "./mode-messages.ts";
+import type { ModeMessages, ModeSnapshot } from "./mode-messages.ts";
 import {
   blockedReason,
   DENIAL_CAUSES,
@@ -30,15 +33,19 @@ import {
   setAgentMode,
 } from "./path-permissions.ts";
 import type { PathRule } from "./path-permission-rules.ts";
-import { addPathRuleInteractively, CLEAR_ALL, DONE, pathRuleEntries, type DecisionEntry } from "./path-rule-commands.ts";
-import { ALL_DURATIONS, askPermission, Duration, type LastingDuration } from "./permission-prompt.ts";
+import { addPathRuleInteractively, CLEAR_ALL, DONE, pathRuleEntries } from "./path-rule-commands.ts";
+import type { DecisionEntry } from "./path-rule-commands.ts";
+import { ALL_DURATIONS, askPermission, Duration } from "./permission-prompt.ts";
+import type { LastingDuration } from "./permission-prompt.ts";
 import { permissionUI } from "./permission-ui.ts";
 import { plansDirectory } from "./plan-file.ts";
 import { PLAN_TOOLS } from "./plan-tools.ts";
 import { isSandboxActive } from "./sandbox-state.ts";
 import { serialize } from "./ui-queue.ts";
-import { announceSessionGrantsChanged, provideSessionGrants, type SessionGrant } from "./session-grants.ts";
-import { planToolPermission, toolDecisionGrants, trustedReadOnlyToolNames, type ToolPermission } from "./tool-permission-policy.ts";
+import { announceSessionGrantsChanged, provideSessionGrants } from "./session-grants.ts";
+import type { SessionGrant } from "./session-grants.ts";
+import { planToolPermission, toolDecisionGrants, trustedReadOnlyToolNames } from "./tool-permission-policy.ts";
+import type { ToolPermission } from "./tool-permission-policy.ts";
 
 export interface ModeDefinition {
   identity: ModeIdentity;

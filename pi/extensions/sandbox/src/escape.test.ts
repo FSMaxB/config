@@ -8,9 +8,11 @@ import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
-import { createServer, type Server } from "node:net";
+import { createServer } from "node:net";
+import type { Server } from "node:net";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
-import { tree, type PathSelector } from "../../lib/path-permission-rules.ts";
+import { tree } from "../../lib/path-permission-rules.ts";
+import type { PathSelector } from "../../lib/path-permission-rules.ts";
 import { filesystemConfig } from "./policy.ts";
 import { scanVcsLayout, vcsWriteRules } from "./vcs-policy.ts";
 

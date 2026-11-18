@@ -1,5 +1,6 @@
 import type { ProfileSessionState } from "./profile-activation.ts";
-import { NetworkAccess, isValidProfileName, type ActivationDecisions, type Profile } from "./profiles.ts";
+import { NetworkAccess, isValidProfileName } from "./profiles.ts";
+import type { ActivationDecisions, Profile } from "./profiles.ts";
 
 export type ProfileCommand =
   | { kind: "list" }

@@ -3,7 +3,8 @@ import test from "node:test";
 import { AgentMode } from "../../lib/agent-mode.ts";
 import { tree } from "../../lib/path-permission-rules.ts";
 import { ALL_DURATIONS, LASTING_DURATIONS } from "../../lib/permission-prompt.ts";
-import { CommandExit, discardedWriteReport, networkDenialReport, nextStep, promptDurations, violationReport, type ViolationOutcome } from "./violation-outcomes.ts";
+import { CommandExit, discardedWriteReport, networkDenialReport, nextStep, promptDurations, violationReport } from "./violation-outcomes.ts";
+import type { ViolationOutcome } from "./violation-outcomes.ts";
 
 const grant = { mode: "read" as const, selector: tree("/outside") };
 const allowedOnce: ViolationOutcome = { kind: "allowed-once", mode: "read", path: "/outside/a", grant };

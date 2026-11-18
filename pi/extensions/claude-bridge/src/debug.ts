@@ -1,5 +1,5 @@
-import { appendFileSync, chmodSync, mkdirSync } from "fs";
-import { dirname, join } from "path";
+import { appendFileSync, chmodSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { piUserDir } from "./config.js";
 
 // --- Debug logging ---

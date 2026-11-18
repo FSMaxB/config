@@ -1,8 +1,9 @@
-import { type ExtensionAPI, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { DEBUG, debug, diagDump, diagGuidance, diagLogPath } from "./debug.js";
-import { type QueryContext } from "./query-state.js";
+import type { QueryContext } from "./query-state.js";
 import { currentRequestLaneId } from "./request-lane.js";
-import { summarizeMissingToolNames, type MissingToolResult } from "./tool-pairing-audit.js";
+import { summarizeMissingToolNames } from "./tool-pairing-audit.js";
+import type { MissingToolResult } from "./tool-pairing-audit.js";
 
 export interface SessionState {
 	sessionId: string;

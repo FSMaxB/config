@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { detailsHeight, detailsLines, type TextMeasure } from "./select-details.ts";
+import { detailsHeight, detailsLines } from "./select-details.ts";
+import type { TextMeasure } from "./select-details.ts";
 
 const measure: TextMeasure = {
   width: (text) => text.length,

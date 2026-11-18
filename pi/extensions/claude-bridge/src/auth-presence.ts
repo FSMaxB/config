@@ -20,9 +20,9 @@
 // non-empty string and never logs its value. Credential CONTENTS are never read
 // or logged.
 
-import { existsSync, readFileSync } from "fs";
-import { homedir, platform as osPlatform } from "os";
-import { join } from "path";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir, platform as osPlatform } from "node:os";
+import { join } from "node:path";
 
 /**
  * Resolve the Claude config directory the same way the bundled cc-session-io

@@ -2,11 +2,12 @@
 // Extracted from index.ts (pure move): no closures — reads config, env, and
 // the provided context only.
 
-import { type Model, type Tool } from "@earendil-works/pi-ai";
+import type { Model, Tool } from "@earendil-works/pi-ai";
 import type { McpSdkServerConfigWithInstance, query, EffortLevel, SettingSource, SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 import { extractAgentsAppend } from "./agents-md.js";
 import { spawnClaudeCodeWithDiagnostics } from "./claude-executable.js";
-import { normalizeEffortLevel, type Config } from "./config.js";
+import { normalizeEffortLevel } from "./config.js";
+import type { Config } from "./config.js";
 import { CLAUDE_BRIDGE_TOOL_ISOLATION, bridgeOnlyToolHook } from "./tool-isolation.js";
 import { PROVIDER_ID } from "./convert.js";
 import { makeCliDebugOptions } from "./debug.js";

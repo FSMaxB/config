@@ -4,9 +4,11 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-  type AutocompleteItem,
-  type AutocompleteProvider,
   fuzzyFilter,
+} from "@earendil-works/pi-tui";
+import type {
+  AutocompleteItem,
+  AutocompleteProvider,
 } from "@earendil-works/pi-tui";
 import { createLineSplitter } from "./lib/lines.ts";
 

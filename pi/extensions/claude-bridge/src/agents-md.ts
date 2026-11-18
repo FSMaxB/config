@@ -25,8 +25,8 @@
 // In isolated mode (CLAUDE_BRIDGE_ISOLATED=1), all AGENTS.md discovery is
 // disabled. Embedding hosts provide their instruction surface explicitly.
 
-import { lstatSync, readFileSync, realpathSync, statSync } from "fs";
-import { dirname, join, resolve } from "path";
+import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { isolatedFromEnv, piUserDir } from "./config.js";
 import { debug } from "./debug.js";
 

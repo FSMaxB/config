@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { LogWriter, logFilePath, pruneLogs, readLog, resolveLogPath } from "./log-file.ts";
-import { MarkerEvent, Outcome, RECORD_VERSION, type LogRecord } from "./records.ts";
+import { MarkerEvent, Outcome, RECORD_VERSION } from "./records.ts";
+import type { LogRecord } from "./records.ts";
 
 let root: string;
 let counter = 0;

@@ -1,4 +1,5 @@
-import { AgentMode, MODE_IDENTITIES, RESTRICTED_MODES, type RestrictedMode } from "./agent-mode.ts";
+import { AgentMode, MODE_IDENTITIES, RESTRICTED_MODES } from "./agent-mode.ts";
+import type { RestrictedMode } from "./agent-mode.ts";
 
 export interface Denial {
   name: string;

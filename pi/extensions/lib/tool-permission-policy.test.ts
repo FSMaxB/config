@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { planToolPermission, toolDecisionGrants, trustedReadOnlyToolNames, isTrustedReadOnlyRegistration, type ToolPolicyInfo } from "./tool-permission-policy.ts";
+import { planToolPermission, toolDecisionGrants, trustedReadOnlyToolNames, isTrustedReadOnlyRegistration } from "./tool-permission-policy.ts";
+import type { ToolPolicyInfo } from "./tool-permission-policy.ts";
 
 test("only exact local owner/name pairs with read-only hints receive trust", () => {
   // arrange

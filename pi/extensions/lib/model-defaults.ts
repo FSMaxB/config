@@ -1,5 +1,6 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { isLocalModel, type SubagentModelConfig } from "../subagent/model-policy.ts";
+import { isLocalModel } from "../subagent/model-policy.ts";
+import type { SubagentModelConfig } from "../subagent/model-policy.ts";
 
 const MISTRAL_MODEL_FAMILIES = /mistral|magistral|devstral|codestral|ministral|pixtral/i;
 

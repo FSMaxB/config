@@ -1,7 +1,9 @@
 import { Buffer } from "node:buffer";
 import { isAbsolute } from "node:path";
-import { AgentMode, isPathRuleStore, type PathRuleStore } from "./agent-mode.ts";
-import { emptyRules, parseRules, selectorKey, type PathSelector, type RuleSets, type SerializedRules } from "./path-permission-rules.ts";
+import { AgentMode, isPathRuleStore } from "./agent-mode.ts";
+import type { PathRuleStore } from "./agent-mode.ts";
+import { emptyRules, parseRules, selectorKey } from "./path-permission-rules.ts";
+import type { PathSelector, RuleSets, SerializedRules } from "./path-permission-rules.ts";
 
 // ruleStore and agentMode describe the parent; parents that predate them omit them.
 export interface ChildPathPolicy { version: 1; session: SerializedRules; readDefaults: PathSelector[]; writeDefaults: PathSelector[]; ruleStore?: PathRuleStore; agentMode?: AgentMode }

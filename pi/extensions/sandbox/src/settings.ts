@@ -3,7 +3,8 @@ import { hostname } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { expandHome } from "../../lib/path-resolution.ts";
-import { parseActivationDecisions, parseProfileDefinition, parseProfiles, serializeActivationDecisions, type ActivationDecisions, type Profile, type ProfileDefinition } from "./profiles.ts";
+import { parseActivationDecisions, parseProfileDefinition, parseProfiles, serializeActivationDecisions } from "./profiles.ts";
+import type { ActivationDecisions, Profile, ProfileDefinition } from "./profiles.ts";
 
 export interface SettingsFile {
   network: { allowedDomains: string[]; deniedDomains: string[]; deniedDomainReasons: Record<string, string>; allowUnixSockets: string[]; allowLocalBinding: boolean };

@@ -1,9 +1,9 @@
 import type { Message } from "@earendil-works/pi-ai";
 import type { SessionProjection } from "@earendil-works/pi-coding-agent";
 import { openSession } from "cc-session-io";
-import { statSync } from "fs";
+import { statSync } from "node:fs";
 import { PROVIDER_ID } from "./convert.js";
-import { type ClaudeTranscriptAnchor, type StampedAssistantMessage } from "./query-state.js";
+import type { ClaudeTranscriptAnchor, StampedAssistantMessage } from "./query-state.js";
 import { conversationMessages } from "./transcript.js";
 
 /** A /tree target the bridge can resume instead of rebuilding: the Claude

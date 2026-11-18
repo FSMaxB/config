@@ -14,7 +14,8 @@ import { isInPlansDirectory, newPlanPath, plansDirectory } from "./lib/plan-file
 import { activateMissingPlanTools, PLAN_PATH, SUBMIT_PLAN } from "./lib/plan-tools.ts";
 import { PlanApproval, preferredThinkingLevel, SUBMISSION_OPTIONS, SubmissionAction, submissionAction, thinkingLevelLabel } from "./lib/plan-mode-policy.ts";
 import { commitPlanFileForUser } from "./lib/plan-commit.ts";
-import { registerPlanSubmission, type PlanSubmissionOutcome, type PlanSubmissionParams, type PlanSubmissionResult } from "./lib/plan-submission.ts";
+import { registerPlanSubmission } from "./lib/plan-submission.ts";
+import type { PlanSubmissionOutcome, PlanSubmissionParams, PlanSubmissionResult } from "./lib/plan-submission.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 import { registerRestrictedMode } from "./lib/restricted-mode.ts";
 import { selectWithDefault } from "./lib/select-with-default.ts";

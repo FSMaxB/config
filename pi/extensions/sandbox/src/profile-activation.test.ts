@@ -3,8 +3,10 @@ import test from "node:test";
 import { AgentMode } from "../../lib/agent-mode.ts";
 import { ALLOW_ONCE, ALLOW_SESSION } from "../../lib/permission-choices.ts";
 import { Duration } from "../../lib/permission-prompt.ts";
-import { activationOutcome, activationPrompt, emptyProfileState, parseProfileState, profileSessionGrants, resolveActivationAnswer, serializeProfileState, settledResolution, type ActivationSituation } from "./profile-activation.ts";
-import { NetworkAccess, emptyActivationDecisions, emptyProfileDefinition, type Profile } from "./profiles.ts";
+import { activationOutcome, activationPrompt, emptyProfileState, parseProfileState, profileSessionGrants, resolveActivationAnswer, serializeProfileState, settledResolution } from "./profile-activation.ts";
+import type { ActivationSituation } from "./profile-activation.ts";
+import { NetworkAccess, emptyActivationDecisions, emptyProfileDefinition } from "./profiles.ts";
+import type { Profile } from "./profiles.ts";
 
 const profile: Profile = { name: "bazel", ...emptyProfileDefinition() };
 

@@ -5,7 +5,9 @@ import {
   DefaultModelOutcome,
   fallbackWarning,
   isSameModel,
-  type ModelReference,
+} from "./lib/default-model.ts";
+import type {
+  ModelReference,
 } from "./lib/default-model.ts";
 import { isPlanHandoffSession } from "./lib/plan-handoff.ts";
 

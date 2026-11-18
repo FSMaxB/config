@@ -2,15 +2,16 @@
 // Extracted from index.ts (pure move): consumeQuery iterates one SDK query's
 // generator and pushes events into the query's captured Pi stream.
 
-import { type Model } from "@earendil-works/pi-ai";
-import { type AccountInfo, type query } from "@anthropic-ai/claude-agent-sdk";
-import { classifyClaudeFailure, rateLimitResetFromInfo, rateLimitResetMs, rateLimitTypeFromInfo, type ClaudeFailureKind } from "./claude-failure.js";
+import type { Model } from "@earendil-works/pi-ai";
+import type { AccountInfo, query } from "@anthropic-ai/claude-agent-sdk";
+import { classifyClaudeFailure, rateLimitResetFromInfo, rateLimitResetMs, rateLimitTypeFromInfo } from "./claude-failure.js";
+import type { ClaudeFailureKind } from "./claude-failure.js";
 import { ensureTurnStarted, processAssistantMessage, processStreamEvent, updateTurnOutputModel } from "./assistant-stream.js";
 import { getExtensionApi, safeNotify } from "./bridge-state.js";
-import { type Config } from "./config.js";
+import type { Config } from "./config.js";
 import { debug } from "./debug.js";
 import { refusalFallbackNotice } from "./models.js";
-import { type QueryContext } from "./query-state.js";
+import type { QueryContext } from "./query-state.js";
 import { RATE_LIMIT_AUTO_RESUME_EVENT, RATE_LIMIT_TOKEN, formatAllowedRateLimitWarning, formatResetTimestamp, isUsageLimitMessage, uniqueNonEmptyLines } from "./rate-limit.js";
 import { activeStreamIdleWatchdogs } from "./stream-idle-watchdog.js";
 

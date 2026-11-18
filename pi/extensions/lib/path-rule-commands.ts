@@ -1,6 +1,7 @@
 import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { PathRuleStore } from "./agent-mode.ts";
-import { selectorLabel, type AccessMode, type PathRule, type RuleKind, type RuleTier } from "./path-permission-rules.ts";
+import { selectorLabel } from "./path-permission-rules.ts";
+import type { AccessMode, PathRule, RuleKind, RuleTier } from "./path-permission-rules.ts";
 import { addPathRule, clearPathRules, listPathRules, normalizePathSelector, removePathRule } from "./path-permissions.ts";
 
 export const CLEAR_ALL = "Clear all";

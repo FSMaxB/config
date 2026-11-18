@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { exact, glob, tree } from "../../lib/path-permission-rules.ts";
-import { NetworkAccess, addAllowedDomain, addFilesystemEntry, emptyProfileDefinition, mergedProfileNetwork, parseActivationDecisions, parseProfileDefinition, parseProfiles, profileFingerprint, recordActivationDecision, selectorText, serializeActivationDecisions, type Profile } from "./profiles.ts";
+import { NetworkAccess, addAllowedDomain, addFilesystemEntry, emptyProfileDefinition, mergedProfileNetwork, parseActivationDecisions, parseProfileDefinition, parseProfiles, profileFingerprint, recordActivationDecision, selectorText, serializeActivationDecisions } from "./profiles.ts";
+import type { Profile } from "./profiles.ts";
 
 function profile(name: string, overrides: Partial<Profile> = {}): Profile {
   return { name, ...emptyProfileDefinition(), ...overrides };

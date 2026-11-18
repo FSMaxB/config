@@ -1,6 +1,7 @@
 import { AgentMode, isRestricted } from "../../lib/agent-mode.ts";
 import { ALLOW_ONCE, DENY_ONCE } from "../../lib/permission-choices.ts";
-import { Duration, userReason, type PermissionAnswer } from "../../lib/permission-prompt.ts";
+import { Duration, userReason } from "../../lib/permission-prompt.ts";
+import type { PermissionAnswer } from "../../lib/permission-prompt.ts";
 import type { SessionGrant } from "../../lib/session-grants.ts";
 
 export type SessionDecision = { decision: "allow" } | { decision: "deny"; note: string | undefined };

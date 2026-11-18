@@ -6,9 +6,10 @@
 // the parent's drain and activeQuery clear, which leaks handlers.
 
 import { reportToolResultMismatch } from "./bridge-state.js";
-import { type ChildExitOutcome } from "./child-exit.js";
+import type { ChildExitOutcome } from "./child-exit.js";
 import { debug } from "./debug.js";
-import { drainPendingToolCalls, popContextFor, type QueryContext, type ToolCallDrainCause } from "./query-state.js";
+import { drainPendingToolCalls, popContextFor } from "./query-state.js";
+import type { QueryContext, ToolCallDrainCause } from "./query-state.js";
 
 /** Close a settled or dying SDK query. Its transport can throw on the way down
  *  — a child already gone, a socket already closed — and that throw belongs to

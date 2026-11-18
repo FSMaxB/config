@@ -2,7 +2,8 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { emptyStoredRules, parseStoredRules, serializeStoredRules, type StoredRules } from "./path-permission-rules.ts";
+import { emptyStoredRules, parseStoredRules, serializeStoredRules } from "./path-permission-rules.ts";
+import type { StoredRules } from "./path-permission-rules.ts";
 
 export async function readStoredRules(filePath: string): Promise<StoredRules> {
   try { return parseStoredRules(JSON.parse(await readFile(filePath, "utf8"))); }

@@ -1,6 +1,7 @@
 import { lstat, readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { exact, glob, tree, type PathSelector } from "../../lib/path-permission-rules.ts";
+import { exact, glob, tree } from "../../lib/path-permission-rules.ts";
+import type { PathSelector } from "../../lib/path-permission-rules.ts";
 
 type Platform = "darwin" | "linux";
 

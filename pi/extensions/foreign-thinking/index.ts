@@ -5,8 +5,10 @@ import {
   isThinkingMode,
   parseConfig,
   rewriteForeignThinking,
-  type ThinkingConfig,
-  type ThinkingMode,
+} from "./policy.ts";
+import type {
+  ThinkingConfig,
+  ThinkingMode,
 } from "./policy.ts";
 
 const USAGE = "Usage: /foreign-thinking [drop|text|keep|reset]";

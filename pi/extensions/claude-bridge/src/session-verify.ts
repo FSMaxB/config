@@ -2,7 +2,7 @@
 // callers decide how to surface them (debug log, piUI, diagDump, etc.).
 // Extracted from index.ts so tests can import without activating the extension.
 
-import { closeSync, openSync, readSync, statSync } from "fs";
+import { closeSync, openSync, readSync, statSync } from "node:fs";
 import { StringDecoder } from "node:string_decoder";
 
 interface JsonlSummary {

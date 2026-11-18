@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { addToProfileLabel, ALLOW_NARROWER, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWAYS, DENY_ONCE, DENY_SESSION, DENY_WITH_REASON, profileDestinations } from "./permission-choices.ts";
-import { ALL_DURATIONS, askPermission, Duration, userReason, type PermissionRequest, type PermissionUI } from "./permission-prompt.ts";
+import { ALL_DURATIONS, askPermission, Duration, userReason } from "./permission-prompt.ts";
+import type { PermissionRequest, PermissionUI } from "./permission-prompt.ts";
 
 interface SelectCall { title: string; options: string[]; preselected: string | undefined }
 

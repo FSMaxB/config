@@ -10,7 +10,8 @@
  * while the sandbox is active, since the sandbox keeps the repository read-only.
  */
 
-import { planToolPermission, trustedReadOnlyToolNames, type ToolPolicyInfo } from "../lib/tool-permission-policy.ts";
+import { planToolPermission, trustedReadOnlyToolNames } from "../lib/tool-permission-policy.ts";
+import type { ToolPolicyInfo } from "../lib/tool-permission-policy.ts";
 
 export function restrictedModeAllowedTools(
   snapshot: ModeDecisionsSnapshot,

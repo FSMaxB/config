@@ -1,7 +1,8 @@
 import { appendFile, mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { MarkerEvent, RECORD_VERSION, type LogRecord, type MarkerRecord } from "./records.ts";
+import { MarkerEvent, RECORD_VERSION } from "./records.ts";
+import type { LogRecord, MarkerRecord } from "./records.ts";
 
 export function cacheDebugDirectory(): string {
   return join(homedir(), ".pi", "agent", "cache-debug");

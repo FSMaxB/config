@@ -4,10 +4,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder, getSelectListTheme, keyText } from "@earendil-works/pi-coding-agent";
 import {
-  type Component,
   Container,
-  type KeybindingsManager,
-  type ProgramStatus,
   SelectList,
   Spacer,
   Text,
@@ -15,7 +12,13 @@ import {
   visibleWidth,
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
-import { detailsHeight, detailsLines, type TextMeasure } from "./select-details.ts";
+import type {
+  Component,
+  KeybindingsManager,
+  ProgramStatus,
+} from "@earendil-works/pi-tui";
+import { detailsHeight, detailsLines } from "./select-details.ts";
+import type { TextMeasure } from "./select-details.ts";
 
 const measure: TextMeasure = { width: visibleWidth, wrap: wrapTextWithAnsi };
 

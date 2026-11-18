@@ -13,10 +13,12 @@ import {
   formatComments,
   pickNewSession,
   quietElapsed,
-  type QuietState,
-  type SessionEntry,
-  type TuicrComment,
   unseenComments,
+} from "./lib/tuicr-session.ts";
+import type {
+  QuietState,
+  SessionEntry,
+  TuicrComment,
 } from "./lib/tuicr-session.ts";
 
 const TIMEOUT = 60_000;

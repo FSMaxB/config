@@ -1,6 +1,6 @@
-import { type SpawnOptions, type SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
-import { spawn as spawnProcess } from "child_process";
-import { accessSync, constants as fsConstants, readFileSync, realpathSync, statSync } from "fs";
+import type { SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
+import { spawn as spawnProcess } from "node:child_process";
+import { accessSync, constants as fsConstants, readFileSync, realpathSync, statSync } from "node:fs";
 import { DEBUG, debug } from "./debug.js";
 
 // Without a configured path the SDK runs the Claude Code binary it bundles, which

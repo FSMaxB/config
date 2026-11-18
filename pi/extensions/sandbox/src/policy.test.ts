@@ -4,9 +4,11 @@ import { join } from "node:path";
 import test from "node:test";
 import { exact, glob, tree } from "../../lib/path-permission-rules.ts";
 import type { EffectivePolicy } from "../../lib/path-permissions.ts";
-import { filesystemConfig, secretPaths, type PolicyOptions } from "./policy.ts";
+import { filesystemConfig, secretPaths } from "./policy.ts";
+import type { PolicyOptions } from "./policy.ts";
 import { mktempShimDirectory } from "./scratch.ts";
-import { vcsWriteRules, type VcsLayout } from "./vcs-policy.ts";
+import { vcsWriteRules } from "./vcs-policy.ts";
+import type { VcsLayout } from "./vcs-policy.ts";
 
 const HOME = "/Users/max";
 

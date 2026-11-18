@@ -14,7 +14,9 @@ import {
   serializeStoredRules,
   tree,
   emptyRules,
-  type PathSelector,
+} from "./path-permission-rules.ts";
+import type {
+  PathSelector,
 } from "./path-permission-rules.ts";
 
 test("a tree grant covers a protected root nested inside it", () => {

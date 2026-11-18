@@ -2,11 +2,13 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { plansRoot } from "../lib/plan-file.ts";
 import {
   LOADED_PLAN_ENTRY,
-  type LoadedPlanData,
   planItems,
   planPathForToolPath,
   plansOnBranch,
   withPlan,
+} from "./plans.ts";
+import type {
+  LoadedPlanData,
 } from "./plans.ts";
 import type { SectionChanged, SidebarSection } from "./section.ts";
 

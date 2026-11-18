@@ -1,9 +1,12 @@
 import type { FilesystemConfig } from "@anthropic-ai/sandbox-runtime";
 import type { AgentMode } from "../../lib/agent-mode.ts";
-import { readOnlyRepositoryNotice, type AccessMode } from "../../lib/path-permission-rules.ts";
+import { readOnlyRepositoryNotice } from "../../lib/path-permission-rules.ts";
+import type { AccessMode } from "../../lib/path-permission-rules.ts";
 import type { OnceGrant } from "../../lib/path-permissions.ts";
-import { ALL_DURATIONS, LASTING_DURATIONS, userReason, type Duration } from "../../lib/permission-prompt.ts";
-import { discardedWrites, type PathViolation } from "./violations.ts";
+import { ALL_DURATIONS, LASTING_DURATIONS, userReason } from "../../lib/permission-prompt.ts";
+import type { Duration } from "../../lib/permission-prompt.ts";
+import { discardedWrites } from "./violations.ts";
+import type { PathViolation } from "./violations.ts";
 
 export type ViolationOutcome =
   | { kind: "secret"; path: string }

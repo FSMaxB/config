@@ -20,23 +20,30 @@ import { fileURLToPath } from "node:url";
 import type { AgentToolResult, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Message, Model, ModelThinkingLevel, Usage } from "@earendil-works/pi-ai";
 import { clampThinkingLevel, getSupportedThinkingLevels, StringEnum } from "@earendil-works/pi-ai";
-import { type ExtensionAPI, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
+import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { formatDuration, shortenPath } from "../lib/format.ts";
 import { createLineSplitter } from "../lib/lines.ts";
-import { isRestricted, MODE_IDENTITIES, READ_ONLY_JJ_NOTE, type RestrictedMode } from "../lib/agent-mode.ts";
+import { isRestricted, MODE_IDENTITIES, READ_ONLY_JJ_NOTE } from "../lib/agent-mode.ts";
+import type { RestrictedMode } from "../lib/agent-mode.ts";
 import { readPersistedDecisions } from "../lib/mode-decisions.ts";
 import { activeRestrictedMode } from "../lib/mode-entry.ts";
 import { captureChildPathPolicy } from "../lib/path-permissions.ts";
-import { serializeChildPathPolicy, CHILD_POLICY_ENV, type ChildPathPolicy } from "../lib/path-permission-snapshot.ts";
+import { serializeChildPathPolicy, CHILD_POLICY_ENV } from "../lib/path-permission-snapshot.ts";
+import type { ChildPathPolicy } from "../lib/path-permission-snapshot.ts";
 import { registerToolWithGuidelines } from "../lib/register-tool.ts";
 import { isSandboxActive } from "../lib/sandbox-state.ts";
 import { sessionTemporaryDirectory, TEMPORARY_DIRECTORY_ENV } from "../lib/session-temporary-directory.ts";
-import { type AgentConfig, discoverAgents, THINKING_LEVELS } from "./agents.ts";
-import { EXIT_GRACE_MILLISECONDS, phaseAfterEvent, type ChildPhase } from "./exit-watchdog.ts";
-import { guidanceTable, loadPolicyConfig, resolveSubagentModel, type SubagentModelConfig } from "./model-policy.ts";
-import { ChildToolVerdict, childToolVerdict, effectiveChildTools, restrictedModeAllowedTools, type PersistedModeDecisions } from "./mode-restrictions.ts";
+import { discoverAgents, THINKING_LEVELS } from "./agents.ts";
+import type { AgentConfig } from "./agents.ts";
+import { EXIT_GRACE_MILLISECONDS, phaseAfterEvent } from "./exit-watchdog.ts";
+import type { ChildPhase } from "./exit-watchdog.ts";
+import { guidanceTable, loadPolicyConfig, resolveSubagentModel } from "./model-policy.ts";
+import type { SubagentModelConfig } from "./model-policy.ts";
+import { ChildToolVerdict, childToolVerdict, effectiveChildTools, restrictedModeAllowedTools } from "./mode-restrictions.ts";
+import type { PersistedModeDecisions } from "./mode-restrictions.ts";
 import {
   emptyUsage,
   failureEvidence,

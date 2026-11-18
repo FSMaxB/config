@@ -1,4 +1,5 @@
-import { AgentMode, isRestricted, MODE_IDENTITIES, type RestrictedMode } from "./agent-mode.ts";
+import { AgentMode, isRestricted, MODE_IDENTITIES } from "./agent-mode.ts";
+import type { RestrictedMode } from "./agent-mode.ts";
 import { userReason } from "./permission-prompt.ts";
 import type { ToolPermission } from "./tool-permission-policy.ts";
 

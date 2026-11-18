@@ -1,6 +1,7 @@
 import type { PayloadFingerprint } from "./fingerprint.ts";
 import { SectionKind } from "./fingerprint.ts";
-import { MarkerEvent, RequestPurpose, type LogRecord, type RequestRecord, type Usage } from "./records.ts";
+import { MarkerEvent, RequestPurpose } from "./records.ts";
+import type { LogRecord, RequestRecord, Usage } from "./records.ts";
 
 export const Verdict = {
   First: "first", // nothing to compare with: first request, or after session start/compaction

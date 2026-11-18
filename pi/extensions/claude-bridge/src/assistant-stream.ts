@@ -1,8 +1,10 @@
-import { calculateCost, type AssistantMessage, type Model } from "@earendil-works/pi-ai";
-import { type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { calculateCost } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
+import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { appendIntegrityEntry, safeNotify } from "./bridge-state.js";
 import { debug, diagDump } from "./debug.js";
-import { ctx, failStrandedToolCall, type ClaudeTranscriptAnchor, type QueryContext, type StampedAssistantMessage } from "./query-state.js";
+import { ctx, failStrandedToolCall } from "./query-state.js";
+import type { ClaudeTranscriptAnchor, QueryContext, StampedAssistantMessage } from "./query-state.js";
 import { isPiDispatchable, mapToolArgs, mapToolName } from "./tool-mapping.js";
 
 // --- Usage helpers ---

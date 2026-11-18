@@ -1,9 +1,10 @@
-import { type AssistantMessage, type Message } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
 import { createSession, deleteSession, openSession, repairToolPairing } from "cc-session-io";
-import { createHash } from "crypto";
-import { realpathSync, statSync } from "fs";
-import { resolve as pathResolve } from "path";
-import { getExtensionApi, getSharedSession, reportSyntheticToolResultRepair, safeNotify, setSharedSession, type SessionState } from "./bridge-state.js";
+import { createHash } from "node:crypto";
+import { realpathSync, statSync } from "node:fs";
+import { resolve as pathResolve } from "node:path";
+import { getExtensionApi, getSharedSession, reportSyntheticToolResultRepair, safeNotify, setSharedSession } from "./bridge-state.js";
+import type { SessionState } from "./bridge-state.js";
 import { displayPath } from "./config.js";
 import { convertPiMessages } from "./convert.js";
 import { DEBUG, DEBUG_LOG_PATH, debug, diagDump } from "./debug.js";
