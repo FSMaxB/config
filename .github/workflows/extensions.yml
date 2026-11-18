@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths: &paths
       - "pi/extensions/**"
+      - "pi/lint/**"
       - ".github/workflows/extensions.yml"
   pull_request:
     paths: *paths
@@ -62,6 +63,37 @@ jobs:
         # node. Skipped: lib/search-tools.smoke.ts (needs a hand-made
         # node_modules symlink plus rg/fd).
         run: node --test pi/extensions/*/*.test.ts
+
+  lint:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: "22.19.0"
+          cache: npm
+          cache-dependency-path: |
+            pi/lint/package-lock.json
+            pi/extensions/*/package-lock.json
+      - name: Install
+        # The type-aware rules read claude-bridge's and sandbox's tsconfig.json, which resolve
+        # their types from each package's own node_modules.
+        run: |
+          (cd pi/lint && npm ci)
+          for pkg in pi/extensions/*/package.json; do
+            (cd "$(dirname "$pkg")" && npm ci)
+          done
+      - name: Typecheck extensions without a package.json
+        working-directory: pi/lint
+        run: npm run typecheck
+      - name: Custom rule tests
+        working-directory: pi/lint
+        run: npm test
+      - name: ESLint
+        # Fails on violations missing from eslint-suppressions.json and on suppressions that no
+        # longer occur (run `npm run lint:prune` in pi/lint after fixing some).
+        working-directory: pi/lint
+        run: npm run lint
 
   sandbox:
     name: sandbox (${{ matrix.os }})
