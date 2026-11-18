@@ -22,9 +22,6 @@
     "local/step-down": {
       "count": 1
     },
-    "no-restricted-syntax": {
-      "count": 1
-    },
     "unicorn/no-null": {
       "count": 1
     }
@@ -63,9 +60,6 @@
       "count": 2
     },
     "local/step-down": {
-      "count": 1
-    },
-    "no-restricted-syntax": {
       "count": 1
     }
   },
@@ -676,14 +670,6 @@
   "extensions/lib/mode-context.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 7
-    },
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
-  "extensions/lib/mode-entry.test.ts": {
-    "no-restricted-syntax": {
-      "count": 1
     }
   },
   "extensions/lib/mode-entry.ts": {
@@ -694,9 +680,6 @@
   "extensions/lib/mode-messages.test.ts": {
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 2
-    },
-    "no-restricted-syntax": {
-      "count": 1
     }
   },
   "extensions/lib/mode-messages.ts": {
@@ -707,9 +690,6 @@
   "extensions/lib/mode-policy.test.ts": {
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 2
-    },
-    "no-restricted-syntax": {
-      "count": 1
     }
   },
   "extensions/lib/mode-policy.ts": {
@@ -727,11 +707,6 @@
       "count": 1
     },
     "unicorn/name-replacements": {
-      "count": 1
-    }
-  },
-  "extensions/lib/path-permission-rules.test.ts": {
-    "no-restricted-syntax": {
       "count": 1
     }
   },
@@ -1003,9 +978,6 @@
     }
   },
   "extensions/pause/index.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    },
     "unicorn/name-replacements": {
       "count": 1
     }
@@ -1077,9 +1049,6 @@
     },
     "local/step-down": {
       "count": 1
-    },
-    "no-restricted-syntax": {
-      "count": 1
     }
   },
   "extensions/sandbox/src/extension.ts": {
@@ -1092,9 +1061,6 @@
   },
   "extensions/sandbox/src/integration.test.ts": {
     "local/step-down": {
-      "count": 3
-    },
-    "no-restricted-syntax": {
       "count": 3
     }
   },

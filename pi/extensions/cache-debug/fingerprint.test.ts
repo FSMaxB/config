@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fingerprintPayload, SectionKind } from "./fingerprint.ts";
+import type { Item } from "./fingerprint.ts";
 
-function messagesOf(payload: unknown) {
+function messagesOf(payload: unknown): Item[] {
   const fingerprint = fingerprintPayload(payload);
   assert.ok(fingerprint);
   const section = fingerprint.sections.find(({ key }) => key === "messages");

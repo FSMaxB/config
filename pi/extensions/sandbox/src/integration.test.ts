@@ -18,7 +18,7 @@ import { resolveSandboxShell } from "./shell.ts";
 import { traceProfile } from "./trace-profile.ts";
 import { scanVcsLayout, vcsWriteRules } from "./vcs-policy.ts";
 import { startViolationCollector } from "./violation-collector.ts";
-import type { ViolationCollector } from "./violation-collector.ts";
+import type { CollectedViolation, ViolationCollector } from "./violation-collector.ts";
 import { discardedWrites, isHereDocumentTemporaryFile, isRepositoryRootRemoval, pathViolations } from "./violations.ts";
 import { supportedPlatform } from "./platform.ts";
 import type { Platform } from "./platform.ts";
@@ -467,7 +467,7 @@ function vcsEnvironment(): string {
   return Object.entries(vcsEnvironmentVariables()).map(([name, value]) => `export ${name}='${value}'`).join("\n");
 }
 
-async function runInRepository(repository: string, command: string) {
+async function runInRepository(repository: string, command: string): ReturnType<typeof runSandboxed> {
   const vcs = vcsWriteRules(await scanVcsLayout(repository), testPlatform());
   const policy = {
     read: { allow: [tree(workDirectory)], deny: [], protected: [] },
@@ -477,7 +477,7 @@ async function runInRepository(repository: string, command: string) {
   return await runSandboxed(command, filesystem, repository);
 }
 
-async function collectViolations(commandId: string) {
+async function collectViolations(commandId: string): Promise<CollectedViolation[]> {
   let previousCount = -1;
   let violations = collector.violationsFor(commandId);
   for (let poll = 0; poll < 6; poll += 1) {
@@ -489,7 +489,7 @@ async function collectViolations(commandId: string) {
   return violations;
 }
 
-function policyFilesystem(extraReadAllow: PathSelector[] = [], extraWriteAllow: PathSelector[] = []) {
+function policyFilesystem(extraReadAllow: PathSelector[] = [], extraWriteAllow: PathSelector[] = []): ReturnType<typeof filesystemConfig> {
   const policy = {
     read: { allow: [tree(workDirectory), ...extraReadAllow], deny: [], protected: [] },
     write: { allow: [tree(workDirectory), ...extraWriteAllow], deny: [], protected: [] },

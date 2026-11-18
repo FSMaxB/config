@@ -191,6 +191,6 @@ test("a glob grant narrows only to the path itself", () => {
   assert.deepEqual(scopes, [exact("/agent/settings.json")]);
 });
 
-function emptyRulesJson() {
+function emptyRulesJson(): Record<"read" | "write", { allow: unknown[]; deny: unknown[] }> {
   return { read: { allow: [], deny: [] }, write: { allow: [], deny: [] } };
 }

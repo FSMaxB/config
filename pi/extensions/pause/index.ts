@@ -7,7 +7,7 @@ const STATUS_KEY = "pause";
 // the message is queued, so a held turn polls for it instead.
 const MESSAGE_POLL_INTERVAL_MS = 100;
 
-export default function (pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI): void {
   const gate = new PauseGate();
 
   pi.registerCommand("pause", {

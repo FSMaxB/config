@@ -268,7 +268,7 @@ async function runInRepository(command: string): Promise<{ exitCode: number | nu
   return await runSandboxed(command, filesystem, repository);
 }
 
-function policyFilesystem(extraReadAllow: PathSelector[] = [], protectedWrite: PathSelector[] = []) {
+function policyFilesystem(extraReadAllow: PathSelector[] = [], protectedWrite: PathSelector[] = []): ReturnType<typeof filesystemConfig> {
   const policy = {
     read: { allow: [tree(workDirectory), ...extraReadAllow], deny: [], protected: [] },
     write: { allow: [tree(workDirectory)], deny: [], protected: protectedWrite },
