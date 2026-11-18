@@ -1,7 +1,7 @@
 // Pure assembly of the Claude Agent SDK query options for one bridge query:
 // no closures — reads config, env, and the provided context only.
 
-import type { Model, Tool, Api } from "@earendil-works/pi-ai";
+import type { Model, ThinkingLevel, Tool, Api } from "@earendil-works/pi-ai";
 import type { McpSdkServerConfigWithInstance, query, EffortLevel, SettingSource, SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 import { extractAgentsAppend } from "./agents-md.js";
 import { spawnClaudeCodeWithDiagnostics } from "./claude-executable.js";
@@ -16,7 +16,7 @@ import { extractSkillsBlock, MCP_SERVER_NAME } from "./skills.js";
 
 // Pi reasoning levels → CC SDK effort levels
 
-const REASONING_TO_EFFORT: Record<string, EffortLevel> = {
+const REASONING_TO_EFFORT: Record<ThinkingLevel, EffortLevel> = {
 	minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "max", max: "max",
 };
 
@@ -34,10 +34,10 @@ export function resolveConfiguredEffort(
 	for (const [key, rawEffort] of Object.entries(providerConfig?.modelEffortOverrides ?? {})) {
 		const normalizedKey = normalizeEffortOverrideModelKey(key);
 		if (normalizedKey !== "*" && normalizedKey !== target) continue;
-		const effort = normalizeEffortLevel(rawEffort) as EffortLevel | undefined;
+		const effort = normalizeEffortLevel(rawEffort);
 		if (effort) return effort;
 	}
-	return (normalizeEffortLevel(providerConfig?.forceEffort) as EffortLevel | undefined) ?? reasoningEffort;
+	return normalizeEffortLevel(providerConfig?.forceEffort) ?? reasoningEffort;
 }
 
 export interface BuildClaudeQueryOptionsInput {
@@ -49,7 +49,7 @@ export interface BuildClaudeQueryOptionsInput {
 	/** Tools the transcript currently offers; decides the system prompt mode. */
 	tools: readonly Tool[];
 	/** Pi reasoning level from the stream options, if any. */
-	reasoning?: string;
+	reasoning?: ThinkingLevel;
 	resumeSessionId: string | undefined;
 	/** Record uuid to truncate the resumed session at; the query then forks into a new session id. Ignored without `resumeSessionId`. */
 	forkAt?: string;
@@ -93,7 +93,7 @@ export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): Bu
 	// per-model overrides — e.g. opus-4-8 wants xhigh→xhigh, not xhigh→max).
 	// Fall back to our generic table for older pi-ai or unmapped levels.
 	const requestedEffort = reasoning
-		? ((requestedModel as any).thinkingLevelMap?.[reasoning] as EffortLevel | undefined)
+		? normalizeEffortLevel(requestedModel.thinkingLevelMap?.[reasoning])
 			?? REASONING_TO_EFFORT[reasoning]
 		: undefined;
 	const effort = resolveConfiguredEffort(requestedModel.id, requestedEffort, providerSettings);

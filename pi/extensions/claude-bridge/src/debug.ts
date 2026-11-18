@@ -53,7 +53,7 @@ export function debug(...args: readonly unknown[]): void {
 		// A function argument is a lazy payload: hot-path call sites (per-token
 		// stream events) pass a thunk so the expensive formatting only runs when
 		// DEBUG is on — fmt is only reached past the early return.
-		if (typeof a === "function") return fmt((a as () => unknown)());
+		if (typeof a === "function") return fmt(a());
 		return JSON.stringify(a);
 	};
 	// A throwing thunk or JSON.stringify (circular structure, BigInt) must not

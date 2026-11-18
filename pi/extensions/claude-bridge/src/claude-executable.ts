@@ -21,22 +21,33 @@ export interface ClaudeExecutablePreflightResult {
 	fileType: ClaudeExecutableFileType;
 }
 
-function errnoValue(error: unknown): string | number | undefined {
-	return typeof (error as NodeJS.ErrnoException)?.errno === "number" ? (error as NodeJS.ErrnoException).errno : undefined;
+// A field of a Node.js system error; anything else has none.
+function errorField(error: unknown, name: string): unknown {
+	return typeof error === "object" && error !== null ? Reflect.get(error, name) : undefined;
+}
+
+function errnoValue(error: unknown): number | undefined {
+	const value = errorField(error, "errno");
+	return typeof value === "number" ? value : undefined;
 }
 
 function syscallValue(error: unknown): string | undefined {
-	return typeof (error as NodeJS.ErrnoException)?.syscall === "string" ? (error as NodeJS.ErrnoException).syscall : undefined;
+	const value = errorField(error, "syscall");
+	return typeof value === "string" ? value : undefined;
 }
 
 function pathValue(error: unknown): string | undefined {
-	const value = (error as NodeJS.ErrnoException)?.path;
+	const value = errorField(error, "path");
 	return typeof value === "string" ? value : undefined;
 }
 
 function codeValue(error: unknown, fallback: string): string {
-	const value = (error as NodeJS.ErrnoException)?.code;
+	const value = errorField(error, "code");
 	return typeof value === "string" ? value : fallback;
+}
+
+function isPreflightError(error: unknown): boolean {
+	return error instanceof Error && error.name === "ClaudeExecutablePreflightError";
 }
 
 function displayValue(value: unknown): string {
@@ -45,7 +56,7 @@ function displayValue(value: unknown): string {
 
 function makeClaudePreflightError(
 	summary: string,
-	details: { code: string; errno?: string | number; syscall?: string; path: string; cwd: string; fileType?: ClaudeExecutableFileType; realPath?: string; cause?: unknown },
+	details: { code: string; errno?: number; syscall?: string; path: string; cwd: string; fileType?: ClaudeExecutableFileType; realPath?: string; cause?: unknown },
 ): Error & NodeJS.ErrnoException & { cwd: string; fileType?: ClaudeExecutableFileType; realPath?: string } {
 	const detail = [
 		`code=${details.code}`,
@@ -56,17 +67,17 @@ function makeClaudePreflightError(
 		...(details.fileType ? [`fileType=${details.fileType}`] : []),
 		...(details.realPath ? [`realPath=${details.realPath}`] : []),
 	].join(" ");
-	const error = new Error(`${summary} (${detail})`) as Error & NodeJS.ErrnoException & { cwd: string; fileType?: ClaudeExecutableFileType; realPath?: string };
+	const error = new Error(`${summary} (${detail})`, details.cause === undefined ? undefined : { cause: details.cause });
 	error.name = "ClaudeExecutablePreflightError";
-	error.code = details.code;
-	if (details.errno !== undefined) error.errno = typeof details.errno === "number" ? details.errno : Number(details.errno);
-	if (details.syscall) error.syscall = details.syscall;
-	error.path = details.path;
-	error.cwd = details.cwd;
-	if (details.fileType) error.fileType = details.fileType;
-	if (details.realPath) error.realPath = details.realPath;
-	if (details.cause !== undefined) (error as Error & { cause?: unknown }).cause = details.cause;
-	return error;
+	return Object.assign(error, {
+		code: details.code,
+		...(details.errno !== undefined ? { errno: details.errno } : {}),
+		...(details.syscall ? { syscall: details.syscall } : {}),
+		path: details.path,
+		cwd: details.cwd,
+		...(details.fileType ? { fileType: details.fileType } : {}),
+		...(details.realPath ? { realPath: details.realPath } : {}),
+	});
 }
 
 export function classifyClaudeExecutableBytes(bytes: Uint8Array): ClaudeExecutableFileType {
@@ -103,7 +114,7 @@ export function preflightClaudeExecutable(path: string, cwd: string): ClaudeExec
 		accessSync(cwd, fsConstants.X_OK);
 		realCwd = realpathSync(cwd);
 	} catch (error) {
-		if ((error as Error).name === "ClaudeExecutablePreflightError") throw error;
+		if (isPreflightError(error)) throw error;
 		throw makeClaudePreflightError("Claude Code spawn cwd preflight failed: cwd is not reachable before spawning Claude Code.", {
 			code: codeValue(error, "EACCES"),
 			errno: errnoValue(error),
@@ -128,7 +139,7 @@ export function preflightClaudeExecutable(path: string, cwd: string): ClaudeExec
 		accessSync(path, fsConstants.X_OK);
 		realPath = realpathSync(path);
 	} catch (error) {
-		if ((error as Error).name === "ClaudeExecutablePreflightError") throw error;
+		if (isPreflightError(error)) throw error;
 		throw makeClaudePreflightError("Claude Code executable preflight failed: cannot access resolved executable before spawning Claude Code.", {
 			code: codeValue(error, "ENOENT"),
 			errno: errnoValue(error),
@@ -185,25 +196,26 @@ export function wrapClaudeSpawnErrorForSdk(error: Error, options: SpawnOptions):
 		`cwd=${cwd}`,
 		`command=${options.command}`,
 	].join(" ");
-	const wrapped = new Error(`Claude Code spawn failed: ${originalMessage} (${detail})`) as Error & NodeJS.ErrnoException & { cwd: string; originalCode?: string; originalMessage?: string };
+	const wrapped = new Error(`Claude Code spawn failed: ${originalMessage} (${detail})`);
 	wrapped.name = "ClaudeSpawnDiagnosticError";
-	// The SDK special-cases code === ENOENT and replaces the message with its
-	// generic "native binary not found" text. Preserve the original code in the
-	// message/originalCode while using a bridge code so the SDK surfaces context.
-	wrapped.code = originalCode === "ENOENT" ? "CLAUDE_BRIDGE_SPAWN_FAILED" : originalCode;
-	wrapped.originalCode = originalCode;
-	wrapped.originalMessage = originalMessage;
 	const errno = errnoValue(error);
-	if (errno !== undefined) wrapped.errno = typeof errno === "number" ? errno : Number(errno);
 	const syscall = syscallValue(error);
-	if (syscall) wrapped.syscall = syscall;
-	wrapped.path = spawnPath;
-	wrapped.cwd = cwd;
 	// Do not set `cause` here: the listener copies these structured fields back
 	// onto the original Error. A cause reference to that same object would become
 	// `err.cause === err`, making JSON.stringify throw on a circular structure.
 	// originalMessage plus code/errno/syscall/path/cwd preserve the useful data.
-	return wrapped;
+	return Object.assign(wrapped, {
+		// The SDK special-cases code === ENOENT and replaces the message with its
+		// generic "native binary not found" text. Preserve the original code in the
+		// message/originalCode while using a bridge code so the SDK surfaces context.
+		code: originalCode === "ENOENT" ? "CLAUDE_BRIDGE_SPAWN_FAILED" : originalCode,
+		originalCode,
+		originalMessage,
+		...(errno !== undefined ? { errno } : {}),
+		...(syscall ? { syscall } : {}),
+		path: spawnPath,
+		cwd,
+	});
 }
 
 export function spawnClaudeCodeWithDiagnostics(options: SpawnOptions): SpawnedProcess {

@@ -1,8 +1,9 @@
 // Pure pi→Anthropic message conversion helpers, testable without the full extension runtime.
 
-import type { Message as PiMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, ImageContent, Message as PiMessage, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
 import type { ContentBlock, Message as SessionMessage } from "cc-session-io";
 import { pascalCase } from "change-case";
+import { stringProperty } from "../../lib/untyped.ts";
 
 export const PROVIDER_ID = "pi-claude";
 
@@ -43,14 +44,12 @@ export function messageContentToText(
 	return hasText ? parts.join("\n") : "";
 }
 
-function imageBlockToAnthropic(block: { data?: string; mimeType?: string }): ContentBlock | undefined {
+function imageBlockToAnthropic(block: ImageContent): ContentBlock | undefined {
 	if (!block.data || !block.mimeType) return undefined;
-	return { type: "image", source: { type: "base64", media_type: block.mimeType, data: block.data } } as ContentBlock;
+	return { type: "image", source: { type: "base64", media_type: block.mimeType, data: block.data } };
 }
 
-function toolResultContentToAnthropic(
-	content: string | ReadonlyArray<{ type: string; text?: string; data?: string; mimeType?: string }>,
-): string | ContentBlock[] {
+function toolResultContentToAnthropic(content: string | ToolResultMessage["content"]): string | ContentBlock[] {
 	if (typeof content === "string") return content;
 	if (!Array.isArray(content)) return "";
 	const blocks: ContentBlock[] = [];
@@ -60,47 +59,52 @@ function toolResultContentToAnthropic(
 		} else if (block.type === "image") {
 			const image = imageBlockToAnthropic(block);
 			if (image) blocks.push(image);
-		} else if (block.type) {
-			blocks.push({ type: "text", text: `[${block.type}]` });
+		} else {
+			// An empty text block, or a content type pi adds later, still leaves a trace.
+			const type: unknown = Reflect.get(block, "type");
+			if (typeof type === "string" && type) blocks.push({ type: "text", text: `[${type}]` });
 		}
 	}
 	if (blocks.length === 0) return "";
-	if (blocks.every((block) => block.type === "text")) return blocks.map((block) => (block as { text: string }).text).join("\n");
+	const texts = blocks.flatMap((block) => (block.type === "text" ? [block.text] : []));
+	if (texts.length === blocks.length) return texts.join("\n");
 	return blocks;
 }
 
-function assistantProvenancePrefix(message: PiMessage): string | undefined {
-	if (message.role !== "assistant") return undefined;
-	const provider = typeof (message as any).provider === "string" ? (message as any).provider : undefined;
-	const model = typeof (message as any).model === "string" ? (message as any).model : undefined;
-	const api = typeof (message as any).api === "string" ? (message as any).api : undefined;
+function assistantProvenancePrefix(message: AssistantMessage): string | undefined {
+	// Messages restored from older sessions can lack any of these.
+	const provider = stringProperty(message, "provider");
+	const model = stringProperty(message, "model");
+	const api = stringProperty(message, "api");
 	if (!provider && !model && !api) return undefined;
 	if (provider === PROVIDER_ID || isAnthropicApi(api)) return undefined;
 	return `[Prior Pi assistant response from ${provider ?? api ?? "unknown-provider"}${model ? `/${model}` : ""}]\n`;
 }
 
-function userMessageToAnthropic(message: PiMessage): SessionMessage {
+function userMessageToAnthropic(message: UserMessage): SessionMessage {
 	if (typeof message.content === "string") return { role: "user", content: message.content || "[empty]" };
 	if (Array.isArray(message.content)) {
-		const parts = [];
+		const kept: ContentBlock[] = [];
 		for (const block of message.content) {
-			if (block.type === "text" && block.text) parts.push({ type: "text", text: block.text });
-			else if (block.type === "image" && block.data && block.mimeType) parts.push(imageBlockToAnthropic(block));
+			if (block.type === "text" && block.text) kept.push({ type: "text", text: block.text });
+			else if (block.type === "image") {
+				const image = imageBlockToAnthropic(block);
+				if (image) kept.push(image);
+			}
 		}
-		const kept = parts.filter(Boolean) as ContentBlock[];
 		return { role: "user", content: kept.length ? kept : "[image]" };
 	}
 	return { role: "user", content: "[empty]" };
 }
 
-function toolResultToAnthropicBlock(message: PiMessage, sanitizedIds: Map<string, string>): ContentBlock {
-	const content = toolResultContentToAnthropic(message.content as string | Array<{ type: string; text?: string; data?: string; mimeType?: string }>);
+function toolResultToAnthropicBlock(message: ToolResultMessage, sanitizedIds: Map<string, string>): ContentBlock {
+	const content = toolResultContentToAnthropic(message.content);
 	return {
 		type: "tool_result",
-		tool_use_id: sanitizeToolId((message as { toolCallId: string }).toolCallId, sanitizedIds),
+		tool_use_id: sanitizeToolId(message.toolCallId, sanitizedIds),
 		content: content || "",
-		is_error: (message as { isError?: boolean }).isError,
-	} as ContentBlock;
+		is_error: message.isError,
+	};
 }
 
 function hasToolUse(message: PiMessage): boolean {
@@ -115,7 +119,7 @@ export function convertPiMessages(
 	const anthropicMessages: SessionMessage[] = [];
 	const sanitizedIds = new Map<string, string>();
 
-	const pushToolResultGroup = (toolMessages: readonly PiMessage[]): void => {
+	const pushToolResultGroup = (toolMessages: readonly ToolResultMessage[]): void => {
 		if (toolMessages.length === 0) return;
 		anthropicMessages.push({
 			role: "user",
@@ -163,8 +167,8 @@ export function convertPiMessages(
 			// put all tool_result blocks immediately after the tool_use assistant;
 			// replay interleaved user text only after that grouped result message.
 			if (hasToolUse(message)) {
-				const toolMessages: PiMessage[] = [];
-				const interleavedUsers: PiMessage[] = [];
+				const toolMessages: ToolResultMessage[] = [];
+				const interleavedUsers: UserMessage[] = [];
 				let j = i + 1;
 				for (; j < messages.length; j++) {
 					const next = messages[j];

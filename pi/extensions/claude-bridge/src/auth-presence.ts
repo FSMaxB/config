@@ -20,6 +20,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir, platform as osPlatform } from "node:os";
 import { join } from "node:path";
+import { isRecord } from "../../lib/untyped.ts";
 
 /**
  * Resolve the Claude config directory the same way the bundled cc-session-io
@@ -59,8 +60,8 @@ function hasApiKeyHelper(configDir: string): boolean {
 	try {
 		const settingsPath = join(configDir, "settings.json");
 		if (!existsSync(settingsPath)) return false;
-		const parsed = JSON.parse(readFileSync(settingsPath, "utf8")) as { apiKeyHelper?: unknown };
-		return typeof parsed?.apiKeyHelper === "string" && parsed.apiKeyHelper.trim().length > 0;
+		const parsed: unknown = JSON.parse(readFileSync(settingsPath, "utf8"));
+		return isRecord(parsed) && typeof parsed.apiKeyHelper === "string" && parsed.apiKeyHelper.trim().length > 0;
 	} catch {
 		return false;
 	}

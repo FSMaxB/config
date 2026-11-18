@@ -646,7 +646,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 				// Nothing the dying query still emits belongs to the new history.
 				queryContext.currentPiStream = undefined;
 				debug(`provider: pi replaced this query's history; restarting from ${conversation.length} message(s)`);
-				abortSdkQuery(queryContext.activeQuery);
+				if (queryContext.activeQuery) abortSdkQuery(queryContext.activeQuery);
 				return stream;
 			}
 		}

@@ -14,6 +14,7 @@
 import { createRequire } from "node:module";
 import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import type { McpResult } from "./extract-tool-results.js";
+import { isRecord } from "../../lib/untyped.ts";
 
 type McpServerModule = typeof import("@modelcontextprotocol/sdk/server/index.js");
 type McpTypesModule = typeof import("@modelcontextprotocol/sdk/types.js");
@@ -30,6 +31,7 @@ export interface BridgedTool {
 }
 
 export function createToolServer(name: string, tools: readonly BridgedTool[]): McpSdkServerConfigWithInstance {
+	// require() returns the modules untyped; their types are the package's own declarations.
 	const { Server } = requirePackage("@modelcontextprotocol/sdk/server/index.js") as McpServerModule;
 	const { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } =
 		requirePackage("@modelcontextprotocol/sdk/types.js") as McpTypesModule;
@@ -49,11 +51,12 @@ export function createToolServer(name: string, tools: readonly BridgedTool[]): M
 		// extra `toolCallId` field is relied on elsewhere.
 		return await tool.handler(request.params.arguments);
 	});
+	// The Agent SDK types the instance with its own copy of the MCP SDK's Server class.
 	return { type: "sdk", name, instance: server as unknown as McpSdkServerConfigWithInstance["instance"] };
 }
 
 // The JSON round trip drops TypeBox's symbol keys and keeps everything else verbatim.
 function toJsonSchema(schema: unknown): { type: "object"; [key: string]: unknown } {
-	const json = JSON.parse(JSON.stringify(schema ?? {})) as Record<string, unknown>;
-	return { ...json, type: "object" };
+	const json: unknown = JSON.parse(JSON.stringify(schema ?? {}));
+	return { ...(isRecord(json) ? json : {}), type: "object" };
 }

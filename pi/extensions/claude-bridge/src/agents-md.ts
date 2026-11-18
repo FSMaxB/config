@@ -29,6 +29,7 @@ import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { isolatedFromEnv, piUserDir } from "./config.js";
 import { debug } from "./debug.js";
+import { errorCode } from "../../lib/errors.ts";
 
 const CONTEXT_FILE_CANDIDATES = ["AGENTS.override.md", "AGENTS.md", "AGENTS.MD"];
 
@@ -50,10 +51,10 @@ function contextFileInDir(directory: string): string | undefined {
 				lstatSync(candidate);
 				entryExists = true;
 			} catch (lstatError) {
-				lstatCode = (lstatError as NodeJS.ErrnoException).code;
+				lstatCode = errorCode(lstatError);
 			}
 			if (entryExists || lstatCode !== "ENOENT") {
-				const detail = (error as NodeJS.ErrnoException).code ?? String(error);
+				const detail = errorCode(error) ?? String(error);
 				const suffix = entryExists ? "" : ` (lstat: ${lstatCode ?? "unknown"})`;
 				debug(`agents-md: skipping unusable ${candidate}: ${detail}${suffix}`);
 			}

@@ -116,7 +116,7 @@ export function createStreamIdleWatchdog({
 			return;
 		}
 		timer = setTimer(schedule, Math.max(1, timeoutMs - idleMs));
-		(timer as { unref?: () => void }).unref?.();
+		timer.unref?.();
 	};
 
 	return {

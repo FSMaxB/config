@@ -6,6 +6,7 @@
 // Separate from index.ts so tests can import it without activating the extension.
 
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources";
+import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import type { AssistantMessage, AssistantMessageEventStream, JsonObject, Model, SimpleStreamOptions, TextContent, ThinkingContent, ToolCall, TranscriptContext, Api } from "@earendil-works/pi-ai";
 import type { McpResult } from "./extract-tool-results.js";
 import { currentRequestLaneId } from "./request-lane.js";
@@ -260,7 +261,7 @@ function unique(values: Iterable<string | undefined>): string[] {
 
 export class QueryContext {
 	// Query-scoped (fully isolated per query)
-	activeQuery: unknown = undefined;
+	activeQuery: Query | undefined = undefined;
 	currentPiStream: AssistantMessageEventStream | undefined = undefined;
 	/** Pi replaced the history this query's Claude session was built from
 	 *  (compaction, history navigation) while the query was still running.

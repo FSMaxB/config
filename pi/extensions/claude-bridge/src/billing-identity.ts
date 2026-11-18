@@ -14,6 +14,7 @@
 
 import type { AccountInfo } from "@anthropic-ai/claude-agent-sdk";
 import { currentRequestLaneId } from "./request-lane.js";
+import { isRecord } from "../../lib/untyped.ts";
 
 export const CLAUDE_BILLING_IDENTITY_SYMBOL = Symbol.for("kendex.pi.claude-bridge.billing-identity.v1");
 
@@ -44,6 +45,7 @@ interface BillingIdentityLane {
 
 const BILLING_IDENTITY_LANES_SYMBOL = Symbol.for("kendex.pi.claude-bridge.billing-identity-lanes.v1");
 
+// Every copy of this module in the process shares the lanes; only this function creates them.
 function sharedBillingIdentityLanes(): Map<string | undefined, BillingIdentityLane> {
 	const host = globalThis as Record<symbol, unknown>;
 	let lanes = host[BILLING_IDENTITY_LANES_SYMBOL] as Map<string | undefined, BillingIdentityLane> | undefined;
@@ -107,7 +109,9 @@ export function deleteBillingIdentityLane(sessionId: string | undefined): void {
  *  installs one: a consumer that created its own would answer for a bridge
  *  that is not running. */
 export function resolveClaudeBillingIdentity(): ClaudeBillingIdentityV1 | undefined {
-	const host = globalThis as unknown as Record<PropertyKey, unknown>;
-	const candidate = host[CLAUDE_BILLING_IDENTITY_SYMBOL] as ClaudeBillingIdentityV1 | undefined;
-	return candidate?.version === 1 && typeof candidate.currentLoginEmail === "function" ? candidate : undefined;
+	const candidate: unknown = Reflect.get(globalThis, CLAUDE_BILLING_IDENTITY_SYMBOL);
+	if (!isRecord(candidate) || candidate.version !== 1 || typeof candidate.currentLoginEmail !== "function") return undefined;
+	// A bridge publishes this store; its version identifies the shape.
+	const published: unknown = candidate;
+	return published as ClaudeBillingIdentityV1;
 }

@@ -2,6 +2,8 @@
 // repairs them with synthetic "[no tool result recorded]" blocks.
 // Kept pure so tests can exercise the exact audit without activating Pi.
 
+import { isRecord } from "../../lib/untyped.ts";
+
 export interface RecoveredToolResult {
 	id: string;
 	assistantIndex: number;
@@ -13,17 +15,19 @@ export interface MissingToolResult {
 	id: string;
 	toolName: string;
 	assistantIndex: number;
-	userIndex: number | null;
+	// The user message right after the assistant message, when there is one.
+	userIndex: number | undefined;
 }
 
-function contentBlocks(content: unknown): Array<Record<string, any>> {
-	return Array.isArray(content) ? content.filter((block): block is Record<string, any> => Boolean(block && typeof block === "object")) : [];
+function contentBlocks(content: unknown): Array<Record<string, unknown>> {
+	return Array.isArray(content) ? content.filter(isRecord) : [];
 }
 
 function toolUses(content: unknown): Array<{ id: string; name: string }> {
-	return contentBlocks(content)
-		.filter((block) => block.type === "tool_use" && typeof block.id === "string")
-		.map((block) => ({ id: block.id, name: typeof block.name === "string" && block.name ? block.name : "unknown" }));
+	return contentBlocks(content).flatMap((block) => {
+		if (block.type !== "tool_use" || typeof block.id !== "string") return [];
+		return [{ id: block.id, name: typeof block.name === "string" && block.name ? block.name : "unknown" }];
+	});
 }
 
 function toolResultIds(content: unknown): Set<string> {
@@ -63,7 +67,7 @@ export function recoverLaterToolResults(
 		if (missing.length === 0) continue;
 
 		for (const use of missing) {
-			let sourceBlock: Record<string, any> | undefined;
+			let sourceBlock: Record<string, unknown> | undefined;
 			let sourceUserIndex = -1;
 			for (let j = i + 2; j < messages.length; j++) {
 				const candidate = messages[j];
@@ -78,15 +82,15 @@ export function recoverLaterToolResults(
 			}
 			if (!sourceBlock) continue;
 
-			const targetBlocks = Array.isArray(target.content)
-				? target.content as Array<Record<string, any>>
+			const targetBlocks: unknown[] = Array.isArray(target.content)
+				? target.content
 				: typeof target.content === "string" && target.content
 					? [{ type: "text", text: target.content }]
 					: [];
 			// tool_result blocks must lead the user message; insert the recovered
 			// result after the existing tool_results, never after trailing text.
 			let insertAt = 0;
-			while (insertAt < targetBlocks.length && targetBlocks[insertAt]?.type === "tool_result") insertAt++;
+			while (insertAt < targetBlocks.length && isToolResultBlock(targetBlocks[insertAt])) insertAt++;
 			targetBlocks.splice(insertAt, 0, { ...sourceBlock });
 			target.content = targetBlocks;
 			present.add(use.id);
@@ -110,8 +114,8 @@ export function findUnpairedToolUses(messages: ReadonlyArray<{ role?: string; co
 		if (uses.length === 0) continue;
 
 		const next = messages[i + 1];
-		const nextUserIndex = next?.role === "user" ? i + 1 : null;
-		const resultIds = nextUserIndex == null ? new Set<string>() : toolResultIds(next.content);
+		const nextUserIndex = next?.role === "user" ? i + 1 : undefined;
+		const resultIds = nextUserIndex === undefined ? new Set<string>() : toolResultIds(next.content);
 		for (const use of uses) {
 			if (!resultIds.has(use.id)) {
 				missing.push({ id: use.id, toolName: use.name, assistantIndex: i, userIndex: nextUserIndex });
@@ -144,7 +148,7 @@ export function insertLostToolResultPlaceholders(
 	messages: Array<{ role?: string; content?: unknown }>,
 	missing: readonly MissingToolResult[],
 ): void {
-	const block = (id: string) => ({ type: "tool_result", tool_use_id: id, content: LOST_TOOL_RESULT_TEXT, is_error: true });
+	const block = (id: string): Record<string, unknown> => ({ type: "tool_result", tool_use_id: id, content: LOST_TOOL_RESULT_TEXT, is_error: true });
 	const byAssistant = new Map<number, MissingToolResult[]>();
 	for (const item of missing) {
 		const group = byAssistant.get(item.assistantIndex) ?? [];
@@ -153,13 +157,13 @@ export function insertLostToolResultPlaceholders(
 	}
 	// Descending order ensures that inserting a user message does not shift an index
 	// for a group that is earlier in the array.
-	for (const assistantIndex of [...byAssistant.keys()].sort((a, b) => b - a)) {
-		const group = byAssistant.get(assistantIndex)!;
+	const groups = [...byAssistant].sort(([left], [right]) => right - left);
+	for (const [assistantIndex, group] of groups) {
 		const blocks = group.map((item) => block(item.id));
 		const userIndex = group[0].userIndex;
-		if (userIndex != null && messages[userIndex]?.role === "user") {
-			const user = messages[userIndex] as { role: string; content: unknown };
-			const existing = typeof user.content === "string"
+		const user = userIndex === undefined ? undefined : messages[userIndex];
+		if (user?.role === "user") {
+			const existing: unknown[] = typeof user.content === "string"
 				? (user.content ? [{ type: "text", text: user.content }] : [])
 				: Array.isArray(user.content) ? user.content : [];
 			user.content = [...blocks, ...existing];
@@ -175,4 +179,8 @@ export function summarizeMissingToolNames(missing: readonly MissingToolResult[])
 	return [...counts.entries()]
 		.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
 		.map(([name, count]) => ({ name, count }));
+}
+
+function isToolResultBlock(block: unknown): boolean {
+	return isRecord(block) && block.type === "tool_result";
 }
