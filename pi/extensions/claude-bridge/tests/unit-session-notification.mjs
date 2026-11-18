@@ -22,7 +22,7 @@ for (const row of rows) it(`session notification: ${row.name}`, () => {
 		verifyWrittenSession(path, "session", row.count, root, undefined);
 		assert.deepEqual(notifications.map(({ message, level }) => [message.split("\n")[0], level]), row.key ? [[row.key(path), "warning"]] : []);
 	} finally {
-		__testSetBridgeIntegrityState({ ui: null });
+		__testSetBridgeIntegrityState({ ui: undefined });
 		rmSync(root, { recursive: true, force: true });
 	}
 });

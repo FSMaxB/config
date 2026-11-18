@@ -70,17 +70,18 @@ export interface SessionState {
 // than in one module instance. The versioned symbol prevents an incompatible
 // future store shape from being mistaken for this one.
 interface SharedSessionLaneStoreV1 {
-	defaultSession: SessionState | null;
-	sessions: Map<string, SessionState | null>;
+	defaultSession: SessionState | undefined;
+	sessions: Map<string, SessionState | undefined>;
 }
 
 const SHARED_SESSION_LANES_SYMBOL = Symbol.for("kendex.pi.claude-bridge.shared-session-lanes.v1");
 
+// The store is shared by every copy of this module in the process; only this function writes it.
 function sharedSessionLaneStore(): SharedSessionLaneStoreV1 {
 	const host = globalThis as Record<symbol, unknown>;
 	let store = host[SHARED_SESSION_LANES_SYMBOL] as SharedSessionLaneStoreV1 | undefined;
 	if (!store) {
-		store = { defaultSession: null, sessions: new Map() };
+		store = { defaultSession: undefined, sessions: new Map() };
 		host[SHARED_SESSION_LANES_SYMBOL] = store;
 	}
 	return store;
@@ -89,15 +90,15 @@ function sharedSessionLaneStore(): SharedSessionLaneStoreV1 {
 let extensionApi: ExtensionAPI | undefined;
 export let piUI: ExtensionUIContext | undefined;
 
-export function getSharedSession(): SessionState | null {
+export function getSharedSession(): SessionState | undefined {
 	const store = sharedSessionLaneStore();
 	const sessionId = currentRequestLaneId();
 	return sessionId === undefined
 		? store.defaultSession
-		: (store.sessions.get(sessionId) ?? null);
+		: store.sessions.get(sessionId);
 }
 
-export function setSharedSession(next: SessionState | null): void {
+export function setSharedSession(next: SessionState | undefined): void {
 	const store = sharedSessionLaneStore();
 	const sessionId = currentRequestLaneId();
 	if (sessionId === undefined) store.defaultSession = next;
@@ -106,14 +107,14 @@ export function setSharedSession(next: SessionState | null): void {
 
 export function deleteSharedSessionLane(sessionId: string | undefined): void {
 	const store = sharedSessionLaneStore();
-	if (sessionId === undefined) store.defaultSession = null;
+	if (sessionId === undefined) store.defaultSession = undefined;
 	else store.sessions.delete(sessionId);
 }
 
 export function clearSharedSessionLanes(): void {
 	const store = sharedSessionLaneStore();
 	store.sessions.clear();
-	store.defaultSession = null;
+	store.defaultSession = undefined;
 }
 
 // The lane each pi session started in, keyed by its SessionManager. An in-memory
@@ -127,6 +128,7 @@ export function clearSharedSessionLanes(): void {
 // must see the same entry.
 const STARTED_LANES_SYMBOL = Symbol.for("kendex.pi.claude-bridge.started-lanes.v1");
 
+// Shared like the session lane store above; only this function writes it.
 function startedLaneStore(): WeakMap<object, string> {
 	const host = globalThis as Record<symbol, unknown>;
 	let store = host[STARTED_LANES_SYMBOL] as WeakMap<object, string> | undefined;
@@ -326,18 +328,18 @@ export function reportToolResultMismatch(
 	}
 }
 
-export function __testSetBridgeIntegrityState(state: { ui?: Pick<ExtensionUIContext, "notify"> | null; sharedSession?: SessionState | null }): void {
-	if ("ui" in state) piUI = state.ui as ExtensionUIContext | undefined;
+export function __testSetBridgeIntegrityState(state: { ui?: ExtensionUIContext; sharedSession?: SessionState }): void {
+	if ("ui" in state) piUI = state.ui;
 	if ("sharedSession" in state) {
-		if (currentRequestLaneId() !== undefined) setSharedSession(state.sharedSession ?? null);
+		if (currentRequestLaneId() !== undefined) setSharedSession(state.sharedSession);
 		else {
 			clearSharedSessionLanes();
-			sharedSessionLaneStore().defaultSession = state.sharedSession ?? null;
+			sharedSessionLaneStore().defaultSession = state.sharedSession;
 		}
 	}
 }
 
-export function __testGetBridgeIntegrityState(): { sharedSession: SessionState | null } {
+export function __testGetBridgeIntegrityState(): { sharedSession: SessionState | undefined } {
 	return { sharedSession: getSharedSession() };
 }
 

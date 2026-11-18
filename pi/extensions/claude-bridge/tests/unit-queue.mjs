@@ -21,7 +21,7 @@ async function withBridge(ids, run) {
 	const previous = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]));
 	Object.assign(process.env, env);
 	resetStack();
-	__testSetBridgeIntegrityState({ sharedSession: null, ui: { notify() {} } });
+	__testSetBridgeIntegrityState({ sharedSession: undefined, ui: { notify() {} } });
 	const gate = Promise.withResolvers();
 	const finished = Promise.withResolvers();
 	let server;
@@ -86,7 +86,7 @@ async function withBridge(ids, run) {
 		await server?.close();
 		await Promise.allSettled(pending);
 		__testSetSdkQueryFactory();
-		__testSetBridgeIntegrityState({ sharedSession: null, ui: null });
+		__testSetBridgeIntegrityState({ sharedSession: undefined, ui: undefined });
 		resetStack();
 		for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
 		rmSync(root, { recursive: true, force: true });

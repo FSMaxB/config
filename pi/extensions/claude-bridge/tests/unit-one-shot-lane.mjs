@@ -39,7 +39,7 @@ beforeEach(() => {
 	previousEnv = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]));
 	Object.assign(process.env, env);
 	resetStack();
-	__testSetBridgeIntegrityState({ sharedSession: null, ui: { notify() {} } });
+	__testSetBridgeIntegrityState({ sharedSession: undefined, ui: { notify() {} } });
 	setExtensionApi({ events: { emit() {} }, appendEntry() {} });
 	__testSetSdkQueryFactory(fakeSdk);
 });
@@ -52,7 +52,7 @@ afterEach(async () => {
 	server = undefined;
 	__testSetSdkQueryFactory();
 	setExtensionApi(undefined);
-	__testSetBridgeIntegrityState({ sharedSession: null, ui: null });
+	__testSetBridgeIntegrityState({ sharedSession: undefined, ui: undefined });
 	resetStack();
 	for (const [key, value] of Object.entries(previousEnv)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
 	rmSync(root, { recursive: true, force: true });

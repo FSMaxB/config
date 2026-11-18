@@ -50,7 +50,7 @@ export interface BuildClaudeQueryOptionsInput {
 	tools: readonly Tool[];
 	/** Pi reasoning level from the stream options, if any. */
 	reasoning?: string;
-	resumeSessionId: string | null;
+	resumeSessionId: string | undefined;
 	/** Record uuid to truncate the resumed session at; the query then forks into a new session id. Ignored without `resumeSessionId`. */
 	forkAt?: string;
 	mcpServers?: Record<string, McpSdkServerConfigWithInstance>;

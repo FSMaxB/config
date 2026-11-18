@@ -172,7 +172,7 @@ beforeEach(() => {
 	process.env.CLAUDE_BRIDGE_STREAM_IDLE_TIMEOUT = "0";
 	process.env.CLAUDE_CODE_OAUTH_TOKEN = "test-token";
 	resetStack();
-	__testSetBridgeIntegrityState({ sharedSession: null, ui: { notify: () => {} } });
+	__testSetBridgeIntegrityState({ sharedSession: undefined, ui: { notify: () => {} } });
 	setExtensionApi({ events: { emit: () => {} }, appendEntry: () => {} });
 	BRIDGE_BILLING_IDENTITY.clear();
 });
@@ -183,7 +183,7 @@ afterEach(() => {
 	__testSetSdkQueryFactory();
 	setExtensionApi(undefined);
 	resetStack();
-	__testSetBridgeIntegrityState({ sharedSession: null, ui: null });
+	__testSetBridgeIntegrityState({ sharedSession: undefined, ui: undefined });
 	BRIDGE_BILLING_IDENTITY.clear();
 });
 
@@ -335,7 +335,7 @@ describe("provider request session lanes", () => {
 
 		runInRequestLane("", () => {
 			assert.equal(currentRequestLaneId(), "");
-			assert.equal(__testGetBridgeIntegrityState().sharedSession, null);
+			assert.equal(__testGetBridgeIntegrityState().sharedSession, undefined);
 			currentQueryContext().activeQuery = { id: "empty-id-query" };
 			__testSetBridgeIntegrityState({ sharedSession: { sessionId: "empty-id-session", cursor: 1, cwd: "/empty" } });
 		});
@@ -349,7 +349,7 @@ describe("provider request session lanes", () => {
 		const defaultRecord = { sessionId: "direct-host-session", cursor: 2, cwd: "/direct" };
 		__testSetBridgeIntegrityState({ sharedSession: defaultRecord });
 
-		assert.equal(runInRequestLane("child-first", () => __testGetBridgeIntegrityState().sharedSession), null);
+		assert.equal(runInRequestLane("child-first", () => __testGetBridgeIntegrityState().sharedSession), undefined);
 		assert.deepEqual(__testGetBridgeIntegrityState().sharedSession, defaultRecord);
 	});
 
@@ -389,7 +389,7 @@ describe("provider request session lanes", () => {
 		assert.equal(__testSharedSessionLaneCount(), 1);
 		assert.equal(runInRequestLane("parent", () => currentQueryContext().activeQuery.id), "parent-query");
 		assert.equal(runInRequestLane("parent", () => __testGetBridgeIntegrityState().sharedSession.sessionId), "parent-session");
-		assert.equal(runInRequestLane("child", () => __testGetBridgeIntegrityState().sharedSession), null);
+		assert.equal(runInRequestLane("child", () => __testGetBridgeIntegrityState().sharedSession), undefined);
 
 		deleteQueryLane("parent");
 		deleteSharedSessionLane("parent");
@@ -520,7 +520,7 @@ describe("provider request session lanes", () => {
 
 			parent.fork("forked");
 			handlers.get("session_shutdown")({ reason: "fork" }, parent.ctxLike);
-			assert.equal(runInRequestLane("original", () => __testGetBridgeIntegrityState().sharedSession), null, "the original session's record is pruned");
+			assert.equal(runInRequestLane("original", () => __testGetBridgeIntegrityState().sharedSession), undefined, "the original session's record is pruned");
 			assert.equal(__testQueryLaneCount(), 1, "only the child's query lane remains");
 			assert.equal(__testSharedSessionLaneCount(), 1, "only the child's record remains");
 			assert.equal(runInRequestLane("child", () => __testGetBridgeIntegrityState().sharedSession?.sessionId), "child-session", "a concurrent sibling is untouched");
@@ -557,7 +557,7 @@ describe("provider request session lanes", () => {
 			session.fork("forked");
 			reloadedHandlers.get("session_shutdown")({ reason: "fork" }, session.ctxLike);
 
-			assert.equal(runInRequestLane("original", () => __testGetBridgeIntegrityState().sharedSession), null, "the started session's record is pruned");
+			assert.equal(runInRequestLane("original", () => __testGetBridgeIntegrityState().sharedSession), undefined, "the started session's record is pruned");
 			assert.equal(runInRequestLane("forked", () => __testGetBridgeIntegrityState().sharedSession?.sessionId), "forked-session", "the live fork's record survives");
 			assert.equal(runInRequestLane("forked", () => currentQueryContext().activeQuery?.id), "forked-query");
 			assert.equal(__testQueryLaneCount(), 1);

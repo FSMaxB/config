@@ -822,5 +822,3 @@ export interface ClaudeTranscriptAnchor {
 	sessionId: string;
 	messageId: string;
 }
-
-export type StampedAssistantMessage = AssistantMessage & { claudeBridge?: ClaudeTranscriptAnchor };

@@ -32,7 +32,7 @@ beforeEach(() => {
 	resetStack();
 	notifications = [];
 	emittedRateLimitEvents = [];
-	__testSetBridgeIntegrityState({ sharedSession: null, ui: { notify: (message, level) => notifications.push({ message, level }) } });
+	__testSetBridgeIntegrityState({ sharedSession: undefined, ui: { notify: (message, level) => notifications.push({ message, level }) } });
 	setExtensionApi({ events: { emit: (name, payload) => emittedRateLimitEvents.push({ name, payload }) }, appendEntry: () => {} });
 });
 afterEach(() => {
@@ -44,7 +44,7 @@ afterEach(() => {
 	__testSetSdkQueryFactory();
 	setExtensionApi(undefined);
 	resetStack();
-	__testSetBridgeIntegrityState({ sharedSession: null, ui: null });
+	__testSetBridgeIntegrityState({ sharedSession: undefined, ui: undefined });
 });
 
 describe("ordinary provider stream", () => {

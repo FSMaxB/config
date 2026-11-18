@@ -19,12 +19,12 @@ beforeEach(() => {
 	mkdirSync(claudeDir, { recursive: true });
 	__testCancelAllScheduledSessionPersistence();
 	setExtensionApi(undefined);
-	__testSetBridgeIntegrityState({ sharedSession: null, ui: null });
+	__testSetBridgeIntegrityState({ sharedSession: undefined, ui: undefined });
 });
 afterEach(() => {
 	__testCancelAllScheduledSessionPersistence();
 	setExtensionApi(undefined);
-	__testSetBridgeIntegrityState({ sharedSession: null, ui: null });
+	__testSetBridgeIntegrityState({ sharedSession: undefined, ui: undefined });
 });
 after(() => rmSync(root, { recursive: true, force: true }));
 
@@ -59,7 +59,7 @@ describe("bridge session markers", () => {
 			// act
 			restoreSharedSessionFromPi({ cwd, sessionManager: sessionManager(marker) });
 			// assert
-			assert.equal(__testGetBridgeIntegrityState().sharedSession, null);
+			assert.equal(__testGetBridgeIntegrityState().sharedSession, undefined);
 		} finally {
 			if (previousDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
 			else process.env.CLAUDE_CONFIG_DIR = previousDir;

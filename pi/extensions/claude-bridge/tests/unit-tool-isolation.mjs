@@ -42,7 +42,7 @@ describe("Claude Code tool isolation", () => {
 			const { queryOptions } = buildClaudeQueryOptions({
 				cwd: process.cwd(), requestedModel: { id: "claude-haiku-4-5" }, bridgeConfig: { provider },
 				tools: [{ name: "read", description: "", parameters: { type: "object" } }],
-				resumeSessionId: null, mcpServers: { "custom-tools": fakeServer, foreign: fakeServer },
+				resumeSessionId: undefined, mcpServers: { "custom-tools": fakeServer, foreign: fakeServer },
 			});
 			// assert
 			assert.equal(queryOptions.strictMcpConfig, true);

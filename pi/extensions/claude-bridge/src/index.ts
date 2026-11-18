@@ -900,7 +900,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 	// clean one-shot instead (Case-1 semantics — no resume, prompt is the
 	// trailing message; the child session id lives in the QueryContext only).
 	const syncResult = isReentrant
-		? { sessionId: null, promptStart: conversation.length - 1 }
+		? { sessionId: undefined, promptStart: conversation.length - 1 }
 		: syncSharedSession(conversation, cwd, customToolNameToSdk, model.id);
 	const { sessionId: resumeSessionId, promptStart, forkAt } = syncResult;
 	// A FOREIGN-conversation query (conversation-fingerprint mismatch against
@@ -992,7 +992,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 	// session: its completion/failure handlers would overwrite the PARENT's
 	// record with the child's session id and cursor. A foreign-conversation
 	// one-shot has exactly the same non-claim on the record.
-	const persistSession = (next: SessionState | null): void => {
+	const persistSession = (next: SessionState | undefined): void => {
 		if (isReentrant || foreignContext) return;
 		// A history replacement pi made while this query ran describes PI's
 		// messages, not this query, so every record the query writes — this
@@ -1354,7 +1354,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 				kind: classifyClaudeFailure(error),
 				message: error instanceof Error ? error.message : String(error),
 			};
-			persistSession(null);
+			persistSession(undefined);
 			surfaceFailure(failure, false);
 		})
 		.finally(() => {
@@ -1472,7 +1472,7 @@ export default function (pi: ExtensionAPI): void {
 	const clearSession = (event: string) => {
 		const activeSession = getSharedSession();
 		debug(`${event}: clearing session ${activeSession?.sessionId?.slice(0, 8) ?? "none"}`);
-		setSharedSession(null);
+		setSharedSession(undefined);
 	};
 
 	pi.on("session_start", (event, context) => runInRequestLane(context.sessionManager.getSessionId(), () => {

@@ -21,7 +21,7 @@ export function integrityWorld(t) {
 	setExtensionApi({ appendEntry: (customType, data) => sessionEntries.push({ customType, data }) });
 	t.after(() => {
 		setExtensionApi(undefined);
-		__testSetBridgeIntegrityState({ ui: null, sharedSession: null });
+		__testSetBridgeIntegrityState({ ui: undefined, sharedSession: undefined });
 		if (previousDiagPath === undefined) delete process.env.CLAUDE_BRIDGE_DIAG_PATH;
 		else process.env.CLAUDE_BRIDGE_DIAG_PATH = previousDiagPath;
 		rmSync(dir, { recursive: true, force: true });

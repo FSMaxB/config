@@ -151,10 +151,10 @@ describe("teardownQuery shared-record gating (#1001)", () => {
 
 	beforeEach(() => {
 		resetStack();
-		__testSetBridgeIntegrityState({ sharedSession: null, ui: null });
+		__testSetBridgeIntegrityState({ sharedSession: undefined, ui: undefined });
 	});
 
-	afterEach(() => __testSetBridgeIntegrityState({ sharedSession: null, ui: null }));
+	afterEach(() => __testSetBridgeIntegrityState({ sharedSession: undefined, ui: undefined }));
 
 	it("marks only a claiming session after unresolved-call teardown", async () => {
 		const rows = [

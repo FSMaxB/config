@@ -51,7 +51,7 @@ beforeEach(() => {
 	previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
 	process.env.CLAUDE_CONFIG_DIR = claudeConfigDir;
 	resetStack();
-	__testSetBridgeIntegrityState({ sharedSession: null, ui: { notify: () => {} } });
+	__testSetBridgeIntegrityState({ sharedSession: undefined, ui: { notify: () => {} } });
 	setExtensionApi({ events: { emit: () => {} }, appendEntry: () => {} });
 });
 afterEach(() => {
@@ -68,7 +68,7 @@ afterEach(() => {
 	__testSetAbortExitGraceMs();
 	setExtensionApi(undefined);
 	resetStack();
-	__testSetBridgeIntegrityState({ sharedSession: null, ui: null });
+	__testSetBridgeIntegrityState({ sharedSession: undefined, ui: undefined });
 });
 
 describe("aborted query settlement", () => {

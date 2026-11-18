@@ -181,7 +181,7 @@ async function withBridge(run, openingQuery = toolCallQuery) {
 		firstQuery.release();
 		cancelScheduledToolUseEnd(currentQueryContext());
 		__testSetSdkQueryFactory();
-		__testSetBridgeIntegrityState({ sharedSession: null, ui: null });
+		__testSetBridgeIntegrityState({ sharedSession: undefined, ui: undefined });
 		resetStack();
 		for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
 		rmSync(root, { recursive: true, force: true });
