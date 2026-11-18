@@ -12,6 +12,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
  */
 const REQUEST_LANE_SYMBOL = Symbol.for("kendex.pi.claude-bridge.request-lane.v1");
 
+// Every copy of this module in the process shares the storage; only this function creates it.
 function requestLaneStorage(): AsyncLocalStorage<string> {
 	const host = globalThis as Record<symbol, unknown>;
 	let storage = host[REQUEST_LANE_SYMBOL] as AsyncLocalStorage<string> | undefined;

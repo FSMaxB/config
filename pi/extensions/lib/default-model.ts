@@ -1,3 +1,5 @@
+import { stringProperty } from "./untyped.ts";
+
 export interface ModelReference {
   provider: string;
   id: string;
@@ -11,10 +13,9 @@ export const DefaultModelOutcome = {
 } as const;
 export type DefaultModelOutcome = (typeof DefaultModelOutcome)[keyof typeof DefaultModelOutcome];
 
-type DefaultModelSettings = { defaultProvider?: unknown; defaultModel?: unknown };
-
 export function configuredDefaultModel(settings: object): ModelReference | undefined {
-  const { defaultProvider, defaultModel } = settings as DefaultModelSettings;
+  const defaultProvider = stringProperty(settings, "defaultProvider");
+  const defaultModel = stringProperty(settings, "defaultModel");
   if (typeof defaultProvider !== "string" || typeof defaultModel !== "string") return undefined;
   return { provider: defaultProvider, id: defaultModel };
 }
@@ -47,6 +48,6 @@ export function fallbackWarning(
   }
 }
 
-function modelLabel(model: ModelReference): string {
+export function modelLabel(model: ModelReference): string {
   return `${model.provider}/${model.id}`;
 }

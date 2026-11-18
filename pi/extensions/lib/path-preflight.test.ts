@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { emptyRules, exact, selectorKey, tree, type RuleSets } from "./path-permission-rules.ts";
+import { emptyRules, exact, selectorKey, tree } from "./path-permission-rules.ts";
+import type { RuleSets } from "./path-permission-rules.ts";
 import type { PathAuthorization } from "./path-permissions.ts";
 import { preflightPath } from "./path-preflight.ts";
 

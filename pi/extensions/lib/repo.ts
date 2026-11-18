@@ -3,11 +3,12 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 export { resolveThroughSymlinks } from "./path-resolution.ts";
 
-export interface VcsInfo {
-  kind: "jj" | "git" | "none";
-  root: string;
-  colocated: boolean;
-}
+// Without a repository, root is the directory the detection started from.
+export type VcsInfo =
+  | { kind: "none"; root: string }
+  | { kind: "git"; root: string }
+  // A colocated jj repository also has a .git directory that jj keeps in sync.
+  | { kind: "jj"; root: string; colocated: boolean };
 
 export function findRepoRoot(from: string = process.cwd()): string {
   return findVcsRoot(from) ?? resolve(from);
@@ -15,11 +16,9 @@ export function findRepoRoot(from: string = process.cwd()): string {
 
 export function detectVcs(from: string = process.cwd()): VcsInfo {
   const root = findVcsRoot(from);
-  if (!root) return { kind: "none", root: resolve(from), colocated: false };
-
-  const jj = existsSync(join(root, ".jj"));
-  const git = existsSync(join(root, ".git"));
-  return { kind: jj ? "jj" : "git", root, colocated: jj && git };
+  if (!root) return { kind: "none", root: resolve(from) };
+  if (!existsSync(join(root, ".jj"))) return { kind: "git", root };
+  return { kind: "jj", root, colocated: existsSync(join(root, ".git")) };
 }
 
 export function isVcsInternal(path: string): boolean {
@@ -29,10 +28,14 @@ export function isVcsInternal(path: string): boolean {
 }
 
 function findVcsRoot(from: string): string | undefined {
+  return findAncestorWith(from, [".jj", ".git"]);
+}
+
+// The nearest directory from `from` upwards that contains one of the marker entries.
+export function findAncestorWith(from: string, markers: readonly string[]): string | undefined {
   let current = resolve(from);
   while (true) {
-    if (existsSync(join(current, ".jj")) || existsSync(join(current, ".git")))
-      return current;
+    if (markers.some((marker) => existsSync(join(current, marker)))) return current;
 
     const parent = dirname(current);
     if (parent === current) return undefined;
@@ -40,12 +43,11 @@ function findVcsRoot(from: string): string | undefined {
   }
 }
 
-
 // Keep this in one place so file tools and other extensions agree on where project memory
 // lives. Claude Code derives the directory from the cwd.
-export function memoryDirectory(): string {
-  const slug = process.cwd().replace(/[^a-zA-Z0-9]/g, "-");
-  return join(homedir(), ".claude", "projects", slug, "memory");
+export function memoryDirectory(cwd: string = process.cwd(), home: string = homedir()): string {
+  const slug = cwd.replace(/[^a-zA-Z0-9]/g, "-");
+  return join(home, ".claude", "projects", slug, "memory");
 }
 
 export function contains(root: string, path: string): boolean {

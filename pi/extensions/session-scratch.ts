@@ -5,9 +5,10 @@ import { sessionTemporaryDirectory } from "./lib/session-temporary-directory.ts"
 
 // Bash points $TMPDIR at this directory (sandbox/src/scratch.ts) and the path rules allow it, so it has to
 // exist before the first command and be registered before the first file tool call.
-export default function (pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, context) => {
     const directory = sessionTemporaryDirectory(context.sessionManager.getSessionId());
+    // The scratch directory can hold session data, so only the owner may read it.
     await mkdir(directory, { recursive: true, mode: 0o700 });
     setSessionTemporaryDirectory(directory);
   });

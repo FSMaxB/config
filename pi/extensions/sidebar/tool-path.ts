@@ -1,14 +1,14 @@
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
+import { expandHome } from "../lib/path-resolution.ts";
 
 export type RealPath = (path: string) => string;
 
 /** Mirrors the file tools: strips a leading `@`, expands `~`, resolves against cwd. */
-export function resolveToolPath(rawPath: string, cwd: string): string {
+export function resolveToolPath(rawPath: string, cwd: string, home: string = homedir()): string {
   const withoutAt = rawPath.startsWith("@") ? rawPath.slice(1) : rawPath;
-  const expanded =
-    withoutAt === "~" ? homedir() : withoutAt.startsWith("~/") ? homedir() + withoutAt.slice(1) : withoutAt;
+  const expanded = expandHome(withoutAt, home);
   return isAbsolute(expanded) ? expanded : resolve(cwd, expanded);
 }
 

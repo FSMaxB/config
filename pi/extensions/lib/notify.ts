@@ -3,15 +3,19 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { sanitizeDisplayText } from "./format.ts";
 import { shellQuote } from "./panes.ts";
 
+// One line of a macOS notification banner holds about this many characters.
+const DETAIL_MAX_LENGTH = 120;
+const NOTIFICATION_SOUND = "Glass";
+
 export function notifyUser(
   pi: ExtensionAPI,
   status: string,
   detail?: string,
+  environment: NodeJS.ProcessEnv = process.env,
 ): void {
   // Subagent children load the global extensions too; their lifecycle events
   // must not raise desktop notifications meant for the interactive session.
-  if (process.env.PI_SUBAGENT_CHILD) return;
-  const DETAIL_MAX_LENGTH = 120;
+  if (environment.PI_SUBAGENT_CHILD) return;
   const sessionName = pi.getSessionName();
   // The status belongs in the body rather than the title: a long session name
   // would otherwise crowd it out, and terminal-notifier rejects an empty body.
@@ -23,13 +27,14 @@ export function notifyUser(
     detail === undefined
       ? status
       : `${status}: ${sanitizeDisplayText(detail, DETAIL_MAX_LENGTH)}`,
+    environment,
   );
 }
 
-function notify(title: string, body: string): void {
+function notify(title: string, body: string, environment: NodeJS.ProcessEnv): void {
   switch (process.platform) {
     case "darwin":
-      notifyMacOs(title, body);
+      notifyMacOs(title, body, environment);
       break;
     case "linux":
       execFile("notify-send", ["--app-name=Pi", title, body], () => {});
@@ -49,15 +54,15 @@ function notify(title: string, body: string): void {
 // can run a command on click, which is what gets us back to the pane pi runs in.
 // It is optional, and needs a one-time `lsregister -f <its .app>` per install to
 // be allowed to post at all, hence the fallback on any failure.
-function notifyMacOs(title: string, body: string): void {
-  const clickCommand = focusPaneCommand();
+function notifyMacOs(title: string, body: string, environment: NodeJS.ProcessEnv): void {
+  const clickCommand = focusPaneCommand(environment);
   if (clickCommand === undefined) {
     notifyAppleScript(title, body);
     return;
   }
   execFile(
     "terminal-notifier",
-    ["-title", title, "-message", body, "-sound", "Glass", "-execute", clickCommand],
+    ["-title", title, "-message", body, "-sound", NOTIFICATION_SOUND, "-execute", clickCommand],
     (error) => {
       // A missing binary or a denied notification permission leaves nothing on
       // screen, so a silent failure here would cost us the notification itself.
@@ -66,7 +71,7 @@ function notifyMacOs(title: string, body: string): void {
   );
 }
 
-function focusPaneCommand(): string | undefined {
+function focusPaneCommand(environment: NodeJS.ProcessEnv): string | undefined {
   const {
     // macOS sets this for processes launched from an app bundle, so it names
     // the terminal emulator pi is running in.
@@ -74,7 +79,7 @@ function focusPaneCommand(): string | undefined {
     ZELLIJ_SESSION_NAME: zellijSession,
     ZELLIJ_PANE_ID: zellijPane,
     PATH: path,
-  } = process.env;
+  } = environment;
   const steps = [];
   if (terminalBundleId) steps.push(`open -b ${shellQuote(terminalBundleId)}`);
   // Raising the terminal window is not enough inside a multiplexer: focusing
@@ -91,7 +96,7 @@ function focusPaneCommand(): string | undefined {
 }
 
 function notifyAppleScript(title: string, body: string): void {
-  const script = `display notification "${escapeAppleScriptString(body)}" with title "${escapeAppleScriptString(title)}" sound name "Glass"`;
+  const script = `display notification "${escapeAppleScriptString(body)}" with title "${escapeAppleScriptString(title)}" sound name "${NOTIFICATION_SOUND}"`;
   execFile("osascript", ["-e", script], () => {});
 }
 

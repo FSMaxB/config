@@ -2,7 +2,8 @@ import { spawn } from "node:child_process";
 import { lstat } from "node:fs/promises";
 import { sep } from "node:path";
 import type { PathAuthorization, GatedScope } from "./path-permissions.ts";
-import { evaluate, type Verdict } from "./path-permission-rules.ts";
+import { evaluate } from "./path-permission-rules.ts";
+import type { Verdict } from "./path-permission-rules.ts";
 import { insideGitRepository, locateBinary } from "./search-binaries.ts";
 
 export async function preflightPath(authorization: PathAuthorization, scope: GatedScope, signal?: AbortSignal): Promise<void> {

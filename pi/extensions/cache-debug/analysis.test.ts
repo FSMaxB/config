@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { analyze, parseReportArguments, renderReport, ReportVerbosity, Verdict } from "./analysis.ts";
 import { fingerprintPayload } from "./fingerprint.ts";
-import { MarkerEvent, Outcome, RECORD_VERSION, RequestPurpose, type LogRecord, type Usage } from "./records.ts";
+import { MarkerEvent, Outcome, RECORD_VERSION, RequestPurpose } from "./records.ts";
+import type { LogRecord, Usage } from "./records.ts";
 
 interface RequestOptions {
   messages: string[];

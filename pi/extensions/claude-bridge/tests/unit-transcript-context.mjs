@@ -42,7 +42,7 @@ beforeEach(() => {
 	process.env.CLAUDE_BRIDGE_STREAM_IDLE_TIMEOUT = "0";
 	process.env.CLAUDE_CODE_OAUTH_TOKEN = "test-token";
 	resetStack();
-	__testSetBridgeIntegrityState({ sharedSession: null, ui: { notify() {} } });
+	__testSetBridgeIntegrityState({ sharedSession: undefined, ui: { notify() {} } });
 	setExtensionApi({ events: { emit() {} }, appendEntry() {} });
 });
 
@@ -52,7 +52,7 @@ afterEach(() => {
 	__testSetSdkQueryFactory();
 	setExtensionApi(undefined);
 	resetStack();
-	__testSetBridgeIntegrityState({ sharedSession: null, ui: null });
+	__testSetBridgeIntegrityState({ sharedSession: undefined, ui: undefined });
 });
 
 describe("a pi 0.87 transcript", () => {

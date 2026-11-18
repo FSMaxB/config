@@ -1,14 +1,15 @@
 import { lstat, readlink, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
+import { errorCode } from "./errors.ts";
 
 export async function resolveThroughSymlinks(target: string): Promise<string> {
   return await resolvePath(resolve(expandHome(target)), new Set());
 }
 
-export function expandHome(path: string): string {
+export function expandHome(path: string, home: string = homedir()): string {
   return path === "~" || path.startsWith(`~${sep}`)
-    ? join(homedir(), path.slice(1))
+    ? join(home, path.slice(1))
     : path;
 }
 
@@ -33,7 +34,7 @@ async function resolvePath(
       }
       return join(await realpath(existing), ...missing);
     } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
+      const code = errorCode(error);
       if (code !== "ENOENT" && code !== "ENOTDIR") throw error;
 
       const parent = dirname(existing);

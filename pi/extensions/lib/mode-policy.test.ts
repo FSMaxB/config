@@ -140,14 +140,14 @@ test("an always denial takes precedence over a session denial in the gate and th
   assert.match(reason ?? "", /you denied it for all sessions.*always note/);
   assert.deepEqual(
     [...listed].sort((left, right) => left.name.localeCompare(right.name)),
-    [{ name: "bash", note: "always note" }, { name: "edit" }],
+    [{ name: "bash", note: "always note" }, { name: "edit", note: undefined }],
   );
 });
 
 test("the denial text names the mode, and only plan mode points at submit_plan", () => {
   // act
-  const planning = deniedReason(AgentMode.Planning, "bash", "you denied it");
-  const exploring = deniedReason(AgentMode.Exploring, "bash", "you denied it");
+  const planning = deniedReason(AgentMode.Planning, "bash", "you denied it", undefined);
+  const exploring = deniedReason(AgentMode.Exploring, "bash", "you denied it", undefined);
   const withNote = deniedReason(AgentMode.Exploring, "bash", "you denied it", "Use grep");
 
   // assert

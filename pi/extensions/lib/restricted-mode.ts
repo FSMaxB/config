@@ -4,12 +4,17 @@ import type {
   ExtensionContext,
   Theme,
   ToolCallEvent,
+  ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
-import { AgentMode, isRestricted, MODE_IDENTITIES, RESTRICTED_MODES, storeForMode, type ModeIdentity, type PathRuleStore, type RestrictedMode } from "./agent-mode.ts";
+import { AgentMode, isRestricted, MODE_IDENTITIES, RESTRICTED_MODES, storeForMode } from "./agent-mode.ts";
+import type { ModeIdentity, PathRuleStore, RestrictedMode } from "./agent-mode.ts";
+import { errorMessage } from "./errors.ts";
 import { FILE_TOOLS } from "./file-tools.ts";
 import { readPersistedDecisions, writePersistedDecisions } from "./mode-decisions.ts";
-import { activeRestrictedMode, latestModeEntry, type ActiveRestrictedMode } from "./mode-entry.ts";
-import { registerModeMessages, SandboxStatus, type ModeMessages, type ModeSnapshot } from "./mode-messages.ts";
+import { activeRestrictedMode, latestModeEntry } from "./mode-entry.ts";
+import type { ActiveRestrictedMode } from "./mode-entry.ts";
+import { registerModeMessages } from "./mode-messages.ts";
+import type { ModeMessages, ModeSnapshot } from "./mode-messages.ts";
 import {
   blockedReason,
   DENIAL_CAUSES,
@@ -22,6 +27,7 @@ import {
   toolGate,
   transitionNotice,
 } from "./mode-policy.ts";
+import type { ToolGate } from "./mode-policy.ts";
 import {
   clearPathRules,
   initPathPermissions,
@@ -30,15 +36,22 @@ import {
   setAgentMode,
 } from "./path-permissions.ts";
 import type { PathRule } from "./path-permission-rules.ts";
-import { addPathRuleInteractively, CLEAR_ALL, DONE, pathRuleEntries, type DecisionEntry } from "./path-rule-commands.ts";
-import { ALL_DURATIONS, askPermission, Duration, type LastingDuration } from "./permission-prompt.ts";
+import type { AutocompleteItem } from "@earendil-works/pi-tui";
+import { completionItems, RULE_SUBCOMMANDS } from "./completions.ts";
+import { addPathRuleInteractively, manageDecisions, pathRuleEntries } from "./path-rule-commands.ts";
+import type { DecisionEntry } from "./path-rule-commands.ts";
+import { ALL_DURATIONS, askPermission, Duration } from "./permission-prompt.ts";
+import type { LastingDuration } from "./permission-prompt.ts";
 import { permissionUI } from "./permission-ui.ts";
 import { plansDirectory } from "./plan-file.ts";
 import { PLAN_TOOLS } from "./plan-tools.ts";
-import { isSandboxActive } from "./sandbox-state.ts";
+import { isSandboxActive, sandboxStatus } from "./sandbox-state.ts";
 import { serialize } from "./ui-queue.ts";
-import { announceSessionGrantsChanged, provideSessionGrants, type SessionGrant } from "./session-grants.ts";
-import { planToolPermission, toolDecisionGrants, trustedReadOnlyToolNames, type ToolPermission } from "./tool-permission-policy.ts";
+import { announceSessionGrantsChanged, provideSessionGrants } from "./session-grants.ts";
+import type { SessionGrant } from "./session-grants.ts";
+import { planToolPermission, toolDecisionGrants, trustedReadOnlyToolNames } from "./tool-permission-policy.ts";
+import type { ToolPermission } from "./tool-permission-policy.ts";
+import { stringProperty } from "./untyped.ts";
 
 export interface ModeDefinition {
   identity: ModeIdentity;
@@ -56,7 +69,7 @@ export interface RestrictedModeHandle {
   blockedReason(toolName: string): string | undefined;
   // Handles "" (toggle), "grants", "allow <glob>" and "deny <glob>"; false for anything else.
   handleCommand(argument: string, context: ExtensionCommandContext): Promise<boolean>;
-  completions(prefix: string): { value: string; label: string }[] | null;
+  completions(prefix: string): AutocompleteItem[] | null;
 }
 
 // Plan mode and explore mode share one engine per runtime: the mode is a single state, the tool
@@ -76,17 +89,16 @@ export function registerRestrictedMode(pi: ExtensionAPI, definition: ModeDefinit
     },
     blockedReason: (toolName) => blockedReason(identity.mode, toolName, engine.decisions[identity.mode]),
     handleCommand: (argument, context) => engine.handleCommand(definition, argument, context),
-    completions: (prefix) => {
-      const completions = ["grants", "allow", "deny"]
-        .filter((value) => value.startsWith(prefix))
-        .map((value) => ({ value, label: value }));
-      return completions.length > 0 ? completions : null;
-    },
+    completions: (prefix) => completionItems(RULE_SUBCOMMANDS, prefix),
   };
 }
 
 const DISCOVERY_CHANNEL = "config:restricted-mode:discover";
 const INDICATOR_KEY = "agent-mode";
+// Long enough to recognize a command or path in the permission prompt, short enough to keep the
+// prompt on screen.
+const MAX_INPUT_SUMMARY_LENGTH = 200;
+const ELLIPSIS = "...";
 
 const UNGATED_TOOLS = new Set([
   // File tools are gated per path by lib/path-permissions.ts rather than per call.
@@ -111,6 +123,9 @@ type Decision = "allow-session" | "allow-always" | "deny-session" | "deny-always
 const ALLOW_DECISIONS = { session: "allow-session", always: "allow-always" } as const satisfies Record<LastingDuration, Decision>;
 const DENY_DECISIONS = { session: "deny-session", always: "deny-always" } as const satisfies Record<LastingDuration, Decision>;
 
+// A toggle while the agent runs waits for the next tool call or the end of the run.
+type AgentActivity = { kind: "idle" } | { kind: "running"; pendingMode: AgentMode | undefined };
+
 interface DecisionStores {
   sessionGrants: Set<string>;
   alwaysGrants: Set<string>;
@@ -133,6 +148,7 @@ function discoverEngine(pi: ExtensionAPI): Engine | undefined {
 function createEngine(pi: ExtensionAPI): Engine {
   const engine = new Engine(pi);
   pi.events.on(DISCOVERY_CHANNEL, (data) => {
+    // Only discoverEngine emits on this channel, so the data is always its request.
     const request = data as DiscoveryRequest;
     request.engine ??= engine;
   });
@@ -145,38 +161,37 @@ class Engine {
     [AgentMode.Planning]: emptyStores(),
     [AgentMode.Exploring]: emptyStores(),
   };
-  private pendingMode: AgentMode | undefined;
-  private agentRunning = false;
-  private readonly registered = new Map<RestrictedMode, { pi: ExtensionAPI; definition: ModeDefinition }>();
-  private readonly messages: ModeMessages;
-  private readonly pi: ExtensionAPI;
+  #activity: AgentActivity = { kind: "idle" };
+  readonly #registered = new Map<RestrictedMode, { pi: ExtensionAPI; definition: ModeDefinition }>();
+  readonly #messages: ModeMessages;
+  readonly #pi: ExtensionAPI;
 
   constructor(pi: ExtensionAPI) {
-    this.pi = pi;
+    this.#pi = pi;
     initPathPermissions(pi);
-    this.messages = registerModeMessages(pi, {
-      snapshot: () => this.currentSnapshot(),
+    this.#messages = registerModeMessages(pi, {
+      snapshot: () => this.#currentSnapshot(),
       projection: (context) => context.sessionManager.buildSessionProjection().messages,
       prepare: (context) => this.flushPendingToggle(context),
     });
     // activeStores() is empty outside the restricted modes, so execution mode shows no tool decisions.
-    provideSessionGrants(pi.events, () => this.sessionToolGrants());
-    this.wire();
+    provideSessionGrants(pi.events, () => this.#sessionToolGrants());
+    this.#wire();
   }
 
   // Each definition keeps the pi of its own extension because flags can only be read by the
   // extension that registered them.
   register(pi: ExtensionAPI, definition: ModeDefinition): void {
-    this.registered.set(definition.identity.mode, { pi, definition });
+    this.#registered.set(definition.identity.mode, { pi, definition });
   }
 
   async handleCommand(definition: ModeDefinition, argument: string, context: ExtensionCommandContext): Promise<boolean> {
     if (!argument) {
-      this.toggle(definition.identity, context);
+      this.#toggle(definition.identity, context);
       return true;
     }
     if (argument === "grants") {
-      await this.manageDecisions(definition.identity, context);
+      await this.#manageDecisions(definition.identity, context);
       return true;
     }
     const [subcommand, ...rest] = argument.split(/\s+/);
@@ -191,20 +206,20 @@ class Engine {
   setMode(target: AgentMode, context: ExtensionContext): void {
     this.mode = target;
     setAgentMode(target);
-    this.refreshIndicators(context);
+    this.#refreshIndicators(context);
     // Every switch records each mode, so the branch always says which one is enabled.
-    for (const mode of RESTRICTED_MODES) this.persist(mode);
-    this.messages.announce(context);
-    announceSessionGrantsChanged(this.pi.events);
+    for (const mode of RESTRICTED_MODES) this.#persist(mode);
+    this.#messages.announce(context);
+    announceSessionGrantsChanged(this.#pi.events);
   }
 
   flushPendingToggle(context: ExtensionContext): void {
-    if (this.pendingMode === undefined) return;
+    if (this.#activity.kind !== "running" || this.#activity.pendingMode === undefined) return;
 
-    const target = this.pendingMode;
-    this.pendingMode = undefined;
+    const target = this.#activity.pendingMode;
+    this.#activity = { kind: "running", pendingMode: undefined };
     if (target === this.mode) {
-      this.refreshIndicators(context);
+      this.#refreshIndicators(context);
       return;
     }
     const from = this.mode;
@@ -212,32 +227,32 @@ class Engine {
     context.ui.notify(transitionNotice(from, target, Timing.Immediate));
   }
 
-  private wire(): void {
-    const { pi } = this;
+  #wire(): void {
+    const pi = this.#pi;
 
     pi.on("tool_call", async (event, context) => {
       this.flushPendingToggle(context);
-      const outcome = this.gate(event.toolName, context.hasUI ? Interaction.Available : Interaction.Unavailable);
+      const outcome = this.#gate(event.toolName, context.hasUI ? Interaction.Available : Interaction.Unavailable);
       if (outcome.kind === "run") return;
       if (outcome.kind === "block") return { block: true, reason: outcome.reason };
-      return await serialize(() => this.requestPermission(event, context));
+      return await serialize(() => this.#requestPermission(event, context));
     });
 
     pi.on("agent_start", async () => {
-      this.agentRunning = true;
+      this.#activity = { kind: "running", pendingMode: undefined };
     });
 
     pi.on("agent_end", async (_event, context) => {
-      this.agentRunning = false;
       this.flushPendingToggle(context);
+      this.#activity = { kind: "idle" };
     });
 
     pi.on("session_start", async (event, context) => {
-      const restored = await this.restoreBranchState(context);
-      const requested = [...this.registered.values()]
+      const restored = await this.#restoreBranchState(context);
+      const requested = [...this.#registered.values()]
         .filter(({ pi: owner, definition }) => owner.getFlag(definition.identity.command) === true && definition.requestedAtStartup(event, context))
         .map(({ definition }) => definition.identity.mode);
-      const defaulted = [...this.registered.values()]
+      const defaulted = [...this.#registered.values()]
         .filter(({ definition }) => definition.defaultAtStartup?.(event, context) === true)
         .map(({ definition }) => definition.identity.mode);
       if (requested.length > 1) {
@@ -245,85 +260,83 @@ class Engine {
       }
       const { mode, recording } = startupMode(restored, requested, defaulted);
       this.mode = mode;
-      if (recording === StateRecording.Record) for (const restricted of RESTRICTED_MODES) this.persist(restricted);
-      this.applyRestoredState(context);
+      if (recording === StateRecording.Record) for (const restricted of RESTRICTED_MODES) this.#persist(restricted);
+      this.#applyRestoredState(context);
     });
 
     // The selected branch's recorded mode wins over the startup flag here: navigating is not a restart.
     pi.on("session_tree", async (_event, context) => {
-      await this.restoreBranchState(context);
-      this.applyRestoredState(context);
+      await this.#restoreBranchState(context);
+      this.#applyRestoredState(context);
     });
   }
 
-  private currentSnapshot(): ModeSnapshot {
+  #currentSnapshot(): ModeSnapshot {
     return {
       mode: this.mode,
       plansDirectory: plansDirectory(),
-      sandbox: isSandboxActive() ? SandboxStatus.Active : SandboxStatus.Inactive,
-      denials: effectiveDenials(this.activeStores()),
+      sandbox: sandboxStatus(),
+      denials: effectiveDenials(this.#activeStores()),
     };
   }
 
-  private activeStores(): DecisionStores {
+  #activeStores(): DecisionStores {
     return isRestricted(this.mode) ? this.decisions[this.mode] : emptyStores();
   }
 
-  private sessionToolGrants(): SessionGrant[] {
-    const { sessionGrants, sessionDenials } = this.activeStores();
+  #sessionToolGrants(): SessionGrant[] {
+    const { sessionGrants, sessionDenials } = this.#activeStores();
     return toolDecisionGrants(sessionGrants, sessionDenials.keys());
   }
 
-  private gate(toolName: string, interaction: Interaction) {
-    return toolGate(toolName, { mode: this.mode, denials: this.activeStores(), permission: this.permission(toolName), interaction });
+  #gate(toolName: string, interaction: Interaction): ToolGate {
+    return toolGate(toolName, { mode: this.mode, denials: this.#activeStores(), permission: this.#permission(toolName), interaction });
   }
 
-  private permission(toolName: string): ToolPermission {
+  #permission(toolName: string): ToolPermission {
     // The sandbox makes bash read-only in restricted modes at the OS level; without it bash stays gated per call.
     if (toolName === "bash" && isSandboxActive()) return "allow";
-    const { sessionGrants, alwaysGrants, sessionDenials, alwaysDenials } = this.activeStores();
+    const { sessionGrants, alwaysGrants, sessionDenials, alwaysDenials } = this.#activeStores();
     return planToolPermission(
       toolName,
       { sessionGrants, alwaysGrants, sessionDenials: sessionDenials.keys(), alwaysDenials: alwaysDenials.keys() },
       isRestricted(this.mode) ? MODE_UNGATED_TOOLS[this.mode] : UNGATED_TOOLS,
-      trustedReadOnlyToolNames(this.pi.getAllTools()),
+      trustedReadOnlyToolNames(this.#pi.getAllTools()),
     );
   }
 
-  private async requestPermission(event: ToolCallEvent, context: ExtensionContext) {
+  async #requestPermission(event: ToolCallEvent, context: ExtensionContext): Promise<ToolCallEventResult | undefined> {
     // An earlier prompt from the same batch may have decided this tool while we queued.
-    const queued = this.gate(event.toolName, Interaction.Available);
+    const queued = this.#gate(event.toolName, Interaction.Available);
     if (queued.kind === "block") return { block: true, reason: queued.reason };
     if (queued.kind === "run") return undefined;
 
     const { mode } = this;
     if (!isRestricted(mode)) return undefined;
     const answer = await askPermission(permissionUI(context.ui), {
-      title: `${MODE_IDENTITIES[mode].label} — allow ${event.toolName}?\n\n  ${summarizeInput(event)}`,
+      title: `${MODE_IDENTITIES[mode].label} — allow ${event.toolName}?\n\n  ${summarizeInput(event.input)}`,
       subject: event.toolName,
       scope: event.toolName,
       narrower: [],
       durations: ALL_DURATIONS,
     });
     if (answer.decision === "allow") {
-      if (answer.duration !== Duration.Once) await this.record(mode, event.toolName, ALLOW_DECISIONS[answer.duration], context);
+      if (answer.duration !== Duration.Once) await this.#record(mode, event.toolName, ALLOW_DECISIONS[answer.duration], context);
       return undefined;
     }
     if (answer.duration === Duration.Once) {
       return { block: true, reason: deniedReason(mode, event.toolName, "the user denied this call", answer.note) };
     }
     const decision = DENY_DECISIONS[answer.duration];
-    await this.record(mode, event.toolName, decision, context, answer.note);
+    await this.#record(mode, event.toolName, decision, context, answer.note);
     return { block: true, reason: deniedReason(mode, event.toolName, DENIAL_CAUSES[decision], answer.note) };
   }
 
   // The most recent decision wins outright, so a tool never sits in two stores and
   // a narrow grant can always override an earlier "always" denial.
-  private async record(mode: RestrictedMode, toolName: string, decision: Decision, context: ExtensionContext, note?: string): Promise<void> {
+  async #record(mode: RestrictedMode, toolName: string, decision: Decision, context: ExtensionContext, note?: string): Promise<void> {
     const stores = this.decisions[mode];
-    for (const store of [stores.sessionGrants, stores.alwaysGrants, stores.sessionDenials, stores.alwaysDenials]) {
-      store.delete(toolName);
-    }
+    for (const store of storesOf(stores)) store.delete(toolName);
     switch (decision) {
       case "allow-session":
         stores.sessionGrants.add(toolName);
@@ -338,34 +351,34 @@ class Engine {
         stores.alwaysDenials.set(toolName, note);
         break;
     }
-    await this.save(mode, context);
+    await this.#save(mode, context);
   }
 
-  private async save(mode: RestrictedMode, context: ExtensionContext): Promise<void> {
-    this.persist(mode);
+  async #save(mode: RestrictedMode, context: ExtensionContext): Promise<void> {
+    this.#persist(mode);
     const { alwaysGrants, alwaysDenials } = this.decisions[mode];
-    await writePersistedDecisions(mode, alwaysGrants, alwaysDenials).catch((error: Error) => {
-      context.ui.notify(`${MODE_IDENTITIES[mode].label} decision applies to this session only, it was not saved: ${error.message}`, "error");
+    await writePersistedDecisions(mode, alwaysGrants, alwaysDenials).catch((error: unknown) => {
+      context.ui.notify(`${MODE_IDENTITIES[mode].label} decision applies to this session only, it was not saved: ${errorMessage(error)}`, "error");
     });
-    this.messages.announce(context);
-    announceSessionGrantsChanged(this.pi.events);
+    this.#messages.announce(context);
+    announceSessionGrantsChanged(this.#pi.events);
   }
 
-  private persist(mode: RestrictedMode): void {
+  #persist(mode: RestrictedMode): void {
     const { sessionGrants, sessionDenials } = this.decisions[mode];
-    this.pi.appendEntry(MODE_IDENTITIES[mode].entryType, {
+    this.#pi.appendEntry(MODE_IDENTITIES[mode].entryType, {
       enabled: this.mode === mode,
       sessionGrants: [...sessionGrants],
       sessionDenials: [...sessionDenials].map(([name, note]) => ({ name, note })),
     });
   }
 
-  private toggle(identity: ModeIdentity, context: ExtensionContext): void {
-    const current = this.pendingMode ?? this.mode;
+  #toggle(identity: ModeIdentity, context: ExtensionContext): void {
+    const current = this.#pendingMode() ?? this.mode;
     const target = current === identity.mode ? AgentMode.Execution : identity.mode;
-    if (this.agentRunning) {
-      this.pendingMode = target;
-      this.refreshIndicators(context);
+    if (this.#activity.kind === "running") {
+      this.#activity = { kind: "running", pendingMode: target };
+      this.#refreshIndicators(context);
       context.ui.notify(transitionNotice(current, target, Timing.Deferred));
       return;
     }
@@ -373,9 +386,14 @@ class Engine {
     context.ui.notify(transitionNotice(current, target, Timing.Immediate));
   }
 
-  private refreshIndicators(context: ExtensionContext): void {
+  #pendingMode(): AgentMode | undefined {
+    return this.#activity.kind === "running" ? this.#activity.pendingMode : undefined;
+  }
+
+  #refreshIndicators(context: ExtensionContext): void {
     const { theme } = context.ui;
-    const pending = this.pendingMode !== this.mode ? this.pendingMode : undefined;
+    const pendingMode = this.#pendingMode();
+    const pending = pendingMode !== this.mode ? pendingMode : undefined;
     const status = isRestricted(this.mode)
       ? theme.fg("warning", `${MODE_IDENTITIES[this.mode].statusIcon} ${MODE_IDENTITIES[this.mode].command}`)
       : undefined;
@@ -383,16 +401,14 @@ class Engine {
     context.ui.setWidget(INDICATOR_KEY, modeBanner(theme, this.mode, pending), { placement: "aboveEditor" });
   }
 
-  private async restoreBranchState(context: ExtensionContext): Promise<ActiveRestrictedMode> {
-    this.messages.reset();
+  async #restoreBranchState(context: ExtensionContext): Promise<ActiveRestrictedMode> {
+    this.#messages.reset();
     for (const mode of RESTRICTED_MODES) {
       const stores = this.decisions[mode];
-      for (const store of [stores.sessionGrants, stores.alwaysGrants, stores.sessionDenials, stores.alwaysDenials]) {
-        store.clear();
-      }
+      for (const store of storesOf(stores)) store.clear();
 
-      const { alwaysAllowed, alwaysDenied } = await readPersistedDecisions(mode).catch((error: Error) => {
-        context.ui.notify(`${error.message} ${MODE_IDENTITIES[mode].label} decisions saved with "always" were not loaded.`, "warning");
+      const { alwaysAllowed, alwaysDenied } = await readPersistedDecisions(mode).catch((error: unknown) => {
+        context.ui.notify(`${errorMessage(error)} ${MODE_IDENTITIES[mode].label} decisions saved with "always" were not loaded.`, "warning");
         return { alwaysAllowed: [], alwaysDenied: [] };
       });
       for (const toolName of alwaysAllowed) stores.alwaysGrants.add(toolName);
@@ -409,13 +425,13 @@ class Engine {
     return active;
   }
 
-  private applyRestoredState(context: ExtensionContext): void {
+  #applyRestoredState(context: ExtensionContext): void {
     setAgentMode(this.mode);
-    this.refreshIndicators(context);
-    announceSessionGrantsChanged(this.pi.events);
+    this.#refreshIndicators(context);
+    announceSessionGrantsChanged(this.#pi.events);
   }
 
-  private async manageDecisions(identity: ModeIdentity, context: ExtensionContext): Promise<void> {
+  async #manageDecisions(identity: ModeIdentity, context: ExtensionContext): Promise<void> {
     const { label, mode } = identity;
     const pathRuleStore = storeForMode(mode);
     if (!context.hasUI) {
@@ -424,37 +440,30 @@ class Engine {
     }
 
     const stores = this.decisions[mode];
-    while (true) {
-      const entries = listDecisions(stores, await listPathRules(pathRuleStore), pathRuleStore);
-      if (entries.length === 0) {
-        context.ui.notify(`No ${label.toLowerCase()} grants, denials or path rules recorded.`);
-        return;
-      }
-
-      const labels = entries.map((entry) => entry.label);
-      const choice = await context.ui.select(`${label} decisions — pick one to remove`, [...labels, CLEAR_ALL, DONE]);
-
-      if (choice === CLEAR_ALL) {
-        for (const store of [stores.sessionGrants, stores.alwaysGrants, stores.sessionDenials, stores.alwaysDenials]) {
-          store.clear();
-        }
-        await this.save(mode, context);
-        await clearPathRules(pathRuleStore);
-        context.ui.notify(`Cleared all ${label.toLowerCase()} grants, denials and path rules.`);
-        return;
-      }
-
-      const entry = entries[labels.indexOf(choice ?? "")];
-      if (!entry) return;
-
-      await entry.remove();
-      await this.save(mode, context);
-    }
+    await manageDecisions(
+      {
+        title: `${label} decisions — pick one to remove`,
+        emptyMessage: `No ${label.toLowerCase()} grants, denials or path rules recorded.`,
+        clearedMessage: `Cleared all ${label.toLowerCase()} grants, denials and path rules.`,
+        entries: async () => listDecisions(stores, await listPathRules(pathRuleStore), pathRuleStore),
+        clearAll: async () => {
+          for (const store of storesOf(stores)) store.clear();
+          await this.#save(mode, context);
+          await clearPathRules(pathRuleStore);
+        },
+        removed: () => this.#save(mode, context),
+      },
+      context,
+    );
   }
 }
 
 function emptyStores(): DecisionStores {
   return { sessionGrants: new Set(), alwaysGrants: new Set(), sessionDenials: new Map(), alwaysDenials: new Map() };
+}
+
+function storesOf(stores: DecisionStores): (Set<string> | Map<string, string | undefined>)[] {
+  return [stores.sessionGrants, stores.alwaysGrants, stores.sessionDenials, stores.alwaysDenials];
 }
 
 function modeBanner(theme: Theme, mode: AgentMode, pending: AgentMode | undefined): string[] | undefined {
@@ -475,7 +484,7 @@ function modeBanner(theme: Theme, mode: AgentMode, pending: AgentMode | undefine
   return [title + theme.fg("dim", hint)];
 }
 
-function listDecisions(stores: DecisionStores, pathRules: PathRule[], pathRuleStore: PathRuleStore): DecisionEntry[] {
+function listDecisions(stores: DecisionStores, pathRules: readonly PathRule[], pathRuleStore: PathRuleStore): DecisionEntry[] {
   const grants: [Set<string>, string][] = [
     [stores.sessionGrants, "allow (session)"],
     [stores.alwaysGrants, "allow (always)"],
@@ -505,13 +514,8 @@ function listDecisions(stores: DecisionStores, pathRules: PathRule[], pathRuleSt
   ];
 }
 
-function summarizeInput(event: ToolCallEvent): string {
-  const input = event.input as Record<string, unknown>;
-  const detail =
-    typeof input.command === "string"
-      ? input.command
-      : typeof input.path === "string"
-        ? input.path
-        : JSON.stringify(input);
-  return detail.length > 200 ? `${detail.slice(0, 197)}...` : detail;
+function summarizeInput(input: object): string {
+  const detail = stringProperty(input, "command") ?? stringProperty(input, "path") ?? JSON.stringify(input);
+  if (detail.length <= MAX_INPUT_SUMMARY_LENGTH) return detail;
+  return `${detail.slice(0, MAX_INPUT_SUMMARY_LENGTH - ELLIPSIS.length)}${ELLIPSIS}`;
 }

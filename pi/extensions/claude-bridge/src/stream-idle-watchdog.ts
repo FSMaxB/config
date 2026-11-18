@@ -1,5 +1,5 @@
-import { type AssistantMessage, type AssistantMessageEventStream } from "@earendil-works/pi-ai";
-import { type QueryContext } from "./query-state.js";
+import type { AssistantMessage, AssistantMessageEventStream } from "@earendil-works/pi-ai";
+import type { QueryContext } from "./query-state.js";
 
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 90_000;
 export const STREAM_IDLE_BACKOFF_HINT_MS = 60_000;
@@ -8,9 +8,9 @@ export const STREAM_IDLE_TIMEOUT_ENV = "CLAUDE_BRIDGE_STREAM_IDLE_TIMEOUT";
 type TimerHandle = ReturnType<typeof setTimeout>;
 
 export interface StreamIdleWatchdogState {
-	activeQuery: unknown | null;
-	currentPiStream: AssistantMessageEventStream | null;
-	turnOutput: AssistantMessage | null;
+	activeQuery: unknown;
+	currentPiStream: AssistantMessageEventStream | undefined;
+	turnOutput: AssistantMessage | undefined;
 	turnSawStreamEvent: boolean;
 	turnStarted: boolean;
 }
@@ -50,8 +50,8 @@ function parseDurationLiteralMs(value: string, defaultUnit: "ms" | "s" = "s"): n
 	return Number.isFinite(ms) ? ms : undefined;
 }
 
-export function streamIdleTimeoutMsFromEnv(env: NodeJS.ProcessEnv = process.env): number {
-	const raw = env[STREAM_IDLE_TIMEOUT_ENV]?.trim();
+export function streamIdleTimeoutMsFromEnv(environment: NodeJS.ProcessEnv = process.env): number {
+	const raw = environment[STREAM_IDLE_TIMEOUT_ENV]?.trim();
 	if (!raw) return DEFAULT_STREAM_IDLE_TIMEOUT_MS;
 	return parseDurationLiteralMs(raw, "s") ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS;
 }
@@ -72,25 +72,25 @@ export function createStreamIdleWatchdog({
 	getState,
 	now = () => Date.now(),
 	onTimeout,
-	setTimer = (fn: () => void, delayMs: number) => setTimeout(fn, delayMs),
+	setTimer = (callback: () => void, delayMs: number) => setTimeout(callback, delayMs),
 	timeoutMs,
 }: {
 	clearTimer?: (timer: TimerHandle) => void;
 	getState: () => StreamIdleWatchdogState;
 	now?: () => number;
 	onTimeout: (info: StreamIdleTimeoutInfo) => void;
-	setTimer?: (fn: () => void, delayMs: number) => TimerHandle;
+	setTimer?: (callback: () => void, delayMs: number) => TimerHandle;
 	timeoutMs: number;
 }): StreamIdleWatchdog {
 	let disposed = false;
 	let lastChunkAt = now();
-	let timer: TimerHandle | null = null;
+	let timer: TimerHandle | undefined;
 	let didTimeout = false;
 
 	const clear = () => {
 		if (!timer) return;
 		try { clearTimer(timer); } catch { /* best effort */ }
-		timer = null;
+		timer = undefined;
 	};
 
 	const shouldMonitor = (state: StreamIdleWatchdogState): boolean => Boolean(
@@ -116,7 +116,7 @@ export function createStreamIdleWatchdog({
 			return;
 		}
 		timer = setTimer(schedule, Math.max(1, timeoutMs - idleMs));
-		(timer as { unref?: () => void }).unref?.();
+		timer.unref?.();
 	};
 
 	return {

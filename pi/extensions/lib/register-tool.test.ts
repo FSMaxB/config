@@ -15,7 +15,7 @@ test("guideline registration preserves the tool API metadata and callbacks", () 
     renderCall: () => undefined, renderResult: () => undefined,
   };
   // act
-  registerToolWithGuidelines({ registerTool: tool => registered.push(tool) } as never, definition as never);
+  registerToolWithGuidelines({ registerTool: (tool: unknown) => registered.push(tool) } as never, definition as never);
   // assert
   assert.deepEqual(registered, [{ ...definition, description: "Original description A guideline" }]);
 });

@@ -19,7 +19,7 @@ import {
 import { BRIDGE_BILLING_IDENTITY, CLAUDE_BILLING_IDENTITY_SYMBOL, beginBillingIdentityAttempt } from "../src/billing-identity.ts";
 import {
 	__testQueryLaneCount,
-	ctx,
+	currentQueryContext,
 	deleteQueryLane,
 	resetStack,
 } from "../src/query-state.ts";
@@ -130,7 +130,7 @@ function makeSession(initialId) {
 
 function seedLane(sessionId) {
 	runInRequestLane(sessionId, () => {
-		ctx().activeQuery = { id: `${sessionId}-query` };
+		currentQueryContext().activeQuery = { id: `${sessionId}-query` };
 		__testSetBridgeIntegrityState({ sharedSession: { sessionId: `${sessionId}-session`, cursor: 1, cwd: `/${sessionId}` } });
 	});
 }
@@ -172,7 +172,7 @@ beforeEach(() => {
 	process.env.CLAUDE_BRIDGE_STREAM_IDLE_TIMEOUT = "0";
 	process.env.CLAUDE_CODE_OAUTH_TOKEN = "test-token";
 	resetStack();
-	__testSetBridgeIntegrityState({ sharedSession: null, ui: { notify: () => {} } });
+	__testSetBridgeIntegrityState({ sharedSession: undefined, ui: { notify: () => {} } });
 	setExtensionApi({ events: { emit: () => {} }, appendEntry: () => {} });
 	BRIDGE_BILLING_IDENTITY.clear();
 });
@@ -183,7 +183,7 @@ afterEach(() => {
 	__testSetSdkQueryFactory();
 	setExtensionApi(undefined);
 	resetStack();
-	__testSetBridgeIntegrityState({ sharedSession: null, ui: null });
+	__testSetBridgeIntegrityState({ sharedSession: undefined, ui: undefined });
 	BRIDGE_BILLING_IDENTITY.clear();
 });
 
@@ -262,7 +262,7 @@ describe("provider request session lanes", () => {
 				runInRequestLane(label, () => __testGetBridgeIntegrityState().sharedSession?.sessionId),
 				`sdk-${label}`,
 			);
-			assert.equal(runInRequestLane(label, () => ctx().activeQuery), null);
+			assert.equal(runInRequestLane(label, () => currentQueryContext().activeQuery), undefined);
 		}
 	});
 
@@ -308,23 +308,23 @@ describe("provider request session lanes", () => {
 			["answer-parent"],
 		);
 		assert.ok(child.some((event) => event.type === "error" && event.reason === "aborted"));
-		assert.equal(runInRequestLane("parent", () => ctx().activeQuery), null);
-		assert.equal(runInRequestLane("child", () => ctx().activeQuery), null);
+		assert.equal(runInRequestLane("parent", () => currentQueryContext().activeQuery), undefined);
+		assert.equal(runInRequestLane("child", () => currentQueryContext().activeQuery), undefined);
 	});
 
 	it("does not let one lane overwrite another lane's mutable state", () => {
 		runInRequestLane("parent", () => {
-			ctx().activeQuery = { id: "parent-query" };
+			currentQueryContext().activeQuery = { id: "parent-query" };
 			__testSetBridgeIntegrityState({ sharedSession: { sessionId: "parent-session", cursor: 5, cwd: "/parent" } });
 		});
 		runInRequestLane("child", () => {
-			ctx().activeQuery = { id: "child-query" };
+			currentQueryContext().activeQuery = { id: "child-query" };
 			__testSetBridgeIntegrityState({ sharedSession: { sessionId: "child-session", cursor: 1, cwd: "/child" } });
 		});
 
-		assert.equal(runInRequestLane("parent", () => ctx().activeQuery.id), "parent-query");
+		assert.equal(runInRequestLane("parent", () => currentQueryContext().activeQuery.id), "parent-query");
 		assert.equal(runInRequestLane("parent", () => __testGetBridgeIntegrityState().sharedSession.sessionId), "parent-session");
-		assert.equal(runInRequestLane("child", () => ctx().activeQuery.id), "child-query");
+		assert.equal(runInRequestLane("child", () => currentQueryContext().activeQuery.id), "child-query");
 		assert.equal(runInRequestLane("child", () => __testGetBridgeIntegrityState().sharedSession.sessionId), "child-session");
 	});
 
@@ -335,13 +335,13 @@ describe("provider request session lanes", () => {
 
 		runInRequestLane("", () => {
 			assert.equal(currentRequestLaneId(), "");
-			assert.equal(__testGetBridgeIntegrityState().sharedSession, null);
-			ctx().activeQuery = { id: "empty-id-query" };
+			assert.equal(__testGetBridgeIntegrityState().sharedSession, undefined);
+			currentQueryContext().activeQuery = { id: "empty-id-query" };
 			__testSetBridgeIntegrityState({ sharedSession: { sessionId: "empty-id-session", cursor: 1, cwd: "/empty" } });
 		});
 
 		assert.equal(__testGetBridgeIntegrityState().sharedSession.sessionId, "default-session");
-		assert.equal(runInRequestLane("", () => ctx().activeQuery.id), "empty-id-query");
+		assert.equal(runInRequestLane("", () => currentQueryContext().activeQuery.id), "empty-id-query");
 		assert.equal(runInRequestLane("", () => __testGetBridgeIntegrityState().sharedSession.sessionId), "empty-id-session");
 	});
 
@@ -349,7 +349,7 @@ describe("provider request session lanes", () => {
 		const defaultRecord = { sessionId: "direct-host-session", cursor: 2, cwd: "/direct" };
 		__testSetBridgeIntegrityState({ sharedSession: defaultRecord });
 
-		assert.equal(runInRequestLane("child-first", () => __testGetBridgeIntegrityState().sharedSession), null);
+		assert.equal(runInRequestLane("child-first", () => __testGetBridgeIntegrityState().sharedSession), undefined);
 		assert.deepEqual(__testGetBridgeIntegrityState().sharedSession, defaultRecord);
 	});
 
@@ -360,11 +360,11 @@ describe("provider request session lanes", () => {
 		const siblingRequestLane = await import(`../src/request-lane.ts?${suffix}`);
 
 		runInRequestLane("shared-child", () => {
-			ctx().activeQuery = { id: "primary-query" };
+			currentQueryContext().activeQuery = { id: "primary-query" };
 			__testSetBridgeIntegrityState({ sharedSession: { sessionId: "primary-session", cursor: 3, cwd: "/shared" } });
 		});
 		siblingRequestLane.runInRequestLane("shared-child", () => {
-			assert.equal(siblingQueryState.ctx().activeQuery.id, "primary-query");
+			assert.equal(siblingQueryState.currentQueryContext().activeQuery.id, "primary-query");
 			assert.equal(siblingBridgeState.getSharedSession().sessionId, "primary-session");
 			siblingBridgeState.setSharedSession({ sessionId: "sibling-session", cursor: 4, cwd: "/shared" });
 		});
@@ -375,7 +375,7 @@ describe("provider request session lanes", () => {
 	it("prunes only the shutting-down session's shared and query lanes", () => {
 		for (const sessionId of ["parent", "child"]) {
 			runInRequestLane(sessionId, () => {
-				ctx().activeQuery = { id: `${sessionId}-query` };
+				currentQueryContext().activeQuery = { id: `${sessionId}-query` };
 				__testSetBridgeIntegrityState({ sharedSession: { sessionId: `${sessionId}-session`, cursor: 1, cwd: `/${sessionId}` } });
 			});
 		}
@@ -387,9 +387,9 @@ describe("provider request session lanes", () => {
 
 		assert.equal(__testQueryLaneCount(), 1);
 		assert.equal(__testSharedSessionLaneCount(), 1);
-		assert.equal(runInRequestLane("parent", () => ctx().activeQuery.id), "parent-query");
+		assert.equal(runInRequestLane("parent", () => currentQueryContext().activeQuery.id), "parent-query");
 		assert.equal(runInRequestLane("parent", () => __testGetBridgeIntegrityState().sharedSession.sessionId), "parent-session");
-		assert.equal(runInRequestLane("child", () => __testGetBridgeIntegrityState().sharedSession), null);
+		assert.equal(runInRequestLane("child", () => __testGetBridgeIntegrityState().sharedSession), undefined);
 
 		deleteQueryLane("parent");
 		deleteSharedSessionLane("parent");
@@ -407,27 +407,27 @@ describe("provider request session lanes", () => {
 		]);
 		assert.ok(aEvents.some((event) => event.type === "done" && event.reason === "toolUse"), "A reached its tool turn");
 		assert.ok(bEvents.some((event) => event.type === "done" && event.reason === "toolUse"), "B reached its tool turn");
-		assert.ok(runInRequestLane("A", () => ctx().activeQuery), "A still active");
-		assert.ok(runInRequestLane("B", () => ctx().activeQuery), "B still active");
-		assert.equal(runInRequestLane("A", () => ctx().hasRecordedToolCall("call-A")), true);
-		assert.equal(runInRequestLane("A", () => ctx().hasRecordedToolCall("call-B")), false);
-		assert.equal(runInRequestLane("B", () => ctx().hasRecordedToolCall("call-B")), true);
+		assert.ok(runInRequestLane("A", () => currentQueryContext().activeQuery), "A still active");
+		assert.ok(runInRequestLane("B", () => currentQueryContext().activeQuery), "B still active");
+		assert.equal(runInRequestLane("A", () => currentQueryContext().hasRecordedToolCall("call-A")), true);
+		assert.equal(runInRequestLane("A", () => currentQueryContext().hasRecordedToolCall("call-B")), false);
+		assert.equal(runInRequestLane("B", () => currentQueryContext().hasRecordedToolCall("call-B")), true);
 
 		// Pi delivers B's result on lane B: queued for B's handler, invisible to A.
 		assert.ok(streamNormalized(model, toolLoopContext("B"), { sessionId: "B" }));
-		assert.equal(runInRequestLane("B", () => ctx().pendingResults.has("call-B")), true, "B queued its own result");
-		assert.equal(runInRequestLane("A", () => ctx().pendingResults.size), 0, "A untouched by B's delivery");
-		assert.equal(runInRequestLane("A", () => ctx().activeQuery !== null), true, "A still active after B's delivery");
+		assert.equal(runInRequestLane("B", () => currentQueryContext().pendingResults.has("call-B")), true, "B queued its own result");
+		assert.equal(runInRequestLane("A", () => currentQueryContext().pendingResults.size), 0, "A untouched by B's delivery");
+		assert.equal(runInRequestLane("A", () => currentQueryContext().activeQuery !== undefined), true, "A still active after B's delivery");
 
 		// A result carrying B's call id delivered on lane A is refused, not applied.
 		assert.ok(streamNormalized(model, toolLoopContext("A", "B", "misrouted"), { sessionId: "A" }));
-		assert.equal(runInRequestLane("A", () => ctx().pendingResults.has("call-B")), false, "A refuses a foreign call id");
-		assert.equal(runInRequestLane("B", () => ctx().pendingResults.get("call-B")?.content?.[0]?.text), "B-output", "B's queued result is intact");
+		assert.equal(runInRequestLane("A", () => currentQueryContext().pendingResults.has("call-B")), false, "A refuses a foreign call id");
+		assert.equal(runInRequestLane("B", () => currentQueryContext().pendingResults.get("call-B")?.content?.[0]?.text), "B-output", "B's queued result is intact");
 
 		for (const gate of gates.values()) gate.resolve();
-		assert.equal(await waitFor(() => ["A", "B"].every((lane) => runInRequestLane(lane, () => ctx().activeQuery === null))), true, "both query teardowns completed");
-		assert.equal(runInRequestLane("A", () => ctx().activeQuery), null);
-		assert.equal(runInRequestLane("B", () => ctx().activeQuery), null);
+		assert.equal(await waitFor(() => ["A", "B"].every((lane) => runInRequestLane(lane, () => currentQueryContext().activeQuery === undefined))), true, "both query teardowns completed");
+		assert.equal(runInRequestLane("A", () => currentQueryContext().activeQuery), undefined);
+		assert.equal(runInRequestLane("B", () => currentQueryContext().activeQuery), undefined);
 	});
 
 	it("marks only the aborted lane when the abort comes from another lane's context", async () => {
@@ -447,10 +447,10 @@ describe("provider request session lanes", () => {
 		const childAbort = new AbortController();
 		const child = collect(streamNormalized(model, { messages: [userMessage("child")], tools: [{ name: "mytool", description: "", parameters: { type: "object" } }] }, { sessionId: "child", signal: childAbort.signal }));
 		await child;
-		assert.ok(runInRequestLane("child", () => ctx().activeQuery), "child is mid tool call");
+		assert.ok(runInRequestLane("child", () => currentQueryContext().activeQuery), "child is mid tool call");
 		runInRequestLane("parent", () => childAbort.abort());
 		await child;
-		assert.equal(await waitFor(() => runInRequestLane("child", () => ctx().activeQuery === null)), true, "child teardown completed");
+		assert.equal(await waitFor(() => runInRequestLane("child", () => currentQueryContext().activeQuery === undefined)), true, "child teardown completed");
 		assert.deepEqual(
 			runInRequestLane("parent", () => __testGetBridgeIntegrityState().sharedSession),
 			parentRecord,
@@ -462,10 +462,10 @@ describe("provider request session lanes", () => {
 		const directAbort = new AbortController();
 		const direct = collect(streamNormalized(model, { messages: [userMessage("direct")], tools: [{ name: "mytool", description: "", parameters: { type: "object" } }] }, { signal: directAbort.signal }));
 		await direct;
-		assert.ok(ctx().activeQuery, "direct-host query is mid tool call");
+		assert.ok(currentQueryContext().activeQuery, "direct-host query is mid tool call");
 		runInRequestLane("parent", () => directAbort.abort());
 		await direct;
-		assert.equal(await waitFor(() => ctx().activeQuery === null), true, "direct-host teardown completed");
+		assert.equal(await waitFor(() => currentQueryContext().activeQuery === undefined), true, "direct-host teardown completed");
 		assert.deepEqual(runInRequestLane("parent", () => __testGetBridgeIntegrityState().sharedSession), parentRecord, "named lane untouched by a default-lane abort");
 		assert.equal(__testGetBridgeIntegrityState().sharedSession?.needsRebuild, true, "the default lane record carries the abort mark");
 		assert.equal(__testGetBridgeIntegrityState().sharedSession?.forceRotate, undefined, "the fake SDK spawns no child, so there is no writer to rotate away from");
@@ -520,11 +520,11 @@ describe("provider request session lanes", () => {
 
 			parent.fork("forked");
 			handlers.get("session_shutdown")({ reason: "fork" }, parent.ctxLike);
-			assert.equal(runInRequestLane("original", () => __testGetBridgeIntegrityState().sharedSession), null, "the original session's record is pruned");
+			assert.equal(runInRequestLane("original", () => __testGetBridgeIntegrityState().sharedSession), undefined, "the original session's record is pruned");
 			assert.equal(__testQueryLaneCount(), 1, "only the child's query lane remains");
 			assert.equal(__testSharedSessionLaneCount(), 1, "only the child's record remains");
 			assert.equal(runInRequestLane("child", () => __testGetBridgeIntegrityState().sharedSession?.sessionId), "child-session", "a concurrent sibling is untouched");
-			assert.equal(runInRequestLane("child", () => ctx().activeQuery?.id), "child-query");
+			assert.equal(runInRequestLane("child", () => currentQueryContext().activeQuery?.id), "child-query");
 			assert.equal(BRIDGE_BILLING_IDENTITY.currentLoginEmail("original"), undefined, "the original session's identity is pruned");
 			assert.equal(BRIDGE_BILLING_IDENTITY.currentLoginEmail("child"), "child@example.test", "the sibling identity survives");
 			assert.equal(globalThis[CLAUDE_BILLING_IDENTITY_SYMBOL], BRIDGE_BILLING_IDENTITY, "publisher survives sibling shutdown");
@@ -557,9 +557,9 @@ describe("provider request session lanes", () => {
 			session.fork("forked");
 			reloadedHandlers.get("session_shutdown")({ reason: "fork" }, session.ctxLike);
 
-			assert.equal(runInRequestLane("original", () => __testGetBridgeIntegrityState().sharedSession), null, "the started session's record is pruned");
+			assert.equal(runInRequestLane("original", () => __testGetBridgeIntegrityState().sharedSession), undefined, "the started session's record is pruned");
 			assert.equal(runInRequestLane("forked", () => __testGetBridgeIntegrityState().sharedSession?.sessionId), "forked-session", "the live fork's record survives");
-			assert.equal(runInRequestLane("forked", () => ctx().activeQuery?.id), "forked-query");
+			assert.equal(runInRequestLane("forked", () => currentQueryContext().activeQuery?.id), "forked-query");
 			assert.equal(__testQueryLaneCount(), 1);
 			assert.equal(__testSharedSessionLaneCount(), 1);
 		});

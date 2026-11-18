@@ -1,12 +1,16 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { sanitizeDisplayText } from "./lib/format.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 
+// Fits a terminal title and the session selector without truncation.
 const MAX_LENGTH = 80;
 
-export default function (pi: ExtensionAPI) {
+// The sanitized name, or no name when nothing survived sanitization.
+type SessionNameDetails = { requested: string; kind: "set"; name: string } | { requested: string; kind: "empty" };
+
+export default function (pi: ExtensionAPI): void {
   registerToolWithGuidelines(pi, {
     name: "set_session_name",
     label: "Set session name",
@@ -25,26 +29,21 @@ export default function (pi: ExtensionAPI) {
       }),
     }),
 
-    async execute(_toolCallId, params) {
+    async execute(_toolCallId, params): Promise<AgentToolResult<SessionNameDetails>> {
       const name = sanitizeDisplayText(params.name, MAX_LENGTH);
-      const details: { requested: string; name: string | null } = {
-        requested: params.name,
-        name: name || null,
-      };
-
       if (!name) {
         const error =
           "Session name is empty after sanitization (allowed characters: letters, digits, whitespace and ,.!?). Call set_session_name again with usable text.";
         return {
           content: [{ type: "text", text: error }],
-          details,
+          details: { requested: params.name, kind: "empty" },
         };
       }
 
       pi.setSessionName(name);
       return {
         content: [{ type: "text", text: `Session name set: ${name}` }],
-        details,
+        details: { requested: params.name, kind: "set", name },
       };
     },
 
@@ -59,10 +58,10 @@ export default function (pi: ExtensionAPI) {
     },
 
     renderResult(result, _renderOptions, theme) {
-      const details = result.details as
-        | { requested: string; name: string | null }
-        | undefined;
-      if (!details?.name) {
+      const { details } = result;
+      // Checks the name rather than the kind, so results stored without a kind render too.
+      const name = details !== undefined && "name" in details ? details.name : undefined;
+      if (!name) {
         return new Text(
           theme.fg("error", "✗ Name empty after sanitization"),
           0,
@@ -70,7 +69,7 @@ export default function (pi: ExtensionAPI) {
         );
       }
       return new Text(
-        theme.fg("success", "✓ ") + theme.fg("accent", details.name),
+        theme.fg("success", "✓ ") + theme.fg("accent", name),
         0,
         0,
       );

@@ -19,6 +19,7 @@ export function sdkQueryFactory(...args: Parameters<SdkQueryFactory>): ReturnTyp
 }
 
 export function claudeAgentSdk(): ClaudeAgentSdk {
+	// require() returns the module untyped; its type is the package's own declaration.
 	loadedSdk ??= requirePackage("@anthropic-ai/claude-agent-sdk") as ClaudeAgentSdk;
 	return loadedSdk;
 }

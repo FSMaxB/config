@@ -12,18 +12,27 @@ import {
   advanceQuiet,
   formatComments,
   pickNewSession,
+  parseComment,
+  parseSessionEntries,
   quietElapsed,
-  type QuietState,
-  type SessionEntry,
-  type TuicrComment,
   unseenComments,
 } from "./lib/tuicr-session.ts";
+import type {
+  QuietState,
+  SessionEntry,
+  TuicrComment,
+} from "./lib/tuicr-session.ts";
 
+// Bounds tuicr's own commands, which answer in milliseconds.
 const TIMEOUT = 60_000;
 const DEFAULT_AUTHOR = "pi";
+// tuicr has no change notification, so new sessions and comments are polled for.
 const POLL_INTERVAL = 3_000;
+// The pane needs a moment to start tuicr; a session that has not appeared by then never will.
 const SESSION_APPEAR_TIMEOUT = 30_000;
+// Long enough for the user to write the next comment before the wait returns the batch.
 const DEFAULT_QUIET_SECONDS = 10;
+// A review rarely takes longer; the agent can wait again.
 const DEFAULT_WAIT_TIMEOUT_SECONDS = 30 * 60;
 
 interface Session {
@@ -36,7 +45,7 @@ interface Session {
 // tools do not need repo/slug repeated on every call.
 let current: Session | undefined;
 
-export default function (pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI): void {
   // Module state outlives a session: pi reuses the loaded module for every session in the process.
   pi.on("session_start", () => { current = undefined; });
 
@@ -282,7 +291,7 @@ export default function (pi: ExtensionAPI) {
         );
         // Only the comment just added counts as seen. Marking everything in the
         // session would swallow user comments written since the last tuicr_wait.
-        markSeen(session, [JSON.parse(output) as TuicrComment]);
+        markSeen(session, [parseComment(JSON.parse(output))]);
       }
 
       return text(`Added ${comments.length} comment(s) to ${session.slug} as ${author}.`);
@@ -348,7 +357,7 @@ async function resolveSession(
   }
 }
 
-function markSeen(session: Session, comments: TuicrComment[]): void {
+function markSeen(session: Session, comments: readonly TuicrComment[]): void {
   for (const comment of comments) session.seen.add(comment.id);
 }
 
@@ -363,7 +372,7 @@ async function listSessions(
     signal,
     timeout: TIMEOUT,
   });
-  return JSON.parse(output) as SessionEntry[];
+  return parseSessionEntries(JSON.parse(output));
 }
 
 // tuicr removes empty sessions when the TUI exits, so a failing read between the
@@ -379,7 +388,8 @@ async function readComments(
       signal,
       timeout: TIMEOUT,
     });
-    return JSON.parse(output) as TuicrComment[];
+    const parsed: unknown = JSON.parse(output);
+    return Array.isArray(parsed) ? parsed.map(parseComment) : [];
   } catch {
     return [];
   }

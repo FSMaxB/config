@@ -38,13 +38,13 @@ beforeEach(() => {
 	process.env.CLAUDE_CONFIG_DIR = claudeDir;
 	__testCancelAllScheduledSessionPersistence();
 	setExtensionApi(undefined);
-	__testSetBridgeIntegrityState({ sharedSession: null, ui: null });
+	__testSetBridgeIntegrityState({ sharedSession: undefined, ui: undefined });
 });
 
 afterEach(() => {
 	__testCancelAllScheduledSessionPersistence();
 	setExtensionApi(undefined);
-	__testSetBridgeIntegrityState({ sharedSession: null, ui: null });
+	__testSetBridgeIntegrityState({ sharedSession: undefined, ui: undefined });
 	if (savedClaudeConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
 	else process.env.CLAUDE_CONFIG_DIR = savedClaudeConfigDir;
 	rmSync(root, { recursive: true, force: true });
@@ -70,7 +70,7 @@ describe("persistence over a transcript with system messages", () => {
 		await waitFor(() => persisted.length === 1);
 		persist([system, user, system]);
 		await waitFor(() => persisted.length === 2);
-		__testSetBridgeIntegrityState({ sharedSession: null });
+		__testSetBridgeIntegrityState({ sharedSession: undefined });
 		restoreSharedSessionFromPi({
 			cwd,
 			sessionManager: {

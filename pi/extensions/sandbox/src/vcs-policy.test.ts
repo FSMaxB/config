@@ -6,7 +6,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { globToRegex } from "@anthropic-ai/sandbox-runtime/dist/sandbox/sandbox-utils.js";
 import { selectorLabel } from "../../lib/path-permission-rules.ts";
-import { scanVcsLayout, vcsWriteRules, type DirectoryListing, type VcsLayout } from "./vcs-policy.ts";
+import { scanVcsLayout, vcsWriteRules } from "./vcs-policy.ts";
+import type { DirectoryListing, VcsLayout } from "./vcs-policy.ts";
 
 const REPO = "/Users/max/repo";
 
@@ -19,7 +20,7 @@ function layoutOf(tree: Tree, repoRoot = REPO): VcsLayout {
     for (const [name, child] of Object.entries(node)) if (child !== "file") register(join(path, name), child);
   };
   for (const [name, child] of Object.entries(tree)) if (child !== "file") register(join(repoRoot, name), child);
-  return { repoRoot, listings };
+  return { repoRoot, listings, gitFile: undefined };
 }
 
 const COLOCATED: Tree = {

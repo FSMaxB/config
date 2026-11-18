@@ -6,7 +6,7 @@ import { registerRestrictedMode } from "./lib/restricted-mode.ts";
 
 // Explore mode is plan mode without the planning workflow: read-only by default, its own grant
 // memory, nothing to submit. The shared engine does the work; this file only names the mode.
-export default function (pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI): void {
   const explore = registerRestrictedMode(pi, {
     identity: MODE_IDENTITIES.exploring,
     requestedAtStartup: () => true,

@@ -12,8 +12,9 @@ import {
   measureTranscriptSystem,
   splitContextMessages,
 } from "./lib/context-messages.ts";
+import { modelLabel } from "./lib/default-model.ts";
 
-export default function (pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI): void {
   pi.registerCommand("context", {
     description: "Show detailed stats on how the context window is used",
     handler: async (_args, context) => {
@@ -49,7 +50,7 @@ function buildReport(
   const model = context.model;
 
   const lines = [
-    `Context usage — ${model ? `${model.provider}/${model.id}` : "no model"}`,
+    `Context usage — ${model ? modelLabel(model) : "no model"}`,
     "",
   ];
   if (contextWindow) {
@@ -92,7 +93,7 @@ function buildTranscriptSystemRows(
       {
         indent: 0,
         label: "System instructions (transcript)",
-        tokens: Math.ceil(instructionCharacters / 4),
+        tokens: estimateCharacters(instructionCharacters),
         note: `${messages.length} system entries`,
       },
     ],
@@ -100,7 +101,7 @@ function buildTranscriptSystemRows(
       {
         indent: 0,
         label: "Tool declarations (transcript)",
-        tokens: Math.ceil(toolCharacters / 4),
+        tokens: estimateCharacters(toolCharacters),
         note: `${toolDeclarations} declarations, including redeclarations`,
       },
     ],
@@ -151,6 +152,7 @@ function buildSystemPromptRows(context: ExtensionCommandContext): Row[] {
   return rows;
 }
 
+// The largest tool declarations; the rest are summed in one row.
 const TOOL_ROW_LIMIT = 10;
 
 function buildToolRows(pi: ExtensionAPI): Row[] {
@@ -235,9 +237,9 @@ function buildMessageRows(
   const user = totals.get("user") ?? { tokens: 0, count: 0 };
   const bash = totals.get("bash");
   const summary = totals.get("summary");
-  const assistantTextTokens = Math.ceil(assistantTextChars / 4);
-  const assistantThinkingTokens = Math.ceil(assistantThinkingChars / 4);
-  const toolCallTokens = Math.ceil(toolCallChars / 4);
+  const assistantTextTokens = estimateCharacters(assistantTextChars);
+  const assistantThinkingTokens = estimateCharacters(assistantThinkingChars);
+  const toolCallTokens = estimateCharacters(toolCallChars);
   const toolResultEntries = sortedByTokens(toolResults);
   const toolResultTotal = sumStats(toolResultEntries);
   const customEntries = sortedByTokens(customMessages);
@@ -313,18 +315,18 @@ function tally<Key>(map: Map<Key, Stats>, key: Key, tokens: number): void {
   map.set(key, stats);
 }
 
-function sortedByTokens(map: Map<string, Stats>): [string, Stats][] {
+function sortedByTokens(map: ReadonlyMap<string, Stats>): [string, Stats][] {
   return [...map.entries()].sort((a, b) => b[1].tokens - a[1].tokens);
 }
 
-function sumStats(entries: [string, Stats][]): Stats {
+function sumStats(entries: readonly [string, Stats][]): Stats {
   return entries.reduce(
     (total, [, stats]) => ({ tokens: total.tokens + stats.tokens, count: total.count + stats.count }),
     { tokens: 0, count: 0 },
   );
 }
 
-function renderRows(rows: Row[], contextWindow: number | undefined): string[] {
+function renderRows(rows: readonly Row[], contextWindow: number | undefined): string[] {
   const labelWidth = Math.max(
     ...rows.map((row) => row.indent * 2 + row.label.length),
   );
@@ -347,10 +349,12 @@ function renderRows(rows: Row[], contextWindow: number | undefined): string[] {
   });
 }
 
+// Half of an 80-column terminal, leaving room for the percentage.
+const USAGE_BAR_WIDTH = 40;
+
 function usageBar(percent: number): string {
-  const width = 40;
-  const filled = Math.min(width, Math.round((percent / 100) * width));
-  return `[${"█".repeat(filled)}${"░".repeat(width - filled)}] ${percent.toFixed(1)}%`;
+  const filled = Math.min(USAGE_BAR_WIDTH, Math.round((percent / 100) * USAGE_BAR_WIDTH));
+  return `[${"█".repeat(filled)}${"░".repeat(USAGE_BAR_WIDTH - filled)}] ${percent.toFixed(1)}%`;
 }
 
 interface Row {
@@ -360,8 +364,15 @@ interface Row {
   note?: string;
 }
 
+// A rough average for English text and code; the report only compares sizes.
+const CHARACTERS_PER_TOKEN = 4;
+
 function estimateText(text: string): number {
-  return Math.ceil(text.length / 4);
+  return estimateCharacters(text.length);
+}
+
+function estimateCharacters(characters: number): number {
+  return Math.ceil(characters / CHARACTERS_PER_TOKEN);
 }
 
 function formatTokens(tokens: number): string {

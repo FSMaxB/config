@@ -25,16 +25,17 @@
 // In isolated mode (CLAUDE_BRIDGE_ISOLATED=1), all AGENTS.md discovery is
 // disabled. Embedding hosts provide their instruction surface explicitly.
 
-import { lstatSync, readFileSync, realpathSync, statSync } from "fs";
-import { dirname, join, resolve } from "path";
+import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { isolatedFromEnv, piUserDir } from "./config.js";
 import { debug } from "./debug.js";
+import { errorCode } from "../../lib/errors.ts";
 
 const CONTEXT_FILE_CANDIDATES = ["AGENTS.override.md", "AGENTS.md", "AGENTS.MD"];
 
-function contextFileInDir(dir: string): string | undefined {
+function contextFileInDir(directory: string): string | undefined {
 	for (const filename of CONTEXT_FILE_CANDIDATES) {
-		const candidate = join(dir, filename);
+		const candidate = join(directory, filename);
 		try {
 			if (statSync(candidate).isFile()) return candidate;
 		} catch (error) {
@@ -50,10 +51,10 @@ function contextFileInDir(dir: string): string | undefined {
 				lstatSync(candidate);
 				entryExists = true;
 			} catch (lstatError) {
-				lstatCode = (lstatError as NodeJS.ErrnoException).code;
+				lstatCode = errorCode(lstatError);
 			}
 			if (entryExists || lstatCode !== "ENOENT") {
-				const detail = (error as NodeJS.ErrnoException).code ?? String(error);
+				const detail = errorCode(error) ?? String(error);
 				const suffix = entryExists ? "" : ` (lstat: ${lstatCode ?? "unknown"})`;
 				debug(`agents-md: skipping unusable ${candidate}: ${detail}${suffix}`);
 			}
@@ -105,7 +106,7 @@ export function extractAgentsAppend(): string | undefined {
 			if (sanitized.length > 0) sections.push(sanitized);
 		} catch (error) {
 			// An unreadable AGENTS.md silently drops the user's standing instructions
-			// from every child prompt — degrade as before, but leave a trace.
+			// from every child prompt — keep going without it, but leave a trace.
 			debug(`agents-md: failed to read ${agentsPath}:`, error instanceof Error ? error.message : String(error));
 		}
 	}

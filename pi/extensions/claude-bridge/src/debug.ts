@@ -1,8 +1,7 @@
-import { appendFileSync, chmodSync, mkdirSync } from "fs";
-import { dirname, join } from "path";
+import { appendFileSync, chmodSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { piUserDir } from "./config.js";
 
-// --- Debug logging ---
 // CLAUDE_BRIDGE_DEBUG=1 enables debug logging to <piUserDir>/claude-bridge.log
 // (~/.pi/agent/claude-bridge.log unless PI_CODING_AGENT_DIR points elsewhere).
 
@@ -23,17 +22,20 @@ export function diagGuidance(): string {
 		: "re-run with CLAUDE_BRIDGE_DEBUG=1 to capture a diagnostic dump";
 }
 
-// Ensure log directories exist when debug is enabled. 0o700/0o600 throughout:
-// these logs carry prompt previews and session metadata and belong to the user
-// alone — same discipline as diagDump.
+// Owner-only throughout: these logs carry prompt previews and session metadata
+// and belong to the user alone — same discipline as diagDump.
+const OWNER_ONLY_DIRECTORY_MODE = 0o700;
+const OWNER_ONLY_FILE_MODE = 0o600;
+
+// Ensure log directories exist when debug is enabled.
 if (DEBUG) {
 	try {
-		mkdirSync(dirname(DEBUG_LOG_PATH), { recursive: true, mode: 0o700 });
-		mkdirSync(dirname(diagLogPath()), { recursive: true, mode: 0o700 });
+		mkdirSync(dirname(DEBUG_LOG_PATH), { recursive: true, mode: OWNER_ONLY_DIRECTORY_MODE });
+		mkdirSync(dirname(diagLogPath()), { recursive: true, mode: OWNER_ONLY_DIRECTORY_MODE });
 		// mode on mkdir/append applies only at CREATION — repair permissions on
-		// dirs and logs that predate the 0o700/0o600 hardening.
-		chmodSync(dirname(DEBUG_LOG_PATH), 0o700);
-		chmodSync(DEBUG_LOG_PATH, 0o600);
+		// dirs and logs created with looser modes.
+		chmodSync(dirname(DEBUG_LOG_PATH), OWNER_ONLY_DIRECTORY_MODE);
+		chmodSync(DEBUG_LOG_PATH, OWNER_ONLY_FILE_MODE);
 	} catch {
 		// If directory creation fails, debug functions will throw on first use
 	}
@@ -42,7 +44,7 @@ if (DEBUG) {
 // Unique per module evaluation — confirms whether subagents share module state
 export const moduleInstanceId = Math.random().toString(36).slice(2, 8);
 
-export function debug(...args: unknown[]) {
+export function debug(...args: readonly unknown[]): void {
 	if (!DEBUG) return;
 	const ts = new Date().toISOString();
 	const fmt = (a: unknown): string => {
@@ -51,7 +53,7 @@ export function debug(...args: unknown[]) {
 		// A function argument is a lazy payload: hot-path call sites (per-token
 		// stream events) pass a thunk so the expensive formatting only runs when
 		// DEBUG is on — fmt is only reached past the early return.
-		if (typeof a === "function") return fmt((a as () => unknown)());
+		if (typeof a === "function") return fmt(a());
 		return JSON.stringify(a);
 	};
 	// A throwing thunk or JSON.stringify (circular structure, BigInt) must not
@@ -88,8 +90,8 @@ export function debug(...args: unknown[]) {
 			return "[unprintable: formatting failed]";
 		}
 	};
-	const msg = args.map(safeFmt).join(" ");
-	try { appendFileSync(DEBUG_LOG_PATH, `[${ts}] [${moduleInstanceId}] ${msg}\n`, { mode: 0o600 }); } catch { /* debug is best effort */ }
+	const message = args.map(safeFmt).join(" ");
+	try { appendFileSync(DEBUG_LOG_PATH, `[${ts}] [${moduleInstanceId}] ${message}\n`, { mode: OWNER_ONLY_FILE_MODE }); } catch { /* debug is best effort */ }
 }
 
 // Per-query CLI debug capture. When CLAUDE_BRIDGE_DEBUG=1, ask the Claude Code
@@ -104,7 +106,7 @@ export function makeCliDebugOptions(tag: string): { debug?: boolean; debugFile?:
 	const seq = nextCliDebugSeq++;
 	const ts = new Date().toISOString().replace(/[:.]/g, "-");
 	const logDir = join(dirname(DEBUG_LOG_PATH), "cc-cli-logs");
-	try { mkdirSync(logDir, { recursive: true, mode: 0o700 }); chmodSync(logDir, 0o700); } catch { /* ignore */ }
+	try { mkdirSync(logDir, { recursive: true, mode: OWNER_ONLY_DIRECTORY_MODE }); chmodSync(logDir, OWNER_ONLY_DIRECTORY_MODE); } catch { /* ignore */ }
 	const debugFile = join(logDir, `${ts}-${tag}-${seq}.log`);
 	debug(`cli-debug: ${tag} #${seq} → ${debugFile}`);
 	return {
@@ -122,15 +124,15 @@ export function makeCliDebugOptions(tag: string): { debug?: boolean; debugFile?:
  *  CLAUDE_BRIDGE_DEBUG flag as debug(): the entries carry session metadata
  *  and land in a log outside any host app's retention/cleanup boundary, so
  *  a host that has not opted into debugging must get no disk write. */
-export function diagDump(label: string, data: Record<string, unknown>) {
+export function diagDump(label: string, data: Record<string, unknown>): void {
 	if (!DEBUG) return;
 	try {
 		const ts = new Date().toISOString();
 		const entry = { ts, moduleInstanceId, label, ...data };
 		const path = diagLogPath();
-		try { mkdirSync(dirname(path), { recursive: true, mode: 0o700 }); } catch { /* best effort */ }
-		appendFileSync(path, JSON.stringify(entry) + "\n", { mode: 0o600 });
-		try { chmodSync(path, 0o600); } catch { /* best effort */ }
+		try { mkdirSync(dirname(path), { recursive: true, mode: OWNER_ONLY_DIRECTORY_MODE }); } catch { /* best effort */ }
+		appendFileSync(path, JSON.stringify(entry) + "\n", { mode: OWNER_ONLY_FILE_MODE });
+		try { chmodSync(path, OWNER_ONLY_FILE_MODE); } catch { /* best effort */ }
 		debug(`DIAG: ${label} (see ${path})`);
 	} catch (error) {
 		debug(`DIAG FAILED: ${label}`, error);

@@ -6,8 +6,10 @@ import {
   formatComments,
   pickNewSession,
   quietElapsed,
-  type SessionEntry,
-  type TuicrComment,
+} from "./tuicr-session.ts";
+import type {
+  SessionEntry,
+  TuicrComment,
 } from "./tuicr-session.ts";
 
 function entry(overrides: Partial<SessionEntry>): SessionEntry {
@@ -23,6 +25,8 @@ function comment(overrides: Partial<TuicrComment>): TuicrComment {
   return {
     id: "79c9b3e1",
     location: "src/main.rs:42",
+    path: undefined,
+    side: undefined,
     comment_type: "none",
     content: "Handle the empty case here.",
     ...overrides,

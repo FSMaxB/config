@@ -27,11 +27,11 @@ beforeEach(() => {
 	mkdirSync(cwd, { recursive: true });
 	mkdirSync(claudeDir, { recursive: true });
 	resetStack();
-	__testSetBridgeIntegrityState({ sharedSession: null, ui: null });
+	__testSetBridgeIntegrityState({ sharedSession: undefined, ui: undefined });
 });
 afterEach(() => {
 	resetStack();
-	__testSetBridgeIntegrityState({ sharedSession: null, ui: null });
+	__testSetBridgeIntegrityState({ sharedSession: undefined, ui: undefined });
 });
 after(() => rmSync(root, { recursive: true, force: true }));
 

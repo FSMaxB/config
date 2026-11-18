@@ -4,10 +4,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder, getSelectListTheme, keyText } from "@earendil-works/pi-coding-agent";
 import {
-  type Component,
   Container,
-  type KeybindingsManager,
-  type ProgramStatus,
   SelectList,
   Spacer,
   Text,
@@ -15,9 +12,20 @@ import {
   visibleWidth,
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
-import { detailsHeight, detailsLines, type TextMeasure } from "./select-details.ts";
+import type {
+  Component,
+  KeybindingsManager,
+  ProgramStatus,
+} from "@earendil-works/pi-tui";
+import { detailsHeight, detailsLines } from "./select-details.ts";
+import type { TextMeasure } from "./select-details.ts";
 
 const measure: TextMeasure = { width: visibleWidth, wrap: wrapTextWithAnsi };
+
+// The dialog chrome around the list: borders, spacers, title, hints, scroll-info line and a margin.
+const DIALOG_CHROME_ROWS = 12;
+// Keeps a usable window on tiny terminals.
+const MINIMUM_VISIBLE_ROWS = 3;
 
 export type WaitKind = NonNullable<ProgramStatus["kind"]>;
 
@@ -29,23 +37,20 @@ export type WaitKind = NonNullable<ProgramStatus["kind"]>;
 export async function selectWithDefault(
   ui: ExtensionUIContext,
   title: string,
-  options: string[],
+  options: readonly string[],
   defaultOption: string,
   waitKind: WaitKind,
 ): Promise<string | undefined> {
   const defaultIndex = Math.max(0, options.indexOf(defaultOption));
   return await ui.custom<string | undefined>((tui, theme, keybindings, done) => {
-    // rows - 12 reserves the dialog chrome (borders, spacers, title, hints,
-    // scroll-info line, margin), plus the details pane and its spacer when an
-    // option is too wide for its row. The window is sized once, so resizing
-    // the terminal while the dialog is open can overflow it or leave room
-    // unused. The floor of 3 keeps a window on tiny terminals, and the cap at
-    // options.length renders short lists in full as before.
+    // The details pane and its spacer take rows too when an option is too wide for its row. The
+    // window is sized once, so resizing the terminal while the dialog is open can overflow it or
+    // leave room unused. Short lists render in full.
     const paneHeight = detailsHeight(options, tui.terminal.columns, measure);
     const paneRows = paneHeight > 0 ? paneHeight + 1 : 0;
     const maxVisible = Math.max(
-      3,
-      Math.min(options.length, tui.terminal.rows - 12 - paneRows),
+      MINIMUM_VISIBLE_ROWS,
+      Math.min(options.length, tui.terminal.rows - DIALOG_CHROME_ROWS - paneRows),
     );
     return new DefaultSelector(
       title,
@@ -60,21 +65,29 @@ export async function selectWithDefault(
 }
 
 class DefaultSelector extends Container {
-  private selectedIndex: number;
-  private readonly list: SelectList;
+  #selectedIndex: number;
+  readonly #list: SelectList;
+  readonly #options: readonly string[];
+  readonly #theme: Theme;
+  readonly #keybindings: KeybindingsManager;
+  readonly #done: (result: string | undefined) => void;
 
   constructor(
     title: string,
-    private readonly options: string[],
+    options: readonly string[],
     defaultIndex: number,
     maxVisible: number,
-    private readonly theme: Theme,
-    private readonly keybindings: KeybindingsManager,
-    private readonly done: (result: string | undefined) => void,
+    theme: Theme,
+    keybindings: KeybindingsManager,
+    done: (result: string | undefined) => void,
   ) {
     super();
-    this.selectedIndex = defaultIndex;
-    this.list = new SelectList(
+    this.#options = options;
+    this.#theme = theme;
+    this.#keybindings = keybindings;
+    this.#done = done;
+    this.#selectedIndex = defaultIndex;
+    this.#list = new SelectList(
       // Values are indices, so a pick maps back to its option by position even
       // when two options read the same.
       options.map((option, index) => ({ value: String(index), label: option })),
@@ -82,56 +95,61 @@ class DefaultSelector extends Container {
       getSelectListTheme(),
       { truncatePrimary: ({ text, maxWidth }) => truncateToWidth(text, maxWidth, "…") },
     );
-    this.list.setSelectedIndex(defaultIndex);
+    this.#list.setSelectedIndex(defaultIndex);
     // Container dispatches mouse events to children, so SelectList gets wheel
     // and click for free. The wheel moves SelectList's selection without going
     // through handleInput, so onSelectionChange keeps selectedIndex, and with
     // it Enter and the details pane, in step.
-    this.list.onSelectionChange = (item) => {
-      this.selectedIndex = Number(item.value);
+    this.#list.onSelectionChange = (item) => {
+      this.#selectedIndex = Number(item.value);
     };
-    this.list.onSelect = (item) => this.done(options[Number(item.value)]);
-    this.list.onCancel = () => this.done(undefined);
+    this.#list.onSelect = (item) => this.#done(options[Number(item.value)]);
+    this.#list.onCancel = () => this.#done(undefined);
 
     const border = () => new DynamicBorder((text) => theme.fg("border", text));
     this.addChild(border());
     this.addChild(new Spacer(1));
     this.addChild(new Text(theme.fg("accent", theme.bold(title)), 1, 0));
     this.addChild(new Spacer(1));
-    this.addChild(this.list);
-    this.addChild(new DetailsPane(options, () => this.selectedIndex, theme));
+    this.addChild(this.#list);
+    this.addChild(new DetailsPane(options, () => this.#selectedIndex, theme));
     this.addChild(new Spacer(1));
-    this.addChild(new Text(this.hints(), 1, 0));
+    this.addChild(new Text(this.#hints(), 1, 0));
     this.addChild(new Spacer(1));
     this.addChild(border());
+  }
+
+  get options(): readonly string[] {
+    return this.#options;
   }
 
   // Keyboard stays hand-rolled instead of delegating to SelectList.handleInput:
   // that one wraps around at the ends and ignores j/k, neither of which we want.
   handleInput(keyData: string): void {
-    const { keybindings, options } = this;
+    const keybindings = this.#keybindings;
+    const options = this.#options;
     if (keybindings.matches(keyData, "tui.select.up") || keyData === "k") {
-      this.selectedIndex = Math.max(0, this.selectedIndex - 1);
-      this.list.setSelectedIndex(this.selectedIndex);
+      this.#selectedIndex = Math.max(0, this.#selectedIndex - 1);
+      this.#list.setSelectedIndex(this.#selectedIndex);
       return;
     }
     if (keybindings.matches(keyData, "tui.select.down") || keyData === "j") {
-      this.selectedIndex = Math.min(options.length - 1, this.selectedIndex + 1);
-      this.list.setSelectedIndex(this.selectedIndex);
+      this.#selectedIndex = Math.min(options.length - 1, this.#selectedIndex + 1);
+      this.#list.setSelectedIndex(this.#selectedIndex);
       return;
     }
     if (keybindings.matches(keyData, "tui.select.confirm") || keyData === "\n") {
-      this.done(options[this.selectedIndex]);
+      this.#done(options[this.#selectedIndex]);
       return;
     }
     if (keybindings.matches(keyData, "tui.select.cancel")) {
-      this.done(undefined);
+      this.#done(undefined);
     }
   }
 
-  private hints(): string {
-    const { theme } = this;
-    const hint = (keys: string, description: string) =>
+  #hints(): string {
+    const theme = this.#theme;
+    const hint = (keys: string, description: string): string =>
       theme.fg("dim", keys) + theme.fg("muted", ` ${description}`);
     return [
       hint("↑↓", "navigate"),
@@ -144,16 +162,20 @@ class DefaultSelector extends Container {
 // SelectList cuts every label to one row, so the full text of the highlighted
 // option is repeated here, wrapped.
 class DetailsPane implements Component {
-  constructor(
-    private readonly options: readonly string[],
-    private readonly selectedIndex: () => number,
-    private readonly theme: Theme,
-  ) {}
+  readonly #options: readonly string[];
+  readonly #selectedIndex: () => number;
+  readonly #theme: Theme;
+
+  constructor(options: readonly string[], selectedIndex: () => number, theme: Theme) {
+    this.#options = options;
+    this.#selectedIndex = selectedIndex;
+    this.#theme = theme;
+  }
 
   render(width: number): string[] {
-    const lines = detailsLines(this.options, this.selectedIndex(), width, measure);
+    const lines = detailsLines(this.#options, this.#selectedIndex(), width, measure);
     if (lines.length === 0) return [];
-    return ["", ...lines.map((line) => ` ${this.theme.fg("text", line)}`)];
+    return ["", ...lines.map((line) => ` ${this.#theme.fg("text", line)}`)];
   }
 
   invalidate(): void {}

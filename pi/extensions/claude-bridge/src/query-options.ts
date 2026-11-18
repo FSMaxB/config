@@ -1,12 +1,12 @@
-// Pure assembly of the Claude Agent SDK query options for one bridge query.
-// Extracted from index.ts (pure move): no closures — reads config, env, and
-// the provided context only.
+// Pure assembly of the Claude Agent SDK query options for one bridge query:
+// no closures — reads config, env, and the provided context only.
 
-import { type Model, type Tool } from "@earendil-works/pi-ai";
+import type { Model, ThinkingLevel, Tool, Api } from "@earendil-works/pi-ai";
 import type { McpSdkServerConfigWithInstance, query, EffortLevel, SettingSource, SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 import { extractAgentsAppend } from "./agents-md.js";
 import { spawnClaudeCodeWithDiagnostics } from "./claude-executable.js";
-import { normalizeEffortLevel, type Config } from "./config.js";
+import { normalizeEffortLevel } from "./config.js";
+import type { Config } from "./config.js";
 import { CLAUDE_BRIDGE_TOOL_ISOLATION, bridgeOnlyToolHook } from "./tool-isolation.js";
 import { PROVIDER_ID } from "./convert.js";
 import { makeCliDebugOptions } from "./debug.js";
@@ -14,10 +14,9 @@ import { fallbackModelForPrimaryModel } from "./models.js";
 import { buildPromptContextAppend } from "./prompt-context.js";
 import { extractSkillsBlock, MCP_SERVER_NAME } from "./skills.js";
 
-// --- Effort level mapping ---
 // Pi reasoning levels → CC SDK effort levels
 
-const REASONING_TO_EFFORT: Record<string, EffortLevel> = {
+const REASONING_TO_EFFORT: Record<ThinkingLevel, EffortLevel> = {
 	minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "max", max: "max",
 };
 
@@ -35,23 +34,23 @@ export function resolveConfiguredEffort(
 	for (const [key, rawEffort] of Object.entries(providerConfig?.modelEffortOverrides ?? {})) {
 		const normalizedKey = normalizeEffortOverrideModelKey(key);
 		if (normalizedKey !== "*" && normalizedKey !== target) continue;
-		const effort = normalizeEffortLevel(rawEffort) as EffortLevel | undefined;
+		const effort = normalizeEffortLevel(rawEffort);
 		if (effort) return effort;
 	}
-	return (normalizeEffortLevel(providerConfig?.forceEffort) as EffortLevel | undefined) ?? reasoningEffort;
+	return normalizeEffortLevel(providerConfig?.forceEffort) ?? reasoningEffort;
 }
 
 export interface BuildClaudeQueryOptionsInput {
 	cwd: string;
 	/** The model Pi requested. */
-	requestedModel: Model<any>;
+	requestedModel: Model<Api>;
 	bridgeConfig: Config;
 	systemPrompt?: string;
 	/** Tools the transcript currently offers; decides the system prompt mode. */
 	tools: readonly Tool[];
 	/** Pi reasoning level from the stream options, if any. */
-	reasoning?: string;
-	resumeSessionId: string | null;
+	reasoning?: ThinkingLevel;
+	resumeSessionId: string | undefined;
 	/** Record uuid to truncate the resumed session at; the query then forks into a new session id. Ignored without `resumeSessionId`. */
 	forkAt?: string;
 	mcpServers?: Record<string, McpSdkServerConfigWithInstance>;
@@ -94,7 +93,7 @@ export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): Bu
 	// per-model overrides — e.g. opus-4-8 wants xhigh→xhigh, not xhigh→max).
 	// Fall back to our generic table for older pi-ai or unmapped levels.
 	const requestedEffort = reasoning
-		? ((requestedModel as any).thinkingLevelMap?.[reasoning] as EffortLevel | undefined)
+		? normalizeEffortLevel(requestedModel.thinkingLevelMap?.[reasoning])
 			?? REASONING_TO_EFFORT[reasoning]
 		: undefined;
 	const effort = resolveConfiguredEffort(requestedModel.id, requestedEffort, providerSettings);
@@ -119,7 +118,7 @@ export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): Bu
 	// also autocompact would double-flush the prompt cache and races pi's
 		// threshold with CC's, including CC's anti-thrashing guard.
 	// Manual /compact in CC still works (we never invoke it).
-	const childEnv = {
+	const childEnvironment = {
 		...process.env,
 		ENABLE_CLAUDEAI_MCP_SERVERS: "0",
 		DISABLE_AUTO_COMPACT: "1",
@@ -145,7 +144,7 @@ export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): Bu
 		strictMcpConfig: true,
 		hooks: { PreToolUse: [{ hooks: [bridgeOnlyToolHook()] }] },
 		mcpServers: mcpServers?.[MCP_SERVER_NAME] ? { [MCP_SERVER_NAME]: mcpServers[MCP_SERVER_NAME] } : {},
-		env: childEnv,
+		env: childEnvironment,
 	};
 
 	return {
@@ -162,6 +161,6 @@ export function systemPromptModeForQuery(tools: readonly Tool[], systemPrompt: s
 	return tools.length === 0 && systemPrompt ? "verbatim" : "claude-code-preset";
 }
 
-export function settingSourcesForQuery(appendSystemPrompt: boolean, configured?: SettingSource[]): SettingSource[] | undefined {
-	return appendSystemPrompt ? undefined : configured ?? ["user", "project"];
+export function settingSourcesForQuery(appendSystemPrompt: boolean, configured?: readonly SettingSource[]): SettingSource[] | undefined {
+	return appendSystemPrompt ? undefined : configured === undefined ? ["user", "project"] : [...configured];
 }

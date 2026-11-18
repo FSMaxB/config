@@ -8,11 +8,15 @@ import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
-import { createServer, type Server } from "node:net";
+import { createServer } from "node:net";
+import type { Server } from "node:net";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
-import { tree, type PathSelector } from "../../lib/path-permission-rules.ts";
+import { tree } from "../../lib/path-permission-rules.ts";
+import type { PathSelector } from "../../lib/path-permission-rules.ts";
 import { filesystemConfig } from "./policy.ts";
 import { scanVcsLayout, vcsWriteRules } from "./vcs-policy.ts";
+import { supportedPlatform } from "./platform.ts";
+import type { Platform } from "./platform.ts";
 
 const enabled = process.env.SANDBOX_INTEGRATION === "1";
 
@@ -255,12 +259,12 @@ test("everything outside .git and .jj stays writable, however deep", { skip: !en
 });
 
 async function runInRepository(command: string): Promise<{ exitCode: number | null; output: string; commandId: string }> {
-  const vcs = vcsWriteRules(await scanVcsLayout(repository), process.platform as "darwin" | "linux");
+  const vcs = vcsWriteRules(await scanVcsLayout(repository), testPlatform());
   const policy = {
     read: { allow: [tree(workDirectory)], deny: [], protected: [] },
     write: { allow: [tree(repository)], deny: [], protected: [] },
   };
-  const filesystem = filesystemConfig(policy, { platform: process.platform as "darwin" | "linux", homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [], vcs });
+  const filesystem = filesystemConfig(policy, { platform: testPlatform(), homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [], vcs });
   return await runSandboxed(command, filesystem, repository);
 }
 
@@ -269,7 +273,7 @@ function policyFilesystem(extraReadAllow: PathSelector[] = [], protectedWrite: P
     read: { allow: [tree(workDirectory), ...extraReadAllow], deny: [], protected: [] },
     write: { allow: [tree(workDirectory)], deny: [], protected: protectedWrite },
   };
-  return filesystemConfig(policy, { platform: process.platform as "darwin" | "linux", homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [] });
+  return filesystemConfig(policy, { platform: testPlatform(), homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [], vcs: undefined });
 }
 
 async function runSandboxed(command: string, filesystem = policyFilesystem(), cwd = workDirectory): Promise<{ exitCode: number | null; output: string; commandId: string }> {
@@ -287,4 +291,10 @@ async function runSandboxed(command: string, filesystem = policyFilesystem(), cw
   } finally {
     SandboxManager.cleanupAfterCommand();
   }
+}
+
+function testPlatform(): Platform {
+  const platform = supportedPlatform();
+  if (platform === undefined) throw new Error(`The sandbox does not support ${process.platform}.`);
+  return platform;
 }

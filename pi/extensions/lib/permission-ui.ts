@@ -6,7 +6,7 @@ import { selectWithDefault } from "./select-with-default.ts";
 export function permissionUI(ui: ExtensionUIContext): PermissionUI {
   return {
     select: (title, options, preselected) =>
-      preselected === undefined ? ui.select(title, options) : selectWithDefault(ui, title, options, preselected, "permission"),
+      preselected === undefined ? ui.select(title, [...options]) : selectWithDefault(ui, title, options, preselected, "permission"),
     input: (title, placeholder) => ui.input(title, placeholder),
   };
 }

@@ -3,7 +3,8 @@ import test from "node:test";
 import { AgentMode } from "../../lib/agent-mode.ts";
 import { ALLOW_ONCE, DENY_ONCE } from "../../lib/permission-choices.ts";
 import { Duration } from "../../lib/permission-prompt.ts";
-import { BYPASS_DURATIONS, bypassOutcome, bypassPrompt, bypassSessionGrants, resolveAnswer, type BypassSituation } from "./bypass.ts";
+import { BYPASS_DURATIONS, bypassOutcome, bypassPrompt, bypassSessionGrants, resolveAnswer } from "./bypass.ts";
+import type { BypassSituation } from "./bypass.ts";
 
 const interactive: BypassSituation = { agentMode: AgentMode.Execution, subagent: false, hasUI: true, sessionDecision: undefined };
 

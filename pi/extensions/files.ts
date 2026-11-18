@@ -4,6 +4,7 @@
 import { lstat, unlink } from "node:fs/promises";
 import type {
   ExtensionAPI,
+  LsToolDetails,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -14,8 +15,9 @@ import {
   createReadToolDefinition,
   createWriteToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
+import type { TSchema } from "typebox";
+import { errorCode } from "./lib/errors.ts";
 import {
   activeSessionPathGrants,
   gatedTool,
@@ -28,12 +30,20 @@ import {
   createFindExecute,
   createGrepExecute,
   createLsExecute,
+  findParameters,
+  FIND_DEFAULT_LIMIT,
+  GREP_DEFAULT_LIMIT,
+  grepParameters,
+  LS_DEFAULT_LIMIT,
+  lsParameters,
+  MAX_LINE_LENGTH,
 } from "./lib/search-tools.ts";
+import type { SearchDetails } from "./lib/search-tools.ts";
 
 const ACCESS_NOTE =
   "Paths are checked against the read/write path rules: the repository and the memory, skill, plan and crit directories and the session's scratch directory ($TMPDIR in bash) are allowed by default, anything else prompts the user, and denied paths error.";
 
-export default function (pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI): void {
   initPathPermissions(pi);
   provideSessionGrants(pi.events, activeSessionPathGrants);
   const cwd = process.cwd();
@@ -103,10 +113,10 @@ export default function (pi: ExtensionAPI) {
   );
 }
 
-function withNote(
-  definition: ToolDefinition<any, any, any>,
+function withNote<TParams extends TSchema, TDetails>(
+  definition: ToolDefinition<TParams, TDetails>,
   guideline: string,
-): ToolDefinition<any, any, any> {
+): ToolDefinition<TParams, TDetails> {
   return {
     ...definition,
     namespace: FILE_NAMESPACE,
@@ -118,52 +128,52 @@ function withNote(
   };
 }
 
-function lsDefinition(cwd: string): ToolDefinition<any, any, any> {
-  const stockDefinition = createLsToolDefinition(cwd) as ToolDefinition<
-    any,
-    any,
-    any
-  >;
+function lsDefinition(cwd: string): ToolDefinition<typeof lsParameters, LsToolDetails | undefined> {
+  const stockDefinition = createLsToolDefinition(cwd);
   return {
     ...stockDefinition,
     description:
       "List directory contents. Returns entries sorted alphabetically, with '/' suffix for directories. " +
-      "Includes dotfiles. Output is truncated to 500 entries or 50KB (whichever is hit first). " +
+      `Includes dotfiles. Output is truncated to ${LS_DEFAULT_LIMIT} entries or 50KB (whichever is hit first). ` +
       'Use output="count" to return only the exact number of immediate entries, omitting names and ignoring limit.',
     parameters: lsParameters,
-    execute: createLsExecute(cwd, stockDefinition.execute),
+    execute: createLsExecute(stockDefinition.execute),
   };
 }
 
-function findDefinition(cwd: string): ToolDefinition<any, any, any> {
+function findDefinition(cwd: string): ToolDefinition<typeof findParameters, SearchDetails | undefined> {
   return {
-    ...(createFindToolDefinition(cwd) as ToolDefinition<any, any, any>),
+    ...createFindToolDefinition(cwd),
     description:
       "Search for files by glob pattern. Results are grouped by directory relative to the search " +
       "directory: an unindented 'dir/' line ('./' for the top level), then indented basenames. " +
-      "Respects .gitignore. Output is truncated to 1000 results or 50KB (whichever is hit first). " +
+      `Respects .gitignore. Output is truncated to ${FIND_DEFAULT_LIMIT} results or 50KB (whichever is hit first). ` +
       "Pass type ('file', 'directory' or 'symlink') to restrict what kind of entries are returned (like find -type). " +
       'Use output="count" to return only the exact number of matching entries, omitting paths and ignoring limit.',
     parameters: findParameters,
-    execute: createFindExecute(cwd),
+    execute: createFindExecute(),
   };
 }
 
-function grepDefinition(cwd: string): ToolDefinition<any, any, any> {
+function grepDefinition(cwd: string): ToolDefinition<typeof grepParameters, SearchDetails | undefined> {
   return {
-    ...(createGrepToolDefinition(cwd) as ToolDefinition<any, any, any>),
+    ...createGrepToolDefinition(cwd),
     description:
       "Search file contents for a pattern. Matches are grouped by file: an unindented path line, " +
       "then indented 'line: text' rows for that file (context rows use 'line- text'). Respects .gitignore. " +
-      "Output is truncated to 100 matches or 50KB (whichever is hit first). Long lines are truncated to 500 chars. " +
+      `Output is truncated to ${GREP_DEFAULT_LIMIT} matches or 50KB (whichever is hit first). Long lines are truncated to ${MAX_LINE_LENGTH} chars. ` +
       "Set filesOnly to return only the paths of files containing matches (like grep -l); limit then counts files and context is ignored. " +
       'Use output="count" to return only the exact number of matches (or files with matches), omitting lines and ignoring limit.',
     parameters: grepParameters,
-    execute: createGrepExecute(cwd),
+    execute: createGrepExecute(),
   };
 }
 
-function deleteDefinition(): ToolDefinition<any, any, any> {
+const deleteParameters = Type.Object({
+  path: Type.String({ description: "File to delete" }),
+});
+
+function deleteDefinition(): ToolDefinition<typeof deleteParameters, { path: string }> {
   return {
     name: "delete",
     label: "Delete",
@@ -171,13 +181,11 @@ function deleteDefinition(): ToolDefinition<any, any, any> {
       "Delete a single file. Directories are not removed; use bash for those. " +
       "When deleting a memory file, also drop its line from MEMORY.md.",
     promptSnippet: "Delete a file",
-    parameters: Type.Object({
-      path: Type.String({ description: "File to delete" }),
-    }),
+    parameters: deleteParameters,
     async execute(_toolCallId, params) {
-      const { path } = params as { path: string };
-      const stats = await lstat(path).catch((error: NodeJS.ErrnoException) => {
-        if (error.code === "ENOENT") {
+      const { path } = params;
+      const stats = await lstat(path).catch((error: unknown) => {
+        if (errorCode(error) === "ENOENT") {
           throw new Error(`There is no file at ${path}.`);
         }
         throw error;
@@ -197,101 +205,3 @@ function deleteDefinition(): ToolDefinition<any, any, any> {
 }
 
 const FILE_NAMESPACE = { name: "files", description: "Read, search, and modify files through path permissions." };
-
-const outputParameter = Type.Optional(
-  StringEnum(["results", "count"] as const, {
-    description:
-      "Return matching results, or only their exact count (default: results)",
-  }),
-);
-
-const lsParameters = Type.Object({
-  path: Type.Optional(
-    Type.String({
-      description: "Directory to list (default: current directory)",
-    }),
-  ),
-  limit: Type.Optional(
-    Type.Number({
-      description:
-        "Maximum number of entries to return (default: 500); ignored when output is count",
-    }),
-  ),
-  output: outputParameter,
-});
-
-const findParameters = Type.Object({
-  pattern: Type.String({
-    description:
-      "Glob pattern to match files, e.g. '*.ts', '**/*.json', or 'src/**/*.spec.ts'",
-  }),
-  path: Type.Optional(
-    Type.String({
-      description: "Directory to search in (default: current directory)",
-    }),
-  ),
-  limit: Type.Optional(
-    Type.Number({
-      description:
-        "Maximum number of results to return (default: 1000); ignored when output is count",
-    }),
-  ),
-  output: outputParameter,
-  type: Type.Optional(
-    Type.Union(
-      [
-        Type.Literal("file"),
-        Type.Literal("directory"),
-        Type.Literal("symlink"),
-      ],
-      {
-        description: "Restrict results to this entry type (default: all types)",
-      },
-    ),
-  ),
-});
-
-const grepParameters = Type.Object({
-  pattern: Type.String({
-    description: "Search pattern (regex or literal string)",
-  }),
-  path: Type.Optional(
-    Type.String({
-      description: "Directory or file to search (default: current directory)",
-    }),
-  ),
-  glob: Type.Optional(
-    Type.String({
-      description:
-        "Filter files by glob pattern, e.g. '*.ts' or '**/*.spec.ts'",
-    }),
-  ),
-  ignoreCase: Type.Optional(
-    Type.Boolean({ description: "Case-insensitive search (default: false)" }),
-  ),
-  literal: Type.Optional(
-    Type.Boolean({
-      description:
-        "Treat pattern as literal string instead of regex (default: false)",
-    }),
-  ),
-  context: Type.Optional(
-    Type.Number({
-      description:
-        "Number of lines to show before and after each match (default: 0)",
-    }),
-  ),
-  limit: Type.Optional(
-    Type.Number({
-      description:
-        "Maximum number of matches to return (default: 100); ignored when output is count",
-    }),
-  ),
-  filesOnly: Type.Optional(
-    Type.Boolean({
-      description:
-        "Return only the paths of files containing matches, like grep -l; limit counts files and context is ignored (default: false)",
-    }),
-  ),
-  output: outputParameter,
-});

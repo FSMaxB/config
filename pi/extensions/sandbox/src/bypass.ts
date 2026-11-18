@@ -1,9 +1,12 @@
 import { AgentMode, isRestricted } from "../../lib/agent-mode.ts";
 import { ALLOW_ONCE, DENY_ONCE } from "../../lib/permission-choices.ts";
-import { Duration, userReason, type PermissionAnswer } from "../../lib/permission-prompt.ts";
+import { Duration, userReason } from "../../lib/permission-prompt.ts";
+import type { PermissionAnswer } from "../../lib/permission-prompt.ts";
 import type { SessionGrant } from "../../lib/session-grants.ts";
+import { shortenedCommand } from "./command-text.ts";
+import type { RecordedDecision } from "./profile-activation.ts";
 
-export type SessionDecision = { decision: "allow" } | { decision: "deny"; note: string | undefined };
+export type SessionDecision = RecordedDecision;
 
 export interface BypassSituation {
   agentMode: AgentMode;
@@ -45,11 +48,6 @@ export function bypassSessionGrants(decision: SessionDecision | undefined): Sess
   return decision === undefined ? [] : [{ kind: "unsandboxed", decision: decision.decision }];
 }
 
-// The tail matters more than the head here: an unexpected suffix on a long command is where a payload hides.
 export function bypassPrompt(command: string): string {
-  const HEAD = 120, TAIL = 120;
-  const shown = command.length > HEAD + TAIL + 32
-    ? `${command.slice(0, HEAD)}\n  …[${command.length - HEAD - TAIL} characters omitted]…\n  ${command.slice(-TAIL)}`
-    : command;
-  return `Sandbox: run this command outside the sandbox?\n\n  ${shown}`;
+  return `Sandbox: run this command outside the sandbox?\n\n  ${shortenedCommand(command, "\n  ")}`;
 }

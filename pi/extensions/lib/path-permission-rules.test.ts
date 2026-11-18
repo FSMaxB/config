@@ -14,7 +14,9 @@ import {
   serializeStoredRules,
   tree,
   emptyRules,
-  type PathSelector,
+} from "./path-permission-rules.ts";
+import type {
+  PathSelector,
 } from "./path-permission-rules.ts";
 
 test("a tree grant covers a protected root nested inside it", () => {
@@ -69,7 +71,7 @@ test("a deny note survives serializing and parsing the stored rules", () => {
   // arrange
   const rules = emptyStoredRules();
   recordRule({ mode: "read", kind: "deny", tier: "always", selector: tree("/secret"), note: "private data" }, { session: emptyRules(), always: rules.execution });
-  recordRule({ mode: "write", kind: "deny", tier: "always", selector: exact("/plain") }, { session: emptyRules(), always: rules.execution });
+  recordRule({ mode: "write", kind: "deny", tier: "always", selector: exact("/plain"), note: undefined }, { session: emptyRules(), always: rules.execution });
 
   // act
   const parsed = parseStoredRules(JSON.parse(JSON.stringify(serializeStoredRules(rules))));

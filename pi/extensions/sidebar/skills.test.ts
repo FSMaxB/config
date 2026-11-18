@@ -4,16 +4,18 @@ import { ItemTone } from "./panel.ts";
 import {
   applySkillLoad,
   buildSkillIndex,
-  type CommandInfo,
   LOADED_SKILL_ENTRY,
   LOADED_SKILL_REFERENCE_ENTRY,
-  type Skill,
-  type SkillOnBranch,
   SkillState,
   skillItems,
   skillLoadForReadPath,
   skillLoadFromUserContent,
   skillsOnBranch,
+} from "./skills.ts";
+import type {
+  CommandInfo,
+  Skill,
+  SkillOnBranch,
 } from "./skills.ts";
 import type { RealPath } from "./tool-path.ts";
 

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { announceSessionGrantsChanged, collectSessionGrants, onSessionGrantsChanged, provideSessionGrants, type GrantEventBus, type SessionGrant } from "./session-grants.ts";
+import { announceSessionGrantsChanged, collectSessionGrants, onSessionGrantsChanged, provideSessionGrants } from "./session-grants.ts";
+import type { GrantEventBus, SessionGrant } from "./session-grants.ts";
 
 function fakeBus(): GrantEventBus {
   const handlers = new Map<string, ((data: unknown) => void)[]>();

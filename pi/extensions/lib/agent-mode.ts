@@ -21,7 +21,7 @@ export interface ModeIdentity {
   statusIcon: string;
 }
 
-// The plan-mode entry type and file name predate explore mode and stay as they were, so existing sessions and decisions keep working.
+// entryType and decisionsFileName are persisted in sessions and the agent directory, so they must not be renamed.
 export const MODE_IDENTITIES: Record<RestrictedMode, ModeIdentity> = {
   [AgentMode.Planning]: {
     mode: AgentMode.Planning,
@@ -57,6 +57,10 @@ export function storeForMode(mode: AgentMode): PathRuleStore {
   return MODE_RULE_STORES[mode];
 }
 
-export function isPathRuleStore(value: string | undefined): value is PathRuleStore {
-  return (Object.values(PathRuleStore) as (string | undefined)[]).includes(value);
+export function isPathRuleStore(value: unknown): value is PathRuleStore {
+  return Object.values(PathRuleStore).some((store) => store === value);
+}
+
+export function isAgentMode(value: unknown): value is AgentMode {
+  return Object.values(AgentMode).some((mode) => mode === value);
 }

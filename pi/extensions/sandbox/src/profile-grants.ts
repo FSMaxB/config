@@ -1,9 +1,12 @@
 import { join } from "node:path";
-import { isRestricted, type AgentMode } from "../../lib/agent-mode.ts";
+import { isRestricted } from "../../lib/agent-mode.ts";
+import type { AgentMode } from "../../lib/agent-mode.ts";
 import type { PathSelector } from "../../lib/path-permission-rules.ts";
 import type { OnceGrant } from "../../lib/path-permissions.ts";
 import { contains } from "../../lib/repo.ts";
-import { profileFingerprint, type Profile } from "./profiles.ts";
+import { profileFingerprint } from "./profiles.ts";
+import type { Profile } from "./profiles.ts";
+import { expandHome } from "../../lib/path-resolution.ts";
 
 export interface ProfileInputs {
   agentMode: AgentMode;
@@ -15,8 +18,8 @@ export interface ProfileInputs {
 }
 
 // In plan and explore mode the repository stays read-only even when a profile entry is broad enough to cover it.
-export function withoutRepositoryWrites(grants: OnceGrant[], repositoryRoot: string, agentMode: AgentMode): OnceGrant[] {
-  if (!isRestricted(agentMode)) return grants;
+export function withoutRepositoryWrites(grants: readonly OnceGrant[], repositoryRoot: string, agentMode: AgentMode): OnceGrant[] {
+  if (!isRestricted(agentMode)) return [...grants];
   return grants.filter(({ mode, selector }) => {
     if (mode !== "write") return true;
     const root = selectorRoot(selector);
@@ -25,7 +28,7 @@ export function withoutRepositoryWrites(grants: OnceGrant[], repositoryRoot: str
 }
 
 export function profileEnvironment(base: NodeJS.ProcessEnv, profiles: readonly Profile[], inputs: ProfileInputs): NodeJS.ProcessEnv {
-  const shimDirectories = profiles.flatMap(({ path }) => path.map((directory) => expandTilde(directory, inputs.homeDirectory)));
+  const shimDirectories = profiles.flatMap(({ path }) => path.map((directory) => expandHome(directory, inputs.homeDirectory)));
   return {
     ...base,
     PATH: [...shimDirectories, ...(base.PATH ? [base.PATH] : [])].join(":"),
@@ -41,8 +44,4 @@ export function stateDirectoryIn(agentDirectory: string): string {
 
 function selectorRoot(selector: PathSelector): string {
   return selector.kind === "glob" ? selector.base : selector.path;
-}
-
-export function expandTilde(path: string, homeDirectory: string): string {
-  return path === "~" || path.startsWith("~/") ? join(homeDirectory, path.slice(1)) : path;
 }

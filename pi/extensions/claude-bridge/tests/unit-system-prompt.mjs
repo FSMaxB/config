@@ -9,7 +9,7 @@ const extractionPrompt = "Return ONLY JSON {\"summary\":string,\"claims\":[]}";
 function build(overrides) {
 	return buildClaudeQueryOptions({
 		cwd: process.cwd(), requestedModel: { id: "claude-haiku-4-5" }, bridgeConfig: {},
-		resumeSessionId: null, mcpServers: undefined, ...overrides,
+		resumeSessionId: undefined, mcpServers: undefined, ...overrides,
 	});
 }
 

@@ -8,15 +8,20 @@ import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
-import { exact, glob, tree, type PathSelector } from "../../lib/path-permission-rules.ts";
-import { INITIAL_LOG_STREAM_STATE, parseLogStreamChunk, type LogStreamFormat } from "./log-stream.ts";
+import { exact, glob, tree } from "../../lib/path-permission-rules.ts";
+import type { PathSelector } from "../../lib/path-permission-rules.ts";
+import { INITIAL_LOG_STREAM_STATE, parseLogStreamChunk } from "./log-stream.ts";
+import type { LogStreamFormat } from "./log-stream.ts";
 import { filesystemConfig } from "./policy.ts";
 import { mktempShimDirectory } from "./scratch.ts";
 import { resolveSandboxShell } from "./shell.ts";
 import { traceProfile } from "./trace-profile.ts";
 import { scanVcsLayout, vcsWriteRules } from "./vcs-policy.ts";
-import { startViolationCollector, type ViolationCollector } from "./violation-collector.ts";
+import { startViolationCollector } from "./violation-collector.ts";
+import type { ViolationCollector } from "./violation-collector.ts";
 import { discardedWrites, isHereDocumentTemporaryFile, isRepositoryRootRemoval, pathViolations } from "./violations.ts";
+import { supportedPlatform } from "./platform.ts";
+import type { Platform } from "./platform.ts";
 
 const enabled = process.env.SANDBOX_INTEGRATION === "1";
 
@@ -41,7 +46,7 @@ before(async () => {
     async () => false,
     true,
   );
-  collector = startViolationCollector(process.platform as "darwin" | "linux", SandboxManager.getSandboxViolationStore());
+  collector = startViolationCollector(testPlatform(), SandboxManager.getSandboxViolationStore());
 });
 
 after(async () => {
@@ -460,12 +465,12 @@ function vcsEnvironment(): string {
 }
 
 async function runInRepository(repository: string, command: string) {
-  const vcs = vcsWriteRules(await scanVcsLayout(repository), process.platform as "darwin" | "linux");
+  const vcs = vcsWriteRules(await scanVcsLayout(repository), testPlatform());
   const policy = {
     read: { allow: [tree(workDirectory)], deny: [], protected: [] },
     write: { allow: [tree(repository)], deny: [], protected: [] },
   };
-  const filesystem = filesystemConfig(policy, { platform: process.platform as "darwin" | "linux", homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [], vcs });
+  const filesystem = filesystemConfig(policy, { platform: testPlatform(), homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [], vcs });
   return await runSandboxed(command, filesystem, repository);
 }
 
@@ -486,7 +491,7 @@ function policyFilesystem(extraReadAllow: PathSelector[] = [], extraWriteAllow: 
     read: { allow: [tree(workDirectory), ...extraReadAllow], deny: [], protected: [] },
     write: { allow: [tree(workDirectory), ...extraWriteAllow], deny: [], protected: [] },
   };
-  return filesystemConfig(policy, { platform: process.platform as "darwin" | "linux", homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [] });
+  return filesystemConfig(policy, { platform: testPlatform(), homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [], vcs: undefined });
 }
 
 async function runSandboxed(command: string, filesystem = policyFilesystem(), cwd = workDirectory, shell: string | undefined = undefined): Promise<{ exitCode: number | null; output: string; commandId: string }> {
@@ -526,4 +531,10 @@ function runTeardownFixture(teardown: "reset" | "keep"): { outcome: Promise<Tear
     });
   });
   return { outcome };
+}
+
+function testPlatform(): Platform {
+  const platform = supportedPlatform();
+  if (platform === undefined) throw new Error(`The sandbox does not support ${process.platform}.`);
+  return platform;
 }

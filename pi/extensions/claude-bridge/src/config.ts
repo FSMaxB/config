@@ -1,12 +1,14 @@
 import type { SettingSource } from "@anthropic-ai/claude-agent-sdk";
-import { existsSync, readFileSync } from "fs";
-import { homedir } from "os";
-import { dirname, join, resolve, sep } from "path";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, resolve, sep } from "node:path";
 import { debug } from "./debug.js";
+import { isRecord } from "../../lib/untyped.ts";
 
 export type BridgeEffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
 
-const VALID_EFFORT_LEVELS = new Set<BridgeEffortLevel>(["low", "medium", "high", "xhigh", "max"]);
+const VALID_EFFORT_LEVELS: readonly BridgeEffortLevel[] = ["low", "medium", "high", "xhigh", "max"];
+const SETTING_SOURCES: readonly SettingSource[] = ["user", "project", "local"];
 
 export interface Config {
 	enabled?: boolean;
@@ -35,6 +37,13 @@ export interface Config {
 }
 
 type SettingsRecord = Record<string, unknown>;
+
+// One claude-bridge.json file. Its provider settings stay raw until the files are merged.
+interface FileConfig {
+	enabled?: boolean;
+	provider?: SettingsRecord;
+	promptContext?: Config["promptContext"];
+}
 
 function expandHome(input: string): string {
 	if (input === "~") return homedir();
@@ -65,7 +74,6 @@ export function piUserDir(): string {
  * Disables every cwd/home discovery fallback — all AGENTS.md discovery,
  * project `.pi/claude-bridge.json` and project APPEND_SYSTEM.md. Bridge
  * configuration comes only from `piUserDir()/claude-bridge.json`.
- * Default (unset) behavior for normal pi CLI users is unchanged.
  */
 export function isolatedFromEnv(): boolean {
 	const v = (process.env.CLAUDE_BRIDGE_ISOLATED ?? "").trim().toLowerCase();
@@ -73,7 +81,11 @@ export function isolatedFromEnv(): boolean {
 }
 
 function asRecord(value: unknown): SettingsRecord | undefined {
-	return value && typeof value === "object" && !Array.isArray(value) ? value as SettingsRecord : undefined;
+	return isRecord(value) ? value : undefined;
+}
+
+function isSettingSources(value: unknown): value is SettingSource[] {
+	return Array.isArray(value) && value.every((source) => SETTING_SOURCES.some((known) => known === source));
 }
 
 function projectSettingsPath(cwd: string): string {
@@ -94,8 +106,9 @@ interface ProjectTrustRegistry {
 	projectSettings?: Map<string, boolean>;
 }
 
+// Every copy of this module in the process shares the registry; only this function creates it.
 function projectTrustRegistry(): ProjectTrustRegistry {
-	const host = globalThis as unknown as Record<PropertyKey, ProjectTrustRegistry | undefined>;
+	const host = globalThis as Record<symbol, ProjectTrustRegistry | undefined>;
 	const existing = host[PROJECT_TRUST_SYMBOL];
 	if (existing) return existing;
 	const created: ProjectTrustRegistry = {};
@@ -103,21 +116,21 @@ function projectTrustRegistry(): ProjectTrustRegistry {
 	return created;
 }
 
-export function recordProjectTrust(ctx: { cwd?: string; isProjectTrusted?: () => boolean }): void {
-	if (!ctx.cwd) return;
+export function recordProjectTrust(context: { cwd?: string; isProjectTrusted?: () => boolean }): void {
+	if (!context.cwd) return;
 	// Isolated mode never reads project config, so recording trust would only
 	// run the cwd-ancestor `.pi/settings.json` walk (a filesystem probe outside
 	// the host-owned dirs) for a result nothing consumes. Skip it entirely.
 	if (isolatedFromEnv()) return;
 	let trusted = true;
 	try {
-		trusted = ctx.isProjectTrusted?.() === true;
+		trusted = context.isProjectTrusted?.() === true;
 	} catch {
 		trusted = false;
 	}
 	const registry = projectTrustRegistry();
 	if (!registry.projectSettings) registry.projectSettings = new Map();
-	registry.projectSettings.set(projectSettingsPath(ctx.cwd), trusted);
+	registry.projectSettings.set(projectSettingsPath(context.cwd), trusted);
 }
 
 function projectSettingsTrusted(settingsPath: string): boolean {
@@ -125,10 +138,11 @@ function projectSettingsTrusted(settingsPath: string): boolean {
 }
 
 
-export function tryParseJson(path: string): Partial<Config> {
+export function tryParseJson(path: string): unknown {
 	if (!existsSync(path)) return {};
 	try {
-		return JSON.parse(readFileSync(path, "utf-8"));
+		const parsed: unknown = JSON.parse(readFileSync(path, "utf-8"));
+		return parsed;
 	} catch (error) {
 		// Malformed optional config should not write raw terminal diagnostics;
 		// stdout/stderr output can corrupt active Pi TUI widgets. The debug log is
@@ -139,7 +153,8 @@ export function tryParseJson(path: string): Partial<Config> {
 }
 
 function boolFrom(raw: SettingsRecord, key: string): boolean | undefined {
-	return typeof raw[key] === "boolean" ? raw[key] as boolean : undefined;
+	const value = raw[key];
+	return typeof value === "boolean" ? value : undefined;
 }
 
 function stringFrom(raw: SettingsRecord, key: string): string | undefined {
@@ -151,7 +166,7 @@ export function normalizeEffortLevel(value: unknown): BridgeEffortLevel | undefi
 	if (typeof value !== "string") return undefined;
 	const normalized = value.trim().toLowerCase();
 	if (normalized === "" || normalized === "none" || normalized === "auto" || normalized === "default") return undefined;
-	return VALID_EFFORT_LEVELS.has(normalized as BridgeEffortLevel) ? normalized as BridgeEffortLevel : undefined;
+	return VALID_EFFORT_LEVELS.find((level) => level === normalized);
 }
 
 export function normalizeModelEffortOverrides(value: unknown): Record<string, BridgeEffortLevel> | undefined {
@@ -177,15 +192,12 @@ export function normalizeModelEffortOverrides(value: unknown): Record<string, Br
 	return Object.keys(out).length > 0 ? out : undefined;
 }
 
-function normalizeProviderConfig(provider: Config["provider"] | undefined): Config["provider"] {
-	if (!provider) return {};
-	const raw = provider as SettingsRecord;
+function normalizeProviderConfig(raw: SettingsRecord): Config["provider"] {
 	const out: Config["provider"] = {
 		...(boolFrom(raw, "appendSystemPrompt") !== undefined ? { appendSystemPrompt: boolFrom(raw, "appendSystemPrompt") } : {}),
 		...(boolFrom(raw, "fastMode") !== undefined ? { fastMode: boolFrom(raw, "fastMode") } : {}),
 		...(stringFrom(raw, "pathToClaudeCodeExecutable") ? { pathToClaudeCodeExecutable: stringFrom(raw, "pathToClaudeCodeExecutable") } : {}),
-		...(Array.isArray(raw.settingSources) && raw.settingSources.every((source) => source === "user" || source === "project" || source === "local")
-			? { settingSources: raw.settingSources as SettingSource[] } : {}),
+		...(isSettingSources(raw.settingSources) ? { settingSources: raw.settingSources } : {}),
 	};
 	const forceEffort = normalizeEffortLevel(raw.forceEffort);
 	if (forceEffort) out.forceEffort = forceEffort;
@@ -208,18 +220,17 @@ export function loadConfig(cwd: string): Config {
 	};
 }
 
-function fileConfig(path: string): Partial<Config> {
+function fileConfig(path: string): FileConfig {
 	const raw = asRecord(tryParseJson(path)) ?? {};
 	const rawProvider = asRecord(raw.provider) ?? {};
-	const provider = {
+	const provider: SettingsRecord = {
 		...(boolFrom(rawProvider, "appendSystemPrompt") !== undefined ? { appendSystemPrompt: boolFrom(rawProvider, "appendSystemPrompt") } : {}),
 		...(boolFrom(rawProvider, "fastMode") !== undefined ? { fastMode: boolFrom(rawProvider, "fastMode") } : {}),
 		...(stringFrom(rawProvider, "pathToClaudeCodeExecutable") ? { pathToClaudeCodeExecutable: stringFrom(rawProvider, "pathToClaudeCodeExecutable") } : {}),
-		...(Array.isArray(rawProvider.settingSources) && rawProvider.settingSources.every((source) => source === "user" || source === "project" || source === "local")
-			? { settingSources: rawProvider.settingSources as SettingSource[] } : {}),
+		...(isSettingSources(rawProvider.settingSources) ? { settingSources: rawProvider.settingSources } : {}),
 		...(Object.hasOwn(rawProvider, "forceEffort") ? { forceEffort: rawProvider.forceEffort } : {}),
 		...(Object.hasOwn(rawProvider, "modelEffortOverrides") ? { modelEffortOverrides: rawProvider.modelEffortOverrides } : {}),
-	} as Config["provider"];
+	};
 	const prompt = asRecord(raw.promptContext) ?? {};
 	const promptContext: Config["promptContext"] = {};
 
@@ -228,7 +239,7 @@ function fileConfig(path: string): Partial<Config> {
 
 	return {
 		...(boolFrom(raw, "enabled") !== undefined ? { enabled: boolFrom(raw, "enabled") } : {}),
-		...(Object.keys(provider ?? {}).length ? { provider } : {}),
+		...(Object.keys(provider).length ? { provider } : {}),
 		...(Object.keys(promptContext).length ? { promptContext } : {}),
 	};
 }

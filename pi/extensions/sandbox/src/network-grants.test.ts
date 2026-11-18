@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { destinationKey, effectiveNetwork, emptyGrants, networkConfig, NO_PROFILE_NETWORK, networkDenialNote, networkSessionGrants, parseGrants, recordGrant, recordOnceGrant, releaseOnceGrants, rememberedDecision, serializeGrants, type OnceNetworkGrants } from "./network-grants.ts";
+import { destinationKey, effectiveNetwork, emptyGrants, networkConfig, NO_PROFILE_NETWORK, networkDenialNote, networkSessionGrants, parseGrants, recordGrant, recordOnceGrant, releaseOnceGrants, rememberedDecision, serializeGrants } from "./network-grants.ts";
+import type { OnceNetworkGrants } from "./network-grants.ts";
 import type { Settings } from "./settings.ts";
 
 const settings: Settings = {

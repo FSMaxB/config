@@ -1,23 +1,53 @@
+import { isRecord } from "./untyped.ts";
+
 export interface SessionEntry {
   slug: string;
   updated_at: string;
   active: boolean;
 }
 
+// tuicr's JSON field names. comment_type stays open: tuicr may add types this extension
+// does not know yet, and they are shown as they are.
 export interface TuicrComment {
   id: string;
   location: string;
-  path?: string;
-  side?: string;
+  path: string | undefined;
+  side: "old" | "new" | undefined;
   comment_type: string;
   content: string;
+}
+
+export function parseSessionEntries(value: unknown): SessionEntry[] {
+  if (!Array.isArray(value)) throw new Error("tuicr listed its sessions in an unexpected format.");
+  return value.map((item: unknown) => {
+    if (!isRecord(item) || typeof item.slug !== "string" || typeof item.updated_at !== "string" || typeof item.active !== "boolean") {
+      throw new Error("tuicr listed a session in an unexpected format.");
+    }
+    return { slug: item.slug, updated_at: item.updated_at, active: item.active };
+  });
+}
+
+export function parseComment(value: unknown): TuicrComment {
+  if (!isRecord(value)) throw new Error("tuicr returned a comment in an unexpected format.");
+  const { id, location, path, side, comment_type, content } = value;
+  if (typeof id !== "string" || typeof location !== "string" || typeof comment_type !== "string" || typeof content !== "string") {
+    throw new Error("tuicr returned a comment in an unexpected format.");
+  }
+  return {
+    id,
+    location,
+    path: typeof path === "string" ? path : undefined,
+    side: side === "old" || side === "new" ? side : undefined,
+    comment_type,
+    content,
+  };
 }
 
 // The session tuicr just opened is an active one that was not active before the
 // launch. Re-reviewing the same target reuses the same slug, so the path cannot
 // tell old from new. Ties go to the most recently updated entry.
 export function pickNewSession(
-  entries: SessionEntry[],
+  entries: readonly SessionEntry[],
   activeBefore: ReadonlySet<string>,
 ): SessionEntry | undefined {
   return entries
@@ -25,12 +55,12 @@ export function pickNewSession(
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
 }
 
-export function activeSlugs(entries: SessionEntry[]): Set<string> {
+export function activeSlugs(entries: readonly SessionEntry[]): Set<string> {
   return new Set(entries.filter((entry) => entry.active).map((entry) => entry.slug));
 }
 
 export function unseenComments(
-  comments: TuicrComment[],
+  comments: readonly TuicrComment[],
   seen: ReadonlySet<string>,
 ): TuicrComment[] {
   return comments.filter((comment) => !seen.has(comment.id));
@@ -61,7 +91,7 @@ export function quietElapsed(
   return state !== undefined && now - state.since >= quietMs;
 }
 
-export function formatComments(comments: TuicrComment[]): string {
+export function formatComments(comments: readonly TuicrComment[]): string {
   if (comments.length === 0) return "No comments.";
   return comments.map(formatComment).join("\n\n");
 }

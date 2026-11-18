@@ -4,14 +4,16 @@ import { join } from "node:path";
 import test from "node:test";
 import { exact, glob, tree } from "../../lib/path-permission-rules.ts";
 import type { EffectivePolicy } from "../../lib/path-permissions.ts";
-import { filesystemConfig, secretPaths, type PolicyOptions } from "./policy.ts";
+import { filesystemConfig, secretPaths } from "./policy.ts";
+import type { PolicyOptions } from "./policy.ts";
 import { mktempShimDirectory } from "./scratch.ts";
-import { vcsWriteRules, type VcsLayout } from "./vcs-policy.ts";
+import { vcsWriteRules } from "./vcs-policy.ts";
+import type { VcsLayout } from "./vcs-policy.ts";
 
 const HOME = "/Users/max";
 
 function options(overrides: Partial<PolicyOptions> = {}): PolicyOptions {
-  return { platform: "darwin", homeDirectory: HOME, toolchainRead: [`${HOME}/.cargo`], extraDenyRead: [], ...overrides };
+  return { platform: "darwin", homeDirectory: HOME, toolchainRead: [`${HOME}/.cargo`], extraDenyRead: [], vcs: undefined, ...overrides };
 }
 
 function policy(overrides: { read?: Partial<EffectivePolicy["read"]>; write?: Partial<EffectivePolicy["write"]> } = {}): EffectivePolicy {
@@ -216,7 +218,7 @@ function vcsLayout(): VcsLayout {
     [`${HOME}/repo/.git`, { path: `${HOME}/repo/.git`, entries: [{ name: "config", directory: false }, { name: "objects", directory: true }] }],
     [`${HOME}/repo/.jj`, { path: `${HOME}/repo/.jj`, entries: [{ name: "working_copy", directory: true }] }],
   ]);
-  return { repoRoot: `${HOME}/repo`, listings };
+  return { repoRoot: `${HOME}/repo`, listings, gitFile: undefined };
 }
 
 test("on darwin the repository write allow is replaced by the complement of the VCS directories", () => {

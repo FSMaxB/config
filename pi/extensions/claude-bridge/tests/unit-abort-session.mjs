@@ -21,7 +21,7 @@ import {
 	__testSetSpawnClaudeCodeProcess,
 } from "../src/index.ts";
 import { setExtensionApi } from "../src/bridge-state.ts";
-import { ctx, resetStack } from "../src/query-state.ts";
+import { currentQueryContext, resetStack } from "../src/query-state.ts";
 import { conversationFingerprint, conversationFingerprintsMatch } from "../src/session-persistence.ts";
 import { runInRequestLane } from "../src/request-lane.ts";
 import { streamNormalized } from "./lib/stream-normalized.mjs";
@@ -51,7 +51,7 @@ beforeEach(() => {
 	previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
 	process.env.CLAUDE_CONFIG_DIR = claudeConfigDir;
 	resetStack();
-	__testSetBridgeIntegrityState({ sharedSession: null, ui: { notify: () => {} } });
+	__testSetBridgeIntegrityState({ sharedSession: undefined, ui: { notify: () => {} } });
 	setExtensionApi({ events: { emit: () => {} }, appendEntry: () => {} });
 });
 afterEach(() => {
@@ -68,7 +68,7 @@ afterEach(() => {
 	__testSetAbortExitGraceMs();
 	setExtensionApi(undefined);
 	resetStack();
-	__testSetBridgeIntegrityState({ sharedSession: null, ui: null });
+	__testSetBridgeIntegrityState({ sharedSession: undefined, ui: undefined });
 });
 
 describe("aborted query settlement", () => {
@@ -92,7 +92,7 @@ describe("aborted query settlement", () => {
 		assert.equal(await waitFor(() => events.some((event) => event.type === "text_delta")), true, "the turn started streaming");
 		abort.abort();
 		await consumer;
-		assert.equal(await waitFor(() => runInRequestLane(LANE, () => ctx().activeQuery === null)), true, "teardown completed");
+		assert.equal(await waitFor(() => runInRequestLane(LANE, () => currentQueryContext().activeQuery === undefined)), true, "teardown completed");
 
 		// assert
 		const aborted = events.filter((event) => event.type === "error");
@@ -122,7 +122,7 @@ describe("aborted query settlement", () => {
 		assert.equal(await waitFor(() => events.some((event) => event.type === "text_delta")), true, "the turn started streaming");
 		abort.abort();
 		await consumer;
-		assert.equal(await waitFor(() => runInRequestLane(LANE, () => ctx().activeQuery === null)), true, "teardown completed");
+		assert.equal(await waitFor(() => runInRequestLane(LANE, () => currentQueryContext().activeQuery === undefined)), true, "teardown completed");
 
 		// assert
 		const record = laneRecord();
@@ -147,7 +147,7 @@ describe("aborted query settlement", () => {
 		assert.equal(await waitFor(() => events.some((event) => event.type === "text_delta")), true, "the turn started streaming");
 		abort.abort();
 		await consumer;
-		assert.equal(await waitFor(() => runInRequestLane(LANE, () => ctx().activeQuery === null)), true, "teardown completed");
+		assert.equal(await waitFor(() => runInRequestLane(LANE, () => currentQueryContext().activeQuery === undefined)), true, "teardown completed");
 
 		// assert
 		const record = laneRecord();
@@ -168,9 +168,9 @@ describe("aborted query settlement", () => {
 
 		// act
 		await consume(streamNormalized(model, toolContext(), { sessionId: LANE, signal: abort.signal, cwd: root }), []);
-		assert.ok(runInRequestLane(LANE, () => ctx().activeQuery), "the query is mid tool call");
+		assert.ok(runInRequestLane(LANE, () => currentQueryContext().activeQuery), "the query is mid tool call");
 		abort.abort();
-		assert.equal(await waitFor(() => runInRequestLane(LANE, () => ctx().activeQuery === null)), true, "teardown completed");
+		assert.equal(await waitFor(() => runInRequestLane(LANE, () => currentQueryContext().activeQuery === undefined)), true, "teardown completed");
 
 		// assert
 		const record = laneRecord();
@@ -203,7 +203,7 @@ describe("aborted query settlement", () => {
 		const delivery = consume(streamNormalized(model, { tools, messages: [bootstrap, opener, assistantCall, toolResult] }, { sessionId: LANE, signal: abort.signal, cwd: root }), []);
 		abort.abort();
 		await delivery;
-		assert.equal(await waitFor(() => runInRequestLane(LANE, () => ctx().activeQuery === null)), true, "teardown completed");
+		assert.equal(await waitFor(() => runInRequestLane(LANE, () => currentQueryContext().activeQuery === undefined)), true, "teardown completed");
 
 		// assert
 		const record = laneRecord();
@@ -225,9 +225,9 @@ describe("aborted query settlement", () => {
 
 		// act
 		await consume(streamNormalized(model, toolContext(), { sessionId: LANE, signal: abort.signal, cwd: root }), []);
-		assert.ok(runInRequestLane(LANE, () => ctx().activeQuery), "the query is mid tool call");
+		assert.ok(runInRequestLane(LANE, () => currentQueryContext().activeQuery), "the query is mid tool call");
 		abort.abort();
-		assert.equal(await waitFor(() => runInRequestLane(LANE, () => ctx().activeQuery === null)), true, "teardown completed");
+		assert.equal(await waitFor(() => runInRequestLane(LANE, () => currentQueryContext().activeQuery === undefined)), true, "teardown completed");
 
 		// assert
 		const record = laneRecord();
@@ -252,7 +252,7 @@ describe("aborted query settlement", () => {
 
 		// act
 		await consume(streamNormalized(model, { messages: [userMessage("hello")] }, { sessionId: LANE, signal: abort.signal, cwd: root }), events);
-		assert.equal(await waitFor(() => runInRequestLane(LANE, () => ctx().activeQuery === null)), true, "teardown completed");
+		assert.equal(await waitFor(() => runInRequestLane(LANE, () => currentQueryContext().activeQuery === undefined)), true, "teardown completed");
 
 		// assert
 		assert.deepEqual(events.filter((event) => event.type === "error").map((event) => event.reason), ["aborted"]);

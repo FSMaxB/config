@@ -1,13 +1,13 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { ctx, resetStack, takeQueuedOrParkedResult } from "../src/query-state.ts";
+import { currentQueryContext, resetStack, takeQueuedOrParkedResult } from "../src/query-state.ts";
 import { cancelScheduledToolUseEnd } from "../src/assistant-stream.ts";
-afterEach(() => cancelScheduledToolUseEnd(ctx()));
+afterEach(() => cancelScheduledToolUseEnd(currentQueryContext()));
 describe("post-boundary claim recovery (production path)", () => {
 	beforeEach(() => resetStack());
 
 	it("a late handler claims its parked result through claimToolCall after the boundary wiped the records", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.recordToolCall("x", "web_fetch", { url: "https://a.example" });
 		c.pendingResults.set("x", { toolCallId: "x", content: [{ type: "text", text: "real" }] });
 		c.takeStaleQueuedResults();
@@ -20,7 +20,7 @@ describe("post-boundary claim recovery (production path)", () => {
 	});
 
 	it("a late handler with a parked result never steals a live same-name call", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.recordToolCall("x", "bash", { command: "make deploy" });
 		c.pendingResults.set("x", { toolCallId: "x", content: [{ type: "text", text: "deployed" }] });
 		c.takeStaleQueuedResults();
@@ -35,7 +35,7 @@ describe("post-boundary claim recovery (production path)", () => {
 	});
 
 	it("a sole result-backed candidate is claimable without exact args, several are refused", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.recordToolCall("x", "edit", { path: "a", edits: [] });
 		c.pendingResults.set("x", { toolCallId: "x", content: [{ type: "text", text: "ok" }] });
 		c.takeStaleQueuedResults();
@@ -47,7 +47,7 @@ describe("post-boundary claim recovery (production path)", () => {
 		assert.equal(sole.argsMismatch, true);
 
 		resetStack();
-		const c2 = ctx();
+		const c2 = currentQueryContext();
 		for (const id of ["p", "q"]) {
 			c2.recordToolCall(id, "read", { path: id });
 			c2.pendingResults.set(id, { toolCallId: id, content: [{ type: "text", text: id }] });

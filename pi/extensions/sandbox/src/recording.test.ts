@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { exact, tree } from "../../lib/path-permission-rules.ts";
 import type { EffectivePolicy } from "../../lib/path-permissions.ts";
-import { buildDraft, draftText, parseDraftText, traceAccesses, type DraftInput, type TraceAccess } from "./recording.ts";
+import { buildDraft, draftText, parseDraftText, traceAccesses } from "./recording.ts";
+import type { DraftInput, TraceAccess } from "./recording.ts";
 
 const HOME = "/Users/max";
 

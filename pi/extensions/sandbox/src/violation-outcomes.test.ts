@@ -3,7 +3,8 @@ import test from "node:test";
 import { AgentMode } from "../../lib/agent-mode.ts";
 import { tree } from "../../lib/path-permission-rules.ts";
 import { ALL_DURATIONS, LASTING_DURATIONS } from "../../lib/permission-prompt.ts";
-import { CommandExit, discardedWriteReport, networkDenialReport, nextStep, promptDurations, violationReport, type ViolationOutcome } from "./violation-outcomes.ts";
+import { CommandExit, discardedWriteReport, networkDenialReport, nextStep, promptDurations, violationReport } from "./violation-outcomes.ts";
+import type { ViolationOutcome } from "./violation-outcomes.ts";
 
 const grant = { mode: "read" as const, selector: tree("/outside") };
 const allowedOnce: ViolationOutcome = { kind: "allowed-once", mode: "read", path: "/outside/a", grant };
@@ -93,7 +94,7 @@ test("the network report has one line per denied destination that has a note", (
 
   // assert
   assert.equal(report, "\nNetwork access to example.com:80 was denied by the user; do not retry it. The user's reason: use https\n");
-  assert.equal(withoutNotes, "");
+  assert.equal(withoutNotes, undefined);
 });
 
 test("a persistent grant alone tells the agent to rerun", () => {
@@ -215,6 +216,6 @@ test("macOS and commands without discarded writes get no discarded-write report"
   const empty = discardedWriteReport([], filesystem, "linux");
 
   // assert
-  assert.equal(macOS, "");
-  assert.equal(empty, "");
+  assert.equal(macOS, undefined);
+  assert.equal(empty, undefined);
 });

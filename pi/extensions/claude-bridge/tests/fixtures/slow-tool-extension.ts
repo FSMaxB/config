@@ -5,7 +5,7 @@
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-export default function (pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI): void {
 	const params = Type.Object({
 		seconds: Type.Optional(Type.Number({ description: "How long to wait before returning (default 5)" })),
 	});

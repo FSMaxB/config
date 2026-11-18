@@ -1,16 +1,17 @@
-import type { Message } from "@earendil-works/pi-ai";
 import type { SessionProjection } from "@earendil-works/pi-coding-agent";
 import { openSession } from "cc-session-io";
-import { statSync } from "fs";
+import { statSync } from "node:fs";
 import { PROVIDER_ID } from "./convert.js";
-import { type ClaudeTranscriptAnchor, type StampedAssistantMessage } from "./query-state.js";
+import type { ClaudeTranscriptAnchor } from "./query-state.js";
 import { conversationMessages } from "./transcript.js";
+import type { PiSessionMessage } from "./transcript.js";
+import { stringProperty } from "../../lib/untyped.ts";
 
 /** A /tree target the bridge can resume instead of rebuilding: the Claude
  *  transcript position stamped on the last message of the new branch, plus the
  *  branch's conversation for the record's cursor and fingerprint. */
 export interface TreeResumeTarget extends ClaudeTranscriptAnchor {
-	conversation: Message[];
+	conversation: PiSessionMessage[];
 }
 
 /** Why a branch cannot be resumed and has to rebuild (debug log only). */
@@ -20,15 +21,15 @@ export function findTreeResumeTarget(projection: Pick<SessionProjection, "entrie
 	const lastProjected = projection.entries.filter((entry) => entry.messages.length > 0).at(-1);
 	if (!lastProjected) return "the branch has no messages";
 	if (lastProjected.sourceEntry.type !== "message") return `the branch ends with a ${lastProjected.sourceEntry.type} entry`;
-	const message = lastProjected.messages.at(-1) as StampedAssistantMessage | { role: string };
-	if (message.role !== "assistant") return `the branch ends with a ${message.role} message`;
-	const assistant = message as StampedAssistantMessage;
+	const assistant = lastProjected.messages.at(-1);
+	if (assistant === undefined) return "the branch has no messages";
+	if (assistant.role !== "assistant") return `the branch ends with a ${assistant.role} message`;
 	if (assistant.provider !== PROVIDER_ID) return `the last message came from ${assistant.provider}`;
-	if (!assistant.claudeBridge?.sessionId || !assistant.claudeBridge.messageId) return "the last message carries no Claude transcript anchor";
+	const anchor = transcriptAnchor(assistant);
+	if (!anchor) return "the last message carries no Claude transcript anchor";
 	if (assistant.stopReason !== "stop") return `the last message stopped with ${assistant.stopReason}`;
 	if (assistant.content.some((block) => block.type === "toolCall")) return "the last message calls tools";
-	const { sessionId, messageId } = assistant.claudeBridge;
-	return { sessionId, messageId, conversation: conversationMessages(projection.messages as Message[]) };
+	return { ...anchor, conversation: conversationMessages(projection.messages) };
 }
 
 export interface ForkPoint {
@@ -53,4 +54,13 @@ export function resolveForkPoint(target: ClaudeTranscriptAnchor, cwd: string, cl
 	const record = session.messages.filter((candidate) => candidate.type === "assistant" && candidate.message?.id === target.messageId).at(-1);
 	if (!record) return `message ${target.messageId} is not in Claude session ${target.sessionId.slice(0, 8)}`;
 	return { uuid: record.uuid, isTail: session.messages.at(-1)?.uuid === record.uuid };
+}
+
+// The anchor finalizeCurrentStream stamps onto the messages the bridge produced (claudeBridge).
+function transcriptAnchor(message: object): ClaudeTranscriptAnchor | undefined {
+	const stamp: unknown = Reflect.get(message, "claudeBridge");
+	if (typeof stamp !== "object" || stamp === null) return undefined;
+	const sessionId = stringProperty(stamp, "sessionId");
+	const messageId = stringProperty(stamp, "messageId");
+	return sessionId && messageId ? { sessionId, messageId } : undefined;
 }

@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { notifyUser } from "./lib/notify.ts";
 
-export default function (pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI): void {
   const PROMPT_GRACE_MS = 500;
   // pi nests prompts and reports only the outermost, so one pending timer covers every open prompt.
   let pendingPrompt: ReturnType<typeof setTimeout> | undefined;

@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { ChildToolVerdict, childToolVerdict, effectiveChildTools, restrictedModeAllowedTools } from "./mode-restrictions.ts";
 import type { ToolPolicyInfo } from "../lib/tool-permission-policy.ts";
+import { SandboxStatus } from "../lib/sandbox-state.ts";
 
 test("child permissions share owned read-only trust and deny precedence", () => {
   // arrange
@@ -11,7 +12,7 @@ test("child permissions share owned read-only trust and deny precedence", () => 
     tool("question", "question.ts", "model-only")];
   const snapshot = { sessionGrants: ["granted", "hidden", "question", "absent"], sessionDenials: ["grep"] };
   // act
-  const allowed = restrictedModeAllowedTools(snapshot, { alwaysAllowed: ["grep"], alwaysDenied: [] }, tools, false);
+  const allowed = restrictedModeAllowedTools(snapshot, { alwaysAllowed: ["grep"], alwaysDenied: [] }, tools, SandboxStatus.Inactive);
   // assert
   assert.deepEqual([...allowed], ["read", "crit_comments", "granted"]);
 });
@@ -22,9 +23,9 @@ test("bash is admitted while the sandbox is active and a bash tool is registered
   const snapshot = { sessionGrants: [], sessionDenials: [] };
   const persisted = { alwaysAllowed: [], alwaysDenied: [] };
   // act
-  const withSandbox = restrictedModeAllowedTools(snapshot, persisted, tools, true);
-  const withoutSandbox = restrictedModeAllowedTools(snapshot, persisted, tools, false);
-  const withoutBashTool = restrictedModeAllowedTools(snapshot, persisted, [tool("read", "files.ts")], true);
+  const withSandbox = restrictedModeAllowedTools(snapshot, persisted, tools, SandboxStatus.Active);
+  const withoutSandbox = restrictedModeAllowedTools(snapshot, persisted, tools, SandboxStatus.Inactive);
+  const withoutBashTool = restrictedModeAllowedTools(snapshot, persisted, [tool("read", "files.ts")], SandboxStatus.Active);
   // assert
   assert.deepEqual([...withSandbox], ["read", "bash"]);
   assert.deepEqual([...withoutSandbox], ["read"]);
@@ -35,8 +36,8 @@ test("a session or always denial keeps bash out even with an active sandbox", ()
   // arrange
   const tools = [tool("read", "files.ts"), tool("bash", "foreign.ts")];
   // act
-  const sessionDenied = restrictedModeAllowedTools({ sessionGrants: [], sessionDenials: ["bash"] }, { alwaysAllowed: [], alwaysDenied: [] }, tools, true);
-  const alwaysDenied = restrictedModeAllowedTools({ sessionGrants: [], sessionDenials: [] }, { alwaysAllowed: [], alwaysDenied: ["bash"] }, tools, true);
+  const sessionDenied = restrictedModeAllowedTools({ sessionGrants: [], sessionDenials: ["bash"] }, { alwaysAllowed: [], alwaysDenied: [] }, tools, SandboxStatus.Active);
+  const alwaysDenied = restrictedModeAllowedTools({ sessionGrants: [], sessionDenials: [] }, { alwaysAllowed: [], alwaysDenied: ["bash"] }, tools, SandboxStatus.Active);
   // assert
   assert.deepEqual([...sessionDenied], ["read"]);
   assert.deepEqual([...alwaysDenied], ["read"]);
@@ -47,10 +48,10 @@ test("the child checks its own sandbox before running bash", () => {
   const allowed = new Set(["read", "bash"]);
   // act
   const verdicts = [
-    childToolVerdict("read", allowed, false),
-    childToolVerdict("write", allowed, true),
-    childToolVerdict("bash", allowed, true),
-    childToolVerdict("bash", allowed, false),
+    childToolVerdict("read", allowed, SandboxStatus.Inactive),
+    childToolVerdict("write", allowed, SandboxStatus.Active),
+    childToolVerdict("bash", allowed, SandboxStatus.Active),
+    childToolVerdict("bash", allowed, SandboxStatus.Inactive),
   ];
   // assert
   assert.deepEqual(verdicts, [ChildToolVerdict.Allowed, ChildToolVerdict.Restricted, ChildToolVerdict.Allowed, ChildToolVerdict.NoSandbox]);

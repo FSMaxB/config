@@ -2,7 +2,7 @@
  * Tests for query teardown keyed to the CAPTURED query context (audit C1).
  *
  * A parent query can end abnormally (abort, child process death) while a
- * reentrant subagent context is still pushed. Teardown keyed on the live ctx()
+ * reentrant subagent context is still pushed. Teardown keyed on the live currentQueryContext()
  * would mutate the subagent's state and skip the parent's own drain entirely.
  * These tests require teardownQuery to touch only the context it
  * was given, and popContextFor never pops someone else's context.
@@ -17,7 +17,7 @@ const scratch = mkdtempSync(join(tmpdir(), "claude-bridge-teardown-test-"));
 process.env.CLAUDE_BRIDGE_DIAG_PATH = join(scratch, "diag.log");
 process.env.PI_CODING_AGENT_DIR = scratch;
 
-const { ctx, popContext, pushContext, resetStack, stackDepth } = await import("../src/query-state.js");
+const { currentQueryContext, popContext, pushContext, resetStack, stackDepth } = await import("../src/query-state.js");
 const { abortRebuildReason, teardownQuery } = await import("../src/query-teardown.js");
 const { __testGetBridgeIntegrityState, __testSetBridgeIntegrityState } = await import("../src/bridge-state.js");
 
@@ -40,7 +40,7 @@ describe("teardownQuery", () => {
 	beforeEach(() => resetStack());
 
 	it("tears down a plain outermost query: drains handlers, clears results, releases activeQuery", async () => {
-		const queryCtx = ctx();
+		const queryCtx = currentQueryContext();
 		const sdkQuery = { id: "sdk-query" };
 		queryCtx.activeQuery = sdkQuery;
 		queryCtx.recordToolCall("call-1", "read", { path: "a" });
@@ -48,7 +48,7 @@ describe("teardownQuery", () => {
 		queryCtx.pendingResults.set("call-2", { content: [], isError: false });
 
 		assert.equal(teardownQuery(queryCtx, sdkQuery, "query-end", "/tmp", false), true);
-		assert.equal(queryCtx.activeQuery, null);
+		assert.equal(queryCtx.activeQuery, undefined);
 		assert.equal(queryCtx.pendingToolCalls.size, 0);
 		assert.equal(queryCtx.pendingResults.size, 0);
 		const result = await waiting;
@@ -56,7 +56,7 @@ describe("teardownQuery", () => {
 	});
 
 	it("no-ops when the query is no longer the context's active one", () => {
-		const queryCtx = ctx();
+		const queryCtx = currentQueryContext();
 		const replacement = { id: "continuation" };
 		queryCtx.activeQuery = replacement;
 		registerWaitingCall(queryCtx, "call-1");
@@ -70,14 +70,14 @@ describe("teardownQuery", () => {
 		// The C1 defect scenario: outermost parent query ends abnormally while a
 		// reentrant child context is live. Live-ctx teardown drained the child's
 		// handlers and left the parent's leaked; keyed teardown does the reverse.
-		const parent = ctx();
+		const parent = currentQueryContext();
 		const parentQuery = { id: "parent-query" };
 		parent.activeQuery = parentQuery;
 		parent.recordToolCall("parent-call", "bash", { cmd: "ls" });
 		const parentWaiting = registerWaitingCall(parent, "parent-call", "bash");
 
 		pushContext();
-		const child = ctx();
+		const child = currentQueryContext();
 		child.activeQuery = { id: "child-query" };
 		child.recordToolCall("child-call", "read", { path: "b" });
 		registerWaitingCall(child, "child-call");
@@ -88,28 +88,28 @@ describe("teardownQuery", () => {
 		const result = await parentWaiting;
 		assert.equal(result.isError, true);
 		assert.equal(result.content[0].text.split("\n")[0], "tool-call-drain=abort");
-		assert.equal(parent.activeQuery, null);
+		assert.equal(parent.activeQuery, undefined);
 
 		// Child completely untouched and still the live context.
-		assert.equal(ctx(), child);
+		assert.equal(currentQueryContext(), child);
 		assert.equal(child.pendingToolCalls.size, 1);
-		assert.notEqual(child.activeQuery, null);
+		assert.notEqual(child.activeQuery, undefined);
 		assert.equal(stackDepth(), 1);
 	});
 
 	it("reentrant query teardown pops its own context even when a grandchild is live", async () => {
-		const outer = ctx();
+		const outer = currentQueryContext();
 		outer.activeQuery = "q-outer";
 
 		pushContext();
-		const mid = ctx();
+		const mid = currentQueryContext();
 		const midQuery = { id: "mid-query" };
 		mid.activeQuery = midQuery;
 		mid.deferredUserMessages.push({ text: "mid-steer" });
 		const midWaiting = registerWaitingCall(mid, "mid-call");
 
 		pushContext();
-		const grandchild = ctx();
+		const grandchild = currentQueryContext();
 		grandchild.activeQuery = { id: "grandchild-query" };
 
 		assert.equal(teardownQuery(mid, midQuery, "query-end", "/tmp", true), true);
@@ -117,25 +117,25 @@ describe("teardownQuery", () => {
 		const result = await midWaiting;
 		assert.equal(result.isError, true);
 		// Grandchild stays live; mid was spliced out and its deferreds went to outer.
-		assert.equal(ctx(), grandchild);
+		assert.equal(currentQueryContext(), grandchild);
 		assert.equal(stackDepth(), 1);
 		assert.deepEqual(outer.deferredUserMessages, [{ text: "mid-steer" }]);
 
 		popContext();
-		assert.equal(ctx(), outer);
+		assert.equal(currentQueryContext(), outer);
 	});
 
 	it("reentrant teardown with the child as live context restores the parent (common path)", () => {
-		const parent = ctx();
+		const parent = currentQueryContext();
 		parent.activeQuery = "q-parent";
 		pushContext();
-		const child = ctx();
+		const child = currentQueryContext();
 		const childQuery = { id: "child-query" };
 		child.activeQuery = childQuery;
 		child.deferredUserMessages.push("child-steer");
 
 		assert.equal(teardownQuery(child, childQuery, "query-end", "/tmp", true), true);
-		assert.equal(ctx(), parent);
+		assert.equal(currentQueryContext(), parent);
 		assert.equal(stackDepth(), 0);
 		assert.deepEqual(parent.deferredUserMessages, ["child-steer"]);
 	});
@@ -151,10 +151,10 @@ describe("teardownQuery shared-record gating (#1001)", () => {
 
 	beforeEach(() => {
 		resetStack();
-		__testSetBridgeIntegrityState({ sharedSession: null, ui: null });
+		__testSetBridgeIntegrityState({ sharedSession: undefined, ui: undefined });
 	});
 
-	afterEach(() => __testSetBridgeIntegrityState({ sharedSession: null, ui: null }));
+	afterEach(() => __testSetBridgeIntegrityState({ sharedSession: undefined, ui: undefined }));
 
 	it("marks only a claiming session after unresolved-call teardown", async () => {
 		const rows = [

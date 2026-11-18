@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { INITIAL_LOG_STREAM_STATE, parseLogStreamChunk, SRT_VIOLATIONS, type LogStreamFormat } from "./log-stream.ts";
+import { INITIAL_LOG_STREAM_STATE, parseLogStreamChunk, SRT_VIOLATIONS } from "./log-stream.ts";
+import type { LogStreamFormat } from "./log-stream.ts";
 
 test("a chunk with several violation pairs yields every one of them", () => {
   // arrange

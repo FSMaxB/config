@@ -1,4 +1,3 @@
-// --- Claude credential presence (availability honesty) ---
 //
 // The bridge may only advertise claude-bridge models when the machine actually
 // has Claude credentials the Claude Agent SDK can authenticate with. Otherwise
@@ -7,11 +6,9 @@
 // request fails at spawn time.
 //
 // This module answers one pure question: hasClaudeCredentials() — are real
-// credentials present RIGHT NOW? Since 2.0 it feeds the native provider's
-// auth check/resolve (native-provider.ts) and the pre-spawn fail-fast, rather
-// than gating register/unregister transitions (the 1.x decideRegistration
-// state machine is gone — registration is unconditional and pi hides
-// unconfigured providers' models itself).
+// credentials present RIGHT NOW? It feeds the native provider's auth
+// check/resolve (native-provider.ts) and the pre-spawn fail-fast. Registration
+// itself is unconditional: pi hides unconfigured providers' models itself.
 //
 // SECURITY: this module only ever checks for the EXISTENCE of credentials — a
 // file's presence, an env var being non-empty, a settings key being a non-empty
@@ -20,9 +17,10 @@
 // non-empty string and never logs its value. Credential CONTENTS are never read
 // or logged.
 
-import { existsSync, readFileSync } from "fs";
-import { homedir, platform as osPlatform } from "os";
-import { join } from "path";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir, platform as osPlatform } from "node:os";
+import { join } from "node:path";
+import { isRecord } from "../../lib/untyped.ts";
 
 /**
  * Resolve the Claude config directory the same way the bundled cc-session-io
@@ -35,8 +33,8 @@ import { join } from "path";
  * root). The returned value is trimmed so downstream joins never carry stray
  * whitespace.
  */
-export function resolveClaudeConfigDir(env: NodeJS.ProcessEnv = process.env): string {
-	const configured = env.CLAUDE_CONFIG_DIR;
+export function resolveClaudeConfigDir(environment: NodeJS.ProcessEnv = process.env): string {
+	const configured = environment.CLAUDE_CONFIG_DIR;
 	if (typeof configured === "string" && configured.trim().length > 0) return configured.trim();
 	return join(homedir(), ".claude");
 }
@@ -62,8 +60,8 @@ function hasApiKeyHelper(configDir: string): boolean {
 	try {
 		const settingsPath = join(configDir, "settings.json");
 		if (!existsSync(settingsPath)) return false;
-		const parsed = JSON.parse(readFileSync(settingsPath, "utf8")) as { apiKeyHelper?: unknown };
-		return typeof parsed?.apiKeyHelper === "string" && parsed.apiKeyHelper.trim().length > 0;
+		const parsed: unknown = JSON.parse(readFileSync(settingsPath, "utf8"));
+		return isRecord(parsed) && typeof parsed.apiKeyHelper === "string" && parsed.apiKeyHelper.trim().length > 0;
 	} catch {
 		return false;
 	}
@@ -91,19 +89,19 @@ function hasApiKeyHelper(configDir: string): boolean {
  * unlinks it).
  */
 export function hasClaudeCredentials(
-	env: NodeJS.ProcessEnv = process.env,
+	environment: NodeJS.ProcessEnv = process.env,
 	platform: NodeJS.Platform = osPlatform(),
 ): boolean {
-	if (nonEmptyEnv(env.CLAUDE_CODE_OAUTH_TOKEN)) return true;
-	if (nonEmptyEnv(env.ANTHROPIC_API_KEY)) return true;
-	if (nonEmptyEnv(env.ANTHROPIC_AUTH_TOKEN)) return true;
-	if (envTruthy(env.CLAUDE_CODE_USE_BEDROCK)) return true;
-	if (envTruthy(env.CLAUDE_CODE_USE_VERTEX)) return true;
-	if (envTruthy(env.CLAUDE_CODE_USE_FOUNDRY)) return true;
-	if (envTruthy(env.CLAUDE_CODE_USE_ANTHROPIC_AWS)) return true;
-	if (envTruthy(env.CLAUDE_CODE_USE_MANTLE)) return true;
+	if (nonEmptyEnv(environment.CLAUDE_CODE_OAUTH_TOKEN)) return true;
+	if (nonEmptyEnv(environment.ANTHROPIC_API_KEY)) return true;
+	if (nonEmptyEnv(environment.ANTHROPIC_AUTH_TOKEN)) return true;
+	if (envTruthy(environment.CLAUDE_CODE_USE_BEDROCK)) return true;
+	if (envTruthy(environment.CLAUDE_CODE_USE_VERTEX)) return true;
+	if (envTruthy(environment.CLAUDE_CODE_USE_FOUNDRY)) return true;
+	if (envTruthy(environment.CLAUDE_CODE_USE_ANTHROPIC_AWS)) return true;
+	if (envTruthy(environment.CLAUDE_CODE_USE_MANTLE)) return true;
 
-	const configDir = resolveClaudeConfigDir(env);
+	const configDir = resolveClaudeConfigDir(environment);
 	if (existsSync(join(configDir, ".credentials.json"))) return true;
 	if (hasApiKeyHelper(configDir)) return true;
 

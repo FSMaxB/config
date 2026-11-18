@@ -1,14 +1,14 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { finalizeToolUseTurnFromMcpInvocation } from "../src/assistant-stream.ts";
-import { ctx, drainStrandedToolCalls, failStrandedToolCall, resetStack } from "../src/query-state.ts";
+import { currentQueryContext, drainStrandedToolCalls, failStrandedToolCall, resetStack } from "../src/query-state.ts";
 import { cancelScheduledToolUseEnd } from "../src/assistant-stream.ts";
-afterEach(() => cancelScheduledToolUseEnd(ctx()));
+afterEach(() => cancelScheduledToolUseEnd(currentQueryContext()));
 describe("stranded handler resolution", () => {
 	beforeEach(() => resetStack());
 
 	it("finalize with a dead stream fails the unforwarded waiting handler with a retryable error", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		let resolved;
 		c.pendingToolCalls.set("t9", { toolName: "web_fetch", args: { url: "x" }, generation: 0, resolve: (r) => { resolved = r; } });
 
@@ -22,7 +22,7 @@ describe("stranded handler resolution", () => {
 	});
 
 	it("failStrandedToolCall leaves forwarded handlers waiting for their steer-split result", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		let resolved;
 		c.forwardedToolCallIds.add("t8");
 		c.pendingToolCalls.set("t8", { toolName: "bash", args: {}, generation: 0, resolve: (r) => { resolved = r; } });
@@ -33,7 +33,7 @@ describe("stranded handler resolution", () => {
 	});
 
 	it("the delivery-site drain fails only unforwarded handlers from settled generations", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.callbackGeneration = 1;
 		const results = {};
 		const register = (id, generation) => c.pendingToolCalls.set(id, {

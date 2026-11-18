@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import { PauseGate, type PauseState } from "./gate.ts";
+import { PauseGate } from "./gate.ts";
+import type { PauseState } from "./gate.ts";
 
 const STATUS_KEY = "pause";
 // pi has no extension event for queued user messages, and the input event fires before

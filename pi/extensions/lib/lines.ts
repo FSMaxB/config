@@ -23,7 +23,7 @@ export function createLineSplitter(onLine: (line: string) => void): LineSplitter
 }
 
 // Offset is 1-based like the read tool's; a missing limit runs to the end.
-export function pageLines<T>(items: T[], offset: number | undefined, limit: number | undefined): LinePage<T> {
+export function pageLines<T>(items: readonly T[], offset: number | undefined, limit: number | undefined): LinePage<T> {
   const start = Math.max((offset ?? 1) - 1, 0);
   if (start >= items.length) {
     return { kind: "past-end", message: `(no lines: offset ${start + 1} starts past the end of this ${items.length}-line file)` };

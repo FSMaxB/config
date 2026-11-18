@@ -1,9 +1,11 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { hostname } from "node:os";
-import { basename, dirname, join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { errorCode, errorMessage } from "../../lib/errors.ts";
+import { withFileLock } from "../../lib/file-lock.ts";
+import { writeJsonFileAtomically } from "../../lib/json.ts";
 import { expandHome } from "../../lib/path-resolution.ts";
-import { parseActivationDecisions, parseProfileDefinition, parseProfiles, serializeActivationDecisions, type ActivationDecisions, type Profile, type ProfileDefinition } from "./profiles.ts";
+import { parseActivationDecisions, parseProfileDefinition, parseProfiles, serializeActivationDecisions } from "./profiles.ts";
+import type { ActivationDecisions, Profile, ProfileDefinition } from "./profiles.ts";
+import { booleanValue, requireRecord, stringArray, stringRecord, unique } from "./settings-values.ts";
 
 export interface SettingsFile {
   network: { allowedDomains: string[]; deniedDomains: string[]; deniedDomainReasons: Record<string, string>; allowUnixSockets: string[]; allowLocalBinding: boolean };
@@ -43,37 +45,37 @@ export function resolveSettings(file: SettingsFile): Settings {
     allowedDomains: unique([...DEFAULT_ALLOWED_DOMAINS, ...network.allowedDomains]),
     deniedDomains: unique(network.deniedDomains),
     deniedDomainReasons: new Map(Object.entries(network.deniedDomainReasons)),
-    allowUnixSockets: network.allowUnixSockets.map(expandHome),
+    allowUnixSockets: network.allowUnixSockets.map((path) => expandHome(path)),
     allowLocalBinding: network.allowLocalBinding,
-    toolchainRead: unique([...DEFAULT_TOOLCHAIN_READ, ...filesystem.allowRead].map(expandHome)),
-    extraDenyRead: filesystem.denyRead.map(expandHome),
+    toolchainRead: unique([...DEFAULT_TOOLCHAIN_READ, ...filesystem.allowRead].map((path) => expandHome(path))),
+    extraDenyRead: filesystem.denyRead.map((path) => expandHome(path)),
   };
 }
 
 export async function readSettingsFile(filePath: string): Promise<SettingsFile> {
-  const text = await readFile(filePath, "utf8").catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") return undefined;
+  const text = await readFile(filePath, "utf8").catch((error: unknown) => {
+    if (errorCode(error) === "ENOENT") return undefined;
     throw error;
   });
   if (text === undefined) return parseSettingsFile({});
   try {
     return parseSettingsFile(JSON.parse(text));
   } catch (error) {
-    throw new Error(`Invalid sandbox settings in ${filePath}: ${(error as Error).message}`);
+    throw new Error(`Invalid sandbox settings in ${filePath}: ${errorMessage(error)}`);
   }
 }
 
 export function parseSettingsFile(value: unknown): SettingsFile {
-  const root = asRecord(value, "settings");
-  const network = asRecord(root.network ?? {}, "network");
-  const filesystem = asRecord(root.filesystem ?? {}, "filesystem");
+  const root = requireRecord(value, "settings");
+  const network = requireRecord(root.network ?? {}, "network");
+  const filesystem = requireRecord(root.filesystem ?? {}, "filesystem");
   return {
     network: {
       allowedDomains: stringArray(network.allowedDomains, "network.allowedDomains"),
       deniedDomains: stringArray(network.deniedDomains, "network.deniedDomains"),
       deniedDomainReasons: stringRecord(network.deniedDomainReasons, "network.deniedDomainReasons"),
       allowUnixSockets: stringArray(network.allowUnixSockets, "network.allowUnixSockets"),
-      allowLocalBinding: boolean(network.allowLocalBinding, "network.allowLocalBinding"),
+      allowLocalBinding: booleanValue(network.allowLocalBinding, "network.allowLocalBinding"),
     },
     filesystem: {
       denyRead: stringArray(filesystem.denyRead, "filesystem.denyRead"),
@@ -92,7 +94,7 @@ export async function updateDomainLists(filePath: string, mutate: (lists: Domain
       deniedDomainReasons: new Map(Object.entries(network.deniedDomainReasons)),
     };
     mutate(lists);
-    const rawNetwork = asRecord(raw.network ?? {}, "network");
+    const rawNetwork = requireRecord(raw.network ?? {}, "network");
     // The reasons key stays out of files that never had one.
     const reasons = lists.deniedDomainReasons.size > 0 || "deniedDomainReasons" in rawNetwork ? { deniedDomainReasons: Object.fromEntries(lists.deniedDomainReasons) } : {};
     return { ...raw, network: { ...rawNetwork, allowedDomains: [...lists.allowedDomains], deniedDomains: [...lists.deniedDomains], ...reasons } };
@@ -107,7 +109,7 @@ export async function loadProfiles(filePath: string): Promise<Profile[]> {
 // Rewrites only profiles.<name>; returning undefined deletes it, together with its activation decision.
 export async function updateProfile(filePath: string, name: string, mutate: (current: ProfileDefinition | undefined) => ProfileDefinition | undefined): Promise<void> {
   await rewriteSettings(filePath, (raw) => {
-    const profiles = asRecord(raw.profiles ?? {}, "profiles");
+    const profiles = requireRecord(raw.profiles ?? {}, "profiles");
     const current = name in profiles ? parseProfileDefinition(profiles[name], name) : undefined;
     const updated = mutate(current);
     if (updated === undefined) {
@@ -133,21 +135,21 @@ export async function updateActivationDecisions(filePath: string, mutate: (decis
 }
 
 async function readRawSettings(filePath: string): Promise<Record<string, unknown>> {
-  const text = await readFile(filePath, "utf8").catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") return "{}";
+  const text = await readFile(filePath, "utf8").catch((error: unknown) => {
+    if (errorCode(error) === "ENOENT") return "{}";
     throw error;
   });
   try {
-    return asRecord(JSON.parse(text), "settings");
+    return requireRecord(JSON.parse(text), "settings");
   } catch (error) {
-    throw new Error(`Invalid sandbox settings in ${filePath}: ${(error as Error).message}`);
+    throw new Error(`Invalid sandbox settings in ${filePath}: ${errorMessage(error)}`);
   }
 }
 
 async function rewriteSettings(filePath: string, mutate: (raw: Record<string, unknown>) => Record<string, unknown>): Promise<void> {
-  await withLock(filePath, async () => {
+  await withFileLock(filePath, "sandbox settings", async () => {
     const raw = await readRawSettings(filePath);
-    await writeAtomically(filePath, `${JSON.stringify(mutate(raw), null, 2)}\n`);
+    await writeJsonFileAtomically(filePath, mutate(raw));
   });
 }
 
@@ -163,63 +165,4 @@ interface DomainLists {
   allowedDomains: Set<string>;
   deniedDomains: Set<string>;
   deniedDomainReasons: Map<string, string>;
-}
-
-async function withLock<T>(filePath: string, operation: () => Promise<T>): Promise<T> {
-  const lockPath = `${filePath}.lock`;
-  await mkdir(dirname(filePath), { recursive: true });
-  const deadline = Date.now() + 10_000;
-  for (let locked = false; !locked;) {
-    try {
-      await mkdir(lockPath);
-      await writeFile(join(lockPath, "owner"), `${process.pid} ${hostname()} ${new Date().toISOString()}\n`, { mode: 0o600 });
-      locked = true;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST" || Date.now() >= deadline) throw new Error(`Could not acquire sandbox settings lock ${lockPath}; remove it manually if no process owns it.`);
-      await new Promise((resolve) => setTimeout(resolve, 25 + Math.random() * 50));
-    }
-  }
-  try {
-    return await operation();
-  } finally {
-    await rm(lockPath, { recursive: true, force: true }).catch(() => undefined);
-  }
-}
-
-async function writeAtomically(filePath: string, content: string): Promise<void> {
-  const temporaryPath = join(dirname(filePath), `.${basename(filePath)}.${randomUUID()}.tmp`);
-  try {
-    await writeFile(temporaryPath, content, { mode: 0o600 });
-    await rename(temporaryPath, filePath);
-  } finally {
-    await rm(temporaryPath, { force: true }).catch(() => undefined);
-  }
-}
-
-function asRecord(value: unknown, name: string): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error(`${name} must be an object`);
-  return value as Record<string, unknown>;
-}
-
-function stringArray(value: unknown, name: string): string[] {
-  if (value === undefined) return [];
-  if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) throw new Error(`${name} must be an array of strings`);
-  return value;
-}
-
-function stringRecord(value: unknown, name: string): Record<string, string> {
-  if (value === undefined) return {};
-  const record = asRecord(value, name);
-  if (!Object.values(record).every((entry) => typeof entry === "string")) throw new Error(`${name} must be an object of strings`);
-  return record as Record<string, string>;
-}
-
-function boolean(value: unknown, name: string): boolean {
-  if (value === undefined) return false;
-  if (typeof value !== "boolean") throw new Error(`${name} must be a boolean`);
-  return value;
-}
-
-function unique(values: string[]): string[] {
-  return [...new Set(values)];
 }

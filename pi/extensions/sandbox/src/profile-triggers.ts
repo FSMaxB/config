@@ -23,7 +23,7 @@ export function commandNames(command: string): string[] {
     .filter((name): name is string => name !== undefined);
 }
 
-function programWord(words: string[]): string | undefined {
+function programWord(words: readonly string[]): string | undefined {
   const word = words.find((candidate) => !ASSIGNMENT.test(candidate) && !PREFIX_WORDS.has(candidate));
   return word === undefined ? undefined : basename(stripQuotes(word));
 }

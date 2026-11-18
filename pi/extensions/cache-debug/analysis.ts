@@ -1,6 +1,7 @@
 import type { PayloadFingerprint } from "./fingerprint.ts";
 import { SectionKind } from "./fingerprint.ts";
-import { MarkerEvent, RequestPurpose, type LogRecord, type RequestRecord, type Usage } from "./records.ts";
+import { MarkerEvent, RequestPurpose } from "./records.ts";
+import type { LogRecord, RequestRecord, Usage } from "./records.ts";
 
 export const Verdict = {
   First: "first", // nothing to compare with: first request, or after session start/compaction
@@ -37,24 +38,31 @@ interface Comparison {
   changedParameters: string[];
 }
 
+type RecordWithUsage = RequestRecord & { usage: Usage };
+
 interface WalkState {
-  previous?: RequestRecord;
-  previousWithUsage?: RequestRecord;
+  previous: RequestRecord | undefined;
+  previousWithUsage: RecordWithUsage | undefined;
   reportedCache: boolean;
-  lastActivityAt?: number; // the end of the last record of any purpose
+  // The end of the last record of any purpose.
+  lastActivityAt: number | undefined;
 }
 
 // Same floor as pi's own cache-miss notice (cache-stats.js): smaller misses are breakpoint granularity.
 const NOISE_FLOOR_TOKENS = 1024;
 const PROBLEM_VERDICTS: readonly Verdict[] = [Verdict.PrefixChanged, Verdict.ProviderMiss, Verdict.NoPayload];
-const TTL_HINT_MS = 5 * 60 * 1000;
+// Anthropic's default prompt-cache TTL; an idle gap longer than that explains a provider-side miss.
+const TTL_HINT_MINUTES = 5;
+const TTL_HINT_MS = TTL_HINT_MINUTES * 60 * 1000;
 
 export function analyze(records: readonly LogRecord[]): Finding[] {
   const findings: Finding[] = [];
-  let state: WalkState = { reportedCache: false };
+  let state: WalkState = { previous: undefined, previousWithUsage: undefined, reportedCache: false, lastActivityAt: undefined };
   for (const record of records) {
     if (record.kind === "marker") {
-      state = resetsComparison(record.event) ? { reportedCache: state.reportedCache } : state;
+      state = resetsComparison(record.event)
+        ? { previous: undefined, previousWithUsage: undefined, reportedCache: state.reportedCache, lastActivityAt: undefined }
+        : state;
       continue;
     }
     findings.push(classify(record, state));
@@ -66,7 +74,7 @@ export function analyze(records: readonly LogRecord[]): Finding[] {
         ? { ...state, lastActivityAt }
         : {
             previous: record,
-            previousWithUsage: record.usage ? record : state.previousWithUsage,
+            previousWithUsage: hasUsage(record) ? record : state.previousWithUsage,
             reportedCache: state.reportedCache || (record.usage !== undefined && cachedTokens(record.usage) > 0),
             lastActivityAt,
           };
@@ -90,7 +98,7 @@ function classify(record: RequestRecord, { previous, previousWithUsage, reported
   if (!usage) return { ...base, verdict: Verdict.NoUsage };
 
   const promptTokens = promptTokensOf(usage);
-  const missedTokens = previousWithUsage ? Math.min(promptTokensOf(previousWithUsage.usage as Usage), promptTokens) - usage.cacheRead : undefined;
+  const missedTokens = previousWithUsage ? Math.min(promptTokensOf(previousWithUsage.usage), promptTokens) - usage.cacheRead : undefined;
   const withTokens = { ...base, promptTokens, ...(missedTokens === undefined ? {} : { missedTokens }) };
 
   const noMiss = missedTokens === undefined || missedTokens <= NOISE_FLOOR_TOKENS || (!reportedCache && cachedTokens(usage) === 0);
@@ -198,7 +206,7 @@ function renderChange({ key, index, label }: Change): string {
 }
 
 function renderIdle(idleMs: number): string {
-  return `idle ${Math.round(idleMs / 1000)}s${idleMs > TTL_HINT_MS ? " (> 5 min, TTL?)" : ""}`;
+  return `idle ${Math.round(idleMs / 1000)}s${idleMs > TTL_HINT_MS ? ` (> ${TTL_HINT_MINUTES} min, TTL?)` : ""}`;
 }
 
 function formatTime(iso: string): string {
@@ -212,4 +220,8 @@ function formatNumber(value: number): string {
 
 function formatOptional(value: number | undefined): string {
   return value === undefined ? "-" : formatNumber(value);
+}
+
+function hasUsage(record: RequestRecord): record is RecordWithUsage {
+  return record.usage !== undefined;
 }

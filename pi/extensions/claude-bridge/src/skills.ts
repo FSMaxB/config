@@ -1,5 +1,5 @@
-// Skills block extraction + MCP naming constants.
-// Extracted from index.ts so tests can import without activating the extension.
+// Skills block extraction + MCP naming constants. A module of its own so tests can import it
+// without activating the extension.
 
 export const MCP_SERVER_NAME = "custom-tools";
 export const MCP_TOOL_PREFIX = `mcp__${MCP_SERVER_NAME}__`;

@@ -4,13 +4,16 @@ import { execChecked } from "./exec.ts";
 
 export type Multiplexer = "tmux" | "zellij";
 
+// tmux, zellij and ps answer in milliseconds; this only bounds a hung multiplexer.
 const TIMEOUT = 15_000;
+// A review needs most of the window; the caller's pane keeps the rest visible beside it.
+const REVIEW_PANE_SIZE = "80%";
 
 export function detectMultiplexer(
-  env: NodeJS.ProcessEnv = process.env,
+  environment: NodeJS.ProcessEnv = process.env,
 ): Multiplexer | undefined {
-  if (env.TMUX) return "tmux";
-  if (env.ZELLIJ) return "zellij";
+  if (environment.TMUX) return "tmux";
+  if (environment.ZELLIJ) return "zellij";
   return undefined;
 }
 
@@ -18,7 +21,7 @@ export async function openPane(
   pi: ExtensionAPI,
   multiplexer: Multiplexer,
   cwd: string,
-  command: string[],
+  command: readonly string[],
   signal?: AbortSignal,
 ): Promise<void> {
   switch (multiplexer) {
@@ -35,7 +38,7 @@ export async function openPane(
             "#{pane_id}",
             "-b",
             "-l",
-            "80%",
+            REVIEW_PANE_SIZE,
             "-c",
             cwd,
             command.map(shellQuote).join(" "),
@@ -82,7 +85,7 @@ export async function openPane(
 // carries no pane ids, so the caller pane can only be recognised by its
 // command. That command is not this process — pi sits several processes below
 // the pane's own — so every ancestor is tried. Detection is best effort: on any
-// failure the pane opens stacked, as it always did.
+// failure the pane opens stacked.
 async function callerPaneIsFloating(
   pi: ExtensionAPI,
   signal: AbortSignal | undefined,
@@ -144,6 +147,7 @@ function count(haystack: string, character: string): number {
 async function callerCommands(
   pi: ExtensionAPI,
   signal: AbortSignal | undefined,
+  ownPid: number = process.pid,
 ): Promise<string[]> {
   const shells = new Set(["sh", "bash", "zsh", "fish", "dash", "ksh"]);
   const snapshot = await run(pi, "ps", ["-axo", "pid=,ppid=,comm="], signal);
@@ -156,7 +160,7 @@ async function callerCommands(
   }
 
   const commands: string[] = [];
-  let pid = process.pid;
+  let pid = ownPid;
   while (pid > 1) {
     const ancestor = processes.get(pid);
     if (!ancestor) break;
@@ -169,7 +173,7 @@ async function callerCommands(
 function run(
   pi: ExtensionAPI,
   command: string,
-  args: string[],
+  args: readonly string[],
   signal: AbortSignal | undefined,
 ): Promise<string> {
   return execChecked(pi, command, args, { signal, timeout: TIMEOUT });

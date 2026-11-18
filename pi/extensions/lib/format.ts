@@ -1,8 +1,7 @@
 import { homedir } from "node:os";
 import { sep } from "node:path";
 
-export function shortenPath(path: string): string {
-  const home = homedir();
+export function shortenPath(path: string, home: string = homedir()): string {
   if (path !== home && !path.startsWith(`${home}${sep}`)) return path;
   return `~${path.slice(home.length)}`;
 }

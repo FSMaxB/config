@@ -9,7 +9,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { __testGetBridgeIntegrityState, __testSetBridgeIntegrityState, __testSetSdkQueryFactory } from "../src/index.ts";
 import { __testSharedSessionLaneCount, setExtensionApi } from "../src/bridge-state.ts";
-import { __testQueryLaneCount, ctx, resetStack } from "../src/query-state.ts";
+import { __testQueryLaneCount, currentQueryContext, resetStack } from "../src/query-state.ts";
 import { runInRequestLane } from "../src/request-lane.ts";
 import { streamNormalized } from "./lib/stream-normalized.mjs";
 import { waitFor } from "./lib/wait-for.mjs";
@@ -39,20 +39,20 @@ beforeEach(() => {
 	previousEnv = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]));
 	Object.assign(process.env, env);
 	resetStack();
-	__testSetBridgeIntegrityState({ sharedSession: null, ui: { notify() {} } });
+	__testSetBridgeIntegrityState({ sharedSession: undefined, ui: { notify() {} } });
 	setExtensionApi({ events: { emit() {} }, appendEntry() {} });
 	__testSetSdkQueryFactory(fakeSdk);
 });
 
 afterEach(async () => {
 	for (const { gate } of queries.values()) gate.resolve();
-	await waitFor(() => runInRequestLane(PARENT, () => ctx().activeQuery === null));
+	await waitFor(() => runInRequestLane(PARENT, () => currentQueryContext().activeQuery === undefined));
 	for (const close of cleanups.splice(0)) await close();
 	queries.clear();
 	server = undefined;
 	__testSetSdkQueryFactory();
 	setExtensionApi(undefined);
-	__testSetBridgeIntegrityState({ sharedSession: null, ui: null });
+	__testSetBridgeIntegrityState({ sharedSession: undefined, ui: undefined });
 	resetStack();
 	for (const [key, value] of Object.entries(previousEnv)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
 	rmSync(root, { recursive: true, force: true });
@@ -116,14 +116,14 @@ describe("one-shot requests on a busy session id", () => {
 
 		// assert
 		assert.deepEqual(errorReasons(await answer), ["aborted"]);
-		assert.ok(runInRequestLane(PARENT, () => ctx().activeQuery), "the parent query keeps running");
+		assert.ok(runInRequestLane(PARENT, () => currentQueryContext().activeQuery), "the parent query keeps running");
 	});
 
 	it("refuses a request that arrives while the running query's stream is still open", { timeout: 5000 }, async () => {
 		// arrange
 		const parent = collect(streamNormalized(model, { messages: [userMessage("streaming")] }, { sessionId: PARENT, cwd: root }));
 		assert.equal(await waitFor(() => queries.has("streaming")), true, "the parent query started");
-		const parentStream = runInRequestLane(PARENT, () => ctx().currentPiStream);
+		const parentStream = runInRequestLane(PARENT, () => currentQueryContext().currentPiStream);
 
 		// act
 		const foreign = await collect(streamNormalized(model, { messages: [userMessage("foreign")] }, { sessionId: PARENT, cwd: root }));
@@ -131,8 +131,8 @@ describe("one-shot requests on a busy session id", () => {
 		// assert
 		assert.deepEqual(errorReasons(foreign), ["error"]);
 		assert.match(foreign.at(-1).error.errorMessage, /response stream is still open/);
-		assert.equal(runInRequestLane(PARENT, () => ctx().currentPiStream), parentStream);
-		assert.deepEqual(runInRequestLane(PARENT, () => ctx().deferredUserMessages), []);
+		assert.equal(runInRequestLane(PARENT, () => currentQueryContext().currentPiStream), parentStream);
+		assert.deepEqual(runInRequestLane(PARENT, () => currentQueryContext().deferredUserMessages), []);
 
 		// act
 		queries.get("streaming").gate.resolve();
@@ -156,8 +156,8 @@ describe("one-shot requests on a busy session id", () => {
 		// assert
 		assert.deepEqual(errorReasons(await foreign), ["aborted"]);
 		assert.equal(parentAbort.signal.aborted, false);
-		assert.ok(runInRequestLane(PARENT, () => ctx().activeQuery), "the parent query keeps running");
-		assert.equal(runInRequestLane(PARENT, () => ctx().currentPiStream), null);
+		assert.ok(runInRequestLane(PARENT, () => currentQueryContext().activeQuery), "the parent query keeps running");
+		assert.equal(runInRequestLane(PARENT, () => currentQueryContext().currentPiStream), undefined);
 	});
 });
 
@@ -211,7 +211,7 @@ async function callParentTool() {
 	await client.connect(clientTransport);
 	cleanups.push(() => client.close(), () => server.close());
 	const pendingCall = client.callTool({ name: "mytool", arguments: {} });
-	assert.equal(await waitFor(() => runInRequestLane(PARENT, () => ctx().pendingToolCalls.has("call-parent"))), true, "the parent's MCP handler is waiting");
+	assert.equal(await waitFor(() => runInRequestLane(PARENT, () => currentQueryContext().pendingToolCalls.has("call-parent"))), true, "the parent's MCP handler is waiting");
 	return { pendingCall };
 }
 
@@ -228,10 +228,10 @@ function toolLoopContext() {
 
 function parentState() {
 	return runInRequestLane(PARENT, () => ({
-		activeQuery: ctx().activeQuery,
-		currentPiStream: ctx().currentPiStream,
-		deferredUserMessages: [...ctx().deferredUserMessages],
-		latestCursor: ctx().latestCursor,
+		activeQuery: currentQueryContext().activeQuery,
+		currentPiStream: currentQueryContext().currentPiStream,
+		deferredUserMessages: [...currentQueryContext().deferredUserMessages],
+		latestCursor: currentQueryContext().latestCursor,
 		sharedSession: __testGetBridgeIntegrityState().sharedSession,
 	}));
 }

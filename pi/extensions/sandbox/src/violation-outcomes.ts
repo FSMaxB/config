@@ -1,9 +1,13 @@
 import type { FilesystemConfig } from "@anthropic-ai/sandbox-runtime";
 import type { AgentMode } from "../../lib/agent-mode.ts";
-import { readOnlyRepositoryNotice, type AccessMode } from "../../lib/path-permission-rules.ts";
+import { readOnlyRepositoryNotice } from "../../lib/path-permission-rules.ts";
+import type { AccessMode } from "../../lib/path-permission-rules.ts";
 import type { OnceGrant } from "../../lib/path-permissions.ts";
-import { ALL_DURATIONS, LASTING_DURATIONS, userReason, type Duration } from "../../lib/permission-prompt.ts";
-import { discardedWrites, type PathViolation } from "./violations.ts";
+import { ALL_DURATIONS, LASTING_DURATIONS, userReason } from "../../lib/permission-prompt.ts";
+import type { Duration } from "../../lib/permission-prompt.ts";
+import { discardedWrites } from "./violations.ts";
+import type { PathViolation } from "./violations.ts";
+import type { Platform } from "./platform.ts";
 
 export type ViolationOutcome =
   | { kind: "secret"; path: string }
@@ -27,7 +31,7 @@ export function promptDurations(exit: CommandExit): readonly Duration[] {
 // A path that is still blocked would fail the rerun the same way, so a rerun needs every path granted. A path
 // added to a profile contributes no once grant: the rerun reloads the profile. A command that exited 0 is never
 // rerun: its side effects already happened once.
-export function nextStep(outcomes: ViolationOutcome[], exit: CommandExit): NextStep {
+export function nextStep(outcomes: readonly ViolationOutcome[], exit: CommandExit): NextStep {
   if (exit === CommandExit.Succeeded) return { kind: "return" };
   const grants = outcomes.flatMap((outcome) => outcome.kind === "allowed-once" ? [outcome.grant] : []);
   const rerunnable = outcomes.some(({ kind }) => kind === "allowed-once" || kind === "added-to-profile");
@@ -36,11 +40,11 @@ export function nextStep(outcomes: ViolationOutcome[], exit: CommandExit): NextS
 }
 
 // The raw lines, for the model to see what else the command ran into besides the path denials below them.
-export function rawViolationBlock(lines: string[]): string {
+export function rawViolationBlock(lines: readonly string[]): string {
   return `\n<sandbox_violations>\n${lines.join("\n")}\n</sandbox_violations>`;
 }
 
-export function violationReport(outcomes: ViolationOutcome[], step: NextStep, agentMode: AgentMode, exit: CommandExit): string {
+export function violationReport(outcomes: readonly ViolationOutcome[], step: NextStep, agentMode: AgentMode, exit: CommandExit): string {
   const lines = outcomes.map((outcome) => outcomeLine(outcome, step, agentMode));
   return `\n${[...lines, ...reportFooter(step, exit)].join("\n")}\n`;
 }
@@ -73,7 +77,7 @@ function outcomeLine(outcome: ViolationOutcome, step: NextStep, agentMode: Agent
 const NETWORK_DENIAL = /^deny network-outbound (.+):(\d+) \(/;
 
 // Only denials with a user reason get a line; the raw block already lists the others.
-export function networkDenialReport(lines: string[], noteFor: (host: string, port: number) => string | undefined): string {
+export function networkDenialReport(lines: readonly string[], noteFor: (host: string, port: number) => string | undefined): string | undefined {
   const reported = new Map<string, string>();
   for (const line of lines) {
     const match = NETWORK_DENIAL.exec(line);
@@ -83,7 +87,7 @@ export function networkDenialReport(lines: string[], noteFor: (host: string, por
     const note = noteFor(host, Number(port));
     if (note && !reported.has(destination)) reported.set(destination, `Network access to ${destination} was denied by the user; do not retry it.${userReason(note)}`);
   }
-  return reported.size === 0 ? "" : `\n${[...reported.values()].join("\n")}\n`;
+  return reported.size === 0 ? undefined : `\n${[...reported.values()].join("\n")}\n`;
 }
 
 export const HERE_DOCUMENT_REPORT =
@@ -92,11 +96,11 @@ export const HERE_DOCUMENT_REPORT =
 // Linux's read-deny tmpfs accepts writes and drops them when the sandbox exits, so the program believes they
 // succeeded; macOS refuses such writes, so it never reports any.
 export function discardedWriteReport(
-  violations: PathViolation[],
+  violations: readonly PathViolation[],
   filesystem: Pick<FilesystemConfig, "denyRead" | "allowWrite">,
-  platform: "darwin" | "linux",
-): string {
+  platform: Platform,
+): string | undefined {
   const discarded = discardedWrites(violations, filesystem, platform);
-  if (discarded.length === 0) return "";
+  if (discarded.length === 0) return undefined;
   return `\n${discarded.map(({ path }) => `The write to ${path} was discarded; nothing reached the real filesystem.`).join("\n")}\n`;
 }

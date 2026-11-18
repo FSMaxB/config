@@ -3,11 +3,13 @@ import { test } from "node:test";
 import {
   ItemTone,
   MAX_TERMINAL_SHARE,
-  type PanelItem,
-  type PanelStyle,
   panelWidth,
   renderPanel,
-  type TextMeasure,
+} from "./panel.ts";
+import type {
+  PanelItem,
+  PanelStyle,
+  TextMeasure,
 } from "./panel.ts";
 
 const plain: PanelStyle = { border: (text) => text, title: (text) => text, dim: (text) => `~${text}~` };

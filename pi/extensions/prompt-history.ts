@@ -7,11 +7,16 @@ import { readdir, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { CustomEditor } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import { isRecord } from "./lib/untyped.ts";
 
+// About a day of prompts, without slowing down startup for projects with many sessions.
 const MAX_PROMPTS = 50;
 const MAX_SESSION_FILES = 10;
+// Another extension's editor normally registers within a few event-loop turns; one second is the limit.
+const EDITOR_POLL_MILLISECONDS = 50;
+const EDITOR_POLL_ATTEMPTS = 20;
 
-export default function (pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI): void {
   pi.on("session_start", async (event, context) => {
     // Only on process startup. Later reasons (new/resume/fork) keep the
     // already-installed editor, whose history persists across in-app session
@@ -41,14 +46,12 @@ export default function (pi: ExtensionAPI) {
  */
 function installHistoryEditor(
   ui: ExtensionUIContext,
-  prompts: string[],
+  prompts: readonly string[],
   attempt = 0,
 ): void {
-  const pollIntervalMs = 50;
-  const maxAttempts = 20;
   const wrappedFactory = ui.getEditorComponent();
-  if (!wrappedFactory && attempt < maxAttempts) {
-    setTimeout(() => installHistoryEditor(ui, prompts, attempt + 1), pollIntervalMs);
+  if (!wrappedFactory && attempt < EDITOR_POLL_ATTEMPTS) {
+    setTimeout(() => installHistoryEditor(ui, prompts, attempt + 1), EDITOR_POLL_MILLISECONDS);
     return;
   }
   ui.setEditorComponent((tui, theme, keybindings) => {
@@ -117,13 +120,13 @@ function extractUserPrompts(jsonl: string): string[] {
     if (!line.trim()) {
       continue;
     }
-    let entry;
+    let entry: unknown;
     try {
       entry = JSON.parse(line);
     } catch {
       continue;
     }
-    if (entry?.type !== "message" || entry.message?.role !== "user") {
+    if (!isRecord(entry) || entry.type !== "message" || !isRecord(entry.message) || entry.message.role !== "user") {
       continue;
     }
     const text = userMessageText(entry.message.content);
@@ -144,8 +147,8 @@ function userMessageText(content: unknown): string | undefined {
     return undefined;
   }
   const text = content
-    .filter((part) => part?.type === "text" && typeof part.text === "string")
-    .map((part) => part.text)
+    .map((part: unknown) => (isRecord(part) && part.type === "text" && typeof part.text === "string" ? part.text : undefined))
+    .filter((part) => part !== undefined)
     .join("\n")
     .trim();
   return text || undefined;

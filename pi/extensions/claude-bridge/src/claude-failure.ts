@@ -1,4 +1,5 @@
 import { resetTimestampMs } from "./rate-limit.js";
+import { isRecord } from "../../lib/untyped.ts";
 
 export type ClaudeFailureKind = "auth" | "billing" | "rate-limit" | "overloaded" | "server" | "network";
 
@@ -17,8 +18,8 @@ export function rateLimitResetFromInfo(info: Record<string, unknown> | undefined
 export function classifyClaudeFailure(value: unknown): ClaudeFailureKind | undefined {
 	const details: unknown[] = [value];
 	let numericStatus: number | undefined;
-	if (value && typeof value === "object") {
-		const record = value as Record<string, unknown>;
+	if (isRecord(value)) {
+		const record = value;
 		details.push(record.name, record.type, record.message, record.code, record.status, record.statusCode, record.body, record.error);
 		for (const field of [record.status, record.statusCode]) {
 			if (typeof field === "number" && Number.isInteger(field)) { numericStatus = field; break; }

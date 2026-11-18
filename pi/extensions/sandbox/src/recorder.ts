@@ -3,10 +3,15 @@ import { spawn } from "node:child_process";
 import { stat } from "node:fs/promises";
 import type { FilesystemConfig } from "@anthropic-ai/sandbox-runtime";
 import type { BashOperations, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { shellQuote } from "../../lib/panes.ts";
+import { waitUntilCountSettles } from "./settle.ts";
 import type { PathSelector } from "../../lib/path-permission-rules.ts";
-import { normalizePathSelector, type EffectivePolicy } from "../../lib/path-permissions.ts";
-import { INITIAL_LOG_STREAM_STATE, parseLogStreamChunk, type LogStreamFormat } from "./log-stream.ts";
-import { addFilesystemEntry, emptyProfileDefinition, isValidProfileName, type Profile } from "./profiles.ts";
+import { normalizePathSelector } from "../../lib/path-permissions.ts";
+import type { EffectivePolicy } from "../../lib/path-permissions.ts";
+import { INITIAL_LOG_STREAM_STATE, parseLogStreamChunk } from "./log-stream.ts";
+import type { LogStreamFormat } from "./log-stream.ts";
+import { addFilesystemEntry, emptyProfileDefinition, isValidProfileName } from "./profiles.ts";
+import type { Profile } from "./profiles.ts";
 import { buildDraft, draftText, parseDraftText, traceAccesses } from "./recording.ts";
 import { loadProfiles, updateProfile } from "./settings.ts";
 import { traceProfile } from "./trace-profile.ts";
@@ -37,7 +42,6 @@ export interface Recorder {
 interface Recording {
   profile: string;
   tag: string;
-  fingerprint: string;
   commands: string[];
   lines: string[];
   stopStream: () => void;
@@ -45,9 +49,8 @@ interface Recording {
   reviewText: string | undefined;
 }
 
+// `log stream` prints its header within a second; a slow start must not block arming forever.
 const STREAM_HEADER_TIMEOUT_MILLISECONDS = 3000;
-const POLL_MILLISECONDS = 250;
-const MAX_POLLS = 6;
 
 export function createRecorder(dependencies: RecorderDependencies): Recorder {
   let recording: Recording | undefined;
@@ -78,7 +81,7 @@ export function createRecorder(dependencies: RecorderDependencies): Recorder {
     const tag = `PIREC_${randomUUID().replaceAll("-", "")}_END`;
     const lines: string[] = [];
     const stopStream = await streamAllowedAccesses(tag, (line) => lines.push(line));
-    recording = { profile: name, tag, fingerprint: `recording-${tag}`, commands: [], lines, stopStream, reviewText: undefined };
+    recording = { profile: name, tag, commands: [], lines, stopStream, reviewText: undefined };
     const extension = created ? ` Set its triggers and PATH with /sandbox-profile edit ${name}.` : "";
     context.ui.notify(
       `Recording profile ${name}. Run the commands with ! or !! (they run outside the sandbox, traced). For bazel, start with !bazel shutdown so the server runs traced. Finish with /sandbox-profile stop.${extension}`,
@@ -93,15 +96,16 @@ export function createRecorder(dependencies: RecorderDependencies): Recorder {
     const profiles = (await loadProfiles(dependencies.settingsFile)).filter(({ name }) => name === active.profile);
     const filesystem = await dependencies.traceFilesystem(profiles);
     const environment = await dependencies.profileEnvironment(options.env ?? process.env, profiles);
-    const env = { ...environment, PI_SANDBOX_PROFILE_FINGERPRINT: active.fingerprint, PI_SANDBOX_RECORDING: "1" };
+    // A fingerprint of its own makes the bazel shim restart a server that runs with another profile.
+    const tracedEnvironment = { ...environment, PI_SANDBOX_PROFILE_FINGERPRINT: `recording-${active.tag}`, PI_SANDBOX_RECORDING: "1" };
     const wrapped = `/usr/bin/sandbox-exec -p ${shellQuote(traceProfile(filesystem, active.tag))} /bin/bash -c ${shellQuote(command)}`;
-    return await dependencies.stockExec(wrapped, cwd, { ...options, env });
+    return await dependencies.stockExec(wrapped, cwd, { ...options, env: tracedEnvironment });
   }
 
   async function stop(context: ExtensionCommandContext): Promise<void> {
     const active = recording;
     if (!active) return context.ui.notify("Not recording. Start with /sandbox-profile record <name>.", "error");
-    await waitUntilSettled(active);
+    await waitUntilCountSettles(() => active.lines.length);
     const text = active.reviewText ?? (await draftFor(active));
     const edited = await context.ui.editor(`Recording for profile ${active.profile}`, text);
     if (edited === undefined) return context.ui.notify("Still recording; run /sandbox-profile stop to review again.", "info");
@@ -114,8 +118,11 @@ export function createRecorder(dependencies: RecorderDependencies): Recorder {
       active.reviewText = edited;
       return context.ui.notify(`The recording was not saved:\n${errors.join("\n")}\nRun /sandbox-profile stop to fix it.`, "error");
     }
-    await updateProfile(dependencies.settingsFile, active.profile, (current) =>
-      entries.reduce((definition, { mode, entry }) => addFilesystemEntry(definition, mode, entry), current ?? emptyProfileDefinition()));
+    await updateProfile(dependencies.settingsFile, active.profile, (current) => {
+      let definition = current ?? emptyProfileDefinition();
+      for (const { mode, entry } of entries) definition = addFilesystemEntry(definition, mode, entry);
+      return definition;
+    });
     finish(active);
     context.ui.notify(`Saved ${entries.length} entries to profile ${active.profile}. The next sandboxed bazel call restarts a server the sandbox started.`, "info");
   }
@@ -148,15 +155,6 @@ export function createRecorder(dependencies: RecorderDependencies): Recorder {
   }
 }
 
-// The kernel reports asynchronously, so keep polling until the number of lines stops changing.
-async function waitUntilSettled(active: Recording): Promise<void> {
-  let previousCount = -1;
-  for (let poll = 0; poll < MAX_POLLS && active.lines.length !== previousCount; poll += 1) {
-    previousCount = active.lines.length;
-    await new Promise((resolve) => setTimeout(resolve, POLL_MILLISECONDS));
-  }
-}
-
 const ALLOWED_ACCESS: LogStreamFormat = { action: "allow", tag: /^(PIREC_\w+_END)/ };
 
 // Resolves once `log stream` printed its first output, so accesses right after arming are not lost.
@@ -176,10 +174,6 @@ function streamAllowedAccesses(tag: string, onLine: (line: string) => void): Pro
       resolve(stop);
     });
   });
-}
-
-function shellQuote(text: string): string {
-  return `'${text.replaceAll("'", "'\\''")}'`;
 }
 
 type ExecOptions = Parameters<BashOperations["exec"]>[2];

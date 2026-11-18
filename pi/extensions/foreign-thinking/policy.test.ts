@@ -6,7 +6,9 @@ import {
   describeState,
   parseConfig,
   rewriteForeignThinking,
-  type ThinkingConfig,
+} from "./policy.ts";
+import type {
+  ThinkingConfig,
 } from "./policy.ts";
 
 const kimi = { provider: "kimi-coding", api: "openai-completions", id: "k3" };

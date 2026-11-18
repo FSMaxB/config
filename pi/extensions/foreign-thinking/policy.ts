@@ -1,5 +1,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, TextContent, ThinkingContent } from "@earendil-works/pi-ai";
+import { isRecord } from "../lib/untyped.ts";
+import { matchesWildcard } from "../lib/wildcard.ts";
 
 export const ThinkingMode = {
   Drop: "drop",
@@ -8,10 +10,10 @@ export const ThinkingMode = {
 } as const;
 export type ThinkingMode = (typeof ThinkingMode)[keyof typeof ThinkingMode];
 
-export type ThinkingRule = { from?: string; to?: string; mode: ThinkingMode };
-export type ThinkingConfig = { fallback: ThinkingMode; rules: ThinkingRule[] };
-export type ParsedConfig = { config: ThinkingConfig; problems: string[] };
-export type TargetModel = { provider: string; api: string; id: string };
+export interface ThinkingRule { from?: string; to?: string; mode: ThinkingMode }
+export interface ThinkingConfig { fallback: ThinkingMode; rules: ThinkingRule[] }
+export interface ParsedConfig { config: ThinkingConfig; problems: string[] }
+export interface TargetModel { provider: string; api: string; id: string }
 
 const BRIDGE_PROVIDER = "pi-claude";
 const BRIDGE_API = "claude-bridge";
@@ -19,7 +21,7 @@ const ANTHROPIC_MESSAGES_API = "anthropic-messages";
 export const DEFAULT_CONFIG: ThinkingConfig = { fallback: ThinkingMode.Text, rules: [] };
 
 export function parseConfig(settings: object): ParsedConfig {
-  const { foreignThinking } = settings as { foreignThinking?: unknown };
+  const foreignThinking: unknown = Reflect.get(settings, "foreignThinking");
   if (foreignThinking === undefined) return { config: DEFAULT_CONFIG, problems: [] };
   if (!isRecord(foreignThinking)) {
     return { config: DEFAULT_CONFIG, problems: ["foreignThinking must be an object; using the defaults"] };
@@ -54,8 +56,10 @@ export function rewriteForeignThinking(
 }
 
 export function isThinkingMode(value: unknown): value is ThinkingMode {
-  return Object.values(ThinkingMode).includes(value as ThinkingMode);
+  return Object.values(ThinkingMode).some((mode) => mode === value);
 }
+
+const MODE_LIST = Object.values(ThinkingMode).join(", ");
 
 export function describeState(config: ThinkingConfig, override: ThinkingMode | undefined): string {
   const rules = config.rules.length === 0
@@ -71,7 +75,7 @@ export function describeState(config: ThinkingConfig, override: ThinkingMode | u
 function parseFallback(value: unknown, problems: string[]): ThinkingMode {
   if (value === undefined) return ThinkingMode.Text;
   if (isThinkingMode(value)) return value;
-  problems.push("foreignThinking.default must be drop, text or keep; using text");
+  problems.push(`foreignThinking.default must be one of ${MODE_LIST}; using ${ThinkingMode.Text}`);
   return ThinkingMode.Text;
 }
 
@@ -82,28 +86,25 @@ function parseRules(value: unknown, problems: string[]): ThinkingRule[] {
     return [];
   }
   const rules: ThinkingRule[] = [];
-  value.forEach((entry: unknown, index) => {
-    const reason = ruleProblem(entry);
-    if (reason !== undefined) {
-      problems.push(`foreignThinking.rules[${index}] ignored: ${reason}`);
-      return;
+  for (const [index, entry] of value.entries()) {
+    const parsed = parseRule(entry);
+    if (!parsed.ok) {
+      problems.push(`foreignThinking.rules[${index}] ignored: ${parsed.error}`);
+      continue;
     }
-    const { from, to, mode } = entry as ThinkingRule;
-    rules.push({ ...(from === undefined ? {} : { from }), ...(to === undefined ? {} : { to }), mode });
-  });
+    rules.push(parsed.rule);
+  }
   return rules;
 }
 
-function ruleProblem(entry: unknown): string | undefined {
-  if (!isRecord(entry)) return "not an object";
-  if (!isThinkingMode(entry.mode)) return "mode must be drop, text or keep";
-  const invalidPattern = [entry.from, entry.to].some((pattern) => pattern !== undefined && typeof pattern !== "string");
-  if (invalidPattern) return "from and to must be strings";
-  return undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function parseRule(entry: unknown): { ok: true; rule: ThinkingRule } | { ok: false; error: string } {
+  if (!isRecord(entry)) return { ok: false, error: "not an object" };
+  const { from, to, mode } = entry;
+  if (!isThinkingMode(mode)) return { ok: false, error: `mode must be one of ${MODE_LIST}` };
+  if ((from !== undefined && typeof from !== "string") || (to !== undefined && typeof to !== "string")) {
+    return { ok: false, error: "from and to must be strings" };
+  }
+  return { ok: true, rule: { ...(from === undefined ? {} : { from }), ...(to === undefined ? {} : { to }), mode } };
 }
 
 function isSameModel(message: AssistantMessage, target: TargetModel): boolean {
@@ -136,8 +137,8 @@ function keepThinking(message: AssistantMessage, target: TargetModel): Assistant
   if (apiFamily(message.api) !== apiFamily(target.api)) return rewriteMessage(message, target, ThinkingMode.Text);
   return {
     ...message,
-    provider: target.provider as AssistantMessage["provider"],
-    api: target.api as AssistantMessage["api"],
+    provider: target.provider,
+    api: target.api,
     model: target.id,
     content: message.content.filter((block) => block.type !== "thinking" || isReadable(block)),
   };
@@ -161,11 +162,5 @@ function apiFamily(api: string): string {
 }
 
 function matches(pattern: string | undefined, value: string): boolean {
-  if (pattern === undefined) return true;
-  const expression = pattern.split("*").map(escapeRegularExpression).join(".*");
-  return new RegExp(`^${expression}$`).test(value);
-}
-
-function escapeRegularExpression(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return pattern === undefined || matchesWildcard(pattern, value);
 }

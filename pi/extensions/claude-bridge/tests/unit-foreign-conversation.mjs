@@ -25,7 +25,7 @@ import {
 import { streamNormalized } from "./lib/stream-normalized.mjs";
 import { conversationFingerprint } from "../src/session-persistence.ts";
 import { setExtensionApi } from "../src/bridge-state.ts";
-import { ctx, resetStack } from "../src/query-state.ts";
+import { currentQueryContext, resetStack } from "../src/query-state.ts";
 import { runInRequestLane } from "../src/request-lane.ts";
 
 const model = {
@@ -83,7 +83,7 @@ beforeEach(() => {
 	diagDir = mkdtempSync(join(tmpdir(), "bridge-diag-"));
 	process.env.CLAUDE_BRIDGE_DIAG_PATH = join(diagDir, "diag.log");
 	resetStack();
-	__testSetBridgeIntegrityState({ sharedSession: null, ui: { notify: () => {} } });
+	__testSetBridgeIntegrityState({ sharedSession: undefined, ui: { notify: () => {} } });
 	setExtensionApi({ events: { emit: () => {} }, appendEntry: () => {} });
 });
 
@@ -95,7 +95,7 @@ afterEach(() => {
 	__testSetSdkQueryFactory();
 	setExtensionApi(undefined);
 	resetStack();
-	__testSetBridgeIntegrityState({ sharedSession: null, ui: null });
+	__testSetBridgeIntegrityState({ sharedSession: undefined, ui: undefined });
 });
 
 describe("foreign-conversation completion (#1001)", () => {
@@ -168,11 +168,11 @@ describe("foreign-conversation completion (#1001)", () => {
 			{ sessionId: "foreign-unresolved-tool" },
 		));
 		// The pi stream ends at the toolUse boundary; teardown runs after.
-		assert.equal(await waitFor(() => runInRequestLane("foreign-unresolved-tool", () => ctx().activeQuery === null)), true, "foreign query teardown completed");
+		assert.equal(await waitFor(() => runInRequestLane("foreign-unresolved-tool", () => currentQueryContext().activeQuery === undefined)), true, "foreign query teardown completed");
 
 		assert.ok(events.some((event) => event.type === "done" && event.reason === "toolUse"));
 		assert.equal(
-			runInRequestLane("foreign-unresolved-tool", () => ctx().detachedFromSharedSession),
+			runInRequestLane("foreign-unresolved-tool", () => currentQueryContext().detachedFromSharedSession),
 			true,
 			"the foreign non-claim must ride the query context",
 		);

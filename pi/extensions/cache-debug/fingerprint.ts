@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isRecord } from "../lib/untyped.ts";
 
 export const SectionKind = { Content: "content", Parameter: "parameter" } as const;
 export type SectionKind = (typeof SectionKind)[keyof typeof SectionKind];
@@ -42,18 +43,17 @@ function fingerprintSection(key: string, value: unknown): Section {
 // insertion order, so a reordering is a real prefix change.
 const CACHE_MARKER_KEYS = new Set(["cache_control", "cacheControl"]);
 
+// Enough to tell payload sections apart, short enough to keep each log line small.
+const HASH_LENGTH = 16;
+
 function digest(value: unknown): { hash: string; chars: number } {
   const json = JSON.stringify(value, (key, nested) => (CACHE_MARKER_KEYS.has(key) ? undefined : nested)) ?? "null";
-  return { hash: createHash("sha256").update(json).digest("hex").slice(0, 16), chars: json.length };
+  return { hash: createHash("sha256").update(json).digest("hex").slice(0, HASH_LENGTH), chars: json.length };
 }
 
 function labelOf(item: unknown): { label?: string } {
   if (!isRecord(item)) return {};
   const nestedFunction = isRecord(item.function) ? item.function : {};
-  const label = [item.role, item.name, nestedFunction.name, item.type].find((candidate) => typeof candidate === "string");
-  return label === undefined ? {} : { label: label as string };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  const label = [item.role, item.name, nestedFunction.name, item.type].find((candidate): candidate is string => typeof candidate === "string");
+  return label === undefined ? {} : { label };
 }

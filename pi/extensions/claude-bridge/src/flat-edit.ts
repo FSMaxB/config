@@ -1,4 +1,5 @@
 import type { Tool } from "@earendil-works/pi-ai";
+import { isRecord } from "../../lib/untyped.ts";
 
 // Sonnet and Haiku often write pi's nested `edits` array as broken JSON with XML-style keys
 // (`[{"oldText">…`), which fails validation. Flat string parameters are emitted raw, which is also why
@@ -30,8 +31,8 @@ export function modelFacingTool(tool: Tool): ModelFacingTool {
 // Only pi's own edit shape is flattened: another extension's edit tool may take arguments that pi's
 // prepareArguments does not fold.
 function hasPiEditShape(parameters: unknown): boolean {
-	const properties = (parameters as { properties?: Record<string, unknown> } | undefined)?.properties;
-	return properties !== undefined && Object.keys(properties).sort().join(",") === "edits,path";
+	if (!isRecord(parameters) || !isRecord(parameters.properties)) return false;
+	return Object.keys(parameters.properties).sort().join(",") === "edits,path";
 }
 
 // pi/extensions/files.ts appends its path-permission note as a later paragraph; keep it.

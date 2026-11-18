@@ -9,10 +9,10 @@ export interface ExecCheckedOptions {
 export async function execChecked(
   pi: ExtensionAPI,
   command: string,
-  args: string[],
+  args: readonly string[],
   options: ExecCheckedOptions,
 ): Promise<string> {
-  const { stdout, stderr, code, killed, truncated } = await pi.exec(command, args, options);
+  const { stdout, stderr, code, killed, truncated } = await pi.exec(command, [...args], options);
   const invocation = `${command} ${args.join(" ")}`;
 
   if (options.signal?.aborted) throw new Error(`${invocation} was aborted.`);

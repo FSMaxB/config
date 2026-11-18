@@ -10,17 +10,19 @@
  * while the sandbox is active, since the sandbox keeps the repository read-only.
  */
 
-import { planToolPermission, trustedReadOnlyToolNames, type ToolPolicyInfo } from "../lib/tool-permission-policy.ts";
+import { planToolPermission, trustedReadOnlyToolNames } from "../lib/tool-permission-policy.ts";
+import type { ToolPolicyInfo } from "../lib/tool-permission-policy.ts";
+import { SandboxStatus } from "../lib/sandbox-state.ts";
 
 export function restrictedModeAllowedTools(
   snapshot: ModeDecisionsSnapshot,
   persisted: PersistedModeDecisions,
   tools: readonly ToolPolicyInfo[],
-  sandboxActive: boolean,
+  sandbox: SandboxStatus,
 ): Set<string> {
   const trusted = trustedReadOnlyToolNames(tools);
   // Denials still win: planToolPermission checks them before the trusted set.
-  if (sandboxActive) trusted.add("bash");
+  if (sandbox === SandboxStatus.Active) trusted.add("bash");
   const decisions = {
     ...snapshot, alwaysGrants: persisted.alwaysAllowed, alwaysDenials: persisted.alwaysDenied,
   };
@@ -33,15 +35,15 @@ export type ChildToolVerdict = (typeof ChildToolVerdict)[keyof typeof ChildToolV
 
 // The parent only admits bash when its own sandbox is active; the child checks its own, since a sandbox
 // extension that failed to load leaves stock bash behind.
-export function childToolVerdict(toolName: string, allowedTools: ReadonlySet<string>, sandboxActive: boolean): ChildToolVerdict {
+export function childToolVerdict(toolName: string, allowedTools: ReadonlySet<string>, sandbox: SandboxStatus): ChildToolVerdict {
   if (!allowedTools.has(toolName)) return ChildToolVerdict.Restricted;
-  return toolName === "bash" && !sandboxActive ? ChildToolVerdict.NoSandbox : ChildToolVerdict.Allowed;
+  return toolName === "bash" && sandbox === SandboxStatus.Inactive ? ChildToolVerdict.NoSandbox : ChildToolVerdict.Allowed;
 }
 
 export function effectiveChildTools(
-  requested: string[] | undefined,
+  requested: readonly string[] | undefined,
   modeAllowed: ReadonlySet<string> | undefined,
-): string[] | undefined {
+): readonly string[] | undefined {
   if (modeAllowed === undefined) return requested;
   const candidates = requested ?? [...modeAllowed];
   return [...new Set(candidates.filter(name => modeAllowed.has(name)))];

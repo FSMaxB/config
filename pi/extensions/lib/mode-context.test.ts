@@ -7,7 +7,9 @@ import {
   registerModeMessages,
   renderSnapshot,
   SandboxStatus,
-  type ModeSnapshot,
+} from "./mode-messages.ts";
+import type {
+  ModeSnapshot,
 } from "./mode-messages.ts";
 
 test("the first prompt receives the current snapshot and unchanged prompts do not repeat it", async () => {
@@ -119,13 +121,13 @@ test("denial and note changes announce a new snapshot, decisions that render the
   // act
   fixture.transition({});
   const unchanged = fixture.sent.length;
-  fixture.transition({ denials: [{ name: "bash" }] });
+  fixture.transition({ denials: [{ name: "bash", note: undefined }] });
   fixture.transition({ denials: [{ name: "bash", note: "Ask first" }] });
 
   // assert
   assert.equal(unchanged, 0);
   assert.deepEqual(fixture.sent.map(({ message }) => message.content), [
-    fixture.render({ denials: [{ name: "bash" }] }),
+    fixture.render({ denials: [{ name: "bash", note: undefined }] }),
     fixture.render({ denials: [{ name: "bash", note: "Ask first" }] }),
   ]);
 });

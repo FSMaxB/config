@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type, type Static } from "typebox";
+import { Type } from "typebox";
+import type { Static } from "typebox";
 import { isCritPlanApproved } from "./lib/crit-approval.ts";
 import { fillPrepPath, hunkIdsFromPrep } from "./lib/crit-story.ts";
 import { execChecked } from "./lib/exec.ts";
@@ -15,7 +16,9 @@ import { canSubmitReviewedPlan, submitReviewedPlan } from "./lib/plan-submission
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 import { sessionTemporaryDirectory } from "./lib/session-temporary-directory.ts";
 
+// Bounds crit's own commands; a review itself waits for the user without a timeout.
 const TIMEOUT = 60_000;
+// Enough of crit's output to explain a failure without flooding the tool result.
 const TAIL_LINES = 12;
 const DEFAULT_AUTHOR = "pi";
 
@@ -24,7 +27,7 @@ const DEFAULT_AUTHOR = "pi";
 // root without it.
 let planSlug: string | undefined;
 
-export default function (pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI): void {
   pi.on("session_start", () => { planSlug = undefined; });
 
   registerToolWithGuidelines(pi, {
@@ -397,15 +400,8 @@ interface ReviewParams {
 function reviewArgs(params: ReviewParams): { args: string[]; slug?: string } {
   const { paths, pr, range, url, html, plan, story, session, baseBranch } =
     params;
-  const chosen = [
-    paths?.length ? "paths" : null,
-    pr ? "pr" : null,
-    range ? "range" : null,
-    url ? "url" : null,
-    html ? "html" : null,
-    plan ? "plan" : null,
-    session ? "session" : null,
-  ].filter((name): name is string => name !== null);
+  const targets = { paths: paths?.length, pr, range, url, html, plan, session };
+  const chosen = Object.entries(targets).filter(([, value]) => Boolean(value)).map(([name]) => name);
 
   if (chosen.length > 1) {
     throw new Error(
@@ -438,7 +434,7 @@ function reviewArgs(params: ReviewParams): { args: string[]; slug?: string } {
 async function ingestStory(
   pi: ExtensionAPI,
   story: Story,
-  scopeArgs: string[],
+  scopeArgs: readonly string[],
   signal: AbortSignal | undefined,
 ): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "pi-crit-"));
@@ -467,7 +463,7 @@ async function ingestStory(
 // collected at the end: the review URL it prints on startup is the only way back in if the
 // browser does not open on its own.
 function streamCrit(
-  args: string[],
+  args: readonly string[],
   signal: AbortSignal | undefined,
   onLine: (line: string) => void,
 ): Promise<{ output: string; stderr: string; code: number }> {
@@ -535,7 +531,7 @@ function toCritEntry(comment: CommentParams): Record<string, unknown> {
 
 async function runCrit(
   pi: ExtensionAPI,
-  args: string[],
+  args: readonly string[],
   signal: AbortSignal | undefined,
 ): Promise<AgentToolResult<unknown>> {
   const text = (

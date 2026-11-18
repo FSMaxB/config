@@ -1,20 +1,22 @@
-// End-of-query teardown, extracted from streamClaudeAgentSdk's .finally so it
-// operates on the ONE context captured at query start — never the live ctx().
+// End-of-query teardown for streamClaudeAgentSdk's .finally. It
+// operates on the ONE context captured at query start — never the live currentQueryContext().
 // The two only differ while a reentrant (subagent) context is pushed, which is
 // exactly when a parent query ending abnormally (abort, child process death)
 // teardown must run against the parent state. Using the subagent state skips
 // the parent's drain and activeQuery clear, which leaks handlers.
 
+import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import { reportToolResultMismatch } from "./bridge-state.js";
-import { type ChildExitOutcome } from "./child-exit.js";
+import type { ChildExitOutcome } from "./child-exit.js";
 import { debug } from "./debug.js";
-import { drainPendingToolCalls, popContextFor, type QueryContext, type ToolCallDrainCause } from "./query-state.js";
+import { drainPendingToolCalls, popContextFor } from "./query-state.js";
+import type { QueryContext, ToolCallDrainCause } from "./query-state.js";
 
 /** Close a settled or dying SDK query. Its transport can throw on the way down
  *  — a child already gone, a socket already closed — and that throw belongs to
  *  the query being closed, never to whatever its caller does next. */
-export function closeSdkQuery(sdkQuery: unknown): void {
-	try { (sdkQuery as { close(): void }).close(); }
+export function closeSdkQuery(sdkQuery: Query): void {
+	try { sdkQuery.close(); }
 	catch (error) { debug("provider: closing the sdk query threw; continuing teardown:", error); }
 }
 
@@ -22,16 +24,16 @@ export function closeSdkQuery(sdkQuery: unknown): void {
  *  tool call, records the interruption in its transcript (a rejected
  *  tool_result per pending call, or the partial assistant message) and exits
  *  by itself, which is what keeps the session resumable with a warm cache. */
-export function interruptSdkQuery(sdkQuery: unknown): void {
-	void (sdkQuery as { interrupt(): Promise<void> }).interrupt().catch(() => {});
+export function interruptSdkQuery(sdkQuery: Query): void {
+	void sdkQuery.interrupt().catch(() => {});
 }
 
 /** Stop an in-flight SDK query without waiting: interrupt, then kill. For the
  *  paths that rebuild or rotate the session anyway (stream-idle timeout,
  *  history restart, a signal already aborted before the child spawned). A
  *  user abort uses interruptSdkQuery instead. */
-export function abortSdkQuery(sdkQuery: unknown): void {
-	void (sdkQuery as { interrupt(): Promise<void> }).interrupt().catch(() => {});
+export function abortSdkQuery(sdkQuery: Query): void {
+	void sdkQuery.interrupt().catch(() => {});
 	closeSdkQuery(sdkQuery);
 }
 
@@ -39,26 +41,26 @@ export function abortSdkQuery(sdkQuery: unknown): void {
  *  is not the context's active one (a continuation replaced it, or teardown
  *  already ran). Returns true when teardown actually ran. */
 export function teardownQuery(
-	queryCtx: QueryContext,
+	queryContext: QueryContext,
 	sdkQuery: unknown,
 	cause: ToolCallDrainCause,
 	cwd: string,
 	isReentrant: boolean,
 ): boolean {
-	if (queryCtx.activeQuery !== sdkQuery) return false;
-	reportToolResultMismatch(queryCtx, "query teardown", cwd, { forceRotate: cause !== "query-end" });
+	if (queryContext.activeQuery !== sdkQuery) return false;
+	reportToolResultMismatch(queryContext, "query teardown", cwd, { forceRotate: cause !== "query-end" });
 	// Drain pending handlers for this query as errors naming the cause —
 	// their results are never coming.
-	const drained = drainPendingToolCalls(queryCtx, cause);
+	const drained = drainPendingToolCalls(queryContext, cause);
 	if (drained > 0) debug(`provider: query teardown drained ${drained} waiting MCP handler(s) as errors (cause=${cause})`);
-	queryCtx.pendingResults.clear();
+	queryContext.pendingResults.clear();
 
 	if (isReentrant) {
 		// Merges deferred messages and restores/repairs the stack. popContextFor
 		// (not popContext): a live subagent context may sit above this one.
-		if (!popContextFor(queryCtx)) debug("provider: query teardown found context already popped; skipping pop");
+		if (!popContextFor(queryContext)) debug("provider: query teardown found context already popped; skipping pop");
 	} else {
-		queryCtx.activeQuery = null;
+		queryContext.activeQuery = undefined;
 	}
 	return true;
 }

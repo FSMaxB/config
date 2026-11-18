@@ -1,4 +1,7 @@
-import { AgentMode, isRestricted, MODE_IDENTITIES, type RestrictedMode } from "./agent-mode.ts";
+import { AgentMode, isRestricted, MODE_IDENTITIES } from "./agent-mode.ts";
+import type { RestrictedMode } from "./agent-mode.ts";
+import type { Denial } from "./mode-entry.ts";
+import { SUBMIT_PLAN } from "./plan-tools.ts";
 import { userReason } from "./permission-prompt.ts";
 import type { ToolPermission } from "./tool-permission-policy.ts";
 
@@ -44,7 +47,8 @@ export function transitionNotice(from: AgentMode, to: AgentMode, timing: Timing)
   }
   if (toLabel) return `${toLabel} ${deferred ? "will be enabled at the next tool call" : "enabled"}.`;
   if (fromLabel) return `${fromLabel} ${deferred ? "will be disabled at the next tool call" : "disabled"}.`;
-  return "";
+  // Both sides are execution mode, which a toggle never produces.
+  return "Execution mode is unchanged.";
 }
 
 export const Interaction = { Available: "available", Unavailable: "unavailable" } as const;
@@ -66,7 +70,7 @@ export function toolGate(
   if (blocked) return { kind: "block", reason: blocked };
   if (permission === "allow") return { kind: "run" };
   if (interaction === Interaction.Unavailable) {
-    return { kind: "block", reason: deniedReason(mode, toolName, "there is no interactive UI to ask for approval") };
+    return { kind: "block", reason: deniedReason(mode, toolName, "there is no interactive UI to ask for approval", undefined) };
   }
   return { kind: "ask" };
 }
@@ -87,9 +91,9 @@ export function blockedReason(mode: RestrictedMode, toolName: string, { sessionD
 }
 
 // The snapshot lists what blockedReason enforces, so an always denial's note wins here as well.
-export function effectiveDenials({ sessionDenials, alwaysDenials }: DenialStores): { name: string; note?: string }[] {
+export function effectiveDenials({ sessionDenials, alwaysDenials }: DenialStores): Denial[] {
   const denials = new Map([...sessionDenials, ...alwaysDenials]);
-  return [...denials].map(([name, note]) => (note ? { name, note } : { name }));
+  return [...denials].map(([name, note]) => ({ name, note }));
 }
 
 export const DENIAL_CAUSES = {
@@ -97,13 +101,13 @@ export const DENIAL_CAUSES = {
   "deny-always": "you denied it for all sessions",
 } as const;
 
-export function deniedReason(mode: RestrictedMode, toolName: string, cause: string, note?: string): string {
+export function deniedReason(mode: RestrictedMode, toolName: string, cause: string, note: string | undefined): string {
   const reason =
     `${MODE_IDENTITIES[mode].label} is active and ${cause}, so ${toolName} did not run. ` +
     "Do not retry it.";
   if (note) return `${reason}${userReason(note)}`;
   const next = mode === AgentMode.Planning
-    ? "or call submit_plan if the plan is ready."
+    ? `or call ${SUBMIT_PLAN} if the plan is ready.`
     : "or finish the exploration and report your findings.";
   return `${reason} State what you need it for so the user can grant access, ${next}`;
 }

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { guidanceTable, type SubagentModelConfig } from "./model-policy.ts";
+import { guidanceTable } from "./model-policy.ts";
+import type { SubagentModelConfig } from "./model-policy.ts";
 
 test("guidanceTable only lists models allowed for an OpenAI session", () => {
   // arrange

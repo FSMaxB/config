@@ -1,10 +1,10 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { processAssistantMessage } from "../src/index.ts";
-import { ctx, resetStack } from "../src/query-state.ts";
+import { currentQueryContext, resetStack } from "../src/query-state.ts";
 import { model, installFakeStream } from "./lib/tool-stream.mjs";
 import { cancelScheduledToolUseEnd } from "../src/assistant-stream.ts";
-afterEach(() => cancelScheduledToolUseEnd(ctx()));
+afterEach(() => cancelScheduledToolUseEnd(currentQueryContext()));
 describe("no-stream-events fallback: same-message re-yields", () => {
 	beforeEach(() => resetStack());
 
@@ -12,7 +12,7 @@ describe("no-stream-events fallback: same-message re-yields", () => {
 		// The SDK yields the SAME assistant message more than once (partial +
 		// completed copies share one id). A rate-limited turn must print its
 		// warning only once through this path.
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		const events = installFakeStream();
 		const msg = {
@@ -32,7 +32,7 @@ describe("no-stream-events fallback: same-message re-yields", () => {
 	});
 
 	it("a distinct new message still renders", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		const events = installFakeStream();
 		const mk = (id, text) => ({ type: "assistant", message: { id, content: [{ type: "text", text }] } });
@@ -48,7 +48,7 @@ describe("no-stream-events fallback: same-message re-yields", () => {
 		// A rejected turn's synthesized error message arrives as multiple yields
 		// whose ids differ or are absent. Identical error blocks must still
 		// collapse into one Pi message.
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		const events = installFakeStream();
 		const text = "You've hit your weekly limit · resets Jul 30, 4am (America/Los_Angeles)";
@@ -63,7 +63,7 @@ describe("no-stream-events fallback: same-message re-yields", () => {
 	});
 
 	it("does not duplicate a re-yielded tool call block and keeps claim state", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		const events = installFakeStream();
 		const msg = {

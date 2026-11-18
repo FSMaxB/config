@@ -22,11 +22,11 @@ export function isUsageLimitMessage(value: unknown): boolean {
 // The SDK export is @alpha — degrade to "no match" (pre-0.3.220 behavior) if a
 // future release drops it, instead of crashing message classification.
 function usageLimitPrefixes(): readonly string[] {
-	const prefixes = claudeAgentSdk().USAGE_LIMIT_ERROR_PREFIXES as unknown;
-	return Array.isArray(prefixes) ? prefixes : [];
+	const prefixes: unknown = Reflect.get(claudeAgentSdk(), "USAGE_LIMIT_ERROR_PREFIXES");
+	return Array.isArray(prefixes) ? prefixes.filter((prefix) => typeof prefix === "string") : [];
 }
 
-export function uniqueNonEmptyLines(values: unknown[]): string[] {
+export function uniqueNonEmptyLines(values: readonly unknown[]): string[] {
 	const seen = new Set<string>();
 	const out: string[] = [];
 	for (const value of values) {

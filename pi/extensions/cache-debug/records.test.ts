@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fingerprintPayload } from "./fingerprint.ts";
-import { filterHeaders, Outcome, RequestTracker, type LogRecord } from "./records.ts";
+import { filterHeaders, Outcome, RequestTracker } from "./records.ts";
+import type { LogRecord } from "./records.ts";
 
 const identity = { sessionId: "s", provider: "mistral", model: "large", api: "mistral-conversations" };
 const usage = { input: 10, output: 5, cacheRead: 100, cacheWrite: 0, cost: { total: 1 }, totalTokens: 115 };

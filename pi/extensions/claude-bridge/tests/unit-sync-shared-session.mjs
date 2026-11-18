@@ -48,8 +48,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-	setSharedSession(null);
-	__testSetBridgeIntegrityState({ ui: null });
+	setSharedSession(undefined);
+	__testSetBridgeIntegrityState({ ui: undefined });
 });
 
 describe("syncSharedSession REUSE path", () => {
@@ -134,7 +134,7 @@ describe("syncSharedSession clean start", () => {
 
 		const result = syncSharedSession(messages, CWD);
 
-		assert.equal(result.sessionId, null);
+		assert.equal(result.sessionId, undefined);
 		assert.equal(result.promptStart, 0);
 		assert.deepEqual(promptContents(messages, result.promptStart), ["hello"]);
 	});
@@ -150,7 +150,7 @@ describe("syncSharedSession foreign-conversation guard (#1001)", () => {
 
 		const result = syncSharedSession(messages, CWD);
 
-		assert.equal(result.sessionId, null);
+		assert.equal(result.sessionId, undefined);
 		assert.equal(result.promptStart, 0);
 		assert.equal(result.foreignContext, true);
 		assert.deepEqual(__testGetBridgeIntegrityState().sharedSession, record);
@@ -164,7 +164,7 @@ describe("syncSharedSession foreign-conversation guard (#1001)", () => {
 
 			const result = syncSharedSession(messages, CWD);
 
-			assert.equal(result.sessionId, null);
+			assert.equal(result.sessionId, undefined);
 			assert.equal(result.promptStart, 2);
 			assert.equal(result.foreignContext, true);
 			assert.deepEqual(__testGetBridgeIntegrityState().sharedSession, record);
@@ -182,7 +182,7 @@ describe("syncSharedSession foreign-conversation guard (#1001)", () => {
 
 		const result = syncSharedSession(messages, CWD);
 
-		assert.equal(result.sessionId, null);
+		assert.equal(result.sessionId, undefined);
 		assert.equal(result.foreignContext, true);
 		assert.deepEqual(__testGetBridgeIntegrityState().sharedSession, record);
 	});
@@ -383,7 +383,7 @@ describe("syncSharedSession foreign-conversation guard (#1001)", () => {
 
 		const result = syncSharedSession(messages, CWD);
 
-		assert.equal(result.sessionId, null);
+		assert.equal(result.sessionId, undefined);
 		assert.equal(result.foreignContext, true);
 		assert.equal(result.promptStart, 2, "foreign one-shot prompts only the trailing message");
 		assert.deepEqual(__testGetBridgeIntegrityState().sharedSession, record);
@@ -440,7 +440,7 @@ describe("syncSharedSession foreign-conversation guard (#1001)", () => {
 		const legacy = { sessionId: "sess-legacy", cursor: 40, cwd: CWD };
 		setSharedSession({ ...legacy });
 		const foreignResult = syncSharedSession([user("subagent task")], CWD);
-		assert.equal(foreignResult.sessionId, null);
+		assert.equal(foreignResult.sessionId, undefined);
 		assert.equal(foreignResult.foreignContext, undefined);
 		assert.deepEqual(__testGetBridgeIntegrityState().sharedSession, legacy);
 

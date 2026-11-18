@@ -1,8 +1,6 @@
-type ExploreSettings = {
-  exploreMode?: { alwaysOn?: unknown };
-};
+import { isRecord } from "./untyped.ts";
 
 export function isExploreAlwaysOn(settings: object): boolean {
-  const { exploreMode } = settings as ExploreSettings;
-  return exploreMode?.alwaysOn === true;
+  const exploreMode: unknown = Reflect.get(settings, "exploreMode");
+  return isRecord(exploreMode) && exploreMode.alwaysOn === true;
 }

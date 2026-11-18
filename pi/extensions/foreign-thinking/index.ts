@@ -5,13 +5,13 @@ import {
   isThinkingMode,
   parseConfig,
   rewriteForeignThinking,
-  type ThinkingConfig,
-  type ThinkingMode,
 } from "./policy.ts";
+import { ThinkingMode } from "./policy.ts";
+import type { ThinkingConfig } from "./policy.ts";
 
-const USAGE = "Usage: /foreign-thinking [drop|text|keep|reset]";
+const USAGE = `Usage: /foreign-thinking [${[...Object.values(ThinkingMode), "reset"].join("|")}]`;
 
-export default function foreignThinkingExtension(pi: ExtensionAPI) {
+export default function foreignThinkingExtension(pi: ExtensionAPI): void {
   let config: ThinkingConfig = DEFAULT_CONFIG;
   // Pi re-runs extension factories for every new session, so the override ends with the session.
   let override: ThinkingMode | undefined;

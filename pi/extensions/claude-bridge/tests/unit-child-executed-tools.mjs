@@ -1,11 +1,11 @@
 import { it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { processAssistantMessage, processStreamEvent } from "../src/index.ts";
-import { ctx, resetStack } from "../src/query-state.ts";
+import { currentQueryContext, resetStack } from "../src/query-state.ts";
 const FOREIGN_TOOL = "mcp__foreign__read_user_profile";
 import { model, installFakeStream, streamEvent } from "./lib/tool-stream.mjs";
 import { cancelScheduledToolUseEnd } from "../src/assistant-stream.ts";
-afterEach(() => cancelScheduledToolUseEnd(ctx()));
+afterEach(() => cancelScheduledToolUseEnd(currentQueryContext()));
 
 beforeEach(() => resetStack());
 const childRoutes = [
@@ -20,7 +20,7 @@ const childRoutes = [
 ];
 for (const row of childRoutes) it(row.name, () => {
 	resetStack();
-	const c = ctx();
+	const c = currentQueryContext();
 	c.resetTurnState(model);
 	const events = installFakeStream();
 	const call = { type: "tool_use", id: row.id, name: row.tool, input: row.input };
@@ -41,7 +41,7 @@ for (const row of childRoutes) it(row.name, () => {
 		toolBoundary: c.turnSawToolCall,
 		toolIds: c.turnToolCallIds,
 		queued: c.pendingResults.size,
-		streamOpen: c.currentPiStream !== null,
+		streamOpen: c.currentPiStream !== undefined,
 		unexpected: [...c.childSideCalls].map(([id, entry]) => [id, entry.name]),
 	}, { blocks: row.route === "fallback" ? ["text"] : [], toolBoundary: false, toolIds: [], queued: 0, streamOpen: true, unexpected: [[row.id, row.tool]] });
 	if (row.route === "stream") assert.deepEqual({ events: events.map((event) => event.type), skipped: c.suppressedStreamIndexes.has(0) }, { events: ["start"], skipped: true });
@@ -55,7 +55,7 @@ const foreignRoutes = [
 ];
 for (const [name, toolName, route] of foreignRoutes) it(name, () => {
 	resetStack();
-	const c = ctx();
+	const c = currentQueryContext();
 	c.resetTurnState(model);
 	installFakeStream();
 	const manifest = new Map([["mcp__custom-tools__read", "read"], ["mcp__custom-tools__grep", "grep"]]);
@@ -71,7 +71,7 @@ for (const [name, toolName, route] of foreignRoutes) it(name, () => {
 });
 
 it("keeps streaming the answer text into the same Pi message after a foreign call", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		installFakeStream();
 
@@ -101,7 +101,7 @@ it("keeps streaming the answer text into the same Pi message after a foreign cal
 	});
 
 it("still mirrors a Pi tool call alongside a foreign call in the same message", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		installFakeStream();
 		c.turnSawStreamEvent = true;
@@ -124,12 +124,12 @@ it("still mirrors a Pi tool call alongside a foreign call in the same message", 
 		assert.equal(c.turnSawToolCall, true);
 		assert.ok(c.scheduledToolUseEnd, "a real Pi tool call arms the deferred turn end");
 		processStreamEvent(streamEvent({ type: "message_stop" }), new Map(), model);
-		assert.equal(c.currentPiStream, null, "message_stop ends the tool-use turn");
-		assert.equal(c.scheduledToolUseEnd, null, "grace timer disarmed at turn end");
+		assert.equal(c.currentPiStream, undefined, "message_stop ends the tool-use turn");
+		assert.equal(c.scheduledToolUseEnd, undefined, "grace timer disarmed at turn end");
 	});
 
 it("still mirrors a Pi tool coincidentally named like a child built-in", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		installFakeStream();
 		c.turnSawStreamEvent = true;
@@ -147,7 +147,7 @@ it("still mirrors a Pi tool coincidentally named like a child built-in", () => {
 	});
 
 it("rejects an unprovided streamed MCP-resource read", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		installFakeStream();
 
@@ -163,7 +163,7 @@ it("rejects an unprovided streamed MCP-resource read", () => {
 	});
 
 it("rejects an unprovided MCP-resource enumeration on the assistant-boundary path", () => {
-		const c = ctx();
+		const c = currentQueryContext();
 		c.resetTurnState(model);
 		installFakeStream();
 		c.turnSawStreamEvent = true;

@@ -1,9 +1,13 @@
 import { AgentMode, isRestricted } from "../../lib/agent-mode.ts";
 import { ALLOW_ONCE, ALLOW_SESSION } from "../../lib/permission-choices.ts";
-import { Duration, userReason, type PermissionAnswer } from "../../lib/permission-prompt.ts";
+import { Duration, userReason } from "../../lib/permission-prompt.ts";
+import type { PermissionAnswer } from "../../lib/permission-prompt.ts";
 import type { SessionGrant } from "../../lib/session-grants.ts";
 import type { TriggerMatch } from "./profile-triggers.ts";
-import { NetworkAccess, type ActivationDecisions, type Profile, type ProfileNetwork } from "./profiles.ts";
+import { NetworkAccess } from "./profiles.ts";
+import type { ActivationDecisions, Profile, ProfileNetwork } from "./profiles.ts";
+import { isRecord } from "../../lib/untyped.ts";
+import { shortenedCommand } from "./command-text.ts";
 
 export const PROFILE_ENTRY_TYPE = "sandbox-profiles";
 
@@ -73,9 +77,8 @@ export function resolveActivationAnswer(profile: Profile, answer: PermissionAnsw
   };
 }
 
+// Entries per list in the prompt; the prompt has to fit on screen next to its options.
 const LIST_LIMIT = 5;
-const COMMAND_HEAD = 120;
-const COMMAND_TAIL = 120;
 
 export function activationPrompt(profile: Profile, origin: ActivationOrigin): string {
   const { filesystem, network, path } = profile;
@@ -103,10 +106,8 @@ function originText(origin: ActivationOrigin): string {
   return `Triggered by ${trigger} in: ${shortened(origin.command)}`;
 }
 
-// The tail matters more than the head here: an unexpected suffix on a long command is where a payload hides.
 function shortened(command: string): string {
-  if (command.length <= COMMAND_HEAD + COMMAND_TAIL + 32) return command;
-  return `${command.slice(0, COMMAND_HEAD)} …[${command.length - COMMAND_HEAD - COMMAND_TAIL} characters omitted]… ${command.slice(-COMMAND_TAIL)}`;
+  return shortenedCommand(command, " ");
 }
 
 function listLine(label: string, entries: readonly string[]): string[] {
@@ -141,12 +142,12 @@ export function serializeProfileState({ allowed, denied }: ProfileSessionState):
 
 export function parseProfileState(value: unknown): ProfileSessionState {
   const state = emptyProfileState();
-  if (typeof value !== "object" || value === null) return state;
-  const { allowed, active, denied } = value as { allowed?: unknown; active?: unknown; denied?: unknown };
-  // Entries written before per-call profiles stored "active" (applied to every call); reading it as an approval is the narrower meaning.
+  if (!isRecord(value)) return state;
+  const { allowed, active, denied } = value;
+  // An "active" list (a profile applied to every call) is read as approvals, the narrower meaning.
   const names = allowed ?? active;
   if (Array.isArray(names)) for (const name of names) if (typeof name === "string") state.allowed.add(name);
-  if (typeof denied === "object" && denied !== null && !Array.isArray(denied)) {
+  if (isRecord(denied)) {
     for (const [name, note] of Object.entries(denied)) state.denied.set(name, typeof note === "string" ? note : undefined);
   }
   return state;

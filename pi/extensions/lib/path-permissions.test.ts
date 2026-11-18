@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import assert from "node:assert/strict";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { AgentMode } from "./agent-mode.ts";
@@ -188,6 +188,8 @@ test("default write access excludes the repository but not the jj locks in restr
     memoryDirectory: "/memory",
     skillRoots: ["/skills"],
     agentDirectory: "/agent",
+    temporaryDirectory: undefined,
+    homeDirectory: "/home",
   };
 
   // act
@@ -224,20 +226,16 @@ test("default read access includes every trusted root", () => {
     memoryDirectory: "/memory",
     skillRoots: ["/skills/one", "/skills/two"],
     agentDirectory: "/agent",
+    temporaryDirectory: undefined,
+    homeDirectory: "/home",
   };
+  const expected = ["/repo/**", "/memory/**", "/agent/plans/**", "/home/.crit/**", "/skills/one/**", "/skills/two/**"];
 
   // act
   const allowed = defaultAllowed("read", options);
 
   // assert
-  assert.deepEqual(allowed.map(selectorLabel), [
-    "/repo/**",
-    "/memory/**",
-    "/agent/plans/**",
-    join(homedir(), ".crit", "**"),
-    "/skills/one/**",
-    "/skills/two/**",
-  ]);
+  assert.deepEqual(allowed.map(selectorLabel), expected);
 });
 
 test("the session temporary directory is readable and writable in every mode", () => {
@@ -248,6 +246,7 @@ test("the session temporary directory is readable and writable in every mode", (
     skillRoots: [],
     agentDirectory: "/agent",
     temporaryDirectory: "/scratch",
+    homeDirectory: "/home",
   };
 
   // act
@@ -289,7 +288,7 @@ test("serialized rules survive a round trip through JSON and parseRules", () => 
   ]) {
     recordRule({ mode: "read", kind: "allow", tier: "session", selector }, { session: rules, always });
   }
-  recordRule({ mode: "write", kind: "deny", tier: "session", selector: { kind: "tree", path: "/secrets" } }, { session: rules, always });
+  recordRule({ mode: "write", kind: "deny", tier: "session", selector: { kind: "tree", path: "/secrets" }, note: undefined }, { session: rules, always });
 
   // act
   const serialized = JSON.parse(JSON.stringify(serializeRules(rules)));
@@ -398,31 +397,30 @@ test("an exact grant covers only the equal path and a glob grant covers nothing"
   assert.equal(globbed, false);
 });
 
-test("a child path policy keeps the parent's rule store and tolerates parents that predate it", () => {
+test("a child path policy keeps the parent's rule store and accepts a policy without one", () => {
   // arrange
   const policy = { version: 1, session: serializeRules(emptyRules()), readDefaults: [], writeDefaults: [] };
+  const expected = [undefined, "explore", "plan", "invalid", "invalid"];
 
   // act
-  const legacy = parseChildPathPolicy(JSON.stringify(policy));
-  const exploring = parseChildPathPolicy(JSON.stringify({ ...policy, ruleStore: "explore" }));
-  const planning = parseChildPathPolicy(JSON.stringify({ ...policy, ruleStore: "plan" }));
-  const unknown = parseChildPathPolicy(JSON.stringify({ ...policy, ruleStore: "other" }));
-  const formerShared = parseChildPathPolicy(JSON.stringify({ ...policy, ruleStore: "shared" }));
+  const parsed = [
+    parseChildPathPolicy(JSON.stringify(policy)),
+    parseChildPathPolicy(JSON.stringify({ ...policy, ruleStore: "explore" })),
+    parseChildPathPolicy(JSON.stringify({ ...policy, ruleStore: "plan" })),
+    parseChildPathPolicy(JSON.stringify({ ...policy, ruleStore: "other" })),
+    parseChildPathPolicy(JSON.stringify({ ...policy, ruleStore: "shared" })),
+  ];
 
   // assert
-  assert.equal(legacy?.ruleStore, undefined);
-  assert.equal(exploring?.ruleStore, "explore");
-  assert.equal(planning?.ruleStore, "plan");
-  assert.equal(unknown, null);
-  assert.equal(formerShared, null);
+  assert.deepEqual(parsed.map((result) => (result.kind === "valid" ? result.policy.ruleStore : result.kind)), expected);
 });
 
 test("stored rules keep one rule set per agent mode through a serialize and parse round trip", () => {
   // arrange
   const rules = emptyStoredRules();
   recordRule({ mode: "read", kind: "allow", tier: "always", selector: tree("/execution") }, { session: emptyRules(), always: rules.execution });
-  recordRule({ mode: "write", kind: "deny", tier: "always", selector: exact("/plan/file") }, { session: emptyRules(), always: rules.plan });
-  recordRule({ mode: "read", kind: "deny", tier: "always", selector: glob("/explore", "*.txt") }, { session: emptyRules(), always: rules.explore });
+  recordRule({ mode: "write", kind: "deny", tier: "always", selector: exact("/plan/file"), note: undefined }, { session: emptyRules(), always: rules.plan });
+  recordRule({ mode: "read", kind: "deny", tier: "always", selector: glob("/explore", "*.txt"), note: undefined }, { session: emptyRules(), always: rules.explore });
 
   // act
   const serialized = serializeStoredRules(rules);
@@ -459,16 +457,17 @@ test("stored rules reject a version 3 object that misses a mode", () => {
 test("a child path policy keeps the parent's agent mode and rejects unknown modes", () => {
   // arrange
   const policy = { version: 1, session: serializeRules(emptyRules()), readDefaults: [], writeDefaults: [] };
+  const expected = [undefined, "planning", "invalid"];
 
   // act
-  const legacy = parseChildPathPolicy(JSON.stringify(policy));
-  const planning = parseChildPathPolicy(JSON.stringify({ ...policy, agentMode: "planning" }));
-  const unknown = parseChildPathPolicy(JSON.stringify({ ...policy, agentMode: "other" }));
+  const parsed = [
+    parseChildPathPolicy(JSON.stringify(policy)),
+    parseChildPathPolicy(JSON.stringify({ ...policy, agentMode: "planning" })),
+    parseChildPathPolicy(JSON.stringify({ ...policy, agentMode: "other" })),
+  ];
 
   // assert
-  assert.equal(legacy?.agentMode, undefined);
-  assert.equal(planning?.agentMode, "planning");
-  assert.equal(unknown, null);
+  assert.deepEqual(parsed.map((result) => (result.kind === "valid" ? result.policy.agentMode : result.kind)), expected);
 });
 
 test("a child path policy with malformed rules is rejected", () => {
@@ -483,10 +482,7 @@ test("a child path policy with malformed rules is rejected", () => {
   const globWithoutPattern = parseChildPathPolicy(JSON.stringify({ ...policy, writeDefaults: [{ kind: "glob", base: "/x" }] }));
 
   // assert
-  assert.equal(bogusSelector, null);
-  assert.equal(emptySession, null);
-  assert.equal(relativeDefault, null);
-  assert.equal(globWithoutPattern, null);
+  for (const parsed of [bogusSelector, emptySession, relativeDefault, globWithoutPattern]) assert.equal(parsed.kind, "invalid");
 });
 
 test("a child keeps the deny notes of its parent's session rules", () => {
@@ -495,23 +491,27 @@ test("a child keeps the deny notes of its parent's session rules", () => {
   recordRule({ mode: "read", kind: "deny", tier: "session", selector: tree("/repo/private"), note: "keys inside" }, { session, always: emptyRules() });
   const encoded = serializeChildPathPolicy({ version: 1, session: serializeRules(session), readDefaults: [], writeDefaults: [] });
 
+  const expected = "keys inside";
+
   // act
-  const policy = parseChildPathPolicy(encoded);
-  const rules = inheritedRules(policy!);
+  const parsed = parseChildPathPolicy(encoded);
 
   // assert
-  assert.equal(rules.read.deny.get(selectorKey(tree("/repo/private"))), "keys inside");
+  assert.equal(parsed.kind, "valid");
+  if (parsed.kind !== "valid") return;
+  assert.equal(inheritedRules(parsed.policy).read.deny.get(selectorKey(tree("/repo/private"))), expected);
 });
 
 test("a child path policy with absolute selectors parses", () => {
   // arrange
-  const policy = { version: 1, session: serializeRules(emptyRules()), readDefaults: [{ kind: "tree", path: "/abs" }], writeDefaults: [] };
+  const expected = [tree("/abs")];
+  const policy = { version: 1, session: serializeRules(emptyRules()), readDefaults: expected, writeDefaults: [] };
 
   // act
   const parsed = parseChildPathPolicy(JSON.stringify(policy));
 
   // assert
-  assert.equal(parsed?.readDefaults[0]?.path, "/abs");
+  assert.deepEqual(parsed.kind === "valid" ? parsed.policy.readDefaults : parsed.kind, expected);
 });
 
 test("session grants list read before write and allow before deny with readable targets", () => {

@@ -6,36 +6,19 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import {
-  createFindExecute,
-  createGrepExecute,
-  createLsExecute,
-} from "./search-tools.ts";
-import { createLsToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { countEntries, searchFind, searchGrep } from "./search-tools.ts";
+import type { FindParameters, GrepParameters, LsParameters } from "./search-tools.ts";
 
 const fixture = createFixture();
 try {
-  const grep = createGrepExecute(fixture);
-  const find = createFindExecute(fixture);
-  const stockLs = createLsToolDefinition(fixture).execute;
-  const ls = createLsExecute(fixture, stockLs);
-  const run = async (
-    execute: ReturnType<typeof createGrepExecute>,
-    params: unknown,
-    signal?: AbortSignal,
-  ) => {
-    const result: any = await execute(
-      "smoke",
-      params as any,
-      signal as any,
-      undefined as any,
-      undefined as any,
-    );
-    return {
-      text: result.content[0].text as string,
-      details: result.details,
-    };
-  };
+  const grep = (params: GrepParameters, signal?: AbortSignal): Promise<AgentToolResult<unknown>> =>
+    searchGrep(params, fixture, signal);
+  const find = (params: FindParameters, signal?: AbortSignal): Promise<AgentToolResult<unknown>> =>
+    searchFind(params, fixture, signal);
+  // Only the count mode is this extension's own; listing delegates to pi's stock ls.
+  const ls = (_params: LsParameters, signal?: AbortSignal): Promise<AgentToolResult<unknown>> =>
+    countEntries(fixture, signal);
 
   {
     // arrange / act
@@ -405,24 +388,6 @@ try {
 
   {
     // arrange
-    const stockResult: any = await stockLs(
-      "smoke",
-      {},
-      undefined as any,
-      undefined as any,
-      undefined as any,
-    );
-
-    // act
-    const result = await run(ls, {});
-
-    // assert
-    assert.equal(result.text, stockResult.content[0].text);
-    assert.deepEqual(result.details, stockResult.details);
-  }
-
-  {
-    // arrange
     const controller = new AbortController();
     controller.abort();
 
@@ -444,7 +409,17 @@ try {
   rmSync(fixture, { recursive: true, force: true });
 }
 
-function createFixture() {
+async function run<TParams>(
+  search: (params: TParams, signal?: AbortSignal) => Promise<AgentToolResult<unknown>>,
+  params: TParams,
+  signal?: AbortSignal,
+): Promise<{ text: string; details: unknown }> {
+  const result = await search(params, signal);
+  const [first] = result.content;
+  return { text: first?.type === "text" ? first.text : "", details: result.details };
+}
+
+function createFixture(): string {
   const directory = mkdtempSync(path.join(tmpdir(), "search-tools-"));
   writeFileSync(
     path.join(directory, "alpha.ts"),

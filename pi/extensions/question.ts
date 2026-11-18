@@ -1,4 +1,5 @@
 import type {
+  AgentToolResult,
   ExtensionAPI,
   ExtensionUIContext,
 } from "@earendil-works/pi-coding-agent";
@@ -6,10 +7,11 @@ import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 import { selectWithDefault } from "./lib/select-with-default.ts";
+import { isRecord } from "./lib/untyped.ts";
 
 const FREEFORM_SENTINEL = "✏️  Type custom response...";
 
-export default function (pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI): void {
   registerToolWithGuidelines(pi, {
     name: "question",
     exposure: "model-only",
@@ -64,7 +66,7 @@ export default function (pi: ExtensionAPI) {
       ),
     }),
 
-    async execute(_toolCallId, params, signal, _onUpdate, context) {
+    async execute(_toolCallId, params, signal, _onUpdate, context): Promise<AgentToolResult<QuestionDetails>> {
       const {
         question,
         context: contextText,
@@ -75,21 +77,21 @@ export default function (pi: ExtensionAPI) {
       const normalizedContext = contextText?.trim() || undefined;
       const options = rawOptions
         .map(coerceOption)
-        .filter((option): option is QuestionOption => option !== null);
+        .filter((option) => option !== undefined);
 
-      const result = (text: string, response: QuestionResponse | null, error?: string) => ({
-        content: [{ type: "text" as const, text }],
+      // Tool details are stored as JSON, so a missing response is null.
+      const result = (text: string, response: QuestionResponse | null, error?: string): AgentToolResult<QuestionDetails> => ({
+        content: [{ type: "text", text }],
         details: {
           question,
           context: normalizedContext,
           options,
           response,
-          cancelled: response === null,
           ...(error ? { error } : {}),
         },
       });
-      const cancelled = (text: string) => result(text, null);
-      const failure = (error: string) => result(error, null, error);
+      const cancelled = (text: string): AgentToolResult<QuestionDetails> => result(text, null);
+      const failure = (error: string): AgentToolResult<QuestionDetails> => result(error, null, error);
 
       if (signal?.aborted) return cancelled("Cancelled");
 
@@ -171,7 +173,7 @@ export default function (pi: ExtensionAPI) {
     },
 
     renderResult(result, renderOptions, theme) {
-      const details = result.details as QuestionDetails | undefined;
+      const { details } = result;
 
       if (renderOptions.isPartial) {
         return new Text(theme.fg("muted", "Waiting for your answer..."), 0, 0);
@@ -229,8 +231,8 @@ interface QuestionDetails {
   question: string;
   context?: string;
   options: QuestionOption[];
+  // null when the user cancelled or the question failed.
   response: QuestionResponse | null;
-  cancelled: boolean;
   error?: string;
 }
 
@@ -241,7 +243,7 @@ function buildPrompt(question: string, context: string | undefined): string {
 async function askSingle(
   ui: ExtensionUIContext,
   prompt: string,
-  options: QuestionOption[],
+  options: readonly QuestionOption[],
   allowFreeform: boolean,
 ): Promise<AskOutcome> {
   // select() only takes strings, so descriptions have to ride along in the label
@@ -252,9 +254,8 @@ async function askSingle(
   if (allowFreeform) displays.push(FREEFORM_SENTINEL);
 
   // selectWithDefault windows long option lists (the question tool can pass
-  // more options than fit on screen), keeps today's start-at-first behavior
-  // via displays[0], and repeats an option that is cut to one row in full in
-  // a pane below the list.
+  // more options than fit on screen), starts at the first option, and repeats
+  // an option that is cut to one row in full in a pane below the list.
   const picked = await selectWithDefault(ui, prompt, displays, displays[0], "question");
   if (isCancelled(picked)) return { kind: "cancelled" };
   if (picked === FREEFORM_SENTINEL) return askFreeform(ui, prompt);
@@ -268,7 +269,7 @@ async function askSingle(
 async function askMultiple(
   ui: ExtensionUIContext,
   prompt: string,
-  options: QuestionOption[],
+  options: readonly QuestionOption[],
   allowFreeform: boolean,
 ): Promise<AskOutcome> {
   const body = `${prompt}\n\nOptions (numbers, ranges, or "all" — e.g. 1,3-5,8):\n${formatOptionList(options)}`;
@@ -315,7 +316,7 @@ async function askFreeform(
 
 function resolveSelectionTokens(
   input: string,
-  options: QuestionOption[],
+  options: readonly QuestionOption[],
 ): SelectionTokens {
   const selections: string[] = [];
   const unresolved: string[] = [];
@@ -332,7 +333,7 @@ function resolveSelectionTokens(
 
 const RANGE_PATTERN = /^(\d+)\s*[-–—]\s*(\d+)$/;
 
-function resolveToken(token: string, options: QuestionOption[]): string[] {
+function resolveToken(token: string, options: readonly QuestionOption[]): string[] {
   const titles = options.map(({ title }) => title);
   if (token === "*" || token.toLowerCase() === "all") return titles;
 
@@ -354,7 +355,7 @@ function resolveToken(token: string, options: QuestionOption[]): string[] {
   return match ? [match] : [];
 }
 
-function formatOptionList(options: QuestionOption[]): string {
+function formatOptionList(options: readonly QuestionOption[]): string {
   return options
     .map(
       ({ title, description }, index) =>
@@ -363,27 +364,18 @@ function formatOptionList(options: QuestionOption[]): string {
     .join("\n");
 }
 
-function coerceOption(option: unknown): QuestionOption | null {
+function coerceOption(option: unknown): QuestionOption | undefined {
   // renderCall feeds this partially-streamed, unvalidated arguments, so bare strings and
   // missing fields arrive here even though the parameter schema forbids them.
   if (typeof option === "string") {
     const title = option.trim();
-    return title ? { title } : null;
+    return title ? { title } : undefined;
   }
-  if (option && typeof option === "object") {
-    const { title, description } = option as {
-      title?: unknown;
-      description?: unknown;
-    };
-    if (typeof title === "string" && title.trim()) {
-      const trimmedDescription =
-        typeof description === "string" ? description.trim() : "";
-      return trimmedDescription
-        ? { title: title.trim(), description: trimmedDescription }
-        : { title: title.trim() };
-    }
-  }
-  return null;
+  if (!isRecord(option)) return undefined;
+  const { title, description } = option;
+  if (typeof title !== "string" || !title.trim()) return undefined;
+  const trimmedDescription = typeof description === "string" ? description.trim() : undefined;
+  return trimmedDescription ? { title: title.trim(), description: trimmedDescription } : { title: title.trim() };
 }
 
 function isCancelled(

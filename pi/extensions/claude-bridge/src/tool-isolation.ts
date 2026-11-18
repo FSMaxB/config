@@ -16,7 +16,7 @@ export const DISALLOWED_BUILTIN_TOOLS = [
 ];
 
 export const CLAUDE_BRIDGE_TOOL_ISOLATION = {
-	tools: [] as string[],
+	tools: new Array<string>(),
 	disallowedTools: DISALLOWED_BUILTIN_TOOLS,
 	allowedTools: [`mcp__${MCP_SERVER_NAME}__*`],
 } satisfies Pick<NonNullable<Parameters<typeof query>[0]["options"]>, "tools" | "allowedTools" | "disallowedTools">;
@@ -38,7 +38,11 @@ export function bridgeOnlyToolHook(): HookCallback {
 	};
 }
 
-function denyTool(name: unknown) {
+interface PreToolUseDenial {
+	hookSpecificOutput: { hookEventName: "PreToolUse"; permissionDecision: "deny"; permissionDecisionReason: string };
+}
+
+function denyTool(name: unknown): PreToolUseDenial {
 	return {
 		hookSpecificOutput: {
 			hookEventName: "PreToolUse" as const,

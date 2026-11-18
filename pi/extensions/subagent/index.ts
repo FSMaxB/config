@@ -1,15 +1,5 @@
-/**
- * Subagent Tool - Delegate tasks to specialized agents
- *
- * Spawns a separate `pi` process for each subagent invocation,
- * giving it an isolated context window.
- *
- * Supports two modes:
- *   - Single: { agent: "name", task: "..." }
- *   - Parallel: { tasks: [{ agent: "name", task: "..." }, ...] }
- *
- * Uses JSON mode to capture structured output from subagents.
- */
+// Each subagent runs as a separate `pi` process in JSON mode, which gives it an isolated context
+// window and lets this extension read its messages as structured events.
 
 import { spawn } from "node:child_process";
 import { existsSync, rmSync } from "node:fs";
@@ -20,23 +10,31 @@ import { fileURLToPath } from "node:url";
 import type { AgentToolResult, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Message, Model, ModelThinkingLevel, Usage } from "@earendil-works/pi-ai";
 import { clampThinkingLevel, getSupportedThinkingLevels, StringEnum } from "@earendil-works/pi-ai";
-import { type ExtensionAPI, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
+import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { formatDuration, shortenPath } from "../lib/format.ts";
 import { createLineSplitter } from "../lib/lines.ts";
-import { isRestricted, MODE_IDENTITIES, READ_ONLY_JJ_NOTE, type RestrictedMode } from "../lib/agent-mode.ts";
+import { AgentMode, isRestricted, MODE_IDENTITIES, READ_ONLY_JJ_NOTE } from "../lib/agent-mode.ts";
+import type { RestrictedMode } from "../lib/agent-mode.ts";
+import { isRecord } from "../lib/untyped.ts";
 import { readPersistedDecisions } from "../lib/mode-decisions.ts";
 import { activeRestrictedMode } from "../lib/mode-entry.ts";
 import { captureChildPathPolicy } from "../lib/path-permissions.ts";
-import { serializeChildPathPolicy, CHILD_POLICY_ENV, type ChildPathPolicy } from "../lib/path-permission-snapshot.ts";
+import { serializeChildPathPolicy, CHILD_POLICY_ENV } from "../lib/path-permission-snapshot.ts";
+import type { ChildPathPolicy } from "../lib/path-permission-snapshot.ts";
 import { registerToolWithGuidelines } from "../lib/register-tool.ts";
-import { isSandboxActive } from "../lib/sandbox-state.ts";
+import { sandboxStatus } from "../lib/sandbox-state.ts";
 import { sessionTemporaryDirectory, TEMPORARY_DIRECTORY_ENV } from "../lib/session-temporary-directory.ts";
-import { type AgentConfig, discoverAgents, THINKING_LEVELS } from "./agents.ts";
-import { EXIT_GRACE_MILLISECONDS, phaseAfterEvent, type ChildPhase } from "./exit-watchdog.ts";
-import { guidanceTable, loadPolicyConfig, resolveSubagentModel, type SubagentModelConfig } from "./model-policy.ts";
-import { ChildToolVerdict, childToolVerdict, effectiveChildTools, restrictedModeAllowedTools, type PersistedModeDecisions } from "./mode-restrictions.ts";
+import { discoverAgents, THINKING_LEVELS } from "./agents.ts";
+import type { AgentConfig } from "./agents.ts";
+import { EXIT_GRACE_MILLISECONDS, phaseAfterEvent } from "./exit-watchdog.ts";
+import type { ChildPhase } from "./exit-watchdog.ts";
+import { guidanceTable, loadPolicyConfig, resolveSubagentModel } from "./model-policy.ts";
+import type { SubagentModelConfig } from "./model-policy.ts";
+import { ChildToolVerdict, childToolVerdict, effectiveChildTools, restrictedModeAllowedTools } from "./mode-restrictions.ts";
+import type { PersistedModeDecisions } from "./mode-restrictions.ts";
 import {
   emptyUsage,
   failureEvidence,
@@ -51,12 +49,25 @@ import {
 
 const EXTENSION_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 
+// More parallel tasks rarely pay off: each child is a full pi process with its own context.
 const MAX_PARALLEL_TASKS = 8;
+// Bounded so a parallel dispatch does not saturate the machine or the provider's rate limits.
 const MAX_CONCURRENCY = 4;
+// SIGTERM lets the child run its shutdown handlers; past this it is killed outright.
+const KILL_GRACE_MILLISECONDS = 5000;
+// One line of a call preview in the tool call header.
+const TASK_PREVIEW_CHARACTERS = 60;
+const ARGUMENTS_PREVIEW_CHARACTERS = 50;
+// Collapsed results show the start of each text block, enough to recognise it.
+const COLLAPSED_TEXT_LINES = 3;
+// Each parallel task shows fewer items than a single one, so the whole result stays on screen.
+const PARALLEL_COLLAPSED_ITEM_COUNT = 5;
+// The latest items of a running subagent, enough to follow it without flooding the transcript.
 const COLLAPSED_ITEM_COUNT = 10;
+// Keeps one chatty task from filling the parent's context; the full output stays in the session.
 const PER_TASK_OUTPUT_CAP = 50 * 1024;
 
-export default function (pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI): void {
   // In spawned children this extension only enforces restrictions; not registering
   // the subagent tool there also rules out recursive dispatch.
   if (process.env.PI_SUBAGENT_CHILD) {
@@ -112,7 +123,7 @@ export default function (pi: ExtensionAPI) {
 
     async execute(_toolCallId, params, signal, onUpdate, context) {
       const active = activeRestrictedMode(context.sessionManager);
-      const restriction = isRestricted(active.mode) && active.entry
+      const restriction = active.mode !== AgentMode.Execution
         ? {
             mode: active.mode,
             allowedTools: restrictedModeAllowedTools(
@@ -122,7 +133,7 @@ export default function (pi: ExtensionAPI) {
               },
               await persistedModeDecisions(active.mode),
               pi.getAllTools(),
-              isSandboxActive(),
+              sandboxStatus(),
             ),
           }
         : undefined;
@@ -340,7 +351,7 @@ export default function (pi: ExtensionAPI) {
         if (isError && single.errorMessage) text += `\n${theme.fg("error", `Error: ${single.errorMessage}`)}`;
         else if (displayItems.length === 0) text += `\n${theme.fg("muted", running ? "(running...)" : "(no output)")}`;
         else {
-          text += `\n${renderCollapsedItems(displayItems, COLLAPSED_ITEM_COUNT, expanded, theme)}`;
+          text += `\n${renderCollapsedItems(displayItems, COLLAPSED_ITEM_COUNT, expanded ? "expanded" : "collapsed", theme)}`;
           if (displayItems.length > COLLAPSED_ITEM_COUNT) text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
         }
         const footer = formatRunFooter(formatUsageStats(single.usage), durationMs);
@@ -405,7 +416,7 @@ export default function (pi: ExtensionAPI) {
           ` ${itemIcon}`;
         if (displayItems.length === 0)
           text += `\n${theme.fg("muted", isRunningResult(item) ? "(running...)" : "(no output)")}`;
-        else text += `\n${renderCollapsedItems(displayItems, 5, expanded, theme)}`;
+        else text += `\n${renderCollapsedItems(displayItems, PARALLEL_COLLAPSED_ITEM_COUNT, expanded ? "expanded" : "collapsed", theme)}`;
       }
       if (!isRunning) {
         const footer = formatRunFooter(formatUsageStats(aggregateUsage(details.results)), durationMs);
@@ -479,7 +490,7 @@ interface SubagentDetails {
   results: SingleResult[];
 }
 
-type DisplayItem = { type: "text"; text: string } | { type: "toolCall"; name: string; args: Record<string, any> };
+type DisplayItem = { type: "text"; text: string } | { type: "toolCall"; name: string; args: Record<string, unknown> };
 
 type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
 
@@ -501,7 +512,7 @@ interface TaskOverrides {
 async function runSingleAgent(
   defaultCwd: string,
   dispatch: DispatchContext,
-  agents: AgentConfig[],
+  agents: readonly AgentConfig[],
   agentName: string,
   task: string,
   overrides: TaskOverrides,
@@ -593,17 +604,15 @@ async function runSingleAgent(
       const completedToolCalls = new Set<string>();
       let phase: ChildPhase = "working";
       let exitTimer: NodeJS.Timeout | undefined;
-      const processLine = (line: string) => {
-        let event: any;
-        try {
-          event = JSON.parse(line);
-        } catch {
-          return;
-        }
+      const processLine = (line: string): void => {
+        const event = parseChildEvent(line);
+        if (event === undefined) return;
 
         trackPhase(event);
-        if ((event.type === "message_end" || event.type === "tool_result_end") && event.message) {
-          const message = event.message as Message;
+        const { message: rawMessage } = event;
+        if ((event.type === "message_end" || event.type === "tool_result_end") && typeof rawMessage === "object" && rawMessage !== null) {
+          // The child is pi in JSON mode, which writes its own Message objects.
+          const message = rawMessage as Message;
           if (message.role === "toolResult" && completedToolCalls.has(message.toolCallId)) return;
           const usage = finalizedMessageUsage(message, completedToolCalls);
           if (message.role === "toolResult") completedToolCalls.add(message.toolCallId);
@@ -627,7 +636,7 @@ async function runSingleAgent(
         }
       };
 
-      const trackPhase = (event: any) => {
+      const trackPhase = (event: ChildEvent): void => {
         const next = phaseAfterEvent(phase, event);
         if (next === phase) return;
         phase = next;
@@ -635,17 +644,17 @@ async function runSingleAgent(
         if (phase === "finished") exitTimer = setTimeout(terminateLingeringChild, EXIT_GRACE_MILLISECONDS);
       };
 
-      const terminateLingeringChild = () => {
+      const terminateLingeringChild = (): void => {
         currentResult.terminationNote =
           `The subagent finished but its process did not exit within ${EXIT_GRACE_MILLISECONDS / 1000} s, so it was terminated. Its output is complete; the lingering process points to a handle leak in an extension.`;
         terminateChild();
       };
 
-      const terminateChild = () => {
+      const terminateChild = (): void => {
         child.kill("SIGTERM");
         setTimeout(() => {
           if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-        }, 5000);
+        }, KILL_GRACE_MILLISECONDS);
       };
 
       const splitter = createLineSplitter(processLine);
@@ -786,7 +795,7 @@ function childEnvironment(dispatch: DispatchContext): NodeJS.ProcessEnv {
   return environment;
 }
 
-function getPiInvocation(args: string[]): { command: string; args: string[] } {
+function getPiInvocation(args: readonly string[]): { command: string; args: readonly string[] } {
   const currentScript = process.argv[1];
   const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/");
   if (currentScript && !isBunVirtualScript && existsSync(currentScript)) {
@@ -810,7 +819,7 @@ async function writePromptToTempFile(agentName: string, prompt: string): Promise
   return filePath;
 }
 
-function getFinalOutput(messages: Message[]): string {
+function getFinalOutput(messages: readonly Message[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
     if (message.role === "assistant") {
@@ -836,7 +845,7 @@ function getResultOutput(result: SingleResult): string {
 }
 
 async function mapWithConcurrencyLimit<TIn, TOut>(
-  items: TIn[],
+  items: readonly TIn[],
   concurrency: number,
   mapper: (item: TIn, index: number) => Promise<TOut>,
 ): Promise<TOut[]> {
@@ -854,7 +863,7 @@ async function mapWithConcurrencyLimit<TIn, TOut>(
   return results;
 }
 
-function getDisplayItems(messages: Message[]): DisplayItem[] {
+function getDisplayItems(messages: readonly Message[]): DisplayItem[] {
   const items: DisplayItem[] = [];
   for (const message of messages) {
     if (message.role === "assistant") {
@@ -870,19 +879,19 @@ function getDisplayItems(messages: Message[]): DisplayItem[] {
 function formatToolCall(
   toolName: string,
   args: Record<string, unknown>,
-  themeFg: (color: any, text: string) => string,
+  themeFg: Theme["fg"],
 ): string {
   switch (toolName) {
     case "bash": {
-      const command = (args.command as string) || "...";
-      const preview = command.length > 60 ? `${command.slice(0, 60)}...` : command;
+      const command = stringArgument(args, "command") || "...";
+      const preview = command.length > TASK_PREVIEW_CHARACTERS ? `${command.slice(0, TASK_PREVIEW_CHARACTERS)}...` : command;
       return themeFg("muted", "$ ") + themeFg("toolOutput", preview);
     }
     case "read": {
-      const rawPath = (args.file_path || args.path || "...") as string;
+      const rawPath = stringArgument(args, "file_path") || stringArgument(args, "path") || "...";
       const filePath = shortenPath(rawPath);
-      const offset = args.offset as number | undefined;
-      const limit = args.limit as number | undefined;
+      const offset = numberArgument(args, "offset");
+      const limit = numberArgument(args, "limit");
       let text = themeFg("accent", filePath);
       if (offset !== undefined || limit !== undefined) {
         const startLine = offset ?? 1;
@@ -892,33 +901,33 @@ function formatToolCall(
       return themeFg("muted", `${toolName} `) + text;
     }
     case "write": {
-      const rawPath = (args.file_path || args.path || "...") as string;
+      const rawPath = stringArgument(args, "file_path") || stringArgument(args, "path") || "...";
       const filePath = shortenPath(rawPath);
-      const content = (args.content || "") as string;
+      const content = stringArgument(args, "content") ?? "";
       const lines = content.split("\n").length;
       let text = themeFg("muted", `${toolName} `) + themeFg("accent", filePath);
       if (lines > 1) text += themeFg("dim", ` (${lines} lines)`);
       return text;
     }
     case "edit": {
-      const rawPath = (args.file_path || args.path || "...") as string;
+      const rawPath = stringArgument(args, "file_path") || stringArgument(args, "path") || "...";
       return themeFg("muted", `${toolName} `) + themeFg("accent", shortenPath(rawPath));
     }
     case "ls":
     case "delete": {
-      const rawPath = (args.path || ".") as string;
+      const rawPath = stringArgument(args, "path") || ".";
       return themeFg("muted", `${toolName} `) + themeFg("accent", shortenPath(rawPath));
     }
     case "find": {
-      const pattern = (args.pattern || "*") as string;
-      const rawPath = (args.path || ".") as string;
+      const pattern = stringArgument(args, "pattern") || "*";
+      const rawPath = stringArgument(args, "path") || ".";
       return (
         themeFg("muted", `${toolName} `) + themeFg("accent", pattern) + themeFg("dim", ` in ${shortenPath(rawPath)}`)
       );
     }
     case "grep": {
-      const pattern = (args.pattern || "") as string;
-      const rawPath = (args.path || ".") as string;
+      const pattern = stringArgument(args, "pattern") ?? "";
+      const rawPath = stringArgument(args, "path") || ".";
       return (
         themeFg("muted", `${toolName} `) +
         themeFg("accent", `/${pattern}/`) +
@@ -927,17 +936,17 @@ function formatToolCall(
     }
     default: {
       const argsText = JSON.stringify(args);
-      const preview = argsText.length > 50 ? `${argsText.slice(0, 50)}...` : argsText;
+      const preview = argsText.length > ARGUMENTS_PREVIEW_CHARACTERS ? `${argsText.slice(0, ARGUMENTS_PREVIEW_CHARACTERS)}...` : argsText;
       return themeFg("accent", toolName) + themeFg("dim", ` ${preview}`);
     }
   }
 }
 
 function renderCollapsedItems(
-  items: DisplayItem[],
+  items: readonly DisplayItem[],
   limit: number,
-  expanded: boolean,
-  theme: { fg: (color: any, text: string) => string },
+  detail: "collapsed" | "expanded",
+  theme: Pick<Theme, "fg">,
 ): string {
   const toShow = items.slice(-limit);
   const skipped = Math.max(0, items.length - limit);
@@ -945,7 +954,7 @@ function renderCollapsedItems(
   if (skipped > 0) text += theme.fg("muted", `... ${skipped} earlier items\n`);
   for (const item of toShow) {
     if (item.type === "text") {
-      const preview = expanded ? item.text : item.text.split("\n").slice(0, 3).join("\n");
+      const preview = detail === "expanded" ? item.text : item.text.split("\n").slice(0, COLLAPSED_TEXT_LINES).join("\n");
       text += `${theme.fg("toolOutput", preview)}\n`;
     } else {
       text += `${theme.fg("muted", "→ ") + formatToolCall(item.name, item.args, theme.fg.bind(theme))}\n`;
@@ -960,7 +969,7 @@ function renderTaskSection(
   container: Container,
   header: string,
   item: SingleResult,
-  theme: { fg: (color: any, text: string) => string },
+  theme: Pick<Theme, "fg">,
   markdownTheme: ReturnType<typeof getMarkdownTheme>,
   durationMs?: number,
 ): void {
@@ -991,7 +1000,7 @@ function renderTaskSection(
   if (footer) container.addChild(new Text(theme.fg("dim", footer), 0, 0));
 }
 
-function aggregateUsage(results: SingleResult[]) {
+function aggregateUsage(results: readonly SingleResult[]): Omit<UsageStats, "contextTokens"> {
   const total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 0 };
   for (const result of results) {
     total.input += result.usage.input;
@@ -1008,7 +1017,7 @@ function formatAgentConfiguration(
   model: string | undefined,
   thinkingLevel: ModelThinkingLevel | undefined,
   fallback: "inherit" | "unresolved",
-  theme: { fg: (color: any, text: string) => string },
+  theme: Pick<Theme, "fg">,
 ): string {
   return theme.fg("dim", ` [model: ${model ?? fallback} · thinking: ${thinkingLevel ?? fallback}]`);
 }
@@ -1055,9 +1064,9 @@ function registerChildRestrictions(pi: ExtensionAPI): void {
   const restrictingMode = Object.values(MODE_IDENTITIES).find(({ mode }) => mode === process.env.PI_SUBAGENT_RESTRICTING_MODE);
   const modeName = restrictingMode?.label.toLowerCase() ?? "a restricted mode";
   const allowedTools = new Set(allowedList.split(",").filter(Boolean));
-  // isSandboxActive() is read inside the handlers, not here, because extension load order is not guaranteed.
+  // sandboxStatus() is read inside the handlers, not here, because extension load order is not guaranteed.
   pi.on("tool_call", async (event) => {
-    const verdict = childToolVerdict(event.toolName, allowedTools, isSandboxActive());
+    const verdict = childToolVerdict(event.toolName, allowedTools, sandboxStatus());
     if (verdict === ChildToolVerdict.Allowed) return;
     if (verdict === ChildToolVerdict.NoSandbox) {
       return {
@@ -1086,4 +1095,31 @@ function registerChildRestrictions(pi: ExtensionAPI): void {
 async function persistedModeDecisions(mode: RestrictedMode): Promise<PersistedModeDecisions> {
   const { alwaysAllowed, alwaysDenied } = await readPersistedDecisions(mode).catch(() => ({ alwaysAllowed: [], alwaysDenied: [] }));
   return { alwaysAllowed, alwaysDenied: alwaysDenied.map((denial) => denial.name) };
+}
+
+interface ChildEvent {
+  type: string | undefined;
+  willRetry: unknown;
+  message: unknown;
+}
+
+function parseChildEvent(line: string): ChildEvent | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return undefined;
+  }
+  if (!isRecord(parsed)) return undefined;
+  return { type: typeof parsed.type === "string" ? parsed.type : undefined, willRetry: parsed.willRetry, message: parsed.message };
+}
+
+function stringArgument(args: Record<string, unknown>, name: string): string | undefined {
+  const value = args[name];
+  return typeof value === "string" ? value : undefined;
+}
+
+function numberArgument(args: Record<string, unknown>, name: string): number | undefined {
+  const value = args[name];
+  return typeof value === "number" ? value : undefined;
 }

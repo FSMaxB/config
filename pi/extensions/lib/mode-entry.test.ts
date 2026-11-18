@@ -24,7 +24,7 @@ test("the current branch selects its own mode and session decisions", () => {
   assert.deepEqual(executionState, {
     enabled: false,
     sessionGrants: ["edit"],
-    sessionDenials: [{ name: "fetch_content" }],
+    sessionDenials: [{ name: "fetch_content", note: undefined }],
   });
 });
 
@@ -82,9 +82,9 @@ test("the last enabled entry on the branch decides the active mode", () => {
 
   // assert
   assert.equal(exploringWins.mode, "exploring");
-  assert.deepEqual(exploringWins.entry?.sessionGrants, ["edit"]);
+  assert.deepEqual("entry" in exploringWins ? exploringWins.entry.sessionGrants : [], ["edit"]);
   assert.equal(planningWins.mode, "planning");
-  assert.deepEqual(planningWins.entry?.sessionGrants, ["bash"]);
+  assert.deepEqual("entry" in planningWins ? planningWins.entry.sessionGrants : [], ["bash"]);
 });
 
 test("a mode that was disabled later does not shadow the enabled one", () => {
@@ -110,8 +110,8 @@ test("without an enabled entry the branch is in execution mode, recorded or not"
   const untouched = activeRestrictedMode(empty);
 
   // assert
-  assert.deepEqual(afterSwitchBack, { mode: "execution", entry: undefined, recorded: true });
-  assert.deepEqual(untouched, { mode: "execution", entry: undefined, recorded: false });
+  assert.deepEqual(afterSwitchBack, { mode: "execution", recorded: true });
+  assert.deepEqual(untouched, { mode: "execution", recorded: false });
 });
 
 function stateEntry(data: Record<string, unknown>, customType = "plan-mode") {
