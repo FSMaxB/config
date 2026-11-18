@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { AgentMode, MODE_IDENTITIES, READ_ONLY_JJ_NOTE } from "./agent-mode.ts";
 import { FILE_TOOLS } from "./file-tools.ts";
 import type { Denial } from "./mode-entry.ts";
+import { SandboxStatus } from "./sandbox-state.ts";
 import { isRecord } from "./untyped.ts";
 import { PLAN_PATH, SUBMIT_PLAN } from "./plan-tools.ts";
 
@@ -9,8 +10,7 @@ export const MODE_MESSAGE_TYPE = "agent-mode-state";
 // The snapshot type of sessions saved when plan mode was the only restricted mode.
 const PLAN_MODE_MESSAGE_TYPE = "plan-mode-state";
 
-export const SandboxStatus = { Active: "active", Inactive: "inactive" } as const;
-export type SandboxStatus = (typeof SandboxStatus)[keyof typeof SandboxStatus];
+export { SandboxStatus } from "./sandbox-state.ts";
 
 export interface ModeSnapshot {
   mode: AgentMode;

@@ -14,6 +14,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Api, Model } from "@earendil-works/pi-ai";
+import { isRecord } from "../lib/untyped.ts";
+import { matchesWildcard } from "../lib/wildcard.ts";
 
 export interface SubagentModelConfig {
   localProviders?: string[];
@@ -22,12 +24,31 @@ export interface SubagentModelConfig {
 }
 
 export function loadPolicyConfig(directory: string): SubagentModelConfig {
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(readFileSync(join(directory, "config.json"), "utf-8"));
-    return parsed && typeof parsed === "object" ? (parsed as SubagentModelConfig) : {};
+    parsed = JSON.parse(readFileSync(join(directory, "config.json"), "utf-8"));
   } catch {
     return {};
   }
+  return parsePolicyConfig(parsed);
+}
+
+// Malformed entries are dropped, so one bad entry does not hide the rest of the guidance.
+export function parsePolicyConfig(value: unknown): SubagentModelConfig {
+  if (!isRecord(value)) return {};
+  const strings = (list: unknown): string[] =>
+    Array.isArray(list) ? list.filter((entry): entry is string => typeof entry === "string") : [];
+  const config: SubagentModelConfig = {};
+  if (Array.isArray(value.localProviders)) config.localProviders = strings(value.localProviders);
+  if (Array.isArray(value.providerGroups)) config.providerGroups = value.providerGroups.filter(Array.isArray).map(strings);
+  if (Array.isArray(value.models)) {
+    config.models = value.models.flatMap((entry: unknown) =>
+      isRecord(entry) && typeof entry.match === "string" && typeof entry.guidance === "string"
+        ? [{ match: entry.match, guidance: entry.guidance }]
+        : [],
+    );
+  }
+  return config;
 }
 
 export function guidanceTable(options: {
@@ -91,7 +112,7 @@ export function resolveSubagentModel(options: {
   return { ok: true, model };
 }
 
-function findRequestedModels(requested: string, availableModels: Model<Api>[]): Model<Api>[] {
+function findRequestedModels(requested: string, availableModels: readonly Model<Api>[]): Model<Api>[] {
   const exact = availableModels.filter((model) => `${model.provider}/${model.id}` === requested);
   if (exact.length > 0) return exact;
   return availableModels.filter((model) => model.id === requested);
@@ -99,7 +120,7 @@ function findRequestedModels(requested: string, availableModels: Model<Api>[]): 
 
 function describeCandidates(
   mainModel: Model<Api> | undefined,
-  availableModels: Model<Api>[],
+  availableModels: readonly Model<Api>[],
   config: SubagentModelConfig,
 ): string {
   const candidates = candidateModels(mainModel, availableModels, config);
@@ -115,10 +136,10 @@ function describeCandidates(
 
 function candidateModels(
   mainModel: Model<Api> | undefined,
-  availableModels: Model<Api>[],
+  availableModels: readonly Model<Api>[],
   config: SubagentModelConfig,
 ): Model<Api>[] {
-  if (!mainModel) return availableModels;
+  if (!mainModel) return [...availableModels];
   if (isLocalModel(mainModel, config)) {
     return availableModels.filter((model) => isLocalModel(model, config));
   }
@@ -149,15 +170,6 @@ function sameProviderFamily(providerA: string, providerB: string, config: Subage
 
 function guidanceFor(model: Model<Api>, config: SubagentModelConfig): string | undefined {
   const qualified = `${model.provider}/${model.id}`;
-  return (config.models ?? []).find(({ match }) => matchesGlob(match, model.id) || matchesGlob(match, qualified))
+  return (config.models ?? []).find(({ match }) => matchesWildcard(match, model.id) || matchesWildcard(match, qualified))
     ?.guidance;
-}
-
-function matchesGlob(pattern: string, value: string): boolean {
-  const regex = new RegExp(`^${pattern.split("*").map(escapeRegExp).join(".*")}$`);
-  return regex.test(value);
-}
-
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

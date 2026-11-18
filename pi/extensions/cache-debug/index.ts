@@ -1,22 +1,23 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { errorMessage } from "../lib/errors.ts";
 import { analyze, parseReportArguments, renderReport } from "./analysis.ts";
 import { fingerprintPayload } from "./fingerprint.ts";
 import { cacheDebugDirectory, LogWriter, logFilePath, pruneLogs, readLog } from "./log-file.ts";
 import { MarkerEvent, RECORD_VERSION, RequestTracker } from "./records.ts";
 
-export default function (pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI): void {
   if (process.env.PI_CACHE_DEBUG === "0") return;
   const directory = cacheDebugDirectory();
   const writer = new LogWriter(directory);
   const tracker = new RequestTracker((record) => writer.append(record));
-  const errors = { last: undefined as string | undefined };
+  const errors: { last: string | undefined } = { last: undefined };
 
   // Every handler is wrapped: logging must never surface as an extension error in the request path.
   const safely = (action: () => void) => {
     try {
       action();
     } catch (error) {
-      errors.last = error instanceof Error ? error.message : String(error);
+      errors.last = errorMessage(error);
     }
   };
   const marker = (context: ExtensionContext, event: MarkerEvent, detail?: string) =>

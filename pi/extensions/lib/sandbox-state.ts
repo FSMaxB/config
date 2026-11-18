@@ -9,3 +9,10 @@ export function markSandboxActive(): void {
 export function isSandboxActive(): boolean {
   return globalState.piSandboxActive === true;
 }
+
+export const SandboxStatus = { Active: "active", Inactive: "inactive" } as const;
+export type SandboxStatus = (typeof SandboxStatus)[keyof typeof SandboxStatus];
+
+export function sandboxStatus(): SandboxStatus {
+  return isSandboxActive() ? SandboxStatus.Active : SandboxStatus.Inactive;
+}

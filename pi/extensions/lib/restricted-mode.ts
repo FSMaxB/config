@@ -13,7 +13,7 @@ import { FILE_TOOLS } from "./file-tools.ts";
 import { readPersistedDecisions, writePersistedDecisions } from "./mode-decisions.ts";
 import { activeRestrictedMode, latestModeEntry } from "./mode-entry.ts";
 import type { ActiveRestrictedMode } from "./mode-entry.ts";
-import { registerModeMessages, SandboxStatus } from "./mode-messages.ts";
+import { registerModeMessages } from "./mode-messages.ts";
 import type { ModeMessages, ModeSnapshot } from "./mode-messages.ts";
 import {
   blockedReason,
@@ -45,7 +45,7 @@ import type { LastingDuration } from "./permission-prompt.ts";
 import { permissionUI } from "./permission-ui.ts";
 import { plansDirectory } from "./plan-file.ts";
 import { PLAN_TOOLS } from "./plan-tools.ts";
-import { isSandboxActive } from "./sandbox-state.ts";
+import { isSandboxActive, sandboxStatus } from "./sandbox-state.ts";
 import { serialize } from "./ui-queue.ts";
 import { announceSessionGrantsChanged, provideSessionGrants } from "./session-grants.ts";
 import type { SessionGrant } from "./session-grants.ts";
@@ -275,7 +275,7 @@ class Engine {
     return {
       mode: this.mode,
       plansDirectory: plansDirectory(),
-      sandbox: isSandboxActive() ? SandboxStatus.Active : SandboxStatus.Inactive,
+      sandbox: sandboxStatus(),
       denials: effectiveDenials(this.#activeStores()),
     };
   }

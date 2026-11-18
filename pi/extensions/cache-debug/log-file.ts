@@ -1,12 +1,22 @@
 import { appendFile, mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { errorCode, errorMessage } from "../lib/errors.ts";
+import { isRecord } from "../lib/untyped.ts";
 import { MarkerEvent, RECORD_VERSION } from "./records.ts";
 import type { LogRecord, MarkerRecord } from "./records.ts";
 
-export function cacheDebugDirectory(): string {
-  return join(homedir(), ".pi", "agent", "cache-debug");
+export function cacheDebugDirectory(home: string = homedir()): string {
+  return join(home, ".pi", "agent", "cache-debug");
 }
+
+// A busy session writes a few MiB a day; the cap only stops a runaway session from filling the disk.
+const LOG_LIMIT_BYTES = 50 * 1024 * 1024;
+// A month keeps the logs of every session that is still likely to be resumed.
+const MAXIMUM_LOG_AGE_MILLISECONDS = 30 * 24 * 60 * 60 * 1000;
+// The logs describe the user's sessions, so only the owner may read them.
+const OWNER_ONLY_DIRECTORY_MODE = 0o700;
+const OWNER_ONLY_FILE_MODE = 0o600;
 
 export function logFilePath(directory: string, sessionId: string): string {
   return join(directory, `${sessionId.replace(/[^A-Za-z0-9_-]/g, "_")}.jsonl`);
@@ -14,39 +24,39 @@ export function logFilePath(directory: string, sessionId: string): string {
 
 export class LogWriter {
   lastError: string | undefined;
-  private queue: Promise<void> = Promise.resolve();
-  private readonly sizes = new Map<string, number>();
-  private readonly capped = new Set<string>();
-  private readonly directory: string;
-  private readonly limitBytes: number;
+  #queue: Promise<void> = Promise.resolve();
+  readonly #sizes = new Map<string, number>();
+  readonly #capped = new Set<string>();
+  readonly #directory: string;
+  readonly #limitBytes: number;
 
-  constructor(directory: string, limitBytes = 50 * 1024 * 1024) {
-    this.directory = directory;
-    this.limitBytes = limitBytes;
+  constructor(directory: string, limitBytes = LOG_LIMIT_BYTES) {
+    this.#directory = directory;
+    this.#limitBytes = limitBytes;
   }
 
   // Fire-and-forget: callers sit in the request path and must never wait on or fail from disk I/O.
   append(record: LogRecord): void {
-    this.queue = this.queue
-      .then(() => this.write(record))
+    this.#queue = this.#queue
+      .then(() => this.#write(record))
       .catch((error: unknown) => {
-        this.lastError = error instanceof Error ? error.message : String(error);
+        this.lastError = errorMessage(error);
       });
   }
 
   flush(): Promise<void> {
-    return this.queue;
+    return this.#queue;
   }
 
-  private async write(record: LogRecord): Promise<void> {
-    const path = logFilePath(this.directory, record.sessionId);
-    if (this.capped.has(path)) return;
-    await mkdir(this.directory, { recursive: true, mode: 0o700 });
-    const size = this.sizes.get(path) ?? (await stat(path).then(({ size: existing }) => existing, () => 0));
+  async #write(record: LogRecord): Promise<void> {
+    const path = logFilePath(this.#directory, record.sessionId);
+    if (this.#capped.has(path)) return;
+    await mkdir(this.#directory, { recursive: true, mode: OWNER_ONLY_DIRECTORY_MODE });
+    const size = this.#sizes.get(path) ?? (await stat(path).then(({ size: existing }) => existing, () => 0));
     const line = `${JSON.stringify(record)}\n`;
     const lineBytes = Buffer.byteLength(line);
-    if (size + lineBytes > this.limitBytes) {
-      this.capped.add(path);
+    if (size + lineBytes > this.#limitBytes) {
+      this.#capped.add(path);
       const marker: MarkerRecord = {
         version: RECORD_VERSION,
         kind: "marker",
@@ -54,17 +64,17 @@ export class LogWriter {
         at: new Date().toISOString(),
         event: MarkerEvent.LogCapped,
       };
-      await appendFile(path, `${JSON.stringify(marker)}\n`, { mode: 0o600 });
+      await appendFile(path, `${JSON.stringify(marker)}\n`, { mode: OWNER_ONLY_FILE_MODE });
       return;
     }
-    await appendFile(path, line, { mode: 0o600 });
-    this.sizes.set(path, size + lineBytes);
+    await appendFile(path, line, { mode: OWNER_ONLY_FILE_MODE });
+    this.#sizes.set(path, size + lineBytes);
   }
 }
 
-export async function pruneLogs(directory: string, maximumAgeMs = 30 * 24 * 60 * 60 * 1000, now = Date.now()): Promise<number> {
-  const names = await readdir(directory).catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") return [];
+export async function pruneLogs(directory: string, maximumAgeMs = MAXIMUM_LOG_AGE_MILLISECONDS, now = Date.now()): Promise<number> {
+  const names = await readdir(directory).catch((error: unknown) => {
+    if (errorCode(error) === "ENOENT") return [];
     throw error;
   });
   const removals = await Promise.all(
@@ -83,8 +93,8 @@ export async function pruneLogs(directory: string, maximumAgeMs = 30 * 24 * 60 *
 
 // A crash can leave a torn last line, so unparseable lines are skipped instead of failing the report.
 export async function readLog(path: string): Promise<LogRecord[]> {
-  const text = await readFile(path, "utf8").catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") return "";
+  const text = await readFile(path, "utf8").catch((error: unknown) => {
+    if (errorCode(error) === "ENOENT") return "";
     throw error;
   });
   return text
@@ -105,8 +115,10 @@ export async function resolveLogPath(directory: string, target: string | undefin
 function parseRecord(line: string): LogRecord | undefined {
   try {
     const parsed: unknown = JSON.parse(line);
-    if (typeof parsed !== "object" || parsed === null) return undefined;
-    return (parsed as { version?: unknown }).version === RECORD_VERSION ? (parsed as LogRecord) : undefined;
+    if (!isRecord(parsed) || parsed.version !== RECORD_VERSION) return undefined;
+    // Only this extension writes the log, so a record of the current version has the current shape.
+    const record: unknown = parsed;
+    return record as LogRecord;
   } catch {
     return undefined;
   }

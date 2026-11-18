@@ -13,4 +13,4 @@ export interface SidebarSection {
 /** Sections call this when their items changed outside of `restore`. */
 export type SectionChanged = (context: ExtensionContext) => void;
 
-export type BranchEntry = { type: string; customType?: string; data?: unknown };
+export interface BranchEntry { type: string; customType?: string; data?: unknown }

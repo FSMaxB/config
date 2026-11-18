@@ -4,16 +4,17 @@ import type { PanelItem } from "./panel.ts";
 import type { BranchEntry } from "./section.ts";
 import { resolveToolPath, safeRealPath } from "./tool-path.ts";
 import type { RealPath } from "./tool-path.ts";
+import { isRecord, stringProperty } from "../lib/untyped.ts";
 
 export const LOADED_SKILL_ENTRY = "loaded-skill";
 export const LOADED_SKILL_REFERENCE_ENTRY = "loaded-skill-reference";
 
-export type LoadedSkillData = { name: string };
+export interface LoadedSkillData { name: string }
 /** `path` is relative to the skill's directory. */
-export type LoadedSkillReferenceData = { skill: string; path: string };
+export interface LoadedSkillReferenceData { skill: string; path: string }
 
 export type SkillLevel = "repo" | "user";
-export type Skill = { name: string; level: SkillLevel };
+export interface Skill { name: string; level: SkillLevel }
 
 /** Maps the realpath of each skill's SKILL.md to the skill. */
 export type SkillIndex = Map<string, Skill>;
@@ -25,9 +26,9 @@ export type SkillLoad = { kind: "skill"; skill: Skill } | { kind: "reference"; s
 export const SkillState = { Loaded: "loaded", ReferencesOnly: "references-only" } as const;
 export type SkillState = (typeof SkillState)[keyof typeof SkillState];
 
-export type SkillOnBranch = { skill: Skill; state: SkillState; references: readonly string[] };
+export interface SkillOnBranch { skill: Skill; state: SkillState; references: readonly string[] }
 
-export type CommandInfo = { name: string; source: string; sourceInfo: { path: string; scope: string } };
+export interface CommandInfo { name: string; source: string; sourceInfo: { path: string; scope: string } }
 export function buildSkillIndex(commands: readonly CommandInfo[], realPath: RealPath = safeRealPath): SkillIndex {
   const index: SkillIndex = new Map();
   for (const command of commands) {
@@ -87,7 +88,6 @@ export function applySkillLoad(
   return skills.map((known, index) => (index === position ? next : known));
 }
 
-/** Sidebar rows for the skills of one level: each skill, then its references one level deeper. */
 export function skillItems(skills: readonly SkillOnBranch[], level: SkillLevel): PanelItem[] {
   return skills
     .filter((entry) => entry.skill.level === level)
@@ -121,13 +121,14 @@ function withReference(skill: Skill, path: string, current: SkillOnBranch | unde
 function loadFromEntry(entry: BranchEntry, index: SkillIndex): SkillLoad | undefined {
   if (entry.type !== "custom") return undefined;
   if (entry.customType === LOADED_SKILL_ENTRY) {
-    const name = (entry.data as Partial<LoadedSkillData> | undefined)?.name;
-    return typeof name === "string" ? { kind: "skill", skill: skillNamed(index, name) } : undefined;
+    const name = isRecord(entry.data) ? stringProperty(entry.data, "name") : undefined;
+    return name === undefined ? undefined : { kind: "skill", skill: skillNamed(index, name) };
   }
   if (entry.customType === LOADED_SKILL_REFERENCE_ENTRY) {
-    const data = entry.data as Partial<LoadedSkillReferenceData> | undefined;
-    if (typeof data?.skill !== "string" || typeof data.path !== "string") return undefined;
-    return { kind: "reference", skill: skillNamed(index, data.skill), path: data.path };
+    const skill = isRecord(entry.data) ? stringProperty(entry.data, "skill") : undefined;
+    const path = isRecord(entry.data) ? stringProperty(entry.data, "path") : undefined;
+    if (skill === undefined || path === undefined) return undefined;
+    return { kind: "reference", skill: skillNamed(index, skill), path };
   }
   return undefined;
 }

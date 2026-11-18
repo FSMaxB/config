@@ -21,34 +21,18 @@ export interface AgentConfig {
   systemPrompt: string;
 }
 
-/**
- * Raw agent frontmatter. Values are `unknown` because `parseFrontmatter` runs a
- * real YAML parser, so any scalar or collection can appear here.
- *
- * A type alias rather than an interface: `parseFrontmatter` constrains its
- * parameter to `Record<string, unknown>`, and only an alias picks up the
- * implicit index signature that satisfies it.
- */
-type AgentFrontmatter = {
-  name?: unknown;
-  description?: unknown;
-  tools?: unknown;
-  model?: unknown;
-  thinkingLevel?: unknown;
-};
-
 export function discoverAgents(): { agents: AgentConfig[]; skipped: string[] } {
   // Agents ship next to this extension so the whole setup lives in the config repo.
-  const userDir = join(dirname(fileURLToPath(import.meta.url)), "agents");
-  return loadAgentsFromDir(userDir);
+  const agentsDirectory = join(dirname(fileURLToPath(import.meta.url)), "agents");
+  return loadAgentsFromDir(agentsDirectory);
 }
 
-function loadAgentsFromDir(dir: string): { agents: AgentConfig[]; skipped: string[] } {
+function loadAgentsFromDir(directory: string): { agents: AgentConfig[]; skipped: string[] } {
   const pairs: { file: string; agent: AgentConfig }[] = [];
 
   let entries: Dirent[];
   try {
-    entries = readdirSync(dir, { withFileTypes: true });
+    entries = readdirSync(directory, { withFileTypes: true });
   } catch {
     return dropDuplicateNames(pairs);
   }
@@ -59,12 +43,13 @@ function loadAgentsFromDir(dir: string): { agents: AgentConfig[]; skipped: strin
 
     let content: string;
     try {
-      content = readFileSync(join(dir, entry.name), "utf-8");
+      content = readFileSync(join(directory, entry.name), "utf-8");
     } catch {
       continue;
     }
 
-    const { frontmatter, body } = parseFrontmatter<AgentFrontmatter>(content);
+    // A real YAML parser runs here, so any scalar or collection can appear in each value.
+    const { frontmatter, body } = parseFrontmatter(content);
 
     if (typeof frontmatter.name !== "string" || typeof frontmatter.description !== "string") {
       continue;

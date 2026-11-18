@@ -14,9 +14,9 @@ const measure: TextMeasure = {
   truncate: (text, maxWidth, ellipsis) => truncateToWidth(text, maxWidth, ellipsis),
 };
 
-type Overlay = { handle?: OverlayHandle; requestRender(): void };
+interface Overlay { handle?: OverlayHandle; requestRender(): void }
 
-export default function sidebarExtension(pi: ExtensionAPI) {
+export default function sidebarExtension(pi: ExtensionAPI): void {
   let visibility: Visibility = Visibility.On;
   let overlay: Overlay | undefined;
 
@@ -83,7 +83,7 @@ export default function sidebarExtension(pi: ExtensionAPI) {
   function openOverlay(context: ExtensionContext): Overlay {
     const state: Overlay = { requestRender: () => {} };
     // pi counts an open ui.custom call as a pending prompt and reports no prompt nested inside it, so an
-    // overlay kept open through ui.custom silenced notify-ask for the rest of the session. ui.custom is the
+    // overlay kept open through ui.custom would silence notify-ask for the rest of the session. ui.custom is the
     // only way to reach the TUI: the panel is shown with tui.showOverlay, and done() runs before the
     // factory returns, which makes pi skip its own overlay and settle the call right away.
     void context.ui.custom<void>((tui, theme, _keybindings, done) => {

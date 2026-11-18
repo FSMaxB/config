@@ -4,11 +4,12 @@ import type { PanelItem } from "./panel.ts";
 import type { BranchEntry } from "./section.ts";
 import { resolveToolPath, safeRealPath } from "./tool-path.ts";
 import type { RealPath } from "./tool-path.ts";
+import { isRecord, stringProperty } from "../lib/untyped.ts";
 
 export const LOADED_PLAN_ENTRY = "loaded-plan";
 
 /** `path` is the realpath of the plan file. */
-export type LoadedPlanData = { path: string };
+export interface LoadedPlanData { path: string }
 
 /** The plan a successful read, write or edit of `rawPath` touched: a Markdown file under `plansRoot`. */
 export function planPathForToolPath(
@@ -39,13 +40,11 @@ export function withPlan(plans: readonly string[], path: string): readonly strin
   return plans.includes(path) ? undefined : [...plans, path];
 }
 
-/** One row per plan, showing only its filename. */
 export function planItems(plans: readonly string[]): PanelItem[] {
   return plans.map((path) => ({ text: basename(path), depth: 0, tone: ItemTone.Normal }));
 }
 
 function planFromEntry(entry: BranchEntry): string | undefined {
   if (entry.type !== "custom" || entry.customType !== LOADED_PLAN_ENTRY) return undefined;
-  const path = (entry.data as Partial<LoadedPlanData> | undefined)?.path;
-  return typeof path === "string" ? path : undefined;
+  return isRecord(entry.data) ? stringProperty(entry.data, "path") : undefined;
 }
