@@ -1,0 +1,32 @@
+{
+  "name": "pi-extensions-lint",
+  "private": true,
+  "description": "ESLint and typecheck for pi/extensions.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "lint": "cd .. && eslint --config lint/eslint.config.ts --suppressions-location lint/eslint-suppressions.json extensions lint",
+    "lint:prune": "npm run lint -- --prune-suppressions",
+    "fix": "node fix-rules.ts",
+    "test": "node --test rules/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-agent-core": "1.5.2",
+    "@earendil-works/pi-ai": "1.5.2",
+    "@earendil-works/pi-coding-agent": "1.5.2",
+    "@earendil-works/pi-tui": "1.5.2",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.19.2",
+    "@typescript-eslint/utils": "^8.73.0",
+    "eslint": "^10.15.0",
+    "eslint-plugin-unicorn": "^80.0.0",
+    "globals": "^17.14.0",
+    "jiti": "^2.7.0",
+    "typebox": "1.3.27",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.73.0"
+  }
+}
