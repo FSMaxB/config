@@ -11,7 +11,7 @@ it("discovers across separate API wrappers and awaits the live handler", async (
   const controller = new AbortController();
   const params = { path: "/plan.md" };
   const expected: PlanSubmissionResult = { content: [{ type: "text", text: "handed off" }], details: { path: params.path, outcome: "handed-off" } };
-  let received: unknown[];
+  let received: unknown[] | undefined;
   registerPlanSubmission({ ...bus }, {
     available: (liveContext) => liveContext === context,
     submit: async (...arguments_) => { received = arguments_; return expected; },
@@ -22,7 +22,7 @@ it("discovers across separate API wrappers and awaits the live handler", async (
   // assert
   assert.equal(available, true);
   assert.equal(result, expected);
-  assert.deepEqual(received!, [params, controller.signal, context]);
+  assert.deepEqual(received, [params, controller.signal, context]);
 });
 
 it("treats a missing handler as unavailable and rejects invocation", async () => {

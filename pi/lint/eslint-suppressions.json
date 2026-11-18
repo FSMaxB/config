@@ -491,9 +491,6 @@
     "unicorn/name-replacements": {
       "count": 1
     },
-    "unicorn/no-array-reduce": {
-      "count": 1
-    },
     "unicorn/no-null": {
       "count": 1
     }
@@ -807,9 +804,6 @@
   "extensions/lib/plan-submission.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 6
-    },
-    "@typescript-eslint/no-non-null-assertion": {
-      "count": 1
     },
     "unicorn/name-replacements": {
       "count": 1

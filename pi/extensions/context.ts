@@ -323,10 +323,12 @@ function sortedByTokens(map: ReadonlyMap<string, Stats>): [string, Stats][] {
 }
 
 function sumStats(entries: readonly [string, Stats][]): Stats {
-  return entries.reduce(
-    (total, [, stats]) => ({ tokens: total.tokens + stats.tokens, count: total.count + stats.count }),
-    { tokens: 0, count: 0 },
-  );
+  const total: Stats = { tokens: 0, count: 0 };
+  for (const [, stats] of entries) {
+    total.tokens += stats.tokens;
+    total.count += stats.count;
+  }
+  return total;
 }
 
 function renderRows(rows: readonly Row[], contextWindow: number | undefined): string[] {
