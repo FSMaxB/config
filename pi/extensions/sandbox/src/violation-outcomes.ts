@@ -86,6 +86,9 @@ export function networkDenialReport(lines: string[], noteFor: (host: string, por
   return reported.size === 0 ? "" : `\n${[...reported.values()].join("\n")}\n`;
 }
 
+export const HERE_DOCUMENT_REPORT =
+  "\nThe shell could not create a here-document temp file (sh-thd-*) in the current directory: bash before 5.1 ignores $TMPDIR for them. Write file content with the write tool, or `cd \"$TMPDIR\"` first and use absolute paths.\n";
+
 // Linux's read-deny tmpfs accepts writes and drops them when the sandbox exits, so the program believes they
 // succeeded; macOS refuses such writes, so it never reports any.
 export function discardedWriteReport(

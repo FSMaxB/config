@@ -29,10 +29,11 @@ import { addAllowedDomain, addFilesystemEntry, emptyProfileDefinition, mergedPro
 import { createRecorder } from "./recorder.ts";
 import { exportSessionScratch, withSessionScratch } from "./scratch.ts";
 import { loadActivationDecisions, loadProfiles, loadSettings, updateActivationDecisions, updateDomainLists, updateProfile, type Settings } from "./settings.ts";
+import { resolveSandboxShell } from "./shell.ts";
 import { scanVcsLayout, vcsWriteRules, type VcsWriteRules } from "./vcs-policy.ts";
-import { isRepositoryRootRemoval, isSecretPath, pathViolations, type PathViolation } from "./violations.ts";
+import { isHereDocumentTemporaryFile, isRepositoryRootRemoval, isSecretPath, pathViolations, type PathViolation } from "./violations.ts";
 import { startViolationCollector, type ViolationCollector } from "./violation-collector.ts";
-import { CommandExit, discardedWriteReport, networkDenialReport, nextStep, promptDurations, rawViolationBlock, violationReport, type NextStep, type ViolationOutcome } from "./violation-outcomes.ts";
+import { CommandExit, discardedWriteReport, HERE_DOCUMENT_REPORT, networkDenialReport, nextStep, promptDurations, rawViolationBlock, violationReport, type NextStep, type ViolationOutcome } from "./violation-outcomes.ts";
 
 const SANDBOX_NOTE =
   "Commands run inside an OS sandbox that enforces the same read/write path rules as the file tools, with no network except allowed hosts. Denied paths are reported in a <sandbox_violations> block and the user is asked to grant them; after a grant the command has to be rerun, unless the user allowed it once: then the sandbox reruns it itself and the rerun's output follows the report. Never try to work around a denial. Sandbox profiles (extra permissions the user approved for tools such as bazel) activate on their own for matching commands, after the user confirms. " +
@@ -53,6 +54,9 @@ const MAX_PATH_PROMPTS_PER_COMMAND = 5;
 
 const CONFIG_ID_WARNING =
   "Sandbox: this jj repo has no config-id, so on Linux the sandbox cannot stop a planted .jj/repo/config.toml or .jj/workspace-config.toml. Run `jj config path --repo` and `jj config path --workspace` once to create the ids.";
+
+const OLD_BASH_WARNING =
+  "Sandbox: no bash 5.1 or newer found, so sandboxed commands run with the system bash, whose here-documents fail when the current directory is not writable. Install one (macOS: `brew install bash`) and restart pi.";
 
 // Commands whose tags a later profiled command adopts, so violations of the long-lived servers they started stay visible.
 const MAX_ADOPTED_COMMANDS = 200;
@@ -196,6 +200,8 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   // Deliberately not persisted in the session: a resumed session asks again before bypassing the sandbox.
   let bypassDecision: SessionDecision | undefined;
   let warnedAboutConfigIds = false;
+  // Undefined makes srt look up `bash` on PATH itself.
+  let shell: string | undefined;
   let collector: ViolationCollector | undefined;
   const onceNetworkGrants: OnceNetworkGrants = new Map();
   // One id per bash call, shared by its reruns: once-answers to network prompts are scoped to these.
@@ -299,7 +305,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     warnAboutMissingConfigIds(vcs, filesystem.denyWrite);
     const environment = profiles.length === 0 ? options.env : profileEnvironment(options.env ?? process.env, profiles, inputs);
     try {
-      const wrapped = await manager().wrapWithSandbox(exportSessionScratch(command, environment), undefined, { filesystem }, options.signal, { commandId, commandText: command });
+      const wrapped = await manager().wrapWithSandbox(exportSessionScratch(command, environment), shell, { filesystem }, options.signal, { commandId, commandText: command });
       const result = await stock.exec(wrapped, cwd, { ...options, env: environment });
       const exit = result.exitCode === 0 ? CommandExit.Succeeded : CommandExit.Failed;
       // Linux events arrive over the monitor socket and are best-effort after exit, so a successful command
@@ -307,7 +313,9 @@ function createRuntime(pi: ExtensionAPI): Runtime {
       const collected = exit === CommandExit.Succeeded && process.platform === "linux"
         ? await readViolationsAfterOneWait(commandId)
         : await collectViolations(commandId);
-      const violations = reportable(collected, vcs.repositoryRoot);
+      const relevant = reportable(collected, vcs.repositoryRoot);
+      const violations = relevant.filter(({ line }) => !isHereDocumentTemporaryFile(line));
+      if (violations.length < relevant.length) options.onData(Buffer.from(HERE_DOCUMENT_REPORT));
       if (violations.length === 0) return { result, step: { kind: "return" }, promptsUsed: 0 };
       const lines = violations.map(({ line }) => line);
       options.onData(Buffer.from(rawViolationBlock(lines)));
@@ -344,6 +352,9 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     const seccompMissing = process.platform === "linux" ? warnings.filter((warning) => /seccomp/i.test(warning)) : [];
     const problems = [...errors, ...seccompMissing];
     if (problems.length > 0) throw new Error(`Sandboxed bash is unavailable: ${problems.join("; ")}. ${INSTALL_HINT}`);
+    const choice = await resolveSandboxShell(process.env.PATH);
+    shell = choice.kind === "found" ? choice.path : undefined;
+    if (choice.kind === "missing") activeContext?.ui.notify(`${OLD_BASH_WARNING} Checked: ${choice.checked.join(", ")}.`, "warning");
     await manager().initialize(
       {
         network: networkConfig(settings, grants, subagent, profileNetwork),

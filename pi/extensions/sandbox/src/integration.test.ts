@@ -12,10 +12,11 @@ import { exact, glob, tree, type PathSelector } from "../../lib/path-permission-
 import { INITIAL_LOG_STREAM_STATE, parseLogStreamChunk, type LogStreamFormat } from "./log-stream.ts";
 import { filesystemConfig } from "./policy.ts";
 import { mktempShimDirectory } from "./scratch.ts";
+import { resolveSandboxShell } from "./shell.ts";
 import { traceProfile } from "./trace-profile.ts";
 import { scanVcsLayout, vcsWriteRules } from "./vcs-policy.ts";
 import { startViolationCollector, type ViolationCollector } from "./violation-collector.ts";
-import { discardedWrites, isRepositoryRootRemoval, pathViolations } from "./violations.ts";
+import { discardedWrites, isHereDocumentTemporaryFile, isRepositoryRootRemoval, pathViolations } from "./violations.ts";
 
 const enabled = process.env.SANDBOX_INTEGRATION === "1";
 
@@ -329,6 +330,34 @@ test("mktemp creates its files in TMPDIR through the shim", { skip: !enabled || 
   assert.deepEqual(pathViolations((await collectViolations(commandId)).map(({ line }) => line)), []);
 });
 
+test("here-documents work from a read-only directory with the resolved shell", { skip: !enabled }, async (context) => {
+  // arrange
+  const choice = await resolveSandboxShell(process.env.PATH);
+  if (choice.kind === "missing") return context.skip("no bash 5.1 or newer installed");
+  // The second heredoc is larger than the pipe buffer, so bash 5.1+ writes it to a temp file under $TMPDIR.
+  const command = `export TMPDIR='${workDirectory}'; cat <<'EOF'\nsmall\nEOF\ncat <<EOF | wc -c\n$(head -c 100000 /dev/zero | tr '\\0' x)\nEOF`;
+
+  // act
+  const { exitCode, output, commandId } = await runSandboxed(command, policyFilesystem(), root, choice.path);
+
+  // assert
+  assert.equal(exitCode, 0, output);
+  assert.match(output, /^small\n\s*100001\n$/);
+  assert.deepEqual(pathViolations((await collectViolations(commandId)).map(({ line }) => line)), []);
+});
+
+test("system bash 3.2 heredocs from a read-only directory are reported as sh-thd temp files", { skip: !enabled || process.platform !== "darwin" }, async () => {
+  // arrange
+  const command = `export TMPDIR='${workDirectory}'; cat <<'EOF'\nsmall\nEOF`;
+
+  // act
+  const { exitCode, output, commandId } = await runSandboxed(command, policyFilesystem(), root, "/bin/bash");
+
+  // assert
+  assert.notEqual(exitCode, 0, output);
+  assert.ok((await collectViolations(commandId)).some(({ line }) => isHereDocumentTemporaryFile(line)), output);
+});
+
 // jj git init itself runs outside the sandbox: it creates files in .jj that the allowlist leaves to the user.
 test("a jj session works inside the sandbox without violations", { skip: !enabled || !jjAvailable }, async () => {
   // arrange
@@ -460,10 +489,10 @@ function policyFilesystem(extraReadAllow: PathSelector[] = [], extraWriteAllow: 
   return filesystemConfig(policy, { platform: process.platform as "darwin" | "linux", homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [] });
 }
 
-async function runSandboxed(command: string, filesystem = policyFilesystem(), cwd = workDirectory): Promise<{ exitCode: number | null; output: string; commandId: string }> {
+async function runSandboxed(command: string, filesystem = policyFilesystem(), cwd = workDirectory, shell: string | undefined = undefined): Promise<{ exitCode: number | null; output: string; commandId: string }> {
   const commandId = `${Date.now()}-${Math.random()}`;
   collector.track(commandId);
-  const wrapped = await SandboxManager.wrapWithSandbox(command, undefined, { filesystem }, undefined, { commandId, commandText: command });
+  const wrapped = await SandboxManager.wrapWithSandbox(command, shell, { filesystem }, undefined, { commandId, commandText: command });
   try {
     return await new Promise((resolve, reject) => {
       const child = spawn(wrapped, { shell: true, cwd });
