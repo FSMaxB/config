@@ -26,25 +26,6 @@ import { PROVIDER_ID } from "./convert.js";
 export const NATIVE_PROVIDER_UNSUPPORTED_MESSAGE =
 	"Claude bridge requires pi >= 0.86 (native provider API with transcript contexts). Upgrade the host pi.";
 
-/** pi-ai gained createProvider in 0.81 with the object-form registerProvider,
- *  and getCurrentTools in 0.86 when providers started receiving a
- *  TranscriptContext. The bridge reads its tool set from the transcript, so an
- *  older host would register fine and then offer Claude Code no tools at all;
- *  refuse it up front instead. */
-export function supportsNativeProvider(piAi: unknown): boolean {
-	if (typeof piAi !== "object" || piAi === null) return false;
-	return typeof Reflect.get(piAi, "createProvider") === "function" && typeof Reflect.get(piAi, "getCurrentTools") === "function";
-}
-
-/** Auth source label for pi's status UI, chosen by the same existence-only
- *  probes hasClaudeCredentials uses. Never reads credential contents. */
-export function claudeAuthSourceLabel(environment: NodeJS.ProcessEnv = process.env): string {
-	if (environment.CLAUDE_CODE_OAUTH_TOKEN?.trim()) return "CLAUDE_CODE_OAUTH_TOKEN";
-	if (environment.ANTHROPIC_API_KEY?.trim()) return "ANTHROPIC_API_KEY";
-	if (environment.ANTHROPIC_AUTH_TOKEN?.trim()) return "ANTHROPIC_AUTH_TOKEN";
-	return "Claude Code login";
-}
-
 /**
  * Build the Provider object for pi.registerProvider(provider).
  *
@@ -95,4 +76,23 @@ export function buildNativeProvider(
 		models: stamped,
 		api: streams,
 	});
+}
+
+/** pi-ai gained createProvider in 0.81 with the object-form registerProvider,
+ *  and getCurrentTools in 0.86 when providers started receiving a
+ *  TranscriptContext. The bridge reads its tool set from the transcript, so an
+ *  older host would register fine and then offer Claude Code no tools at all;
+ *  refuse it up front instead. */
+export function supportsNativeProvider(piAi: unknown): boolean {
+	if (typeof piAi !== "object" || piAi === null) return false;
+	return typeof Reflect.get(piAi, "createProvider") === "function" && typeof Reflect.get(piAi, "getCurrentTools") === "function";
+}
+
+/** Auth source label for pi's status UI, chosen by the same existence-only
+ *  probes hasClaudeCredentials uses. Never reads credential contents. */
+export function claudeAuthSourceLabel(environment: NodeJS.ProcessEnv = process.env): string {
+	if (environment.CLAUDE_CODE_OAUTH_TOKEN?.trim()) return "CLAUDE_CODE_OAUTH_TOKEN";
+	if (environment.ANTHROPIC_API_KEY?.trim()) return "ANTHROPIC_API_KEY";
+	if (environment.ANTHROPIC_AUTH_TOKEN?.trim()) return "ANTHROPIC_AUTH_TOKEN";
+	return "Claude Code login";
 }

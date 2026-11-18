@@ -8,11 +8,12 @@ import { getExtensionApi, getSharedSession, reportSyntheticToolResultRepair, saf
 import type { SessionState } from "./bridge-state.js";
 import { displayPath } from "./config.js";
 import { convertPiMessages } from "./convert.js";
-import { DEBUG, DEBUG_LOG_PATH, debug, diagDump } from "./debug.js";
+import { DEBUG, DEBUG_LOG_PATH, debug, diagDump, shortId } from "./debug.js";
 import { verifyWrittenSession as _verifyWrittenSession } from "./session-verify.js";
 import { conversationMessages } from "./transcript.js";
 import type { PiSessionMessage } from "./transcript.js";
 import { errorMessage } from "../../lib/errors.ts";
+import { processGlobal } from "../../lib/process-global.ts";
 import { isRecord, stringProperty } from "../../lib/untyped.ts";
 import {
 	findUnpairedToolUses,
@@ -23,159 +24,67 @@ import {
 
 const BRIDGE_SESSION_CUSTOM_TYPE = "claude-bridge-session";
 
-interface PersistedBridgeSessionState extends SessionState {
-	fingerprint: string;
-	piSessionId?: string;
-	updatedAt: string;
-}
+// Twelve hex digits (48 bits) keep the fingerprints short in the saved session while collisions stay implausible for one user's sessions.
+const FINGERPRINT_HEX_LENGTH = 12;
 
-// The session manager pi hands extensions. buildSessionContext is optional because pi's
-// ReadonlySessionManager type leaves it out although the object has it; test doubles may lack the
-// other methods too.
-export interface SessionManagerView {
-	getEntries?(): readonly unknown[];
-	getSessionId?(): string;
-	getCwd?(): string;
-	buildSessionContext?(): SessionContext;
-}
-
-function normalizedMessageText(content: unknown): string {
-	const text = typeof content === "string"
-		? content
-		: Array.isArray(content)
-			? content
-				.map((block: unknown) => (isRecord(block) && block.type === "text" ? stringProperty(block, "text") ?? "" : ""))
-				.join("\n")
-			: "";
-	return text.trim();
-}
-
-function shortHash(text: string): string {
-	return createHash("sha256").update(text).digest("hex").slice(0, 12);
-}
-
-/** Identity anchor for a pi conversation, encoded component-wise as
- *  `u:<12hex>` (short sha256 of the FIRST user message's normalized text) or
- *  `u:<12hex>|a:<12hex>` (plus the FIRST assistant message's text and tool
- *  calls, once the conversation has an assistant message with either). The
- *  opening messages are the stable elements of a pi history — later messages
- *  get appended, compacted, or tree-navigated (all of which set needsRebuild),
- *  but the first user/assistant pair survives for the session's lifetime. The
- *  two-component form exists because a first USER message alone is a weak
- *  anchor in two ways: unrelated conversations routinely open with identical
- *  text ("continue"), so a same-opener foreign context shaped to align with
- *  the cursor would REUSE across genuinely different histories; and a
- *  `context` handler may prepend a request-local message to some requests
- *  only (superpowers' bootstrap exists on the first turn alone), so the opener
- *  a request shows is not always the persisted one. The assistant message is
- *  persisted history, which is why it decides once both anchors carry it (see
- *  conversationFingerprintsMatch), and why it includes tool calls: a first
- *  assistant turn usually carries only those, and an anchor that waited for
- *  text would leave the first turn's abort record without the component.
- *  Returns undefined when the context has no user message or its text
- *  normalizes to empty (image-only) — identity unknown, callers must fail
- *  open to the pre-fingerprint behavior, never treat it as a mismatch.
- *  Distinct from fingerprintMessages below, which hashes a cursor slice for
- *  restore integrity. */
-export function conversationFingerprint(messages: readonly PiSessionMessage[]): string | undefined {
-	const firstUser = messages.find((message) => message.role === "user");
-	if (!firstUser) return undefined;
-	const userText = normalizedMessageText(firstUser.content);
-	if (!userText) return undefined;
-	const assistantIdentity = firstAssistantIdentity(messages);
-	return assistantIdentity ? `u:${shortHash(userText)}|a:${shortHash(assistantIdentity)}` : `u:${shortHash(userText)}`;
-}
-
-/** The first assistant message with any text or tool call, normalized. An
- *  assistant message with neither (an aborted turn) is skipped. */
-function firstAssistantIdentity(messages: readonly PiSessionMessage[]): string {
-	for (const message of messages) {
-		if (message.role !== "assistant") continue;
-		const identity = normalizedAssistantIdentity(message.content);
-		if (identity) return identity;
+/** Whether every assistant tool_use in the Claude transcript has a matching
+ *  tool_result. An interrupted Claude Code child records a rejected result for
+ *  each pending call before it exits; a transcript that still has an unpaired
+ *  tool_use came from a child that died before that write, and resuming it
+ *  would hand Claude a history its API rejects. A missing or unreadable
+ *  transcript counts as unpaired. */
+export function claudeSessionPairsToolCalls(sessionId: string, cwd: string, claudeDirectory: string | undefined): boolean {
+	try {
+		const session = openSession({ sessionId, projectPath: cwd, claudeDir: claudeDirectory });
+		const messages = session.messages.map(({ message: { role, content } }) => ({ role, content }));
+		return findUnpairedToolUses(messages).length === 0;
+	} catch (error) {
+		debug(`claudeSessionPairsToolCalls: cannot read session ${shortId(sessionId)}:`, error);
+		return false;
 	}
-	return "";
 }
 
-/** Text blocks and tool calls of an assistant message, in order. Thinking is
- *  left out, since providers may redact it. For a message without tool calls
- *  this equals normalizedMessageText, so anchors recorded before tool calls
- *  counted stay valid. */
-function normalizedAssistantIdentity(content: unknown): string {
-	if (!Array.isArray(content)) return normalizedMessageText(content);
-	return content
-		.map((block: unknown) => {
-			if (!isRecord(block)) return "";
-			const { type, arguments: toolArguments } = block;
-			if (type === "text") return stringProperty(block, "text") ?? "";
-			// JSON's null keeps the anchors of calls without arguments as they were recorded.
-			if (type === "toolCall") return `${stringProperty(block, "name") ?? ""}(${JSON.stringify(toolArguments ?? null)})`;
-			return "";
-		})
-		.join("\n")
-		.trim();
-}
-
-function parseConversationFingerprint(fp: string): { user: string; assistant?: string } | undefined {
-	const match = /^u:([0-9a-f]+)(?:\|a:([0-9a-f]+))?$/.exec(fp);
-	if (!match) return undefined;
-	return { user: match[1], ...(match[2] ? { assistant: match[2] } : {}) };
-}
-
-/** Component-wise anchor comparison. When BOTH sides carry an assistant
- *  component it decides alone: the first assistant message is persisted
- *  history, while the opener a request shows may be a request-local message a
- *  `context` handler prepended to that request only. While either side lacks
- *  one, the user component decides — a record stamped on turn 1 has no
- *  assistant yet, and its own conversation grown past turn 1 is an upgrade,
- *  not a mismatch (see conversationFingerprintUpgrade). An unparseable side
- *  means identity unknown: fail open (match), consistent with the guard's
- *  treatment of absent fingerprints. */
-export function conversationFingerprintsMatch(recorded: string, incoming: string): boolean {
-	const rec = parseConversationFingerprint(recorded);
-	const inc = parseConversationFingerprint(incoming);
-	if (!rec || !inc) return true;
-	if (rec.assistant && inc.assistant) return rec.assistant === inc.assistant;
-	return rec.user === inc.user;
-}
-
-/** Whether a REUSE-matched context's anchor should replace the recorded one:
- *  a legacy record with none adopts it outright (the planner accepting this
- *  context as the recorded conversation's continuation is the identity proof),
- *  and a turn-1 user-only record upgrades to the two-component form the
- *  moment its own conversation carries a first assistant message. A recorded
- *  two-component anchor is never rewritten. */
-function conversationFingerprintUpgrade(recorded: string | undefined, incoming: string | undefined): string | undefined {
-	if (!incoming) return undefined;
-	if (!recorded) return incoming;
-	const rec = parseConversationFingerprint(recorded);
-	const inc = parseConversationFingerprint(incoming);
-	return rec && inc && !rec.assistant && inc.assistant && rec.user === inc.user ? incoming : undefined;
-}
-
-function fingerprintMessages(messages: readonly PiSessionMessage[]): string {
-	const normalized = messages.map((message) => {
-		if (message.role === "assistant") {
-			return {
-				role: message.role,
-				provider: message.provider,
-				model: message.model,
-				content: message.content,
-			};
-		}
-		return message;
+export function restoreSharedSessionFromPi(context: { sessionManager?: SessionManagerView; cwd?: string }): void {
+	const persisted = latestPersistedBridgeSession(context.sessionManager);
+	if (!persisted) return;
+	// Reject before interpreting a routed UUID as an ambient-login session.
+	if (Object.hasOwn(persisted, "accountProfileId")) {
+		debug("restoreSharedSession: legacy profile marker — rebuilding from Pi history");
+		return;
+	}
+	const { sessionManager } = context;
+	const currentPiSessionId = typeof sessionManager?.getSessionId === "function" ? sessionManager.getSessionId() : undefined;
+	const currentCwd = typeof sessionManager?.getCwd === "function" ? sessionManager.getCwd() : context.cwd;
+	const rejection = shouldRestorePersistedBridgeEntry(persisted, currentPiSessionId, currentCwd);
+	if (rejection) {
+		debug(`restoreSharedSession: ${rejection} — forcing rebuild`);
+		return;
+	}
+	const built = readBuiltSessionContext(context.sessionManager);
+	if (!built) return;
+	const cursor = Math.max(0, Math.min(persisted.cursor, built.messages.length));
+	const fingerprint = fingerprintMessages(built.messages.slice(0, cursor));
+	if (fingerprint !== persisted.fingerprint) {
+		debug(`restoreSharedSession: fingerprint mismatch for ${shortId(persisted.sessionId)}`);
+		return;
+	}
+	if (!claudeSessionExists(persisted.sessionId, persisted.cwd, process.env.CLAUDE_CONFIG_DIR)) {
+		debug(`restoreSharedSession: Claude session missing for ${shortId(persisted.sessionId)}`);
+		return;
+	}
+	setSharedSession({
+		sessionId: persisted.sessionId,
+		cursor,
+		cwd: persisted.cwd,
+		// Absent on pre-3.1.1 markers: restore as identity-unknown (the foreign
+		// guard fails open) rather than rejecting the entry.
+		...(typeof persisted.conversationFingerprint === "string" ? { conversationFingerprint: persisted.conversationFingerprint } : {}),
+		...(Array.isArray(persisted.interruptedToolCallIds)
+			? { interruptedToolCallIds: persisted.interruptedToolCallIds.filter((id): id is string => typeof id === "string") }
+			: {}),
+		...(typeof persisted.forkAt === "string" ? { forkAt: persisted.forkAt } : {}),
 	});
-	return createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
-}
-
-/** Pi's built session context carries its prompt-section, tool-delta and
- *  compaction system messages. The provider lane indexes conversation
- *  messages only (src/transcript.ts), so the same view is taken here or a
- *  persisted cursor would point one message off after every such entry. */
-function readBuiltSessionContext(sessionManager: SessionManagerView | undefined): { messages: PiSessionMessage[] } | undefined {
-	const built = typeof sessionManager?.buildSessionContext === "function" ? sessionManager.buildSessionContext() : undefined;
-	if (!Array.isArray(built?.messages)) return undefined;
-	return { messages: conversationMessages(built.messages) };
+	debug(`restoreSharedSession: restored ${shortId(persisted.sessionId)}, cursor=${cursor}`);
 }
 
 function latestPersistedBridgeSession(sessionManager: SessionManagerView | undefined): PersistedBridgeSessionState | undefined {
@@ -192,8 +101,8 @@ function latestPersistedBridgeSession(sessionManager: SessionManagerView | undef
 
 function parsePersistedBridgeSession(data: unknown): PersistedBridgeSessionState | undefined {
 	if (!isRecord(data) || typeof data.sessionId !== "string" || typeof data.cursor !== "number" || typeof data.cwd !== "string" || typeof data.fingerprint !== "string") return undefined;
-	// Only schedulePersistSharedSession writes these entries, so the checked fields identify the shape.
 	const persisted: unknown = data;
+	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- only schedulePersistSharedSession writes these entries
 	return persisted as PersistedBridgeSessionState;
 }
 
@@ -205,28 +114,6 @@ function claudeSessionExists(sessionId: string, cwd: string, claudeDirectory: st
 	} catch {
 		return false;
 	}
-}
-
-/** Whether every assistant tool_use in the Claude transcript has a matching
- *  tool_result. An interrupted Claude Code child records a rejected result for
- *  each pending call before it exits; a transcript that still has an unpaired
- *  tool_use came from a child that died before that write, and resuming it
- *  would hand Claude a history its API rejects. A missing or unreadable
- *  transcript counts as unpaired. */
-export function claudeSessionPairsToolCalls(sessionId: string, cwd: string, claudeDirectory: string | undefined): boolean {
-	try {
-		const session = openSession({ sessionId, projectPath: cwd, claudeDir: claudeDirectory });
-		const messages = session.messages.map(({ message: { role, content } }) => ({ role, content }));
-		return findUnpairedToolUses(messages).length === 0;
-	} catch (error) {
-		debug(`claudeSessionPairsToolCalls: cannot read session ${sessionId.slice(0, 8)}:`, error);
-		return false;
-	}
-}
-
-function canonicalize(p: string | undefined): string | undefined {
-	if (!p) return undefined;
-	try { return realpathSync.native(p); } catch { return pathResolve(p); }
 }
 
 // Decides whether a persisted bridge-session marker is safe to restore.
@@ -255,47 +142,9 @@ export function shouldRestorePersistedBridgeEntry(
 	return undefined;
 }
 
-export function restoreSharedSessionFromPi(context: { sessionManager?: SessionManagerView; cwd?: string }): void {
-	const persisted = latestPersistedBridgeSession(context.sessionManager);
-	if (!persisted) return;
-	// Reject before interpreting a routed UUID as an ambient-login session.
-	if (Object.hasOwn(persisted, "accountProfileId")) {
-		debug("restoreSharedSession: legacy profile marker — rebuilding from Pi history");
-		return;
-	}
-	const { sessionManager } = context;
-	const currentPiSessionId = typeof sessionManager?.getSessionId === "function" ? sessionManager.getSessionId() : undefined;
-	const currentCwd = typeof sessionManager?.getCwd === "function" ? sessionManager.getCwd() : context.cwd;
-	const rejection = shouldRestorePersistedBridgeEntry(persisted, currentPiSessionId, currentCwd);
-	if (rejection) {
-		debug(`restoreSharedSession: ${rejection} — forcing rebuild`);
-		return;
-	}
-	const built = readBuiltSessionContext(context.sessionManager);
-	if (!built) return;
-	const cursor = Math.max(0, Math.min(persisted.cursor, built.messages.length));
-	const fingerprint = fingerprintMessages(built.messages.slice(0, cursor));
-	if (fingerprint !== persisted.fingerprint) {
-		debug(`restoreSharedSession: fingerprint mismatch for ${persisted.sessionId.slice(0, 8)}`);
-		return;
-	}
-	if (!claudeSessionExists(persisted.sessionId, persisted.cwd, process.env.CLAUDE_CONFIG_DIR)) {
-		debug(`restoreSharedSession: Claude session missing for ${persisted.sessionId.slice(0, 8)}`);
-		return;
-	}
-	setSharedSession({
-		sessionId: persisted.sessionId,
-		cursor,
-		cwd: persisted.cwd,
-		// Absent on pre-3.1.1 markers: restore as identity-unknown (the foreign
-		// guard fails open) rather than rejecting the entry.
-		...(typeof persisted.conversationFingerprint === "string" ? { conversationFingerprint: persisted.conversationFingerprint } : {}),
-		...(Array.isArray(persisted.interruptedToolCallIds)
-			? { interruptedToolCallIds: persisted.interruptedToolCallIds.filter((id): id is string => typeof id === "string") }
-			: {}),
-		...(typeof persisted.forkAt === "string" ? { forkAt: persisted.forkAt } : {}),
-	});
-	debug(`restoreSharedSession: restored ${persisted.sessionId.slice(0, 8)}, cursor=${cursor}`);
+function canonicalize(p: string | undefined): string | undefined {
+	if (!p) return undefined;
+	try { return realpathSync.native(p); } catch { return pathResolve(p); }
 }
 
 // One pending persist per SessionManager: cancelling a shutting-down session's
@@ -306,19 +155,6 @@ export function restoreSharedSessionFromPi(context: { sessionManager?: SessionMa
 // pending timer: each fire appends the record's state as of its schedule and
 // restore reads the last marker, so the superseded entry is a stale duplicate.
 const SCHEDULED_PERSISTENCE_SYMBOL = Symbol.for("kendex.pi.claude-bridge.scheduled-persistence.v1");
-
-type PersistenceTimer = ReturnType<typeof setTimeout>;
-
-// Shared by every copy of this module in the process; only this function writes it.
-function scheduledPersistenceTimers(): Map<object, PersistenceTimer> {
-	const host = globalThis as Record<symbol, unknown>;
-	let store = host[SCHEDULED_PERSISTENCE_SYMBOL] as Map<object, PersistenceTimer> | undefined;
-	if (!store) {
-		store = new Map<object, PersistenceTimer>();
-		host[SCHEDULED_PERSISTENCE_SYMBOL] = store;
-	}
-	return store;
-}
 
 export function cancelScheduledSessionPersistence(sessionManager: object): void {
 	const timers = scheduledPersistenceTimers();
@@ -360,206 +196,70 @@ export function schedulePersistSharedSession(contextLike?: { sessionManager?: Se
 				updatedAt: new Date().toISOString(),
 			};
 			getExtensionApi()?.appendEntry(BRIDGE_SESSION_CUSTOM_TYPE, data);
-			debug(`persistSharedSession: saved ${data.sessionId.slice(0, 8)}, cursor=${data.cursor}`);
+			debug(`persistSharedSession: saved ${shortId(data.sessionId)}, cursor=${data.cursor}`);
 		} catch (error) {
 			// A failed persist means the next startup restores a stale (or no)
 			// bridge marker and silently rebuilds — worth a diagnostic entry.
 			// Like all diagDump output this lands only under CLAUDE_BRIDGE_DEBUG=1
 			// and the failure itself stays non-fatal either way.
 			diagDump("persist_shared_session_failed", {
-				sessionId: snapshot.sessionId.slice(0, 8),
+				sessionId: shortId(snapshot.sessionId),
 				cursor: snapshot.cursor,
 				error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
 			});
 		}
 	}, 0);
 	timers.set(sessionManager, timer);
-	timer.unref?.();
+	timer.unref();
 }
 
-// Convert pi messages to Anthropic API format for session import.
-// Lossy: non-Anthropic thinking blocks are dropped (no valid signature). User and
-// tool-result image blocks are preserved when possible. If assistant blocks are
-// otherwise incompatible, convertPiMessages emits a text placeholder so the record
-// sequence stays valid before repairToolPairing runs.
-function convertAndImportMessages(
-	session: ReturnType<typeof createSession>,
-	messages: readonly Message[],
-	customToolNameToSdk?: ReadonlyMap<string, string>,
-	cwd?: string,
-): void {
-	const { anthropicMessages, sanitizedIds } = convertPiMessages(messages, customToolNameToSdk);
-
-	debug(`convertAndImportMessages: ${messages.length} pi msgs → ${anthropicMessages.length} anthropic msgs`);
-	debug(`convertAndImportMessages: imported roles:`, anthropicMessages.map((m, index) => {
-		const c = m.content;
-		if (typeof c === "string") return `[${index}]${m.role}:text`;
-		if (Array.isArray(c)) return `[${index}]${m.role}:${(c).map((b) => b.type).join("+")}`;
-		return `[${index}]${m.role}:?`;
-	}).join(" "));
-	if (sanitizedIds.size > 0) {
-		debug(`convertAndImportMessages: sanitized ${sanitizedIds.size} tool IDs:`,
-			[...sanitizedIds.entries()].map(([orig, clean]) => orig === clean ? orig : `${orig}→${clean}`).join(", "));
-	}
-	// A steer can make Pi split one parallel Claude batch across several visible
-	// assistant/tool-result pairs. Recover those real later results before the
-	// generic repair layer mistakes them for lost output.
-	const recoveredToolResults = recoverLaterToolResults(anthropicMessages);
-	if (recoveredToolResults.length > 0) {
-		debug(
-			`convertAndImportMessages: recovered ${recoveredToolResults.length} later tool result(s) for original parallel batch`,
-			recoveredToolResults.map((item) => item.id).join(", "),
-		);
-	}
-	// Pre-repair: pair every REMAINING orphaned tool_use with an EXPLICIT
-	// bridge-authored error result before cc-session-io's repairToolPairing can
-	// backfill its bare "[no tool result recorded]" placeholder — which the model
-	// reads as tool output and silently reasons on. Ours is is_error and says
-	// what to do. repairToolPairing still runs after (idempotent; finds nothing left).
-	const missingToolResults = findUnpairedToolUses(anthropicMessages);
-	if (missingToolResults.length > 0) insertLostToolResultPlaceholders(anthropicMessages, missingToolResults);
-	const repaired = repairToolPairing(anthropicMessages);
-	if (missingToolResults.length > 0) {
-		reportSyntheticToolResultRepair(missingToolResults, {
-			cwd,
-			messageCount: messages.length,
-			anthropicMessageCount: anthropicMessages.length,
-			sessionId: session.sessionId,
-			jsonlPath: session.jsonlPath,
-		});
-	}
-	if (repaired.length !== anthropicMessages.length) {
-		debug(`convertAndImportMessages: repairToolPairing ${anthropicMessages.length} → ${repaired.length} msgs`);
-	}
-	if (repaired.length) session.importMessages(repaired);
+interface PersistedBridgeSessionState extends SessionState {
+	fingerprint: string;
+	piSessionId?: string;
+	updatedAt: string;
 }
 
-interface SyncResult {
-	sessionId: string | undefined;
-	// Index into the caller's messages array where this query's prompt begins.
-	// Everything from promptStart to the end is user input Claude has not seen;
-	// the caller slices it out itself (single owner of the messages array).
-	promptStart: number;
-	// True when the incoming context's conversation fingerprint contradicts the
-	// shared record's (Case 6): the query runs as a clean one-shot and its
-	// completion must NOT persist over the module-level record — the caller
-	// gates its persistSession/markRebuild exactly like the reentrant path.
-	foreignContext?: boolean;
-	// Record uuid the REUSE query truncates the resumed session at before
-	// forking into a new session id (see SessionState.forkAt).
-	forkAt?: string;
+function fingerprintMessages(messages: readonly PiSessionMessage[]): string {
+	const normalized = messages.map((message) => {
+		if (message.role === "assistant") {
+			return {
+				role: message.role,
+				provider: message.provider,
+				model: message.model,
+				content: message.content,
+			};
+		}
+		return message;
+	});
+	return createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
 }
 
-export interface IncrementalPromptBatchPlan {
-	// Doubles as the cursor to store before the query runs: Claude owns
-	// [0, promptStart) and the prompt delivers [promptStart, end).
-	promptStart: number;
-	userMessageCount: number;
+/** Pi's built session context carries its prompt-section, tool-delta and
+ *  compaction system messages. The provider lane indexes conversation
+ *  messages only (src/transcript.ts), so the same view is taken here or a
+ *  persisted cursor would point one message off after every such entry. */
+function readBuiltSessionContext(sessionManager: SessionManagerView | undefined): { messages: PiSessionMessage[] } | undefined {
+	const built = typeof sessionManager?.buildSessionContext === "function" ? sessionManager.buildSessionContext() : undefined;
+	if (!Array.isArray(built?.messages)) return undefined;
+	return { messages: conversationMessages(built.messages) };
 }
 
-/**
- * Recognize history that Claude already owns followed only by user messages
- * delivered together by Pi (for example, followUpMode="all"). Claude Code has
- * already persisted the optional leading assistant message; every user message
- * after it must be sent as this query's prompt rather than imported via rebuild.
- * The tail may also hold Pi's results for calls the interrupt already settled
- * in Claude's transcript (`interruptedToolCallIds`); those are skipped.
- * `messages` are conversation messages (see `src/transcript.ts::conversationMessages`);
- * the provider lane filters the transcript before calling, so a `system` message
- * here is a caller bug.
- */
-export function planIncrementalPromptBatch(
-	messages: readonly Message[],
-	cursor: number,
-	interruptedToolCallIds: readonly string[] = [],
-): IncrementalPromptBatchPlan | undefined {
-	const lastIndex = messages.length - 1;
-	if (lastIndex < 0 || messages[lastIndex].role !== "user") return undefined;
-
-	// A cursor past the end is PROOF this messages array is not the conversation
-	// the cursor describes (e.g. a reentrant subagent's short context arriving
-	// while the parent's cursor is large). Clamping it would fabricate a REUSE
-	// plan against foreign history — reject so the caller takes the rebuild path.
-	if (cursor > lastIndex) {
-		debug(`planIncrementalPromptBatch: rejected — cursor=${cursor} beyond last index ${lastIndex}; messages are not the conversation this cursor describes`);
-		return undefined;
-	}
-	const boundedCursor = Math.max(0, cursor);
-	let promptStart = boundedCursor;
-	if (messages[promptStart]?.role === "assistant") promptStart++;
-	while (isInterruptedToolResult(messages[promptStart], interruptedToolCallIds)) promptStart++;
-
-	const pendingPrompts = messages.slice(promptStart);
-	if (pendingPrompts.length === 0 || pendingPrompts.some((message) => message.role !== "user")) {
-		// Log the rejected tail so a diag log can tell apart "two assistants in
-		// tail" vs "toolResult in tail" vs "stale cursor" without a repro.
-		debug(`planIncrementalPromptBatch: rejected — cursor=${cursor} promptStart=${promptStart} tail roles=[${messages.slice(boundedCursor).map((message) => message.role).join(", ")}]`);
-		return undefined;
-	}
-
-	return {
-		promptStart,
-		userMessageCount: pendingPrompts.length,
-	};
+// The session manager pi hands extensions. buildSessionContext is optional because pi's
+// ReadonlySessionManager type leaves it out although the object has it; test doubles may lack the
+// other methods too.
+export interface SessionManagerView {
+	getEntries?(): readonly unknown[];
+	getSessionId?(): string;
+	getCwd?(): string;
+	buildSessionContext?(): SessionContext;
 }
 
-function isInterruptedToolResult(message: Message | undefined, interruptedToolCallIds: readonly string[]): boolean {
-	return message?.role === "toolResult" && interruptedToolCallIds.includes(message.toolCallId);
+// Shared by every copy of this module in the process; only this function writes it.
+function scheduledPersistenceTimers(): Map<object, PersistenceTimer> {
+	return processGlobal(SCHEDULED_PERSISTENCE_SYMBOL, () => new Map<object, PersistenceTimer>());
 }
 
-// Read the session file we just wrote and sanity-check it. Warns instead of
-// throwing — CC may be more tolerant than our checks, so a false positive
-// shouldn't block the user. Pure logic is in session-verify.js; this wrapper
-// fans each warning out to debug log + piUI notify + diagDump.
-export function verifyWrittenSession(
-	jsonlPath: string,
-	expectedSessionId: string,
-	expectedRecordCount: number,
-	cwd: string,
-	claudeDirectory: string | undefined,
-): void {
-	const warnings = _verifyWrittenSession(jsonlPath, expectedSessionId, expectedRecordCount);
-	for (const message of warnings) {
-		debug(`WARNING session verify: ${message}`);
-		// No CLAUDE_CONFIG_DIR value here: this text asks to be pasted into a
-		// public issue and config-dir paths are account-identifying (see the
-		// persisted-shape note at the top of this file). The diagDump below
-		// records it locally instead. Paths are home-relativized for the same
-		// reason — an absolute cwd carries the username; the diagDump keeps the
-		// absolute forms.
-		safeNotify(
-			`${message}\n` +
-			`cwd=${displayPath(cwd)} realpath=${displayPath(safeRealpath(cwd))}\n` +
-			`Please copy and paste this message into a new issue at https://github.com/vanillagreencom/kendex/issues/new` +
-			(DEBUG ? ` and attach ${DEBUG_LOG_PATH}` : ` (rerun with CLAUDE_BRIDGE_DEBUG=1 to capture a debug log)`),
-			"warning",
-		);
-		diagDump("session_verify_fail", { msg: message, jsonlPath, cwd, realpath: safeRealpath(cwd), claudeConfigDir: claudeDirectory ?? null });
-	}
-}
-
-function safeRealpath(p: string): string {
-	try { return realpathSync(p); } catch (error) { return `<failed: ${errorMessage(error)}>`; }
-}
-
-// Diagnostic snapshot of where a session file was just written. Catches the
-// class of bugs where pi writes to ~/.claude/projects/<X> but CC SDK reads
-// from ~/.claude/projects/<Y> (symlinks, CLAUDE_CONFIG_DIR, hash mismatch).
-function debugSessionPaths(label: string, cwd: string, jsonlPath: string, claudeDirectory: string | undefined): void {
-	const realCwd = safeRealpath(cwd);
-	let fileSize: number | undefined;
-	let fileExists = false;
-	try {
-		const st = statSync(jsonlPath);
-		fileExists = true;
-		fileSize = st.size;
-	} catch { /* file may not exist yet */ }
-	debug(`${label}: cwd=${cwd}`);
-	if (realCwd !== cwd) debug(`${label}: realpath(cwd)=${realCwd} (DIFFERS — symlink-resolved path is what CC SDK uses)`);
-	debug(`${label}: jsonlPath=${jsonlPath}`);
-	debug(`${label}: fileExists=${fileExists}${fileSize !== undefined ? ` size=${fileSize}` : ""}`);
-	debug(`${label}: selected.CLAUDE_CONFIG_DIR=${claudeDirectory ?? "(unset)"} HOME=${process.env.HOME ?? "(unset)"}`);
-}
+type PersistenceTimer = ReturnType<typeof setTimeout>;
 
 // Two semantic paths:
 //   REUSE — pi's history is in sync with the existing sharedSession, drifted
@@ -638,7 +338,7 @@ export function syncSharedSession(
 		priorMessages.length <= sharedSession.cursor
 	) {
 		debug(
-			`Case 6 foreign-conversation: fingerprint ${incomingFingerprint.slice(0, 8)} != record ${sharedSession.conversationFingerprint.slice(0, 8)} ` +
+			`Case 6 foreign-conversation: fingerprint ${shortId(incomingFingerprint)} != record ${shortId(sharedSession.conversationFingerprint)} ` +
 			`(cursor=${sharedSession.cursor}, priors=${priorMessages.length}) — clean one-shot, record untouched`,
 		);
 		debug(`syncResult: path=foreign-one-shot`);
@@ -669,7 +369,7 @@ export function syncSharedSession(
 			const batching = batch.userMessageCount > 1
 				? `batched ${batch.userMessageCount} consecutive user messages, `
 				: batch.promptStart > cursorBeforeUpdate ? "advanced cursor past trailing assistant, " : "";
-			debug(`Case 3: ${batching}resuming session ${sharedSession.sessionId.slice(0, 8)}, cursor=${batch.promptStart}`);
+			debug(`Case 3: ${batching}resuming session ${shortId(sharedSession.sessionId)}, cursor=${batch.promptStart}`);
 			debug(`syncResult: path=reuse sessionId=${sharedSession.sessionId} cursor=${batch.promptStart} promptUsers=${batch.userMessageCount}`);
 			return {
 				sessionId: sharedSession.sessionId,
@@ -722,22 +422,321 @@ export function syncSharedSession(
 			?? `${priorMessages.length - previousCursor} message(s) Claude Code has not seen`;
 		const replacement = preserveId
 			? "rewritten from Pi history"
-			: `replaced by ${session.sessionId.slice(0, 8)}; the killed Claude Code process may still be writing the old transcript`;
+			: `replaced by ${shortId(session.sessionId)}; the killed Claude Code process may still be writing the old transcript`;
 		safeNotify(
-			`Claude bridge: Claude session ${replacedSessionId.slice(0, 8)} ${replacement} (${reason}). ` +
+			`Claude bridge: Claude session ${shortId(replacedSessionId)} ${replacement} (${reason}). ` +
 			"The prompt cache for this conversation is cold for the next request.",
 			"warning",
 		);
 	}
 	if (replacedSessionId === undefined) {
-		debug(`Case 2: first turn with ${priorMessages.length} prior messages → session ${session.sessionId.slice(0, 8)}, ${session.messages.length} records`);
+		debug(`Case 2: first turn with ${priorMessages.length} prior messages → session ${shortId(session.sessionId)}, ${session.messages.length} records`);
 	} else if (preserveId) {
 		const missedCount = priorMessages.length - previousCursor;
-		debug(`Case 4: ${missedCount} missed messages, ${priorMessages.length} total → rewrote session ${session.sessionId.slice(0, 8)} (same id), ${session.messages.length} records`);
+		debug(`Case 4: ${missedCount} missed messages, ${priorMessages.length} total → rewrote session ${shortId(session.sessionId)} (same id), ${session.messages.length} records`);
 	} else {
-		debug(`Case 4 rotated: ${priorMessages.length} total → new session ${session.sessionId.slice(0, 8)} (was ${replacedSessionId.slice(0, 8)}, rotated to avoid race with orphan writer), ${session.messages.length} records`);
+		debug(`Case 4 rotated: ${priorMessages.length} total → new session ${shortId(session.sessionId)} (was ${shortId(replacedSessionId)}, rotated to avoid race with orphan writer), ${session.messages.length} records`);
 	}
-	debugSessionPaths(session.sessionId.slice(0, 8), cwd, session.jsonlPath, claudeDirectory);
+	debugSessionPaths(shortId(session.sessionId), cwd, session.jsonlPath, claudeDirectory);
 	debug(`syncResult: path=rebuild sessionId=${session.sessionId} priors=${priorMessages.length} ${replacedSessionId === undefined ? "first" : preserveId ? "preserved" : "rotated"}`);
 	return { sessionId: session.sessionId, promptStart: messages.length - 1 };
+}
+
+/** Identity anchor for a pi conversation, encoded component-wise as
+ *  `u:<12hex>` (short sha256 of the FIRST user message's normalized text) or
+ *  `u:<12hex>|a:<12hex>` (plus the FIRST assistant message's text and tool
+ *  calls, once the conversation has an assistant message with either). The
+ *  opening messages are the stable elements of a pi history — later messages
+ *  get appended, compacted, or tree-navigated (all of which set needsRebuild),
+ *  but the first user/assistant pair survives for the session's lifetime. The
+ *  two-component form exists because a first USER message alone is a weak
+ *  anchor in two ways: unrelated conversations routinely open with identical
+ *  text ("continue"), so a same-opener foreign context shaped to align with
+ *  the cursor would REUSE across genuinely different histories; and a
+ *  `context` handler may prepend a request-local message to some requests
+ *  only (superpowers' bootstrap exists on the first turn alone), so the opener
+ *  a request shows is not always the persisted one. The assistant message is
+ *  persisted history, which is why it decides once both anchors carry it (see
+ *  conversationFingerprintsMatch), and why it includes tool calls: a first
+ *  assistant turn usually carries only those, and an anchor that waited for
+ *  text would leave the first turn's abort record without the component.
+ *  Returns undefined when the context has no user message or its text
+ *  normalizes to empty (image-only) — identity unknown, callers must fail
+ *  open to the pre-fingerprint behavior, never treat it as a mismatch.
+ *  Distinct from fingerprintMessages below, which hashes a cursor slice for
+ *  restore integrity. */
+export function conversationFingerprint(messages: readonly PiSessionMessage[]): string | undefined {
+	const firstUser = messages.find((message) => message.role === "user");
+	if (!firstUser) return undefined;
+	const userText = normalizedMessageText(firstUser.content);
+	if (!userText) return undefined;
+	const assistantIdentity = firstAssistantIdentity(messages);
+	return assistantIdentity ? `u:${shortHash(userText)}|a:${shortHash(assistantIdentity)}` : `u:${shortHash(userText)}`;
+}
+
+/** The first assistant message with any text or tool call, normalized. An
+ *  assistant message with neither (an aborted turn) is skipped. */
+function firstAssistantIdentity(messages: readonly PiSessionMessage[]): string {
+	for (const message of messages) {
+		if (message.role !== "assistant") continue;
+		const identity = normalizedAssistantIdentity(message.content);
+		if (identity) return identity;
+	}
+	return "";
+}
+
+/** Text blocks and tool calls of an assistant message, in order. Thinking is
+ *  left out, since providers may redact it. For a message without tool calls
+ *  this equals normalizedMessageText, so anchors recorded before tool calls
+ *  counted stay valid. */
+function normalizedAssistantIdentity(content: unknown): string {
+	if (!Array.isArray(content)) return normalizedMessageText(content);
+	return content
+		.map((block: unknown) => {
+			if (!isRecord(block)) return "";
+			const { type, arguments: toolArguments } = block;
+			if (type === "text") return stringProperty(block, "text") ?? "";
+			// JSON's null keeps the anchors of calls without arguments as they were recorded.
+			// eslint-disable-next-line unicorn/no-null -- JSON text, where a missing argument object renders as null
+			if (type === "toolCall") return `${stringProperty(block, "name") ?? ""}(${JSON.stringify(toolArguments ?? null)})`;
+			return "";
+		})
+		.join("\n")
+		.trim();
+}
+
+function normalizedMessageText(content: unknown): string {
+	const text = typeof content === "string"
+		? content
+		: Array.isArray(content)
+			? content
+				.map((block: unknown) => (isRecord(block) && block.type === "text" ? stringProperty(block, "text") ?? "" : ""))
+				.join("\n")
+			: "";
+	return text.trim();
+}
+
+function shortHash(text: string): string {
+	return createHash("sha256").update(text).digest("hex").slice(0, FINGERPRINT_HEX_LENGTH);
+}
+
+/** Component-wise anchor comparison. When BOTH sides carry an assistant
+ *  component it decides alone: the first assistant message is persisted
+ *  history, while the opener a request shows may be a request-local message a
+ *  `context` handler prepended to that request only. While either side lacks
+ *  one, the user component decides — a record stamped on turn 1 has no
+ *  assistant yet, and its own conversation grown past turn 1 is an upgrade,
+ *  not a mismatch (see conversationFingerprintUpgrade). An unparseable side
+ *  means identity unknown: fail open (match), consistent with the guard's
+ *  treatment of absent fingerprints. */
+export function conversationFingerprintsMatch(recorded: string, incoming: string): boolean {
+	const rec = parseConversationFingerprint(recorded);
+	const inc = parseConversationFingerprint(incoming);
+	if (!rec || !inc) return true;
+	if (rec.assistant && inc.assistant) return rec.assistant === inc.assistant;
+	return rec.user === inc.user;
+}
+
+/** Whether a REUSE-matched context's anchor should replace the recorded one:
+ *  a legacy record with none adopts it outright (the planner accepting this
+ *  context as the recorded conversation's continuation is the identity proof),
+ *  and a turn-1 user-only record upgrades to the two-component form the
+ *  moment its own conversation carries a first assistant message. A recorded
+ *  two-component anchor is never rewritten. */
+function conversationFingerprintUpgrade(recorded: string | undefined, incoming: string | undefined): string | undefined {
+	if (!incoming) return undefined;
+	if (!recorded) return incoming;
+	const rec = parseConversationFingerprint(recorded);
+	const inc = parseConversationFingerprint(incoming);
+	return rec && inc && !rec.assistant && inc.assistant && rec.user === inc.user ? incoming : undefined;
+}
+
+function parseConversationFingerprint(fp: string): { user: string; assistant?: string } | undefined {
+	const match = /^u:([0-9a-f]+)(?:\|a:([0-9a-f]+))?$/.exec(fp);
+	if (!match) return undefined;
+	return { user: match[1], ...(match[2] ? { assistant: match[2] } : {}) };
+}
+
+// Convert pi messages to Anthropic API format for session import.
+// Lossy: non-Anthropic thinking blocks are dropped (no valid signature). User and
+// tool-result image blocks are preserved when possible. If assistant blocks are
+// otherwise incompatible, convertPiMessages emits a text placeholder so the record
+// sequence stays valid before repairToolPairing runs.
+function convertAndImportMessages(
+	session: ReturnType<typeof createSession>,
+	messages: readonly Message[],
+	customToolNameToSdk?: ReadonlyMap<string, string>,
+	cwd?: string,
+): void {
+	const { anthropicMessages, sanitizedIds } = convertPiMessages(messages, customToolNameToSdk);
+
+	debug(`convertAndImportMessages: ${messages.length} pi msgs → ${anthropicMessages.length} anthropic msgs`);
+	debug(`convertAndImportMessages: imported roles:`, anthropicMessages.map((m, index) => {
+		const c = m.content;
+		if (typeof c === "string") return `[${index}]${m.role}:text`;
+		if (Array.isArray(c)) return `[${index}]${m.role}:${(c).map((b) => b.type).join("+")}`;
+		return `[${index}]${m.role}:?`;
+	}).join(" "));
+	if (sanitizedIds.size > 0) {
+		debug(`convertAndImportMessages: sanitized ${sanitizedIds.size} tool IDs:`,
+			[...sanitizedIds.entries()].map(([orig, clean]) => orig === clean ? orig : `${orig}→${clean}`).join(", "));
+	}
+	// A steer can make Pi split one parallel Claude batch across several visible
+	// assistant/tool-result pairs. Recover those real later results before the
+	// generic repair layer mistakes them for lost output.
+	const recoveredToolResults = recoverLaterToolResults(anthropicMessages);
+	if (recoveredToolResults.length > 0) {
+		debug(
+			`convertAndImportMessages: recovered ${recoveredToolResults.length} later tool result(s) for original parallel batch`,
+			recoveredToolResults.map((item) => item.id).join(", "),
+		);
+	}
+	// Pre-repair: pair every REMAINING orphaned tool_use with an EXPLICIT
+	// bridge-authored error result before cc-session-io's repairToolPairing can
+	// backfill its bare "[no tool result recorded]" placeholder — which the model
+	// reads as tool output and silently reasons on. Ours is is_error and says
+	// what to do. repairToolPairing still runs after (idempotent; finds nothing left).
+	const missingToolResults = findUnpairedToolUses(anthropicMessages);
+	if (missingToolResults.length > 0) insertLostToolResultPlaceholders(anthropicMessages, missingToolResults);
+	const repaired = repairToolPairing(anthropicMessages);
+	if (missingToolResults.length > 0) {
+		reportSyntheticToolResultRepair(missingToolResults, {
+			cwd,
+			messageCount: messages.length,
+			anthropicMessageCount: anthropicMessages.length,
+			sessionId: session.sessionId,
+			jsonlPath: session.jsonlPath,
+		});
+	}
+	if (repaired.length !== anthropicMessages.length) {
+		debug(`convertAndImportMessages: repairToolPairing ${anthropicMessages.length} → ${repaired.length} msgs`);
+	}
+	if (repaired.length) session.importMessages(repaired);
+}
+
+interface SyncResult {
+	sessionId: string | undefined;
+	// Index into the caller's messages array where this query's prompt begins.
+	// Everything from promptStart to the end is user input Claude has not seen;
+	// the caller slices it out itself (single owner of the messages array).
+	promptStart: number;
+	// True when the incoming context's conversation fingerprint contradicts the
+	// shared record's (Case 6): the query runs as a clean one-shot and its
+	// completion must NOT persist over the module-level record — the caller
+	// gates its persistSession/markRebuild exactly like the reentrant path.
+	foreignContext?: boolean;
+	// Record uuid the REUSE query truncates the resumed session at before
+	// forking into a new session id (see SessionState.forkAt).
+	forkAt?: string;
+}
+
+/**
+ * Recognize history that Claude already owns followed only by user messages
+ * delivered together by Pi (for example, followUpMode="all"). Claude Code has
+ * already persisted the optional leading assistant message; every user message
+ * after it must be sent as this query's prompt rather than imported via rebuild.
+ * The tail may also hold Pi's results for calls the interrupt already settled
+ * in Claude's transcript (`interruptedToolCallIds`); those are skipped.
+ * `messages` are conversation messages (see `src/transcript.ts::conversationMessages`);
+ * the provider lane filters the transcript before calling, so a `system` message
+ * here is a caller bug.
+ */
+export function planIncrementalPromptBatch(
+	messages: readonly Message[],
+	cursor: number,
+	interruptedToolCallIds: readonly string[] = [],
+): IncrementalPromptBatchPlan | undefined {
+	const lastIndex = messages.length - 1;
+	if (lastIndex < 0 || messages[lastIndex].role !== "user") return undefined;
+
+	// A cursor past the end is PROOF this messages array is not the conversation
+	// the cursor describes (e.g. a reentrant subagent's short context arriving
+	// while the parent's cursor is large). Clamping it would fabricate a REUSE
+	// plan against foreign history — reject so the caller takes the rebuild path.
+	if (cursor > lastIndex) {
+		debug(`planIncrementalPromptBatch: rejected — cursor=${cursor} beyond last index ${lastIndex}; messages are not the conversation this cursor describes`);
+		return undefined;
+	}
+	const boundedCursor = Math.max(0, cursor);
+	let promptStart = boundedCursor;
+	if (messages[promptStart]?.role === "assistant") promptStart++;
+	while (isInterruptedToolResult(messages[promptStart], interruptedToolCallIds)) promptStart++;
+
+	const pendingPrompts = messages.slice(promptStart);
+	if (pendingPrompts.length === 0 || pendingPrompts.some((message) => message.role !== "user")) {
+		// Log the rejected tail so a diag log can tell apart "two assistants in
+		// tail" vs "toolResult in tail" vs "stale cursor" without a repro.
+		debug(`planIncrementalPromptBatch: rejected — cursor=${cursor} promptStart=${promptStart} tail roles=[${messages.slice(boundedCursor).map((message) => message.role).join(", ")}]`);
+		return undefined;
+	}
+
+	return {
+		promptStart,
+		userMessageCount: pendingPrompts.length,
+	};
+}
+
+function isInterruptedToolResult(message: Message | undefined, interruptedToolCallIds: readonly string[]): boolean {
+	return message?.role === "toolResult" && interruptedToolCallIds.includes(message.toolCallId);
+}
+
+export interface IncrementalPromptBatchPlan {
+	// Doubles as the cursor to store before the query runs: Claude owns
+	// [0, promptStart) and the prompt delivers [promptStart, end).
+	promptStart: number;
+	userMessageCount: number;
+}
+
+// Read the session file we just wrote and sanity-check it. Warns instead of
+// throwing — CC may be more tolerant than our checks, so a false positive
+// shouldn't block the user. Pure logic is in session-verify.js; this wrapper
+// fans each warning out to debug log + piUI notify + diagDump.
+export function verifyWrittenSession(
+	jsonlPath: string,
+	expectedSessionId: string,
+	expectedRecordCount: number,
+	cwd: string,
+	claudeDirectory: string | undefined,
+): void {
+	const warnings = _verifyWrittenSession(jsonlPath, expectedSessionId, expectedRecordCount);
+	for (const message of warnings) {
+		debug(`WARNING session verify: ${message}`);
+		// No CLAUDE_CONFIG_DIR value here: this text asks to be pasted into a
+		// public issue and config-dir paths are account-identifying (see the
+		// persisted-shape note at the top of this file). The diagDump below
+		// records it locally instead. Paths are home-relativized for the same
+		// reason — an absolute cwd carries the username; the diagDump keeps the
+		// absolute forms.
+		safeNotify(
+			`${message}\n` +
+			`cwd=${displayPath(cwd)} realpath=${displayPath(safeRealpath(cwd))}\n` +
+			`Please copy and paste this message into a new issue at https://github.com/vanillagreencom/kendex/issues/new` +
+			(DEBUG ? ` and attach ${DEBUG_LOG_PATH}` : ` (rerun with CLAUDE_BRIDGE_DEBUG=1 to capture a debug log)`),
+			"warning",
+		);
+		diagDump("session_verify_fail", { msg: message, jsonlPath, cwd, realpath: safeRealpath(cwd), claudeConfigDir: claudeDirectory });
+	}
+}
+
+// Diagnostic snapshot of where a session file was just written. Catches the
+// class of bugs where pi writes to ~/.claude/projects/<X> but CC SDK reads
+// from ~/.claude/projects/<Y> (symlinks, CLAUDE_CONFIG_DIR, hash mismatch).
+function debugSessionPaths(label: string, cwd: string, jsonlPath: string, claudeDirectory: string | undefined): void {
+	const realCwd = safeRealpath(cwd);
+	let fileSize: number | undefined;
+	let fileExists = false;
+	try {
+		const st = statSync(jsonlPath);
+		fileExists = true;
+		fileSize = st.size;
+	} catch { /* file may not exist yet */ }
+	debug(`${label}: cwd=${cwd}`);
+	if (realCwd !== cwd) debug(`${label}: realpath(cwd)=${realCwd} (DIFFERS — symlink-resolved path is what CC SDK uses)`);
+	debug(`${label}: jsonlPath=${jsonlPath}`);
+	debug(`${label}: fileExists=${fileExists}${fileSize !== undefined ? ` size=${fileSize}` : ""}`);
+	debug(`${label}: selected.CLAUDE_CONFIG_DIR=${claudeDirectory ?? "(unset)"} HOME=${process.env.HOME ?? "(unset)"}`);
+}
+
+function safeRealpath(p: string): string {
+	try { return realpathSync(p); } catch (error) { return `<failed: ${errorMessage(error)}>`; }
 }

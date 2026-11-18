@@ -7,18 +7,6 @@ import type { SessionGrant } from "../../lib/session-grants.ts";
 import { shortenedCommand } from "./command-text.ts";
 import type { RecordedDecision } from "./profile-activation.ts";
 
-export type SessionDecision = RecordedDecision;
-
-export interface BypassSituation {
-  agentMode: AgentMode;
-  subagent: boolean;
-  hasUI: boolean;
-  sessionDecision: SessionDecision | undefined;
-}
-
-export type BypassAuthorization = { kind: "run" } | { kind: "refuse"; reason: string };
-export type BypassOutcome = BypassAuthorization | { kind: "ask"; preselected: string };
-
 // "Always" would persist an unsandboxed bypass across sessions, so the prompt does not offer it.
 export const BYPASS_DURATIONS: readonly Duration[] = [Duration.Once, Duration.Session];
 
@@ -35,6 +23,14 @@ export function bypassOutcome({ agentMode, subagent, hasUI, sessionDecision }: B
   return { kind: "ask", preselected: isRestricted(agentMode) ? DENY_ONCE : ALLOW_ONCE };
 }
 
+export interface BypassSituation {
+  agentMode: AgentMode;
+  subagent: boolean;
+  hasUI: boolean;
+  sessionDecision: SessionDecision | undefined;
+}
+export type BypassOutcome = BypassAuthorization | { kind: "ask"; preselected: string };
+
 export function resolveAnswer(answer: PermissionAnswer<string>): { authorization: BypassAuthorization; remember: SessionDecision | undefined } {
   if (answer.decision === "allow") {
     return { authorization: { kind: "run" }, remember: answer.duration === Duration.Once ? undefined : { decision: "allow" } };
@@ -45,9 +41,13 @@ export function resolveAnswer(answer: PermissionAnswer<string>): { authorization
   };
 }
 
+export type BypassAuthorization = { kind: "run" } | { kind: "refuse"; reason: string };
+
 export function bypassSessionGrants(decision: SessionDecision | undefined): SessionGrant[] {
   return decision === undefined ? [] : [{ kind: "unsandboxed", decision: decision.decision }];
 }
+
+export type SessionDecision = RecordedDecision;
 
 export function bypassPrompt(command: string): string {
   return `Sandbox: run this command outside the sandbox?\n\n  ${shortenedCommand(command, "\n  ")}`;

@@ -104,7 +104,7 @@ test("in a restricted mode an explicit denial blocks before any grant or prompt"
 
     // assert
     assert.equal(result.kind, "block");
-    assert.match(result.kind === "block" ? result.reason : "", /you denied it for this session.*The user's reason: Use the docs/);
+    assert.match(result.reason, /you denied it for this session.*The user's reason: Use the docs/);
   }
 });
 
@@ -124,7 +124,7 @@ test("in a restricted mode allowed tools run and approval-required tools ask, or
     assert.deepEqual(allowed, { kind: "run" });
     assert.deepEqual(ask, { kind: "ask" });
     assert.equal(noUI.kind, "block");
-    assert.match(noUI.kind === "block" ? noUI.reason : "", /no interactive UI/);
+    assert.match(noUI.reason, /no interactive UI/);
   }
 });
 

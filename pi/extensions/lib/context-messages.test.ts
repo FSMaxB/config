@@ -60,6 +60,7 @@ test("0.86 transcript updates are measured without counting system entries as ch
   // arrange
   const tool = { name: "read", description: "Read", parameters: {} };
   const removed = [{ name: "read" }];
+  // eslint-disable-next-line unicorn/no-null -- stored session entries are JSON, where a removed section is null
   const sections = { mode: "plan", removed: null };
   const user = { role: "user", content: "hello" };
   const entries = [

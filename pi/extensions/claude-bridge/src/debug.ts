@@ -1,16 +1,14 @@
+import { randomUUID } from "node:crypto";
 import { appendFileSync, chmodSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { piUserDirectory } from "./config.js";
+import { nonEmpty } from "../../lib/untyped.ts";
 
 // CLAUDE_BRIDGE_DEBUG=1 enables debug logging to <piUserDirectory>/claude-bridge.log
 // (~/.pi/agent/claude-bridge.log unless PI_CODING_AGENT_DIR points elsewhere).
 
 export const DEBUG = process.env.CLAUDE_BRIDGE_DEBUG === "1";
-export const DEBUG_LOG_PATH = process.env.CLAUDE_BRIDGE_DEBUG_PATH || join(piUserDirectory(), "claude-bridge.log");
-
-export function diagLogPath(): string {
-	return process.env.CLAUDE_BRIDGE_DIAG_PATH || join(piUserDirectory(), "claude-bridge-diag.log");
-}
+export const DEBUG_LOG_PATH = nonEmpty(process.env.CLAUDE_BRIDGE_DEBUG_PATH) ?? join(piUserDirectory(), "claude-bridge.log");
 
 /** Trailing clause for user-facing integrity notifications. With DEBUG on the
  *  diag log exists and is worth pointing at; without it the file was never
@@ -41,57 +39,18 @@ if (DEBUG) {
 	}
 }
 
-// Unique per module evaluation — confirms whether subagents share module state
-export const moduleInstanceId = Math.random().toString(36).slice(2, 8);
+// Eight characters tell sessions and tool calls apart in a log without the full UUID.
+const SHORT_ID_LENGTH = 8;
 
-export function debug(...values: readonly unknown[]): void {
-	if (!DEBUG) return;
-	const ts = new Date().toISOString();
-	const fmt = (a: unknown): string => {
-		if (typeof a === "string") return a;
-		if (a instanceof Error) return `${a.name}: ${a.message}${a.stack ? "\n" + a.stack : ""}`;
-		// A function argument is a lazy payload: hot-path call sites (per-token
-		// stream events) pass a thunk so the expensive formatting only runs when
-		// DEBUG is on — fmt is only reached past the early return.
-		if (typeof a === "function") return fmt(Reflect.apply(a, undefined, []));
-		return JSON.stringify(a);
-	};
-	// A throwing thunk or JSON.stringify (circular structure, BigInt) must not
-	// escape debug() — one call site sits inside the SDK stream loop, where a
-	// formatting failure would abort the user's turn exactly when they enabled
-	// debugging. A failed arg degrades to a placeholder; the rest still log.
-	const safeFmt = (a: unknown): string => {
-		let out: string | undefined;
-		try {
-			out = fmt(a);
-		} catch (error) {
-			// The caught value's own conversion can throw too (a thrown
-			// null-prototype object, a throwing toString, an Error whose
-			// message is a Symbol — template interpolation would rethrow) —
-			// degrade to a constant rather than let the placeholder escape.
-			let reason = "formatting failed";
-			try {
-				reason = String(error instanceof Error ? error.message : error);
-			} catch { /* keep the constant */ }
-			return `[unprintable: ${reason}]`;
-		}
-		// JSON.stringify returns undefined (not a string) for undefined,
-		// Symbol, AND objects whose toJSON returns undefined — render the
-		// slot explicitly instead of letting join() silently drop it. That
-		// last shape means `a` can be an arbitrary object here, and its
-		// toString can throw, so this conversion needs the same guard as the
-		// catch path. (A thunk that returned one of these renders as plain
-		// "undefined".)
-		if (out !== undefined) return out;
-		if (typeof a === "function") return "undefined";
-		try {
-			return String(a);
-		} catch {
-			return "[unprintable: formatting failed]";
-		}
-	};
-	const message = values.map(safeFmt).join(" ");
-	try { appendFileSync(DEBUG_LOG_PATH, `[${ts}] [${moduleInstanceId}] ${message}\n`, { mode: OWNER_ONLY_FILE_MODE }); } catch { /* debug is best effort */ }
+// Unique per module evaluation — confirms whether subagents share module state
+export const moduleInstanceId = shortId(randomUUID());
+
+export function shortIdOrNone(id: string | undefined): string {
+	return id === undefined ? "none" : shortId(id);
+}
+
+export function shortId(id: string): string {
+	return id.slice(0, SHORT_ID_LENGTH);
 }
 
 // Per-query CLI debug capture. When CLAUDE_BRIDGE_DEBUG=1, ask the Claude Code
@@ -137,4 +96,59 @@ export function diagDump(label: string, data: Record<string, unknown>): void {
 	} catch (error) {
 		debug(`DIAG FAILED: ${label}`, error);
 	}
+}
+
+export function diagLogPath(): string {
+	return nonEmpty(process.env.CLAUDE_BRIDGE_DIAG_PATH) ?? join(piUserDirectory(), "claude-bridge-diag.log");
+}
+
+export function debug(...values: readonly unknown[]): void {
+	if (!DEBUG) return;
+	const ts = new Date().toISOString();
+	// JSON.stringify returns undefined for values it cannot render; safeFmt below handles that case.
+	const fmt = (a: unknown): string | undefined => {
+		if (typeof a === "string") return a;
+		if (a instanceof Error) return `${a.name}: ${a.message}${a.stack ? "\n" + a.stack : ""}`;
+		// A function argument is a lazy payload: hot-path call sites (per-token
+		// stream events) pass a thunk so the expensive formatting only runs when
+		// DEBUG is on — fmt is only reached past the early return.
+		if (typeof a === "function") return fmt(Reflect.apply(a, undefined, []));
+		return JSON.stringify(a);
+	};
+	// A throwing thunk or JSON.stringify (circular structure, BigInt) must not
+	// escape debug() — one call site sits inside the SDK stream loop, where a
+	// formatting failure would abort the user's turn exactly when they enabled
+	// debugging. A failed arg degrades to a placeholder; the rest still log.
+	const safeFmt = (a: unknown): string => {
+		let out: string | undefined;
+		try {
+			out = fmt(a);
+		} catch (error) {
+			// The caught value's own conversion can throw too (a thrown
+			// null-prototype object, a throwing toString, an Error whose
+			// message is a Symbol — template interpolation would rethrow) —
+			// degrade to a constant rather than let the placeholder escape.
+			let reason = "formatting failed";
+			try {
+				reason = String(error instanceof Error ? error.message : error);
+			} catch { /* keep the constant */ }
+			return `[unprintable: ${reason}]`;
+		}
+		// JSON.stringify returns undefined (not a string) for undefined,
+		// Symbol, AND objects whose toJSON returns undefined — render the
+		// slot explicitly instead of letting join() silently drop it. That
+		// last shape means `a` can be an arbitrary object here, and its
+		// toString can throw, so this conversion needs the same guard as the
+		// catch path. (A thunk that returned one of these renders as plain
+		// "undefined".)
+		if (out !== undefined) return out;
+		if (typeof a === "function") return "undefined";
+		try {
+			return String(a);
+		} catch {
+			return "[unprintable: formatting failed]";
+		}
+	};
+	const message = values.map(safeFmt).join(" ");
+	try { appendFileSync(DEBUG_LOG_PATH, `[${ts}] [${moduleInstanceId}] ${message}\n`, { mode: OWNER_ONLY_FILE_MODE }); } catch { /* debug is best effort */ }
 }

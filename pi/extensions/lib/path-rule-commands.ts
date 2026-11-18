@@ -7,21 +7,6 @@ import { addPathRule, clearPathRules, listPathRules, normalizePathSelector, remo
 export const CLEAR_ALL = "Clear all";
 export const DONE = "Done";
 
-export interface DecisionEntry {
-  label: string;
-  remove: () => void | Promise<void>;
-}
-
-export interface DecisionList {
-  title: string;
-  emptyMessage: string;
-  clearedMessage: string;
-  entries(): Promise<DecisionEntry[]>;
-  clearAll(): Promise<void>;
-  // Runs after each removal, for callers that keep the entries in a store of their own.
-  removed(): Promise<void>;
-}
-
 export async function managePathRules(store: PathRuleStore, context: ExtensionContext): Promise<void> {
   if (!context.hasUI) {
     context.ui.notify(`Managing ${store} path rules needs an interactive UI.`, "error");
@@ -42,12 +27,8 @@ export async function managePathRules(store: PathRuleStore, context: ExtensionCo
 
 // Lets the user remove decisions one at a time until they pick Done, clear them all, or none are left.
 export async function manageDecisions(list: DecisionList, context: ExtensionContext): Promise<void> {
-  while (true) {
-    const entries = await list.entries();
-    if (entries.length === 0) {
-      context.ui.notify(list.emptyMessage);
-      return;
-    }
+  let entries = await list.entries();
+  while (entries.length > 0) {
     const choice = await context.ui.select(list.title, [...entries.map((entry) => entry.label), CLEAR_ALL, DONE]);
     if (choice === CLEAR_ALL) {
       await list.clearAll();
@@ -58,7 +39,19 @@ export async function manageDecisions(list: DecisionList, context: ExtensionCont
     if (entry === undefined) return;
     await entry.remove();
     await list.removed();
+    entries = await list.entries();
   }
+  context.ui.notify(list.emptyMessage);
+}
+
+export interface DecisionList {
+  title: string;
+  emptyMessage: string;
+  clearedMessage: string;
+  entries(): Promise<DecisionEntry[]>;
+  clearAll(): Promise<void>;
+  // Runs after each removal, for callers that keep the entries in a store of their own.
+  removed(): Promise<void>;
 }
 
 // `command` is everything before the rule kind in the usage hint, e.g. "/plan" or "/paths plan".
@@ -107,4 +100,9 @@ export function pathRuleEntries(rules: readonly PathRule[], store: PathRuleStore
     label: `${rule.mode} ${rule.kind} ${selectorLabel(rule.selector)} — path (${rule.tier})${rule.kind === "deny" && rule.note ? `: ${rule.note}` : ""}`,
     remove: () => removePathRule(rule, store),
   }));
+}
+
+export interface DecisionEntry {
+  label: string;
+  remove: () => void | Promise<void>;
 }

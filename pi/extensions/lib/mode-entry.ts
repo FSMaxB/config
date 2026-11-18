@@ -3,22 +3,6 @@ import type { RestrictedMode } from "./agent-mode.ts";
 import { latestCustomEntry } from "./session-entries.ts";
 import { isRecord } from "./untyped.ts";
 
-export interface Denial {
-  name: string;
-  note: string | undefined;
-}
-
-export interface ModeEntry {
-  enabled: boolean;
-  sessionGrants: string[];
-  sessionDenials: Denial[];
-}
-
-interface SessionManagerView {
-  getEntries(): readonly unknown[];
-  getBranch?(): readonly unknown[];
-}
-
 // The newest entry of a mode's type on the current branch holds that mode's live state, so
 // navigating the session tree selects that branch's mode and decisions. The restricted-mode
 // engine reads it to restore session state, and the subagent extension reads it to cap child
@@ -26,11 +10,6 @@ interface SessionManagerView {
 export function latestModeEntry(sessionManager: SessionManagerView, entryType: string): ModeEntry | undefined {
   return parseModeEntry(latestCustomEntry(branchEntries(sessionManager), entryType)?.data);
 }
-
-// `recorded` says whether the branch holds any restricted-mode entry, enabled or not.
-export type ActiveRestrictedMode =
-  | { mode: typeof AgentMode.Execution; recorded: boolean }
-  | { mode: RestrictedMode; entry: ModeEntry; recorded: boolean };
 
 // Every mode switch writes an entry for each restricted mode, so normally at most one is
 // enabled. If several are (an interrupted switch), the one recorded last on the branch wins.
@@ -46,6 +25,36 @@ export function activeRestrictedMode(sessionManager: SessionManagerView): Active
   }
   if (winner === undefined) return { mode: AgentMode.Execution, recorded };
   return { mode: winner.mode, entry: winner.entry, recorded };
+}
+
+// `recorded` says whether the branch holds any restricted-mode entry, enabled or not.
+export type ActiveRestrictedMode =
+  | { mode: typeof AgentMode.Execution; recorded: boolean }
+  | { mode: RestrictedMode; entry: ModeEntry; recorded: boolean };
+
+function branchEntries(sessionManager: SessionManagerView): readonly unknown[] {
+  return typeof sessionManager.getBranch === "function" ? sessionManager.getBranch() : sessionManager.getEntries();
+}
+
+interface SessionManagerView {
+  getEntries(): readonly unknown[];
+  getBranch?(): readonly unknown[];
+}
+
+function parseModeEntry(data: unknown): ModeEntry | undefined {
+  if (!isRecord(data)) return undefined;
+  const { enabled, sessionGrants, sessionDenials } = data;
+  return {
+    enabled: enabled === true,
+    sessionGrants: stringList(sessionGrants),
+    sessionDenials: denialList(sessionDenials),
+  };
+}
+
+export interface ModeEntry {
+  enabled: boolean;
+  sessionGrants: string[];
+  sessionDenials: Denial[];
 }
 
 export function stringList(value: unknown): string[] {
@@ -67,16 +76,7 @@ export function denialList(value: unknown): Denial[] {
   });
 }
 
-function branchEntries(sessionManager: SessionManagerView): readonly unknown[] {
-  return typeof sessionManager.getBranch === "function" ? sessionManager.getBranch() : sessionManager.getEntries();
-}
-
-function parseModeEntry(data: unknown): ModeEntry | undefined {
-  if (!isRecord(data)) return undefined;
-  const { enabled, sessionGrants, sessionDenials } = data;
-  return {
-    enabled: enabled === true,
-    sessionGrants: stringList(sessionGrants),
-    sessionDenials: denialList(sessionDenials),
-  };
+export interface Denial {
+  name: string;
+  note: string | undefined;
 }

@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { sep } from "node:path";
+import { MILLISECONDS_PER_SECOND, MINUTES_PER_HOUR, SECONDS_PER_MINUTE } from "./units.ts";
 
 export function shortenPath(path: string, home: string = homedir()): string {
   if (path !== home && !path.startsWith(`${home}${sep}`)) return path;
@@ -7,14 +8,14 @@ export function shortenPath(path: string, home: string = homedir()): string {
 }
 
 export function formatDuration(milliseconds: number): string {
-  const seconds = milliseconds / 1000;
-  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const seconds = milliseconds / MILLISECONDS_PER_SECOND;
+  if (seconds < SECONDS_PER_MINUTE) return `${seconds.toFixed(1)}s`;
   const totalSeconds = Math.floor(seconds);
-  const minutes = Math.floor(totalSeconds / 60);
-  const remainder = totalSeconds % 60;
-  if (minutes < 60) return `${minutes}m ${remainder}s`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h ${minutes % 60}m`;
+  const minutes = Math.floor(totalSeconds / SECONDS_PER_MINUTE);
+  const remainder = totalSeconds % SECONDS_PER_MINUTE;
+  if (minutes < MINUTES_PER_HOUR) return `${minutes}m ${remainder}s`;
+  const hours = Math.floor(minutes / MINUTES_PER_HOUR);
+  return `${hours}h ${minutes % MINUTES_PER_HOUR}m`;
 }
 
 // Allowlist filter for text that leaves the terminal (session names, desktop

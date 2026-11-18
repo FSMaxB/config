@@ -1,16 +1,5 @@
 import { isRecord } from "../lib/untyped.ts";
 
-export type ContextMessageMarker = Readonly<{
-  type?: string;
-  role?: string;
-  customType?: string;
-}>;
-
-interface CompatibleSessionManager {
-  buildSessionContext?: () => { messages: readonly ContextMessageMarker[] };
-  buildContextEntries?: () => readonly ContextMessageMarker[];
-}
-
 export function contextMessages(
   compatible: CompatibleSessionManager,
 ): readonly ContextMessageMarker[] {
@@ -30,6 +19,11 @@ export function contextMessages(
   }
 
   return [];
+}
+
+interface CompatibleSessionManager {
+  buildSessionContext?: () => { messages: readonly ContextMessageMarker[] };
+  buildContextEntries?: () => readonly ContextMessageMarker[];
 }
 
 export function latestMarkerIsActive(
@@ -62,3 +56,9 @@ function isContextMessageMarker(value: unknown): value is ContextMessageMarker {
   if (!isRecord(value)) return false;
   return [value.type, value.role, value.customType].every((field) => field === undefined || typeof field === "string");
 }
+
+export type ContextMessageMarker = Readonly<{
+  type?: string;
+  role?: string;
+  customType?: string;
+}>;

@@ -498,7 +498,6 @@ test("a child keeps the deny notes of its parent's session rules", () => {
 
   // assert
   assert.equal(parsed.kind, "valid");
-  if (parsed.kind !== "valid") return;
   assert.equal(inheritedRules(parsed.policy).read.deny.get(selectorKey(tree("/repo/private"))), expected);
 });
 

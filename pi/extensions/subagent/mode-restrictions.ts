@@ -31,7 +31,6 @@ export function restrictedModeAllowedTools(
 }
 
 export const ChildToolVerdict = { Allowed: "allowed", Restricted: "restricted", NoSandbox: "no-sandbox" } as const;
-export type ChildToolVerdict = (typeof ChildToolVerdict)[keyof typeof ChildToolVerdict];
 
 // The parent only admits bash when its own sandbox is active; the child checks its own, since a sandbox
 // extension that failed to load leaves stock bash behind.
@@ -39,6 +38,7 @@ export function childToolVerdict(toolName: string, allowedTools: ReadonlySet<str
   if (!allowedTools.has(toolName)) return ChildToolVerdict.Restricted;
   return toolName === "bash" && sandbox === SandboxStatus.Inactive ? ChildToolVerdict.NoSandbox : ChildToolVerdict.Allowed;
 }
+export type ChildToolVerdict = (typeof ChildToolVerdict)[keyof typeof ChildToolVerdict];
 
 export function effectiveChildTools(
   requested: readonly string[] | undefined,

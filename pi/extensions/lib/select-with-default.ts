@@ -27,8 +27,6 @@ const DIALOG_CHROME_ROWS = 12;
 // Keeps a usable window on tiny terminals.
 const MINIMUM_VISIBLE_ROWS = 3;
 
-export type WaitKind = NonNullable<ProgramStatus["kind"]>;
-
 // ui.select() always starts on the first option, so a dialog that wants to
 // recommend something else has to bring its own selector. SelectList windows
 // the visible rows around the selection, so long lists scroll instead of
@@ -63,6 +61,8 @@ export async function selectWithDefault(
     );
   }, { blocked: { kind: waitKind, message: title } });
 }
+
+export type WaitKind = NonNullable<ProgramStatus["kind"]>;
 
 class DefaultSelector extends Container {
   #selectedIndex: number;

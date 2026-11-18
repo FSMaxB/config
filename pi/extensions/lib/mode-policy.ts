@@ -9,7 +9,6 @@ import type { ToolPermission } from "./tool-permission-policy.ts";
 // tests; the engine itself only wires them to the session, the UI and the stores.
 
 export const StateRecording = { Keep: "keep", Record: "record" } as const;
-export type StateRecording = (typeof StateRecording)[keyof typeof StateRecording];
 
 // requested holds the modes whose startup flag applies to this session; defaulted the modes the
 // settings start in. Flags override the recorded mode, while a default only fills a branch that
@@ -25,6 +24,7 @@ export function startupMode(
   const recording = restored.recorded && mode === restored.mode ? StateRecording.Keep : StateRecording.Record;
   return { mode, recording };
 }
+export type StateRecording = (typeof StateRecording)[keyof typeof StateRecording];
 
 function preferredMode(modes: readonly RestrictedMode[]): RestrictedMode | undefined {
   if (modes.includes(AgentMode.Planning)) return AgentMode.Planning;
@@ -33,7 +33,6 @@ function preferredMode(modes: readonly RestrictedMode[]): RestrictedMode | undef
 }
 
 export const Timing = { Immediate: "immediate", Deferred: "deferred" } as const;
-export type Timing = (typeof Timing)[keyof typeof Timing];
 
 // Switching modes while the agent runs is deferred to the next tool call, so the notice says when.
 export function transitionNotice(from: AgentMode, to: AgentMode, timing: Timing): string {
@@ -50,10 +49,9 @@ export function transitionNotice(from: AgentMode, to: AgentMode, timing: Timing)
   // Both sides are execution mode, which a toggle never produces.
   return "Execution mode is unchanged.";
 }
+export type Timing = (typeof Timing)[keyof typeof Timing];
 
 export const Interaction = { Available: "available", Unavailable: "unavailable" } as const;
-export type Interaction = (typeof Interaction)[keyof typeof Interaction];
-export type ToolGate = { kind: "run" } | { kind: "block"; reason: string } | { kind: "ask" };
 
 export function toolGate(
   toolName: string,
@@ -74,11 +72,8 @@ export function toolGate(
   }
   return { kind: "ask" };
 }
-
-export interface DenialStores {
-  sessionDenials: ReadonlyMap<string, string | undefined>;
-  alwaysDenials: ReadonlyMap<string, string | undefined>;
-}
+export type Interaction = (typeof Interaction)[keyof typeof Interaction];
+export type ToolGate = { kind: "run" } | { kind: "block"; reason: string } | { kind: "ask" };
 
 export function blockedReason(mode: RestrictedMode, toolName: string, { sessionDenials, alwaysDenials }: DenialStores): string | undefined {
   for (const [store, cause] of [
@@ -94,6 +89,11 @@ export function blockedReason(mode: RestrictedMode, toolName: string, { sessionD
 export function effectiveDenials({ sessionDenials, alwaysDenials }: DenialStores): Denial[] {
   const denials = new Map([...sessionDenials, ...alwaysDenials]);
   return [...denials].map(([name, note]) => ({ name, note }));
+}
+
+export interface DenialStores {
+  sessionDenials: ReadonlyMap<string, string | undefined>;
+  alwaysDenials: ReadonlyMap<string, string | undefined>;
 }
 
 export const DENIAL_CAUSES = {

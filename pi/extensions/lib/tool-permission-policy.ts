@@ -2,6 +2,7 @@ import { READ_FILE_TOOLS } from "./file-tools.ts";
 import { realpathSync } from "node:fs";
 import type { ToolInfo } from "@earendil-works/pi-coding-agent";
 import type { SessionGrant } from "./session-grants.ts";
+import { isRecord, stringProperty } from "./untyped.ts";
 
 export function planToolPermission(
   name: string,
@@ -29,7 +30,7 @@ export function trustedReadOnlyToolNames(tools: readonly ToolPolicyInfo[]): Set<
   return new Set(tools.filter(tool => isTrustedReadOnlyRegistration({
     name: tool.name,
     readOnlyHint: tool.annotations?.readOnlyHint,
-    ownerPath: canonicalPath(tool.sourceInfo?.path),
+    ownerPath: canonicalPath(sourcePath(tool)),
   }, owners)).map(tool => tool.name));
 }
 
@@ -46,6 +47,11 @@ export function toolDecisionGrants(grants: Iterable<string>, denials: Iterable<s
     ...[...grants].sort().map((name) => ({ kind: "tool", decision: "allow", name }) as const),
     ...[...denials].sort().map((name) => ({ kind: "tool", decision: "deny", name }) as const),
   ];
+}
+
+// Tools registered by older extensions may carry no sourceInfo at all.
+function sourcePath(tool: { readonly sourceInfo: unknown }): string | undefined {
+  return isRecord(tool.sourceInfo) ? stringProperty(tool.sourceInfo, "path") : undefined;
 }
 
 function hasName(names: Iterable<string>, name: string): boolean {

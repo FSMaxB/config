@@ -2,18 +2,7 @@ import { dirname, relative, sep } from "node:path";
 import { resolveToolPath, safeRealPath } from "./tool-path.ts";
 import type { RealPath } from "./tool-path.ts";
 
-export type SkillLevel = "repo" | "user";
-export interface Skill { name: string; level: SkillLevel }
-
-/** Maps the realpath of each skill's SKILL.md to the skill. */
-export type SkillIndex = Map<string, Skill>;
-
-/** What a read or a /skill:name expansion loaded. */
-export type SkillLoad = { kind: "skill"; skill: Skill } | { kind: "reference"; skill: Skill; path: string };
-
 export type SkillReference = Extract<SkillLoad, { kind: "reference" }>;
-
-export interface CommandInfo { name: string; source: string; sourceInfo: { path: string; scope: string } }
 export function buildSkillIndex(commands: readonly CommandInfo[], realPath: RealPath = safeRealPath): SkillIndex {
   const index: SkillIndex = new Map();
   for (const command of commands) {
@@ -25,6 +14,8 @@ export function buildSkillIndex(commands: readonly CommandInfo[], realPath: Real
   }
   return index;
 }
+
+export interface CommandInfo { name: string; source: string; sourceInfo: { path: string; scope: string } }
 
 /** What a successful `read` of `rawPath` loaded, if anything. */
 export function skillLoadForReadPath(
@@ -59,7 +50,16 @@ function referenceLoad(index: SkillIndex, path: string): SkillLoad | undefined {
   return { kind: "reference", skill: best.skill, path: relative(best.directory, path) };
 }
 
+/** Maps the realpath of each skill's SKILL.md to the skill. */
+export type SkillIndex = Map<string, Skill>;
+
+/** What a read or a /skill:name expansion loaded. */
+export type SkillLoad = { kind: "skill"; skill: Skill } | { kind: "reference"; skill: Skill; path: string };
+export interface Skill { name: string; level: SkillLevel }
+
 // Not decided by path: ~/.pi/agent/skills links into ~/config/pi/skills, so a path check would call user skills repo skills there.
 function levelForScope(scope: string): SkillLevel {
   return scope === "project" ? "repo" : "user";
 }
+
+export type SkillLevel = "repo" | "user";

@@ -6,33 +6,6 @@ import type { Platform } from "./platform.ts";
 import { errorCode } from "../../lib/errors.ts";
 import { hasGlobCharacters } from "./glob-characters.ts";
 
-
-// What git and jj write during normal operation, relative to the directory each spec describes.
-interface DirectorySpec {
-  // Writable together with everything beneath them.
-  trees: readonly string[];
-  // Writable as exact paths; each also gets `<name>.lock`, git's lock file for it.
-  lockedFiles: readonly string[];
-  // Writable as exact paths, without a `.lock` companion.
-  files: readonly string[];
-  // Writable temporary files (jj's NamedTempFile, git's index.stash.<pid>), as name prefixes.
-  temporaryPrefixes: readonly string[];
-  // Directories with their own spec; anything else inside them is not allowlisted.
-  children: Readonly<Record<string, DirectorySpec>>;
-  // A nested git directory (non-colocated jj keeps one at .jj/repo/store/git).
-  gitDirectories: readonly string[];
-  // Names that must stay denied even while absent.
-  absent: readonly AbsentName[];
-}
-
-interface AbsentName {
-  name: string;
-  // On Linux, srt mounts an empty placeholder file over a denied absent path while a command runs.
-  // Some names break git or jj when they exist but are empty, so Linux skips them, or denies them
-  // only while the named sibling exists.
-  linux: "deny" | "skip" | { denyWhenPresent: string };
-}
-
 const EMPTY_SPEC: DirectorySpec = { trees: [], lockedFiles: [], files: [], temporaryPrefixes: [], children: {}, gitDirectories: [], absent: [] };
 
 // The lists below come from running the git and jj command batteries of the sandbox integration tests
@@ -93,31 +66,6 @@ const JJ_DIRECTORY: DirectorySpec = {
   ],
 };
 
-export interface DirectoryListing {
-  path: string;
-  entries: { name: string; directory: boolean }[];
-}
-
-export interface VcsLayout {
-  repoRoot: string;
-  // Every directory the specs describe that exists, keyed by absolute path.
-  listings: ReadonlyMap<string, DirectoryListing>;
-  // <repo>/.git when it is not a plain directory (linked worktree, submodule checkout or symlink): denied as a whole.
-  gitFile: string | undefined;
-}
-
-export interface VcsWriteRules {
-  repositoryRoot: string;
-  // darwin replacement for tree(<repo>): the repository minus .git/.jj, plus the allowlist.
-  repositoryAllow: PathSelector[];
-  // Literal paths to deny, both platforms.
-  deny: string[];
-  // The VCS directories that exist; an allow reaching any of them triggers `deny`.
-  vcsDirectories: string[];
-  // Linux: id files that are missing, so config.toml cannot be denied; drives the one-time warning.
-  missingConfigIds: string[];
-}
-
 export async function scanVcsLayout(repositoryRoot: string): Promise<VcsLayout> {
   const listings = new Map<string, DirectoryListing>();
   const gitPath = join(repositoryRoot, ".git");
@@ -146,6 +94,26 @@ export function vcsWriteRules(layout: VcsLayout, platform: Platform): VcsWriteRu
   };
 }
 
+export interface VcsLayout {
+  repoRoot: string;
+  // Every directory the specs describe that exists, keyed by absolute path.
+  listings: ReadonlyMap<string, DirectoryListing>;
+  // <repo>/.git when it is not a plain directory (linked worktree, submodule checkout or symlink): denied as a whole.
+  gitFile: string | undefined;
+}
+
+export interface VcsWriteRules {
+  repositoryRoot: string;
+  // darwin replacement for tree(<repo>): the repository minus .git/.jj, plus the allowlist.
+  repositoryAllow: PathSelector[];
+  // Literal paths to deny, both platforms.
+  deny: string[];
+  // The VCS directories that exist; an allow reaching any of them triggers `deny`.
+  vcsDirectories: string[];
+  // Linux: id files that are missing, so config.toml cannot be denied; drives the one-time warning.
+  missingConfigIds: string[];
+}
+
 async function scanDirectory(path: string, spec: DirectorySpec, listings: Map<string, DirectoryListing>): Promise<void> {
   const dirents = await readdir(path, { withFileTypes: true }).catch(ignoreMissing);
   if (!dirents) return;
@@ -163,12 +131,6 @@ function ignoreMissing(error: unknown): undefined {
   const code = errorCode(error);
   if (code === "ENOENT" || code === "ENOTDIR") return undefined;
   throw error;
-}
-
-interface Walk {
-  allow: PathSelector[];
-  deny: string[];
-  missingConfigIds: string[];
 }
 
 function walkDirectory(path: string, spec: DirectorySpec, listings: ReadonlyMap<string, DirectoryListing>, platform: Platform): Walk {
@@ -191,6 +153,17 @@ function walkDirectory(path: string, spec: DirectorySpec, listings: ReadonlyMap<
     deny: [...deniedEntries, ...deniedAbsent, ...nestedWalks.flatMap((walk) => walk.deny)],
     missingConfigIds: [...missingIdFiles(path, spec, names, platform), ...nestedWalks.flatMap((walk) => walk.missingConfigIds)],
   };
+}
+
+export interface DirectoryListing {
+  path: string;
+  entries: { name: string; directory: boolean }[];
+}
+
+interface Walk {
+  allow: PathSelector[];
+  deny: string[];
+  missingConfigIds: string[];
 }
 
 function isAllowlisted(spec: DirectorySpec, name: string): boolean {
@@ -220,6 +193,33 @@ function missingIdFiles(path: string, spec: DirectorySpec, names: ReadonlySet<st
     .flatMap(({ linux }) => (typeof linux === "object" ? [linux.denyWhenPresent] : []))
     .filter((idFile) => !names.has(idFile))
     .map((idFile) => join(path, idFile));
+}
+
+
+// What git and jj write during normal operation, relative to the directory each spec describes.
+interface DirectorySpec {
+  // Writable together with everything beneath them.
+  trees: readonly string[];
+  // Writable as exact paths; each also gets `<name>.lock`, git's lock file for it.
+  lockedFiles: readonly string[];
+  // Writable as exact paths, without a `.lock` companion.
+  files: readonly string[];
+  // Writable temporary files (jj's NamedTempFile, git's index.stash.<pid>), as name prefixes.
+  temporaryPrefixes: readonly string[];
+  // Directories with their own spec; anything else inside them is not allowlisted.
+  children: Readonly<Record<string, DirectorySpec>>;
+  // A nested git directory (non-colocated jj keeps one at .jj/repo/store/git).
+  gitDirectories: readonly string[];
+  // Names that must stay denied even while absent.
+  absent: readonly AbsentName[];
+}
+
+interface AbsentName {
+  name: string;
+  // On Linux, srt mounts an empty placeholder file over a denied absent path while a command runs.
+  // Some names break git or jj when they exist but are empty, so Linux skips them, or denies them
+  // only while the named sibling exists.
+  linux: "deny" | "skip" | { denyWhenPresent: string };
 }
 
 // srt turns every glob into a regular expression and has no negated character classes, so "everything but

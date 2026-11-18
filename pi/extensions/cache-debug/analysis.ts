@@ -1,4 +1,5 @@
 import type { PayloadFingerprint } from "./fingerprint.ts";
+import { MILLISECONDS_PER_MINUTE, MILLISECONDS_PER_SECOND } from "../lib/units.ts";
 import { SectionKind } from "./fingerprint.ts";
 import { MarkerEvent, RequestPurpose } from "./records.ts";
 import type { LogRecord, RequestRecord, Usage } from "./records.ts";
@@ -13,47 +14,13 @@ export const Verdict = {
   PrefixChanged: "prefix-changed", // pi sent different content before the end of the previous request
   ProviderMiss: "provider-miss", // the previous payload is an exact prefix, yet the cache read fell short
 } as const;
-export type Verdict = (typeof Verdict)[keyof typeof Verdict];
-
-export interface Change {
-  key: string;
-  index?: number;
-  label?: string;
-  charOffset: number;
-}
-
-export interface Finding {
-  record: RequestRecord;
-  verdict: Verdict;
-  promptTokens?: number;
-  missedTokens?: number;
-  idleMs?: number;
-  firstChange?: Change;
-  estimatedChangeTokens?: number;
-  changedParameters: string[];
-}
-
-interface Comparison {
-  firstChange?: Change;
-  changedParameters: string[];
-}
-
-type RecordWithUsage = RequestRecord & { usage: Usage };
-
-interface WalkState {
-  previous: RequestRecord | undefined;
-  previousWithUsage: RecordWithUsage | undefined;
-  reportedCache: boolean;
-  // The end of the last record of any purpose.
-  lastActivityAt: number | undefined;
-}
 
 // Same floor as pi's own cache-miss notice (cache-stats.js): smaller misses are breakpoint granularity.
 const NOISE_FLOOR_TOKENS = 1024;
 const PROBLEM_VERDICTS: readonly Verdict[] = [Verdict.PrefixChanged, Verdict.ProviderMiss, Verdict.NoPayload];
 // Anthropic's default prompt-cache TTL; an idle gap longer than that explains a provider-side miss.
 const TTL_HINT_MINUTES = 5;
-const TTL_HINT_MS = TTL_HINT_MINUTES * 60 * 1000;
+const TTL_HINT_MS = TTL_HINT_MINUTES * MILLISECONDS_PER_MINUTE;
 
 export function analyze(records: readonly LogRecord[]): Finding[] {
   const findings: Finding[] = [];
@@ -115,6 +82,14 @@ function classify(record: RequestRecord, { previous, previousWithUsage, reported
   };
 }
 
+interface WalkState {
+  previous: RequestRecord | undefined;
+  previousWithUsage: RecordWithUsage | undefined;
+  reportedCache: boolean;
+  // The end of the last record of any purpose.
+  lastActivityAt: number | undefined;
+}
+
 function promptTokensOf({ input, cacheRead, cacheWrite }: Usage): number {
   return input + cacheRead + cacheWrite;
 }
@@ -153,8 +128,12 @@ function comparePayloads(previous: PayloadFingerprint, current: PayloadFingerpri
   return { changedParameters };
 }
 
+interface Comparison {
+  firstChange?: Change;
+  changedParameters: string[];
+}
+
 export const ReportVerbosity = { Problems: "problems", All: "all" } as const;
-export type ReportVerbosity = (typeof ReportVerbosity)[keyof typeof ReportVerbosity];
 
 export function parseReportArguments(words: readonly string[]): { verbosity: ReportVerbosity; target?: string } {
   const target = words.find((word) => word !== "--all");
@@ -166,10 +145,7 @@ export function renderReport(findings: readonly Finding[], verbosity: ReportVerb
   const shown = verbosity === ReportVerbosity.All ? findings : findings.filter(isProblem);
   return [renderHeader(findings), ...shown.map(renderFinding)].join("\n");
 }
-
-function isProblem({ verdict }: Finding): boolean {
-  return PROBLEM_VERDICTS.includes(verdict);
-}
+export type ReportVerbosity = (typeof ReportVerbosity)[keyof typeof ReportVerbosity];
 
 function renderHeader(findings: readonly Finding[]): string {
   const misses = findings.filter(isProblem);
@@ -182,6 +158,10 @@ function renderHeader(findings: readonly Finding[]): string {
   const warms = findings.filter(({ verdict }) => verdict === Verdict.CacheWarm).length;
   const summary = `${findings.length} requests · ${misses.length} misses (${formatNumber(missedTokens)} tokens)`;
   return [counts.length > 0 ? `${summary}: ${counts.join(", ")}` : summary, ...(noUsage > 0 ? [`${noUsage} no-usage`] : []), ...(warms > 0 ? [`${warms} cache-warm`] : [])].join(" · ");
+}
+
+function isProblem({ verdict }: Finding): boolean {
+  return PROBLEM_VERDICTS.includes(verdict);
 }
 
 function renderFinding({ record, verdict, promptTokens, missedTokens, idleMs, firstChange, estimatedChangeTokens, changedParameters }: Finding): string {
@@ -201,12 +181,31 @@ function renderFinding({ record, verdict, promptTokens, missedTokens, idleMs, fi
   return [...columns, ...details].join("  ");
 }
 
+export interface Finding {
+  record: RequestRecord;
+  verdict: Verdict;
+  promptTokens?: number;
+  missedTokens?: number;
+  idleMs?: number;
+  firstChange?: Change;
+  estimatedChangeTokens?: number;
+  changedParameters: string[];
+}
+export type Verdict = (typeof Verdict)[keyof typeof Verdict];
+
 function renderChange({ key, index, label }: Change): string {
   return `${key}${index === undefined ? "" : `[${index}]`}${label === undefined ? "" : ` (${label})`}`;
 }
 
+export interface Change {
+  key: string;
+  index?: number;
+  label?: string;
+  charOffset: number;
+}
+
 function renderIdle(idleMs: number): string {
-  return `idle ${Math.round(idleMs / 1000)}s${idleMs > TTL_HINT_MS ? ` (> ${TTL_HINT_MINUTES} min, TTL?)` : ""}`;
+  return `idle ${Math.round(idleMs / MILLISECONDS_PER_SECOND)}s${idleMs > TTL_HINT_MS ? ` (> ${TTL_HINT_MINUTES} min, TTL?)` : ""}`;
 }
 
 function formatTime(iso: string): string {
@@ -214,14 +213,16 @@ function formatTime(iso: string): string {
   return [date.getHours(), date.getMinutes(), date.getSeconds()].map((part) => String(part).padStart(2, "0")).join(":");
 }
 
-function formatNumber(value: number): string {
-  return value.toLocaleString("en-US");
-}
-
 function formatOptional(value: number | undefined): string {
   return value === undefined ? "-" : formatNumber(value);
+}
+
+function formatNumber(value: number): string {
+  return value.toLocaleString("en-US");
 }
 
 function hasUsage(record: RequestRecord): record is RecordWithUsage {
   return record.usage !== undefined;
 }
+
+type RecordWithUsage = RequestRecord & { usage: Usage };

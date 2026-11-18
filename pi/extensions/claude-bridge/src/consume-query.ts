@@ -3,26 +3,18 @@
 // query's captured Pi stream.
 
 import type { Model, Api } from "@earendil-works/pi-ai";
-import type { AccountInfo, query, SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk";
+import type { AccountInfo, query } from "@anthropic-ai/claude-agent-sdk";
 import { classifyClaudeFailure, rateLimitResetFromInfo, rateLimitResetMs, rateLimitTypeFromInfo } from "./claude-failure.js";
 import type { ClaudeFailureKind } from "./claude-failure.js";
 import { ensureTurnStarted, processAssistantMessage, processStreamEvent, updateTurnOutputModel } from "./assistant-stream.js";
 import { getExtensionApi, safeNotify } from "./bridge-state.js";
 import type { Config } from "./config.js";
-import { debug } from "./debug.js";
+import { debug, shortIdOrNone } from "./debug.js";
 import { refusalFallbackNotice } from "./models.js";
 import type { QueryContext } from "./query-state.js";
 import { RATE_LIMIT_AUTO_RESUME_EVENT, RATE_LIMIT_TOKEN, formatAllowedRateLimitWarning, formatResetTimestamp, isUsageLimitMessage, uniqueNonEmptyLines } from "./rate-limit.js";
 import { activeStreamIdleWatchdogs } from "./stream-idle-watchdog.js";
-import { stringProperty } from "../../lib/untyped.ts";
-
-export function emitRateLimitEvent(payload: Record<string, unknown>): void {
-	try {
-		getExtensionApi()?.events?.emit?.(RATE_LIMIT_AUTO_RESUME_EVENT, payload);
-	} catch {
-		// Cross-extension broker is best-effort only.
-	}
-}
+import { isRecord, nonEmpty, stringProperty } from "../../lib/untyped.ts";
 
 // The fastMode setting silently no-ops when Claude Code declines fast mode.
 // Surface the typed fast_mode_disabled_reason (SDK 0.3.219+) once per distinct
@@ -42,31 +34,8 @@ const FAST_MODE_DISABLED_REASON_TEXT: Record<string, string> = {
 	unknown: "unavailable for an unknown reason",
 };
 
-function noteFastModeDisabledReason(message: object, bridgeConfig: Config): void {
-	if (bridgeConfig.provider?.fastMode !== true) return;
-	const reason: unknown = Reflect.get(message, "fast_mode_disabled_reason");
-	// "pending" means the CLI is still deciding — not a verdict worth announcing.
-	if (typeof reason !== "string" || reason === "pending") return;
-	if (reason === lastFastModeDisabledNoticeReason) return;
-	lastFastModeDisabledNoticeReason = reason;
-	const text = FAST_MODE_DISABLED_REASON_TEXT[reason] ?? `unavailable (${reason})`;
-	safeNotify(`Pi Claude: fast mode is enabled in settings but Claude Code declined it — ${text}.`, "warning");
-}
-
-/** Background consumer: iterates the SDK generator, pushing events to currentPiStream.
- *  Runs until the query ends. Per turn, the SDK yields stream_events (deltas), then
- *  an assistant message (completed blocks). On tool_use, the stream is ended by
- *  whichever path handles it first (processStreamEvent or processAssistantMessage),
- *  and the MCP handler blocks the generator until pi delivers the tool result. */
-export interface ClaudeAttemptFailure {
-	kind?: ClaudeFailureKind;
-	message: string;
-}
-
-export interface ConsumeQueryResult {
-	capturedSessionId?: string;
-	failure?: ClaudeAttemptFailure;
-}
+// A rate-limit event is logged in part: the leading fields identify it.
+const RATE_LIMIT_PREVIEW_CHARACTERS = 300;
 
 export async function consumeQuery(
 	sdkQuery: ReturnType<typeof query>,
@@ -140,7 +109,7 @@ export async function consumeQuery(
 				} else if (message.subtype !== "success") {
 					const errorLines = Array.isArray(message.errors) ? uniqueNonEmptyLines(message.errors) : [];
 					// Some CLI versions put the error text in `result`, which the SDK's error type leaves out.
-					const errors = errorLines.length > 0 ? errorLines.join("\n") : stringProperty(message, "result") || message.subtype || "Claude Code request failed";
+					const errors = errorLines.length > 0 ? errorLines.join("\n") : nonEmpty(stringProperty(message, "result")) ?? message.subtype;
 					const usageLimit = isUsageLimitMessage(message);
 					holdFailure({ kind: usageLimit ? "rate-limit" : classifyClaudeFailure(errors), message: errors });
 					if (usageLimit) {
@@ -190,12 +159,14 @@ export async function consumeQuery(
 				break;
 			case "rate_limit_event": {
 				if (!streamLive) break;
-				const info: SDKRateLimitInfo | undefined = message.rate_limit_info;
-				debug("consumeQuery: rate_limit_event", JSON.stringify(info).slice(0, 300));
-				if (info?.status === "rejected") {
-					const rateLimitType = rateLimitTypeFromInfo(info);
-					const resetAt = rateLimitResetFromInfo(info);
-					const resetAtMs = rateLimitResetMs(info);
+				const info: unknown = message.rate_limit_info;
+				const record = isRecord(info) ? info : undefined;
+				const status = record === undefined ? undefined : stringProperty(record, "status");
+				debug("consumeQuery: rate_limit_event", JSON.stringify(info).slice(0, RATE_LIMIT_PREVIEW_CHARACTERS));
+				if (status === "rejected") {
+					const rateLimitType = rateLimitTypeFromInfo(record);
+					const resetAt = rateLimitResetFromInfo(record);
+					const resetAtMs = rateLimitResetMs(record);
 					const reason = `${typeof rateLimitType === "string" ? rateLimitType : "unknown"} rate limit`;
 					// A rejected event may precede a successful SDK fallback. Report it
 					// without holding a terminal failure until the final result arrives.
@@ -206,10 +177,10 @@ export async function consumeQuery(
 						source: "claude-bridge", status: "rejected",
 					});
 					safeNotify(`${RATE_LIMIT_TOKEN} Claude ${reason} hit — resets ${resetsAt}`, "warning");
-				} else if (info?.status === "allowed_warning") {
-					const warning = formatAllowedRateLimitWarning(info);
+				} else if (status === "allowed_warning") {
+					const warning = formatAllowedRateLimitWarning(record);
 					if (warning) safeNotify(warning, "warning");
-					else debug("consumeQuery: suppressed low/ambiguous allowed_warning rate_limit_event", JSON.stringify(info).slice(0, 300));
+					else debug("consumeQuery: suppressed low/ambiguous allowed_warning rate_limit_event", JSON.stringify(info).slice(0, RATE_LIMIT_PREVIEW_CHARACTERS));
 				}
 				break;
 			}
@@ -223,6 +194,40 @@ export async function consumeQuery(
 		}
 	}
 
-	debug(`consumeQuery: for-await loop exited, wasAborted=${wasAborted()}, capturedSessionId=${capturedSessionId?.slice(0, 8) ?? "none"}, failure=${failure?.kind ?? "none"}`);
+	debug(`consumeQuery: for-await loop exited, wasAborted=${wasAborted()}, capturedSessionId=${shortIdOrNone(capturedSessionId)}, failure=${failure?.kind ?? "none"}`);
 	return { capturedSessionId, failure };
+}
+
+export function emitRateLimitEvent(payload: Record<string, unknown>): void {
+	try {
+		getExtensionApi()?.events.emit(RATE_LIMIT_AUTO_RESUME_EVENT, payload);
+	} catch {
+		// Cross-extension broker is best-effort only.
+	}
+}
+
+function noteFastModeDisabledReason(message: object, bridgeConfig: Config): void {
+	if (bridgeConfig.provider?.fastMode !== true) return;
+	const reason: unknown = Reflect.get(message, "fast_mode_disabled_reason");
+	// "pending" means the CLI is still deciding — not a verdict worth announcing.
+	if (typeof reason !== "string" || reason === "pending") return;
+	if (reason === lastFastModeDisabledNoticeReason) return;
+	lastFastModeDisabledNoticeReason = reason;
+	const text = FAST_MODE_DISABLED_REASON_TEXT[reason] ?? `unavailable (${reason})`;
+	safeNotify(`Pi Claude: fast mode is enabled in settings but Claude Code declined it — ${text}.`, "warning");
+}
+
+export interface ConsumeQueryResult {
+	capturedSessionId?: string;
+	failure?: ClaudeAttemptFailure;
+}
+
+/** Background consumer: iterates the SDK generator, pushing events to currentPiStream.
+ *  Runs until the query ends. Per turn, the SDK yields stream_events (deltas), then
+ *  an assistant message (completed blocks). On tool_use, the stream is ended by
+ *  whichever path handles it first (processStreamEvent or processAssistantMessage),
+ *  and the MCP handler blocks the generator until pi delivers the tool result. */
+export interface ClaudeAttemptFailure {
+	kind?: ClaudeFailureKind;
+	message: string;
 }

@@ -3,7 +3,6 @@ export const ContextChange = {
   InjectRules: "inject-rules",
   DisableRules: "disable-rules",
 } as const;
-export type ContextChange = (typeof ContextChange)[keyof typeof ContextChange];
 
 export function requiredContextChange(
   mode: "enabled" | "disabled",
@@ -13,3 +12,4 @@ export function requiredContextChange(
   if (mode === "disabled" && rules === "in-context") return ContextChange.DisableRules;
   return ContextChange.None;
 }
+export type ContextChange = (typeof ContextChange)[keyof typeof ContextChange];

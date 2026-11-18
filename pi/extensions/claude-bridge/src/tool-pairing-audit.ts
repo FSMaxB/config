@@ -4,40 +4,6 @@
 
 import { isRecord } from "../../lib/untyped.ts";
 
-export interface RecoveredToolResult {
-	id: string;
-	assistantIndex: number;
-	sourceUserIndex: number;
-	targetUserIndex: number;
-}
-
-export interface MissingToolResult {
-	id: string;
-	toolName: string;
-	assistantIndex: number;
-	// The user message right after the assistant message, when there is one.
-	userIndex: number | undefined;
-}
-
-function contentBlocks(content: unknown): Record<string, unknown>[] {
-	return Array.isArray(content) ? content.filter(isRecord) : [];
-}
-
-function toolUses(content: unknown): { id: string; name: string }[] {
-	return contentBlocks(content).flatMap((block) => {
-		if (block.type !== "tool_use" || typeof block.id !== "string") return [];
-		return [{ id: block.id, name: typeof block.name === "string" && block.name ? block.name : "unknown" }];
-	});
-}
-
-function toolResultIds(content: unknown): Set<string> {
-	const ids = new Set<string>();
-	for (const block of contentBlocks(content)) {
-		if (block.type === "tool_result" && typeof block.tool_use_id === "string") ids.add(block.tool_use_id);
-	}
-	return ids;
-}
-
 /**
  * Pi can split a parallel Claude tool batch into several visible turns when a
  * steer is drained after the first tool result. The first assistant message
@@ -55,12 +21,12 @@ export function recoverLaterToolResults(
 ): RecoveredToolResult[] {
 	const recovered: RecoveredToolResult[] = [];
 	for (let index = 0; index < messages.length; index++) {
-		const assistant = messages[index];
+		const assistant = messages.at(index);
 		if (assistant?.role !== "assistant") continue;
 		const uses = toolUses(assistant.content);
 		if (uses.length === 0) continue;
 
-		const target = messages[index + 1];
+		const target = messages.at(index + 1);
 		if (target?.role !== "user") continue;
 		const present = toolResultIds(target.content);
 		const missing = uses.filter((use) => !present.has(use.id));
@@ -70,7 +36,7 @@ export function recoverLaterToolResults(
 			let sourceBlock: Record<string, unknown> | undefined;
 			let sourceUserIndex = -1;
 			for (let laterIndex = index + 2; laterIndex < messages.length; laterIndex++) {
-				const candidate = messages[laterIndex];
+				const candidate = messages.at(laterIndex);
 				if (candidate?.role !== "user") continue;
 				sourceBlock = contentBlocks(candidate.content).find(
 					(block) => block.type === "tool_result" && block.tool_use_id === use.id,
@@ -100,6 +66,13 @@ export function recoverLaterToolResults(
 	return recovered;
 }
 
+export interface RecoveredToolResult {
+	id: string;
+	assistantIndex: number;
+	sourceUserIndex: number;
+	targetUserIndex: number;
+}
+
 /**
  * Anthropic history requires an assistant message containing tool_use blocks to
  * be followed by a user message containing matching tool_result blocks. Return
@@ -108,14 +81,15 @@ export function recoverLaterToolResults(
 export function findUnpairedToolUses(messages: readonly { role?: string; content?: unknown }[]): MissingToolResult[] {
 	const missing: MissingToolResult[] = [];
 	for (let index = 0; index < messages.length; index++) {
-		const message = messages[index];
+		const message = messages.at(index);
 		if (message?.role !== "assistant") continue;
 		const uses = toolUses(message.content);
 		if (uses.length === 0) continue;
 
-		const next = messages[index + 1];
-		const nextUserIndex = next?.role === "user" ? index + 1 : undefined;
-		const resultIds = nextUserIndex === undefined ? new Set<string>() : toolResultIds(next.content);
+		const next = messages.at(index + 1);
+		const nextUser = next?.role === "user" ? next : undefined;
+		const nextUserIndex = nextUser === undefined ? undefined : index + 1;
+		const resultIds = nextUser === undefined ? new Set<string>() : toolResultIds(nextUser.content);
 		for (const use of uses) {
 			if (!resultIds.has(use.id)) {
 				missing.push({ id: use.id, toolName: use.name, assistantIndex: index, userIndex: nextUserIndex });
@@ -123,6 +97,25 @@ export function findUnpairedToolUses(messages: readonly { role?: string; content
 		}
 	}
 	return missing;
+}
+
+function toolUses(content: unknown): { id: string; name: string }[] {
+	return contentBlocks(content).flatMap((block) => {
+		if (block.type !== "tool_use" || typeof block.id !== "string") return [];
+		return [{ id: block.id, name: typeof block.name === "string" && block.name ? block.name : "unknown" }];
+	});
+}
+
+function toolResultIds(content: unknown): Set<string> {
+	const ids = new Set<string>();
+	for (const block of contentBlocks(content)) {
+		if (block.type === "tool_result" && typeof block.tool_use_id === "string") ids.add(block.tool_use_id);
+	}
+	return ids;
+}
+
+function contentBlocks(content: unknown): Record<string, unknown>[] {
+	return Array.isArray(content) ? content.filter(isRecord) : [];
 }
 
 export const LOST_TOOL_RESULT_TEXT =
@@ -179,6 +172,14 @@ export function summarizeMissingToolNames(missing: readonly MissingToolResult[])
 	return [...counts.entries()]
 		.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
 		.map(([name, count]) => ({ name, count }));
+}
+
+export interface MissingToolResult {
+	id: string;
+	toolName: string;
+	assistantIndex: number;
+	// The user message right after the assistant message, when there is one.
+	userIndex: number | undefined;
 }
 
 function isToolResultBlock(block: unknown): boolean {

@@ -1,8 +1,3 @@
-export interface LineSplitter {
-  push(chunk: string): void;
-  flush(): void;
-}
-
 export function createLineSplitter(onLine: (line: string) => void): LineSplitter {
   let pending = "";
 
@@ -20,6 +15,11 @@ export function createLineSplitter(onLine: (line: string) => void): LineSplitter
       pending = "";
     },
   };
+}
+
+export interface LineSplitter {
+  push(chunk: string): void;
+  flush(): void;
 }
 
 // Offset is 1-based like the read tool's; a missing limit runs to the end.

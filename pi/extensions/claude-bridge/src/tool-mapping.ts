@@ -16,18 +16,6 @@ const BRIDGED_TOOL_PREFIXES = [
 	`mcp/${MCP_SERVER_NAME.replace(/-/g, "_")}/`,
 ];
 
-
-function bridgedToolSuffix(normalized: string): string | undefined {
-	const prefix = BRIDGED_TOOL_PREFIXES.find((candidate) => normalized.startsWith(candidate));
-	return prefix ? normalized.slice(prefix.length) : undefined;
-}
-
-export function isForeignMcpTool(name: unknown): boolean {
-	if (typeof name !== "string") return false;
-	const normalized = name.toLowerCase();
-	return (normalized.startsWith("mcp__") || normalized.startsWith("mcp/")) && bridgedToolSuffix(normalized) === undefined;
-}
-
 export function isPiDispatchable(name: unknown, customToolNameToPi?: ReadonlyMap<string, string>): boolean {
 	if (typeof name !== "string" || !name) return false;
 	const normalized = name.toLowerCase();
@@ -41,6 +29,12 @@ export function isPiDispatchable(name: unknown, customToolNameToPi?: ReadonlyMap
 	// Only names in Pi's manifest can be dispatched. Even an empty manifest
 	// cannot grant bare built-ins the right to run in Pi.
 	return false;
+}
+
+export function isForeignMcpTool(name: unknown): boolean {
+	if (typeof name !== "string") return false;
+	const normalized = name.toLowerCase();
+	return (normalized.startsWith("mcp__") || normalized.startsWith("mcp/")) && bridgedToolSuffix(normalized) === undefined;
 }
 
 export function mapToolName(name: string, customToolNameToPi?: ReadonlyMap<string, string>): string {
@@ -58,9 +52,15 @@ export function mapToolName(name: string, customToolNameToPi?: ReadonlyMap<strin
 	return name;
 }
 
+
+function bridgedToolSuffix(normalized: string): string | undefined {
+	const prefix = BRIDGED_TOOL_PREFIXES.find((candidate) => normalized.startsWith(candidate));
+	return prefix ? normalized.slice(prefix.length) : undefined;
+}
+
 // Renames for Claude Code SDK param names that differ from pi's native names.
 // Keys not listed here pass through unchanged, so additional Pi parameters work automatically.
-const SDK_KEY_RENAMES: Record<string, Record<string, string>> = {
+const SDK_KEY_RENAMES: Partial<Record<string, Partial<Record<string, string>>>> = {
 	read:  { file_path: "path" },
 	write: { file_path: "path" },
 	edit:  { file_path: "path", old_string: "oldText", new_string: "newText", old_text: "oldText", new_text: "newText" },
@@ -78,7 +78,7 @@ export function mapToolArguments(
 		const piKey = renames?.[key] ?? key;
 		if (!(piKey in result)) result[piKey] = value; // first alias wins
 	}
-	if (toolName.toLowerCase() === "bash" && result.timeout == null) {
+	if (toolName.toLowerCase() === "bash" && !Object.hasOwn(result, "timeout") || result.timeout === null) {
 		result.timeout = DEFAULT_BASH_TIMEOUT_SECONDS;
 	}
 	return result;

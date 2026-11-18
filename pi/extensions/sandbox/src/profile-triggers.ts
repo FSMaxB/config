@@ -1,8 +1,6 @@
 import { basename } from "node:path";
 import type { ProfileTriggers } from "./profiles.ts";
 
-export type TriggerMatch = { kind: "command"; command: string } | { kind: "pattern"; pattern: string };
-
 export function matchTrigger(command: string, triggers: ProfileTriggers): TriggerMatch | undefined {
   const names = commandNames(command);
   const byCommand = triggers.commands.find((candidate) => names.includes(candidate));
@@ -10,6 +8,8 @@ export function matchTrigger(command: string, triggers: ProfileTriggers): Trigge
   const byPattern = triggers.patterns.find((pattern) => new RegExp(pattern).test(command));
   return byPattern === undefined ? undefined : { kind: "pattern", pattern: byPattern };
 }
+
+export type TriggerMatch = { kind: "command"; command: string } | { kind: "pattern"; pattern: string };
 
 const SEGMENT_SEPARATORS = /\|\||&&|\$\(|[;&|\n()`]/;
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;

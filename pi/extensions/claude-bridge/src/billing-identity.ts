@@ -15,6 +15,7 @@
 import type { AccountInfo } from "@anthropic-ai/claude-agent-sdk";
 import { currentRequestLaneId } from "./request-lane.js";
 import { isRecord } from "../../lib/untyped.ts";
+import { processGlobal } from "../../lib/process-global.ts";
 
 export const CLAUDE_BILLING_IDENTITY_SYMBOL = Symbol.for("kendex.pi.claude-bridge.billing-identity.v1");
 
@@ -22,52 +23,13 @@ export const CLAUDE_BILLING_IDENTITY_SYMBOL = Symbol.for("kendex.pi.claude-bridg
  *  external credential whose payer this bridge cannot name. */
 const FIRST_PARTY = "firstParty";
 
-export interface ClaudeBillingIdentityV1 {
-	version: 1;
-	/** The Anthropic login email of the latest child attempt in `sessionId`, or
-	 *  undefined when that attempt authenticated with an API key or a
-	 *  third-party backend, has not reported yet, or its probe failed. A
-	 *  consumer passes the visible Pi session id, displays the result, and
-	 *  derives nothing further. */
-	currentLoginEmail(sessionId: string | undefined): string | undefined;
-}
-
-interface BillingIdentityStore extends ClaudeBillingIdentityV1 {
-	beginAttempt(sessionId: string | undefined): (info: AccountInfo) => void;
-	deleteLane(sessionId: string | undefined): void;
-	clear(): void;
-}
-
-interface BillingIdentityLane {
-	attempt: symbol;
-	loginEmail?: string;
-}
-
 const BILLING_IDENTITY_LANES_SYMBOL = Symbol.for("kendex.pi.claude-bridge.billing-identity-lanes.v1");
+
+export const BRIDGE_BILLING_IDENTITY = makeBillingIdentityStore(sharedBillingIdentityLanes());
 
 // Every copy of this module in the process shares the lanes; only this function creates them.
 function sharedBillingIdentityLanes(): Map<string | undefined, BillingIdentityLane> {
-	const host = globalThis as Record<symbol, unknown>;
-	let lanes = host[BILLING_IDENTITY_LANES_SYMBOL] as Map<string | undefined, BillingIdentityLane> | undefined;
-	if (!lanes) {
-		lanes = new Map();
-		host[BILLING_IDENTITY_LANES_SYMBOL] = lanes;
-	}
-	return lanes;
-}
-
-function nonEmpty(value: string | undefined): string | undefined {
-	return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
-}
-
-/** The login email an `accountInfo()` result confirms, or undefined when it
- *  confirms none. An API key is rejected even under the first-party backend:
- *  the key's owner is not the signed-in login, and `apiKeySource` is how the
- *  SDK reports that a key was used. */
-export function loginEmailFrom(info: AccountInfo): string | undefined {
-	if (info.apiProvider !== FIRST_PARTY) return undefined;
-	if (nonEmpty(info.apiKeySource)) return undefined;
-	return nonEmpty(info.email);
+	return processGlobal(BILLING_IDENTITY_LANES_SYMBOL, () => new Map<string | undefined, BillingIdentityLane>());
 }
 
 export function makeBillingIdentityStore(
@@ -90,7 +52,30 @@ export function makeBillingIdentityStore(
 	};
 }
 
-export const BRIDGE_BILLING_IDENTITY = makeBillingIdentityStore(sharedBillingIdentityLanes());
+interface BillingIdentityStore extends ClaudeBillingIdentityV1 {
+	beginAttempt(sessionId: string | undefined): (info: AccountInfo) => void;
+	deleteLane(sessionId: string | undefined): void;
+	clear(): void;
+}
+
+interface BillingIdentityLane {
+	attempt: symbol;
+	loginEmail?: string;
+}
+
+/** The login email an `accountInfo()` result confirms, or undefined when it
+ *  confirms none. An API key is rejected even under the first-party backend:
+ *  the key's owner is not the signed-in login, and `apiKeySource` is how the
+ *  SDK reports that a key was used. */
+export function loginEmailFrom(info: AccountInfo): string | undefined {
+	if (info.apiProvider !== FIRST_PARTY) return undefined;
+	if (nonEmpty(info.apiKeySource)) return undefined;
+	return nonEmpty(info.email);
+}
+
+function nonEmpty(value: string | undefined): string | undefined {
+	return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
 
 /** Start the billing probe for the current request lane. Starting clears that
  *  lane, so a rejected probe cannot leave the previous attempt's identity.
@@ -111,7 +96,17 @@ export function deleteBillingIdentityLane(sessionId: string | undefined): void {
 export function resolveClaudeBillingIdentity(): ClaudeBillingIdentityV1 | undefined {
 	const candidate: unknown = Reflect.get(globalThis, CLAUDE_BILLING_IDENTITY_SYMBOL);
 	if (!isRecord(candidate) || candidate.version !== 1 || typeof candidate.currentLoginEmail !== "function") return undefined;
-	// A bridge publishes this store; its version identifies the shape.
 	const published: unknown = candidate;
+	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- a bridge publishes this store, and its version identifies the shape
 	return published as ClaudeBillingIdentityV1;
+}
+
+export interface ClaudeBillingIdentityV1 {
+	version: 1;
+	/** The Anthropic login email of the latest child attempt in `sessionId`, or
+	 *  undefined when that attempt authenticated with an API key or a
+	 *  third-party backend, has not reported yet, or its probe failed. A
+	 *  consumer passes the visible Pi session id, displays the result, and
+	 *  derives nothing further. */
+	currentLoginEmail(sessionId: string | undefined): string | undefined;
 }

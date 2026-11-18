@@ -12,14 +12,6 @@ import { debug } from "./debug.js";
 import { drainPendingToolCalls, popContextFor } from "./query-state.js";
 import type { QueryContext, ToolCallDrainCause } from "./query-state.js";
 
-/** Close a settled or dying SDK query. Its transport can throw on the way down
- *  — a child already gone, a socket already closed — and that throw belongs to
- *  the query being closed, never to whatever its caller does next. */
-export function closeSdkQuery(sdkQuery: Query): void {
-	try { sdkQuery.close(); }
-	catch (error) { debug("provider: closing the sdk query threw; continuing teardown:", error); }
-}
-
 /** Ask the CLI to stop gracefully. It cancels its in-flight API call or MCP
  *  tool call, records the interruption in its transcript (a rejected
  *  tool_result per pending call, or the partial assistant message) and exits
@@ -35,6 +27,14 @@ export function interruptSdkQuery(sdkQuery: Query): void {
 export function abortSdkQuery(sdkQuery: Query): void {
 	void sdkQuery.interrupt().catch(() => {});
 	closeSdkQuery(sdkQuery);
+}
+
+/** Close a settled or dying SDK query. Its transport can throw on the way down
+ *  — a child already gone, a socket already closed — and that throw belongs to
+ *  the query being closed, never to whatever its caller does next. */
+export function closeSdkQuery(sdkQuery: Query): void {
+	try { sdkQuery.close(); }
+	catch (error) { debug("provider: closing the sdk query threw; continuing teardown:", error); }
 }
 
 /** Tear down `queryCtx` after its SDK query settled. No-ops when the query is
@@ -65,20 +65,6 @@ export function teardownQuery(
 	return true;
 }
 
-export interface AbortSettlement {
-	childExit: ChildExitOutcome;
-	/** The child ignored the interrupt and was killed after the grace. */
-	interruptIgnored: boolean;
-	/** A tool call was waiting, queued or unmatched when the abort hit. */
-	toolCallInFlight: boolean;
-	/** Every tool_use in the Claude transcript has a tool_result. Only
-	 *  consulted when a tool call was in flight. */
-	transcriptPairsToolCalls: boolean;
-	droppedQueuedUserMessages: number;
-	/** The query or the record knows which Claude session this turn ran in. */
-	hasSessionId: boolean;
-}
-
 /** Why an aborted query's record must rebuild, or undefined when the
  *  interruption was clean enough to resume the same Claude session next turn.
  *  The unconfirmed exit is checked first because it is the only reason that
@@ -91,4 +77,18 @@ export function abortRebuildReason(settlement: AbortSettlement): string | undefi
 	if (settlement.droppedQueuedUserMessages > 0) return `abort dropped ${settlement.droppedQueuedUserMessages} queued user message(s)`;
 	if (!settlement.hasSessionId) return "abort before Claude Code reported a session";
 	return undefined;
+}
+
+export interface AbortSettlement {
+	childExit: ChildExitOutcome;
+	/** The child ignored the interrupt and was killed after the grace. */
+	interruptIgnored: boolean;
+	/** A tool call was waiting, queued or unmatched when the abort hit. */
+	toolCallInFlight: boolean;
+	/** Every tool_use in the Claude transcript has a tool_result. Only
+	 *  consulted when a tool call was in flight. */
+	transcriptPairsToolCalls: boolean;
+	droppedQueuedUserMessages: number;
+	/** The query or the record knows which Claude session this turn ran in. */
+	hasSessionId: boolean;
 }

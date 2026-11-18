@@ -10,14 +10,6 @@ import type {
   RipgrepEvent,
 } from "./grep-collector.ts";
 
-function match(lineNumber: number, text: string, filePath = "a.ts"): RipgrepEvent {
-  return { type: "match", path: { kind: "text", text: filePath }, lineNumber, lines: { kind: "text", text: `${text}\n` } };
-}
-
-function contextLine(lineNumber: number, text: string, filePath = "a.ts"): RipgrepEvent {
-  return { type: "context", path: { kind: "text", text: filePath }, lineNumber, lines: { kind: "text", text: `${text}\n` } };
-}
-
 test("exactly the limit of matches does not report the limit as reached", () => {
   // arrange
   const collector = new GrepCollector(2, 0);
@@ -91,6 +83,10 @@ test("context lines before the first match are kept in order", () => {
   assert.equal(collector.matchCount, 1);
 });
 
+function contextLine(lineNumber: number, text: string, filePath = "a.ts"): RipgrepEvent {
+  return { type: "context", path: { kind: "text", text: filePath }, lineNumber, lines: { kind: "text", text: `${text}\n` } };
+}
+
 test("events other than match and context, and unparsable lines, parse to nothing", () => {
   // arrange
   const lines = [
@@ -141,3 +137,7 @@ test("a lone carriage return inside a line is kept while the line terminator is 
     expected,
   );
 });
+
+function match(lineNumber: number, text: string, filePath = "a.ts"): RipgrepEvent {
+  return { type: "match", path: { kind: "text", text: filePath }, lineNumber, lines: { kind: "text", text: `${text}\n` } };
+}

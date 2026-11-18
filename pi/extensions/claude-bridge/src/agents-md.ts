@@ -26,12 +26,60 @@
 // disabled. Embedding hosts provide their instruction surface explicitly.
 
 import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { join } from "node:path";
 import { isolatedFromEnvironment, piUserDirectory } from "./config.js";
 import { debug } from "./debug.js";
 import { errorCode } from "../../lib/errors.ts";
+import { ancestorDirectories } from "../../lib/repo.ts";
 
 const CONTEXT_FILE_CANDIDATES = ["AGENTS.override.md", "AGENTS.md", "AGENTS.MD"];
+
+export function extractAgentsAppend(): string | undefined {
+	const sections: string[] = [];
+	for (const agentsPath of resolveAgentsMdPaths()) {
+		try {
+			const content = readFileSync(agentsPath, "utf-8").trim();
+			if (!content) continue;
+			const sanitized = sanitizeAgentsContent(content);
+			if (sanitized.length > 0) sections.push(sanitized);
+		} catch (error) {
+			// An unreadable AGENTS.md silently drops the user's standing instructions
+			// from every child prompt — keep going without it, but leave a trace.
+			debug(`agents-md: failed to read ${agentsPath}:`, error instanceof Error ? error.message : String(error));
+		}
+	}
+	if (sections.length === 0) return undefined;
+	return `# CLAUDE.md\n\n${sections.join("\n\n")}`;
+}
+
+export function resolveAgentsMdPaths(): string[] {
+	if (isolatedFromEnvironment()) return [];
+	const paths: string[] = [];
+	const seen = new Set<string>();
+	for (const candidate of [contextFileInDirectory(piUserDirectory()), findAgentsMdInParents(process.cwd())]) {
+		if (!candidate) continue;
+		// The global file is often a symlink into a dotfiles repository; when cwd is that
+		// repository the walk-up finds the same file under a second path.
+		let identity = candidate;
+		try {
+			identity = realpathSync(candidate);
+		} catch {
+			// Unresolvable paths are deduplicated by their literal spelling instead.
+		}
+		if (seen.has(identity)) continue;
+		seen.add(identity);
+		paths.push(candidate);
+	}
+	return paths;
+}
+
+export function findAgentsMdInParents(startDirectory: string): string | undefined {
+	for (const directory of ancestorDirectories(startDirectory)) {
+		const candidate = contextFileInDirectory(directory);
+		if (candidate) return candidate;
+	}
+	return undefined;
+}
 
 function contextFileInDirectory(directory: string): string | undefined {
 	for (const filename of CONTEXT_FILE_CANDIDATES) {
@@ -61,57 +109,6 @@ function contextFileInDirectory(directory: string): string | undefined {
 		}
 	}
 	return undefined;
-}
-
-export function resolveAgentsMdPaths(): string[] {
-	if (isolatedFromEnvironment()) return [];
-	const paths: string[] = [];
-	const seen = new Set<string>();
-	for (const candidate of [contextFileInDirectory(piUserDirectory()), findAgentsMdInParents(process.cwd())]) {
-		if (!candidate) continue;
-		// The global file is often a symlink into a dotfiles repository; when cwd is that
-		// repository the walk-up finds the same file under a second path.
-		let identity = candidate;
-		try {
-			identity = realpathSync(candidate);
-		} catch {
-			// Unresolvable paths are deduplicated by their literal spelling instead.
-		}
-		if (seen.has(identity)) continue;
-		seen.add(identity);
-		paths.push(candidate);
-	}
-	return paths;
-}
-
-export function findAgentsMdInParents(startDirectory: string): string | undefined {
-	let current = resolve(startDirectory);
-	while (true) {
-		const candidate = contextFileInDirectory(current);
-		if (candidate) return candidate;
-		const parent = dirname(current);
-		if (parent === current) break;
-		current = parent;
-	}
-	return undefined;
-}
-
-export function extractAgentsAppend(): string | undefined {
-	const sections: string[] = [];
-	for (const agentsPath of resolveAgentsMdPaths()) {
-		try {
-			const content = readFileSync(agentsPath, "utf-8").trim();
-			if (!content) continue;
-			const sanitized = sanitizeAgentsContent(content);
-			if (sanitized.length > 0) sections.push(sanitized);
-		} catch (error) {
-			// An unreadable AGENTS.md silently drops the user's standing instructions
-			// from every child prompt — keep going without it, but leave a trace.
-			debug(`agents-md: failed to read ${agentsPath}:`, error instanceof Error ? error.message : String(error));
-		}
-	}
-	if (sections.length === 0) return undefined;
-	return `# CLAUDE.md\n\n${sections.join("\n\n")}`;
 }
 
 export function sanitizeAgentsContent(content: string): string {

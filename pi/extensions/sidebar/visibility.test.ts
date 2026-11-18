@@ -46,6 +46,7 @@ test("defaultVisibility is on unless sidebar.enabled is false", () => {
     [{ sidebar: { enabled: false } }, Visibility.Off],
     [{ sidebar: { enabled: true } }, Visibility.On],
     [{ sidebar: { enabled: "no" } }, Visibility.On],
+    // eslint-disable-next-line unicorn/no-null -- settings.json is JSON, where a cleared value is null
     [{ sidebar: null }, Visibility.On],
   ];
 

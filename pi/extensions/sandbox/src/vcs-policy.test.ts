@@ -11,18 +11,6 @@ import type { DirectoryListing, VcsLayout } from "./vcs-policy.ts";
 
 const REPO = "/Users/max/repo";
 
-interface Tree { [name: string]: Tree | "file" }
-
-function layoutOf(tree: Tree, repositoryRoot = REPO): VcsLayout {
-  const listings = new Map<string, DirectoryListing>();
-  const register = (path: string, node: Tree): void => {
-    listings.set(path, { path, entries: Object.entries(node).map(([name, child]) => ({ name, directory: child !== "file" })) });
-    for (const [name, child] of Object.entries(node)) if (child !== "file") register(join(path, name), child);
-  };
-  for (const [name, child] of Object.entries(tree)) if (child !== "file") register(join(repositoryRoot, name), child);
-  return { repoRoot: repositoryRoot, listings, gitFile: undefined };
-}
-
 const COLOCATED: Tree = {
   ".git": {
     HEAD: "file", config: "file", description: "file", index: "file", "index.lock": "file", "packed-refs": "file",
@@ -230,6 +218,18 @@ test("a repository root with glob characters keeps its plain repository allow", 
   assert.deepEqual(rules.repositoryAllow, []);
   assert.ok(rules.deny.length > 0);
 });
+
+function layoutOf(tree: Tree, repositoryRoot = REPO): VcsLayout {
+  const listings = new Map<string, DirectoryListing>();
+  const register = (path: string, node: Tree): void => {
+    listings.set(path, { path, entries: Object.entries(node).map(([name, child]) => ({ name, directory: child !== "file" })) });
+    for (const [name, child] of Object.entries(node)) if (child !== "file") register(join(path, name), child);
+  };
+  for (const [name, child] of Object.entries(tree)) if (child !== "file") register(join(repositoryRoot, name), child);
+  return { repoRoot: repositoryRoot, listings, gitFile: undefined };
+}
+
+interface Tree { [name: string]: Tree | "file" }
 
 test("scanVcsLayout lists the directories the specs describe and does not follow symlinks", async () => {
   // arrange

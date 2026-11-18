@@ -12,18 +12,6 @@ const PLAN_MODE_MESSAGE_TYPE = "plan-mode-state";
 
 export { SandboxStatus } from "./sandbox-state.ts";
 
-export interface ModeSnapshot {
-  mode: AgentMode;
-  plansDirectory: string;
-  sandbox: SandboxStatus;
-  denials: readonly Denial[];
-}
-
-export interface ModeMessages {
-  announce(context: ExtensionContext): void;
-  reset: () => void;
-}
-
 // The system prompt and tool declarations stay fixed so switching modes keeps the provider's
 // cache prefix; the mode reaches the model as appended snapshot messages instead, and a request
 // that lost the latest snapshot (compaction, context edits) gets it re-appended at the end.
@@ -61,6 +49,11 @@ export function registerModeMessages(
     announce: (context) => delivery.announce(renderSnapshot(snapshot()), projection(context)),
     reset: delivery.reset,
   };
+}
+
+export interface ModeMessages {
+  announce(context: ExtensionContext): void;
+  reset: () => void;
 }
 
 export function renderSnapshot({ mode, plansDirectory, sandbox, denials }: ModeSnapshot): string {
@@ -107,20 +100,11 @@ function denialLines(denials: ModeSnapshot["denials"]): string[] {
   ];
 }
 
-// The shape of pi's custom messages (CustomMessage, which the package does not export).
-interface SnapshotMessage {
-  role: "custom";
-  customType: string;
-  content: string;
-  display: boolean;
-  timestamp: number;
-}
-
-export interface ModeDelivery {
-  announce(content: string, visible: readonly unknown[]): void;
-  initialMessage(prepare: () => string, visible: readonly unknown[]): string | undefined;
-  requestMessages<Message>(messages: readonly Message[], content: string, visible: readonly unknown[]): (Message | SnapshotMessage)[] | undefined;
-  reset: () => void;
+export interface ModeSnapshot {
+  mode: AgentMode;
+  plansDirectory: string;
+  sandbox: SandboxStatus;
+  denials: readonly Denial[];
 }
 
 export function createModeDelivery(send: (content: string) => void, now: () => number = Date.now): ModeDelivery {
@@ -180,6 +164,13 @@ export function createModeDelivery(send: (content: string) => void, now: () => n
   };
 }
 
+export interface ModeDelivery {
+  announce(content: string, visible: readonly unknown[]): void;
+  initialMessage(prepare: () => string, visible: readonly unknown[]): string | undefined;
+  requestMessages<Message>(messages: readonly Message[], content: string, visible: readonly unknown[]): (Message | SnapshotMessage)[] | undefined;
+  reset: () => void;
+}
+
 const Announcements = { Sent: "sent", Held: "held" } as const;
 type Announcements = (typeof Announcements)[keyof typeof Announcements];
 
@@ -201,4 +192,13 @@ function normalizedContent(content: unknown): string {
 
 function snapshotMessage(content: string, timestamp: number): SnapshotMessage {
   return { role: "custom", customType: MODE_MESSAGE_TYPE, content, display: false, timestamp };
+}
+
+// The shape of pi's custom messages (CustomMessage, which the package does not export).
+interface SnapshotMessage {
+  role: "custom";
+  customType: string;
+  content: string;
+  display: boolean;
+  timestamp: number;
 }

@@ -1,33 +1,18 @@
 import type { AssistantMessage, AssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { QueryContext } from "./query-state.js";
+import { MILLISECONDS_PER_MINUTE, MILLISECONDS_PER_SECOND } from "../../lib/units.ts";
 
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 90_000;
 export const STREAM_IDLE_BACKOFF_HINT_MS = 60_000;
 export const STREAM_IDLE_TIMEOUT_ENV = "CLAUDE_BRIDGE_STREAM_IDLE_TIMEOUT";
 
-type TimerHandle = ReturnType<typeof setTimeout>;
-
-export interface StreamIdleWatchdogState {
-	activeQuery: unknown;
-	currentPiStream: AssistantMessageEventStream | undefined;
-	turnOutput: AssistantMessage | undefined;
-	turnSawStreamEvent: boolean;
-	turnStarted: boolean;
-}
-
-export interface StreamIdleTimeoutInfo {
-	idleMs: number;
-	timeoutMs: number;
-}
-
-export interface StreamIdleWatchdog {
-	dispose: () => void;
-	noteChunk: () => void;
-	refresh: () => void;
-	timedOut: () => boolean;
-}
-
 export const activeStreamIdleWatchdogs = new WeakMap<QueryContext, StreamIdleWatchdog>();
+
+export function streamIdleTimeoutMsFromEnvironment(environment: NodeJS.ProcessEnv = process.env): number {
+	const raw = environment[STREAM_IDLE_TIMEOUT_ENV]?.trim();
+	if (!raw) return DEFAULT_STREAM_IDLE_TIMEOUT_MS;
+	return parseDurationLiteralMs(raw, "s") ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS;
+}
 
 function parseDurationLiteralMs(value: string, defaultUnit: "ms" | "s" = "s"): number | undefined {
 	const text = value.trim().toLowerCase();
@@ -37,34 +22,32 @@ function parseDurationLiteralMs(value: string, defaultUnit: "ms" | "s" = "s"): n
 	if (!match) return undefined;
 	const amount = Number(match[1]);
 	if (!Number.isFinite(amount) || amount < 0) return undefined;
-	const unit = (match[2] ?? defaultUnit).toLowerCase();
+	const unit = (match.at(2) ?? defaultUnit).toLowerCase();
 	const multiplier = ["ms", "msec", "msecs", "millisecond", "milliseconds"].includes(unit)
 		? 1
 		: ["s", "sec", "secs", "second", "seconds"].includes(unit)
-			? 1000
+			? MILLISECONDS_PER_SECOND
 			: ["m", "min", "mins", "minute", "minutes"].includes(unit)
-				? 60_000
+				? MILLISECONDS_PER_MINUTE
 				: undefined;
 	if (multiplier === undefined) return undefined;
 	const ms = Math.round(amount * multiplier);
 	return Number.isFinite(ms) ? ms : undefined;
 }
 
-export function streamIdleTimeoutMsFromEnvironment(environment: NodeJS.ProcessEnv = process.env): number {
-	const raw = environment[STREAM_IDLE_TIMEOUT_ENV]?.trim();
-	if (!raw) return DEFAULT_STREAM_IDLE_TIMEOUT_MS;
-	return parseDurationLiteralMs(raw, "s") ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS;
-}
-
-export function formatDurationShort(ms: number): string {
-	if (ms < 180_000 && ms % 1000 === 0) return `${ms / 1000}s`;
-	if (ms % 60_000 === 0) return `${ms / 60_000}m`;
-	if (ms % 1000 === 0) return `${ms / 1000}s`;
-	return `${ms}ms`;
-}
+// Below three minutes, whole seconds read better than minutes.
+const SECONDS_DISPLAY_LIMIT_MINUTES = 3;
+const SECONDS_DISPLAY_LIMIT_MILLISECONDS = SECONDS_DISPLAY_LIMIT_MINUTES * MILLISECONDS_PER_MINUTE;
 
 export function buildStreamIdleTimeoutErrorMessage(timeoutMs: number): string {
 	return `Claude Code stream idle timeout after ${formatDurationShort(timeoutMs)} with no assistant/tool output; treating stalled stream as retryable 529 overloaded/rate limit condition. Retry after ${formatDurationShort(STREAM_IDLE_BACKOFF_HINT_MS)}.`;
+}
+
+export function formatDurationShort(ms: number): string {
+	if (ms < SECONDS_DISPLAY_LIMIT_MILLISECONDS && ms % MILLISECONDS_PER_SECOND === 0) return `${ms / MILLISECONDS_PER_SECOND}s`;
+	if (ms % MILLISECONDS_PER_MINUTE === 0) return `${ms / MILLISECONDS_PER_MINUTE}m`;
+	if (ms % MILLISECONDS_PER_SECOND === 0) return `${ms / MILLISECONDS_PER_SECOND}s`;
+	return `${ms}ms`;
 }
 
 export function createStreamIdleWatchdog({
@@ -116,7 +99,7 @@ export function createStreamIdleWatchdog({
 			return;
 		}
 		timer = setTimer(schedule, Math.max(1, timeoutMs - idleMs));
-		timer.unref?.();
+		timer.unref();
 	};
 
 	return {
@@ -131,4 +114,26 @@ export function createStreamIdleWatchdog({
 		refresh: schedule,
 		timedOut: () => didTimeout,
 	};
+}
+
+type TimerHandle = ReturnType<typeof setTimeout>;
+
+export interface StreamIdleWatchdogState {
+	activeQuery: unknown;
+	currentPiStream: AssistantMessageEventStream | undefined;
+	turnOutput: AssistantMessage | undefined;
+	turnSawStreamEvent: boolean;
+	turnStarted: boolean;
+}
+
+export interface StreamIdleTimeoutInfo {
+	idleMs: number;
+	timeoutMs: number;
+}
+
+export interface StreamIdleWatchdog {
+	dispose: () => void;
+	noteChunk: () => void;
+	refresh: () => void;
+	timedOut: () => boolean;
 }

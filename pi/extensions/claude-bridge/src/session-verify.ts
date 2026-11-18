@@ -6,55 +6,11 @@ import { closeSync, openSync, readSync, statSync } from "node:fs";
 import { StringDecoder } from "node:string_decoder";
 import { errorMessage } from "../../lib/errors.ts";
 import { isRecord, stringProperty } from "../../lib/untyped.ts";
-
-interface JsonlSummary {
-	count: number;
-	firstLine?: string;
-	lastLine?: string;
-}
+import { BYTES_PER_KIBIBYTE } from "../../lib/units.ts";
 
 // One buffer per read; the size only trades read calls against memory.
-const READ_CHUNK_BYTES = 64 * 1024;
-
-function forEachJsonlLine(path: string, onLine: (line: string) => void): void {
-	const fd = openSync(path, "r");
-	const buffer = Buffer.allocUnsafe(READ_CHUNK_BYTES);
-	const decoder = new StringDecoder("utf8");
-	let pending = "";
-	try {
-		for (;;) {
-			const bytesRead = readSync(fd, buffer, 0, buffer.length, null);
-			if (bytesRead === 0) break;
-			pending += decoder.write(buffer.subarray(0, bytesRead));
-			let start = 0;
-			for (;;) {
-				const newline = pending.indexOf("\n", start);
-				if (newline < 0) {
-					pending = pending.slice(start);
-					break;
-				}
-				const line = pending.slice(start, newline);
-				onLine(line.endsWith("\r") ? line.slice(0, -1) : line);
-				start = newline + 1;
-			}
-		}
-		pending += decoder.end();
-		if (pending.length > 0) onLine(pending.endsWith("\r") ? pending.slice(0, -1) : pending);
-	} finally {
-		closeSync(fd);
-	}
-}
-
-function summarizeJsonl(path: string): JsonlSummary {
-	const summary: JsonlSummary = { count: 0 };
-	forEachJsonlLine(path, (line) => {
-		if (!line.trim()) return;
-		summary.count += 1;
-		if (summary.firstLine === undefined) summary.firstLine = line;
-		summary.lastLine = line;
-	});
-	return summary;
-}
+const READ_CHUNK_KIBIBYTES = 64;
+const READ_CHUNK_BYTES = READ_CHUNK_KIBIBYTES * BYTES_PER_KIBIBYTE;
 
 export function verifyWrittenSession(jsonlPath: string, expectedSessionId: string, expectedRecordCount: number): string[] {
 	const warnings = [];
@@ -86,6 +42,52 @@ export function verifyWrittenSession(jsonlPath: string, expectedSessionId: strin
 		warnings.push(`session-json-invalid=${jsonlPath}\nMalformed JSONL: ${errorMessage(error)}`);
 	}
 	return warnings;
+}
+
+function summarizeJsonl(path: string): JsonlSummary {
+	const summary: JsonlSummary = { count: 0 };
+	forEachJsonlLine(path, (line) => {
+		if (!line.trim()) return;
+		summary.count += 1;
+		summary.firstLine ??= line;
+		summary.lastLine = line;
+	});
+	return summary;
+}
+
+interface JsonlSummary {
+	count: number;
+	firstLine?: string;
+	lastLine?: string;
+}
+
+function forEachJsonlLine(path: string, onLine: (line: string) => void): void {
+	const fd = openSync(path, "r");
+	const buffer = Buffer.allocUnsafe(READ_CHUNK_BYTES);
+	const decoder = new StringDecoder("utf8");
+	let pending = "";
+	try {
+		for (;;) {
+			const bytesRead = readSync(fd, buffer, 0, buffer.length, null);
+			if (bytesRead === 0) break;
+			pending += decoder.write(buffer.subarray(0, bytesRead));
+			let start = 0;
+			for (;;) {
+				const newline = pending.indexOf("\n", start);
+				if (newline < 0) {
+					pending = pending.slice(start);
+					break;
+				}
+				const line = pending.slice(start, newline);
+				onLine(line.endsWith("\r") ? line.slice(0, -1) : line);
+				start = newline + 1;
+			}
+		}
+		pending += decoder.end();
+		if (pending.length > 0) onLine(pending.endsWith("\r") ? pending.slice(0, -1) : pending);
+	} finally {
+		closeSync(fd);
+	}
 }
 
 function sessionIdOf(record: unknown): string | undefined {

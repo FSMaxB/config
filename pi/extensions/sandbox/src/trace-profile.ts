@@ -11,7 +11,7 @@ export function traceProfile(filesystem: FilesystemConfig, tag: string): string 
     rule(`(allow file-read* ${report}`, filesystem.denyRead),
     rule("(allow file-read*", filesystem.allowRead ?? []),
     `(allow file-write* ${report})`,
-    rule("(allow file-write*", filesystem.allowWrite ?? []),
+    rule("(allow file-write*", filesystem.allowWrite),
   ]
     .filter((line): line is string => line !== undefined)
     .join("\n");

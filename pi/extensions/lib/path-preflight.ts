@@ -18,8 +18,6 @@ export async function preflightPath(authorization: PathAuthorization, scope: Gat
   throw new Error(`Path preflight rejected ${rejected.path} (${describeVerdict(rejected.verdict)}) while checking ${root}.`);
 }
 
-interface RejectedEntry { path: string; verdict: Exclude<Verdict, "allow"> }
-
 // fd is the discovery engine the find tool itself uses and rg shares its ignore semantics, so
 // enumerating with it yields exactly the entries a search would touch: .gitignore is honored,
 // symlinks are not followed (no --follow, and --type f/d excludes the links themselves), and
@@ -74,6 +72,8 @@ function firstRejectedEntry(root: string, scope: GatedScope, authorization: Path
     });
   });
 }
+
+interface RejectedEntry { path: string; verdict: Exclude<Verdict, "allow"> }
 
 // fd prints directories with a trailing separator, which would never match an exact rule.
 function stripTrailingSeparator(path: string): string {

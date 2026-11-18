@@ -17,6 +17,7 @@ import { commitPlanFileForUser } from "./lib/plan-commit.ts";
 import { registerPlanSubmission } from "./lib/plan-submission.ts";
 import type { PlanSubmissionOutcome, PlanSubmissionParameters, PlanSubmissionResult } from "./lib/plan-submission.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
+import { isRecord, stringProperty } from "./lib/untyped.ts";
 import { registerRestrictedMode } from "./lib/restricted-mode.ts";
 import { selectWithDefault } from "./lib/select-with-default.ts";
 import { PLAN_HANDOFF_ENTRY_TYPE } from "./lib/plan-handoff.ts";
@@ -57,12 +58,12 @@ export default function (pi: ExtensionAPI): void {
       }),
     }),
 
-    async execute(_toolCallId, parameters, _signal, _onUpdate, context): Promise<AgentToolResult<{ path: string | null }>> {
+    async execute(_toolCallId, parameters, _signal, _onUpdate, context): Promise<AgentToolResult<{ path: string | undefined }>> {
       plan.flushPendingToggle(context);
       if (!plan.isActive()) {
         return {
           content: [{ type: "text", text: "plan_path is only available in plan mode, which is off. Only the user can enable it." }],
-          details: { path: null },
+          details: { path: undefined },
         };
       }
       const path = newPlanPath(parameters.slug);
@@ -79,18 +80,19 @@ export default function (pi: ExtensionAPI): void {
 
     renderCall(toolArguments, theme) {
       return new Text(
-        theme.fg("toolTitle", theme.bold("plan_path ")) + theme.fg("muted", toolArguments.slug ?? ""),
+        theme.fg("toolTitle", theme.bold("plan_path ")) + theme.fg("muted", stringProperty(toolArguments, "slug") ?? ""),
         0,
         0,
       );
     },
 
     renderResult(result, _renderOptions, theme) {
-      const { details } = result;
-      if (!details?.path) {
+      const details: unknown = result.details;
+      const path = isRecord(details) ? stringProperty(details, "path") : undefined;
+      if (!path) {
         return new Text(theme.fg("error", "✗ only available in plan mode"), 0, 0);
       }
-      return new Text(theme.fg("success", "✓ ") + theme.fg("dim", details.path), 0, 0);
+      return new Text(theme.fg("success", "✓ ") + theme.fg("dim", path), 0, 0);
     },
   });
 
@@ -122,11 +124,11 @@ export default function (pi: ExtensionAPI): void {
     },
 
     renderCall(toolArguments, theme) {
-      return new Text(theme.fg("toolTitle", theme.bold("submit_plan ")) + theme.fg("muted", toolArguments.path ?? ""), 0, 0);
+      return new Text(theme.fg("toolTitle", theme.bold("submit_plan ")) + theme.fg("muted", stringProperty(toolArguments, "path") ?? ""), 0, 0);
     },
 
     renderResult(result, renderOptions, theme) {
-      const { details } = result;
+      const details: unknown = result.details;
       if (renderOptions.isPartial) {
         return new Text(
           theme.fg("muted", "Waiting for your decision..."),
@@ -134,20 +136,22 @@ export default function (pi: ExtensionAPI): void {
           0,
         );
       }
-      if (!details?.path) {
+      const path = isRecord(details) ? stringProperty(details, "path") : undefined;
+      const outcome = isRecord(details) ? stringProperty(details, "outcome") : undefined;
+      if (!path) {
         const reason =
-          details?.outcome === "missing"
+          outcome === "missing"
             ? "plan file not found"
-            : details?.outcome === "outside-plans-directory"
+            : outcome === "outside-plans-directory"
               ? "not in the plans directory"
               : "only available in plan mode";
         return new Text(theme.fg("error", `✗ ${reason}`), 0, 0);
       }
-      const label = OUTCOME_LABELS[details.outcome] ?? "submitted";
+      const label = (outcome === undefined ? undefined : OUTCOME_LABELS[outcome]) ?? "submitted";
       return new Text(
         theme.fg("success", "✓ ") +
           theme.fg("accent", label) +
-          theme.fg("dim", ` — ${details.path}`),
+          theme.fg("dim", ` — ${path}`),
         0,
         0,
       );
@@ -181,7 +185,7 @@ export default function (pi: ExtensionAPI): void {
       const error = "submit_plan is only available in plan mode, which is off. Only the user can enable it.";
       return {
         content: [{ type: "text", text: error }],
-        details: { path: null, outcome: "unavailable" },
+        details: { path: undefined, outcome: "unavailable" },
       };
     }
 
@@ -192,7 +196,7 @@ export default function (pi: ExtensionAPI): void {
     if (!isInPlansDirectory(path)) {
       return {
         content: [{ type: "text", text: `${path} is outside the plans directory (${plansDirectory()}). Call plan_path for a plan file path, write the plan there, then call submit_plan with that path.` }],
-        details: { path: null, outcome: "outside-plans-directory" },
+        details: { path: undefined, outcome: "outside-plans-directory" },
       };
     }
     const planFile = await stat(path).catch(() => undefined);
@@ -200,7 +204,7 @@ export default function (pi: ExtensionAPI): void {
     if (!planFile?.isFile()) {
       return {
         content: [{ type: "text", text: `No plan file exists at ${path}. Write it first, then call submit_plan with its path.` }],
-        details: { path: null, outcome: "missing" },
+        details: { path: undefined, outcome: "missing" },
       };
     }
 
@@ -396,13 +400,6 @@ export default function (pi: ExtensionAPI): void {
 
 const PLANNING_NAMESPACE = { name: "planning", description: "Create plan paths and submit plans for human approval." };
 
-interface PlanHandoff {
-  planPath: string;
-  provider: string;
-  modelId: string;
-  thinkingLevel: ModelThinkingLevel;
-}
-
 // A fresh implementation session is seeded with this entry before session_start fires,
 // so the new plan-mode instance knows which model to activate and which plan to kick off.
 function latestPlanHandoff(
@@ -417,7 +414,14 @@ function latestPlanHandoff(
   return { planPath, provider, modelId, thinkingLevel: level };
 }
 
-const OUTCOME_LABELS: Partial<Record<PlanSubmissionOutcome, string>> = {
+interface PlanHandoff {
+  planPath: string;
+  provider: string;
+  modelId: string;
+  thinkingLevel: ModelThinkingLevel;
+}
+
+const OUTCOME_LABELS: Partial<Record<string, string>> = {
   "handed-off": "handed off",
 };
 

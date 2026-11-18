@@ -7,7 +7,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 import { selectWithDefault } from "./lib/select-with-default.ts";
-import { isRecord } from "./lib/untyped.ts";
+import { isRecord, nonEmpty, stringProperty } from "./lib/untyped.ts";
 
 const FREEFORM_SENTINEL = "✏️  Type custom response...";
 
@@ -74,7 +74,7 @@ export default function (pi: ExtensionAPI): void {
         allowFreeform = true,
         allowMultiple = false,
       } = parameters;
-      const normalizedContext = contextText?.trim() || undefined;
+      const normalizedContext = nonEmpty(contextText?.trim());
       const options = rawOptions
         .map(coerceOption)
         .filter((option) => option !== undefined);
@@ -155,7 +155,7 @@ export default function (pi: ExtensionAPI): void {
     renderCall(toolArguments, theme) {
       const rawOptions = Array.isArray(toolArguments.options) ? toolArguments.options : [];
       let text = theme.fg("toolTitle", theme.bold("question "));
-      text += theme.fg("muted", toolArguments.question ?? "");
+      text += theme.fg("muted", stringProperty(toolArguments, "question") ?? "");
       if (rawOptions.length > 0) {
         const titles = rawOptions.map(
           (option: unknown) => coerceOption(option)?.title ?? "<invalid>",
@@ -174,19 +174,22 @@ export default function (pi: ExtensionAPI): void {
     },
 
     renderResult(result, renderOptions, theme) {
-      const { details } = result;
+      // Stored sessions can hold details from older versions, so read them without trusting their type.
+      const details: unknown = result.details;
+      const fields = isRecord(details) ? details : {};
 
       if (renderOptions.isPartial) {
         return new Text(theme.fg("muted", "Waiting for your answer..."), 0, 0);
       }
-      if (details?.error) {
-        return new Text(theme.fg("error", `✗ ${details.error}`), 0, 0);
+      const error = stringProperty(fields, "error");
+      if (error) {
+        return new Text(theme.fg("error", `✗ ${error}`), 0, 0);
       }
-      if (!details?.response) {
+      const response = parseResponse(fields.response);
+      if (!response) {
         return new Text(theme.fg("warning", "Cancelled"), 0, 0);
       }
 
-      const { response } = details;
       let text = theme.fg("success", "✓ ");
       if (response.kind === "freeform") {
         text += theme.fg("muted", "(wrote) ");
@@ -199,9 +202,10 @@ export default function (pi: ExtensionAPI): void {
       );
 
       if (renderOptions.expanded) {
-        text += "\n" + theme.fg("dim", `Q: ${details.question}`);
-        if (details.context) {
-          text += "\n" + theme.fg("dim", details.context);
+        text += "\n" + theme.fg("dim", `Q: ${stringProperty(fields, "question") ?? ""}`);
+        const contextText = stringProperty(fields, "context");
+        if (contextText) {
+          text += "\n" + theme.fg("dim", contextText);
         }
       }
       return new Text(text, 0, 0);
@@ -209,24 +213,15 @@ export default function (pi: ExtensionAPI): void {
   });
 }
 
-interface QuestionOption {
-  title: string;
-  description?: string;
+function parseResponse(value: unknown): QuestionResponse | undefined {
+  if (!isRecord(value)) return undefined;
+  if (value.kind === "freeform" && typeof value.text === "string") return { kind: "freeform", text: value.text };
+  if (value.kind === "selection" && Array.isArray(value.selections)) {
+    const selections: unknown[] = value.selections;
+    return { kind: "selection", selections: selections.filter((selection) => typeof selection === "string") };
+  }
+  return undefined;
 }
-
-type QuestionResponse =
-  | { kind: "selection"; selections: string[]; unresolved?: string[] }
-  | { kind: "freeform"; text: string };
-
-interface SelectionTokens {
-  selections: string[];
-  unresolved: string[];
-}
-
-type AskOutcome =
-  | QuestionResponse
-  | { kind: "cancelled" }
-  | { kind: "unparseable"; input: string };
 
 interface QuestionDetails {
   question: string;
@@ -315,6 +310,15 @@ async function askFreeform(
   return trimmed ? { kind: "freeform", text: trimmed } : { kind: "cancelled" };
 }
 
+type AskOutcome =
+  | QuestionResponse
+  | { kind: "cancelled" }
+  | { kind: "unparseable"; input: string };
+
+type QuestionResponse =
+  | { kind: "selection"; selections: string[]; unresolved?: string[] }
+  | { kind: "freeform"; text: string };
+
 function resolveSelectionTokens(
   input: string,
   options: readonly QuestionOption[],
@@ -330,6 +334,11 @@ function resolveSelectionTokens(
     else unresolved.push(trimmed);
   }
   return { selections: [...new Set(selections)], unresolved };
+}
+
+interface SelectionTokens {
+  selections: string[];
+  unresolved: string[];
 }
 
 const RANGE_PATTERN = /^(\d+)\s*[-–—]\s*(\d+)$/;
@@ -377,6 +386,11 @@ function coerceOption(option: unknown): QuestionOption | undefined {
   if (typeof title !== "string" || !title.trim()) return undefined;
   const trimmedDescription = typeof description === "string" ? description.trim() : undefined;
   return trimmedDescription ? { title: title.trim(), description: trimmedDescription } : { title: title.trim() };
+}
+
+interface QuestionOption {
+  title: string;
+  description?: string;
 }
 
 function isCancelled(

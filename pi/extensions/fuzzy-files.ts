@@ -36,12 +36,6 @@ const STALE_MS = 10_000;
 const SCAN_TIMEOUT_MS = 30_000;
 const PROBE_TIMEOUT_MS = 5_000;
 
-type Rank = (
-  paths: readonly string[],
-  query: string,
-  signal: AbortSignal,
-) => Promise<string[]>;
-
 export default function (pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, context) => {
     if (!context.hasUI) return;
@@ -89,7 +83,7 @@ function createEntryLoader(
   let scan: Promise<void> | undefined;
 
   const rescan = () => {
-    scan ||= (async () => {
+    scan ??= (async () => {
       const { stdout, code } = await pi.exec(fd, FD_ARGS, {
         cwd,
         timeout: SCAN_TIMEOUT_MS,
@@ -124,10 +118,12 @@ function createProvider(
         return delegate();
 
       const paths = await getEntries();
+      // eslint-disable-next-line unicorn/no-null -- pi's autocomplete API treats null as "no suggestions"
       if (options.signal.aborted) return null;
       if (paths.length === 0) return delegate();
 
       const ranked = await rank(paths, query, options.signal);
+      // eslint-disable-next-line unicorn/no-null, @typescript-eslint/no-unnecessary-condition -- pi's autocomplete API treats null as "no suggestions"; the signal can abort while rank awaits
       if (options.signal.aborted || ranked.length === 0) return null;
 
       return { items: ranked.map(toItem), prefix: `@${query}` };
@@ -151,6 +147,12 @@ function createProvider(
     },
   };
 }
+
+type Rank = (
+  paths: readonly string[],
+  query: string,
+  signal: AbortSignal,
+) => Promise<string[]>;
 
 function rankWithFzf(
   paths: readonly string[],

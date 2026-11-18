@@ -54,8 +54,7 @@ function buildReport(
     "",
   ];
   if (contextWindow) {
-    const percent = (contextTokens / contextWindow) * 100;
-    lines.push(usageBar(percent));
+    lines.push(usageBar(contextTokens, contextWindow));
     lines.push(
       `${formatTokens(contextTokens)} of ${formatTokens(contextWindow)} tokens · ` +
         `${formatTokens(Math.max(0, contextWindow - contextTokens))} free`,
@@ -75,7 +74,7 @@ function buildReport(
     );
   }
   lines.push(
-    usage?.tokens != null
+    usage !== undefined && usage.tokens !== null
       ? `Total is provider-reported (last response + trailing estimate); ` +
           `component breakdown uses the chars/4 heuristic and sums to ${formatTokens(estimatedTotal)}.`
       : "No provider-reported usage yet; everything shown uses the chars/4 heuristic.",
@@ -208,13 +207,17 @@ function buildMessageRows(
         break;
       case "assistant":
         for (const block of message.content) {
-          if (block.type === "text") {
-            assistantTextChars += block.text.length;
-          } else if (block.type === "thinking") {
-            assistantThinkingChars += block.thinking.length;
-          } else if (block.type === "toolCall") {
-            toolCallChars +=
-              block.name.length + JSON.stringify(block.arguments).length;
+          switch (block.type) {
+            case "text":
+              assistantTextChars += block.text.length;
+              break;
+            case "thinking":
+              assistantThinkingChars += block.thinking.length;
+              break;
+            case "toolCall":
+              toolCallChars +=
+                block.name.length + JSON.stringify(block.arguments).length;
+              break;
           }
         }
         break;
@@ -306,11 +309,6 @@ function buildMessageRows(
   return rows;
 }
 
-interface Stats {
-  tokens: number;
-  count: number;
-}
-
 function tally<Key>(map: Map<Key, Stats>, key: Key, tokens: number): void {
   const stats = map.get(key) ?? { tokens: 0, count: 0 };
   stats.tokens += tokens;
@@ -331,6 +329,11 @@ function sumStats(entries: readonly [string, Stats][]): Stats {
   return total;
 }
 
+interface Stats {
+  tokens: number;
+  count: number;
+}
+
 function renderRows(rows: readonly Row[], contextWindow: number | undefined): string[] {
   const labelWidth = Math.max(
     ...rows.map((row) => row.indent * 2 + row.label.length),
@@ -345,7 +348,7 @@ function renderRows(rows: readonly Row[], contextWindow: number | undefined): st
       "  " +
       formatTokens(row.tokens).padStart(tokenWidth);
     if (row.indent === 0 && contextWindow) {
-      line += `  ${((row.tokens / contextWindow) * 100).toFixed(1).padStart(5)}%`;
+      line += `  ${percentOf(row.tokens, contextWindow).toFixed(1).padStart(PERCENT_COLUMN_WIDTH)}%`;
     }
     if (row.note) {
       line += `  (${row.note})`;
@@ -354,12 +357,20 @@ function renderRows(rows: readonly Row[], contextWindow: number | undefined): st
   });
 }
 
+// Wide enough for "100.0" with one decimal.
+const PERCENT_COLUMN_WIDTH = 5;
+
 // Half of an 80-column terminal, leaving room for the percentage.
 const USAGE_BAR_WIDTH = 40;
 
-function usageBar(percent: number): string {
-  const filled = Math.min(USAGE_BAR_WIDTH, Math.round((percent / 100) * USAGE_BAR_WIDTH));
-  return `[${"█".repeat(filled)}${"░".repeat(USAGE_BAR_WIDTH - filled)}] ${percent.toFixed(1)}%`;
+function usageBar(used: number, total: number): string {
+  const filled = Math.min(USAGE_BAR_WIDTH, Math.round((used / total) * USAGE_BAR_WIDTH));
+  return `[${"█".repeat(filled)}${"░".repeat(USAGE_BAR_WIDTH - filled)}] ${percentOf(used, total).toFixed(1)}%`;
+}
+
+function percentOf(part: number, whole: number): number {
+  // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- the conversion to percent is the point of this helper
+  return (part / whole) * 100;
 }
 
 interface Row {

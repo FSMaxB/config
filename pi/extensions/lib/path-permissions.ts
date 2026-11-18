@@ -19,21 +19,16 @@ import { profileDestinations } from "./permission-choices.ts";
 import { ALL_DURATIONS, askPermission, Duration, userReason } from "./permission-prompt.ts";
 import type { ScopeChoice } from "./permission-prompt.ts";
 import { permissionUI } from "./permission-ui.ts";
+import { processGlobal } from "./process-global.ts";
 import { announceSessionGrantsChanged } from "./session-grants.ts";
 import type { SessionGrant } from "./session-grants.ts";
 import { isRecord, stringProperty } from "./untyped.ts";
 const RULES_FILE = join(getAgentDir(), "path-permissions.json");
 const RULES_ENTRY_TYPE = "path-permissions";
-interface SharedState { sessions: StoredRules; agentMode: AgentMode; temporaryDirectory: string | undefined; inherited: InheritedPolicy; persistSession: ((snapshot: SerializedStoredRules) => void) | undefined }
 // Every extension that imports this module shares one state per process, even when pi loads the module more than once.
-const globalState = globalThis as { piPathPermissions?: SharedState };
-const state = (globalState.piPathPermissions ??= { sessions: emptyStoredRules(), agentMode: AgentMode.Execution, temporaryDirectory: undefined, inherited: parseChildPathPolicy(process.env[CHILD_POLICY_ENV]), persistSession: undefined });
+const state = processGlobal("piPathPermissions", (): SharedState => ({ sessions: emptyStoredRules(), agentMode: AgentMode.Execution, temporaryDirectory: undefined, inherited: parseChildPathPolicy(process.env[CHILD_POLICY_ENV]), persistSession: undefined }));
+interface SharedState { sessions: StoredRules; agentMode: AgentMode; temporaryDirectory: string | undefined; inherited: InheritedPolicy; persistSession: ((snapshot: SerializedStoredRules) => void) | undefined }
 export function setAgentMode(mode: AgentMode): void { state.agentMode = mode; }
-// A subagent runs in execution mode but must apply the defaults and notices of the mode it was dispatched from.
-export function currentAgentMode(): AgentMode { return parentPolicy()?.agentMode ?? state.agentMode; }
-// A subagent is always in execution mode but must enforce the store its parent was using.
-export function activePathRuleStore(): PathRuleStore { return parentPolicy()?.ruleStore ?? storeForMode(state.agentMode); }
-function parentPolicy(): ChildPathPolicy | undefined { return state.inherited.kind === "valid" ? state.inherited.policy : undefined; }
 export function setSessionTemporaryDirectory(path: string): void { state.temporaryDirectory = path; }
 export function initPathPermissions(pi: ExtensionAPI): void { state.persistSession = (snapshot) => { pi.appendEntry(RULES_ENTRY_TYPE, snapshot); announceSessionGrantsChanged(pi.events); }; }
 export function restoreSessionPathRules(sessionManager: { getEntries(): readonly unknown[] }): void {
@@ -43,8 +38,6 @@ export function restoreSessionPathRules(sessionManager: { getEntries(): readonly
 export function activeSessionPathGrants(): SessionGrant[] { return sessionGrantsFromRules(state.sessions[activePathRuleStore()]); }
 
 export const PathResolution = { Follow: "follow", PreserveFinalSymlink: "preserve-final-symlink" } as const;
-export type PathResolution = (typeof PathResolution)[keyof typeof PathResolution];
-export type GatedScope = "root" | "children" | "recursive";
 
 // Every gated tool takes the path it works on in a `path` parameter.
 export function gatedTool<TParameters extends TSchema, TDetails>(definition: ToolDefinition<TParameters, TDetails>, mode: AccessMode, resolution: PathResolution = PathResolution.Follow, scope: GatedScope = "root"): ToolDefinition<TParameters, TDetails> {
@@ -58,8 +51,7 @@ export function gatedTool<TParameters extends TSchema, TDetails>(definition: Too
     return await definition.execute(toolCallId, { ...parameters, path: authorization.operationPath }, signal, onUpdate, context);
   } };
 }
-
-export interface PathAuthorization { operationPath: string; checkedPaths: string[]; mode: AccessMode; context: ExtensionContext; defaults: ReturnType<typeof defaultAllowed>; session: RuleSets; always: RuleSets; protected: PathSelector[]; }
+export type GatedScope = "root" | "children" | "recursive";
 export async function authorizeRoot(target: string, mode: AccessMode, context: ExtensionContext, resolution: PathResolution = PathResolution.Follow): Promise<PathAuthorization> {
   if (state.inherited.kind === "invalid") throw new Error("The inherited child path policy is invalid; path tools are disabled.");
   const anchored = anchorTarget(target, context.cwd);
@@ -73,15 +65,16 @@ export async function authorizeRoot(target: string, mode: AccessMode, context: E
   const { defaults, session, always, protected: protectedSelectors } = layers;
   return { operationPath, checkedPaths, mode, context, defaults, session, always, protected: protectedSelectors };
 }
+export type PathResolution = (typeof PathResolution)[keyof typeof PathResolution];
 
-export interface ModePolicy { allow: PathSelector[]; deny: PathSelector[]; protected: PathSelector[] }
-export interface EffectivePolicy { read: ModePolicy; write: ModePolicy }
+export interface PathAuthorization { operationPath: string; checkedPaths: string[]; mode: AccessMode; context: ExtensionContext; defaults: ReturnType<typeof defaultAllowed>; session: RuleSets; always: RuleSets; protected: PathSelector[]; }
 
 // The merged view per mode, for enforcement outside this process (the bash sandbox).
 export async function currentPolicy(onceGrants: readonly OnceGrant[] = []): Promise<EffectivePolicy> {
   if (state.inherited.kind === "invalid") throw new Error("The inherited child path policy is invalid; the sandbox cannot be configured.");
   return { read: await modePolicy("read", onceGrants), write: await modePolicy("write", onceGrants) };
 }
+export interface EffectivePolicy { read: ModePolicy; write: ModePolicy }
 
 // Used by the sandbox after a command was denied. "Allow once" records nothing: the sandbox reruns the command with the returned grant.
 // Only the sandbox passes profiles, which adds an "Add to profile" choice; the file tools keep the plain prompt.
@@ -110,8 +103,6 @@ export async function grantPathAccess(path: string, mode: AccessMode, context: E
     }
   });
 }
-
-export interface OnceGrant { mode: AccessMode; selector: PathSelector }
 export type PathAccessOutcome =
   | { kind: "allowed" }
   | { kind: "allowed-once"; grant: OnceGrant }
@@ -126,6 +117,25 @@ async function modePolicy(mode: AccessMode, onceGrants: readonly OnceGrant[]): P
   const deny = [...always[mode].deny.keys(), ...session[mode].deny.keys()].map(selectorFromKey);
   const uncovered = protectedSelectors.filter((target) => !explicitAllow.some((grant) => covers(grant, target)));
   return { allow: [...defaults, ...explicitAllow], deny, protected: uncovered };
+}
+
+export interface ModePolicy { allow: PathSelector[]; deny: PathSelector[]; protected: PathSelector[] }
+
+export interface OnceGrant { mode: AccessMode; selector: PathSelector }
+
+async function ensureAllowed(path: string, mode: AccessMode, context: ExtensionContext, layers: Awaited<ReturnType<typeof effectiveLayers>>): Promise<void> {
+  const verdict = evaluate(path, mode, layers);
+  if (verdict === "deny") throw deniedError(path, mode, denyNote(path, mode, layers));
+  if (verdict === "allow") return;
+  await serialize(async () => {
+    // A prompt answered while this call waited in the queue may already cover the path.
+    const latest = await effectiveLayers(mode);
+    const latestVerdict = evaluate(path, mode, latest);
+    if (latestVerdict === "deny") throw deniedError(path, mode, denyNote(path, mode, latest));
+    if (latestVerdict === "allow") return;
+    const answer = await requestAccess(path, mode, context, latest.protected);
+    if (answer.kind === "denied") throw deniedError(path, mode, answer.note);
+  });
 }
 
 async function effectiveLayers(mode: AccessMode): Promise<{ defaults: PathSelector[]; always: RuleSets; session: RuleSets; protected: PathSelector[] }> {
@@ -145,21 +155,6 @@ async function protectedWritePaths(): Promise<PathSelector[]> {
   const roots = [join(agentDirectory, "extensions"), join(agentDirectory, "skills"), join(homedir(), ".agents", "skills"), join(homedir(), ".claude", "skills"), join(agentDirectory, "install"), join(agentDirectory, "bin"), join(agentDirectory, "npm")];
   const resolvedRoots = await Promise.all(roots.map((root) => resolveThroughSymlinks(root)));
   return [...new Set(resolvedRoots)].map(tree).concat(glob(await resolveThroughSymlinks(agentDirectory), "*.json"));
-}
-
-async function ensureAllowed(path: string, mode: AccessMode, context: ExtensionContext, layers: Awaited<ReturnType<typeof effectiveLayers>>): Promise<void> {
-  const verdict = evaluate(path, mode, layers);
-  if (verdict === "deny") throw deniedError(path, mode, denyNote(path, mode, layers));
-  if (verdict === "allow") return;
-  await serialize(async () => {
-    // A prompt answered while this call waited in the queue may already cover the path.
-    const latest = await effectiveLayers(mode);
-    const latestVerdict = evaluate(path, mode, latest);
-    if (latestVerdict === "deny") throw deniedError(path, mode, denyNote(path, mode, latest));
-    if (latestVerdict === "allow") return;
-    const answer = await requestAccess(path, mode, context, latest.protected);
-    if (answer.kind === "denied") throw deniedError(path, mode, answer.note);
-  });
 }
 
 async function requestAccess(resolved: string, mode: AccessMode, context: ExtensionContext, protectedSelectors: readonly PathSelector[] = [], profiles: readonly string[] = [], durations: readonly Duration[] = ALL_DURATIONS): Promise<AccessAnswer> {
@@ -209,34 +204,6 @@ function scopeLabel(selector: PathSelector, mode: AccessMode, protectedSelectors
 }
 
 async function grantRootFor(path: string): Promise<string> { const stats = await stat(path).catch(() => undefined); return findRepositoryRoot(stats?.isDirectory() ? path : dirname(path)); }
-async function currentDefaults(mode: AccessMode): Promise<ReturnType<typeof defaultAllowed>> {
-  const repositoryRoot = await resolveThroughSymlinks(findRepositoryRoot());
-  const [memoryRoot, resolvedSkills, agentDirectory, temporaryDirectory] = await Promise.all([
-    resolveThroughSymlinks(memoryDirectory()),
-    resolvedSkillRoots(repositoryRoot),
-    resolveThroughSymlinks(getAgentDir()),
-    state.temporaryDirectory === undefined ? undefined : resolveThroughSymlinks(state.temporaryDirectory),
-  ]);
-  return defaultAllowed(mode, { agentMode: currentAgentMode(), repoRoot: repositoryRoot, memoryDirectory: memoryRoot, skillRoots: resolvedSkills, agentDirectory, temporaryDirectory, homeDirectory: homedir() });
-}
-// Project skill roots count only while they resolve inside the repository. Global roots also
-// allow every entry they hold, since skills are commonly symlinked in from elsewhere.
-async function resolvedSkillRoots(repositoryRoot: string): Promise<string[]> {
-  const projectRoot = findRepositoryRoot();
-  const projectRoots = [join(projectRoot, ".agents", "skills"), join(projectRoot, ".pi", "skills")];
-  const globalRoots = [join(getAgentDir(), "skills"), join(homedir(), ".agents", "skills"), join(homedir(), ".claude", "skills")];
-  const resolved = new Set<string>();
-  for (const root of projectRoots) {
-    const resolvedRoot = await resolveThroughSymlinks(root);
-    if (contains(repositoryRoot, resolvedRoot)) resolved.add(resolvedRoot);
-  }
-  for (const root of globalRoots) {
-    resolved.add(await resolveThroughSymlinks(root));
-    const entries: string[] = await readdir(root).catch(() => []);
-    for (const entry of entries) resolved.add(await resolveThroughSymlinks(join(root, entry)));
-  }
-  return [...resolved];
-}
 function anchorTarget(target: string, cwd: string): string { return resolve(cwd, expandHome(target)); }
 function assertWritablePath(path: string, mode: AccessMode): void { if (mode === "write" && isVcsInternal(path)) throw new Error(`${path} is inside a version control directory. Reading and searching .git and .jj is fine, but writing to them is not.`); }
 function deniedError(path: string, mode: AccessMode, note: string | undefined): Error { return new Error(`${path} is denied for ${mode} access by the path rules.${userReason(note)} Do not retry this path and do not route around it with a different tool.${readOnlyRepositoryNotice(mode, currentAgentMode())}`); }
@@ -284,6 +251,39 @@ export async function captureChildPathPolicy(): Promise<ChildPathPolicy> {
   const ruleStore = activePathRuleStore();
   return { version: 1, session: serializeRules(state.sessions[ruleStore]), readDefaults: await currentDefaults("read"), writeDefaults: await currentDefaults("write"), ruleStore, agentMode: currentAgentMode() };
 }
+// A subagent is always in execution mode but must enforce the store its parent was using.
+export function activePathRuleStore(): PathRuleStore { return parentPolicy()?.ruleStore ?? storeForMode(state.agentMode); }
+async function currentDefaults(mode: AccessMode): Promise<ReturnType<typeof defaultAllowed>> {
+  const repositoryRoot = await resolveThroughSymlinks(findRepositoryRoot());
+  const [memoryRoot, resolvedSkills, agentDirectory, temporaryDirectory] = await Promise.all([
+    resolveThroughSymlinks(memoryDirectory()),
+    resolvedSkillRoots(repositoryRoot),
+    resolveThroughSymlinks(getAgentDir()),
+    state.temporaryDirectory === undefined ? undefined : resolveThroughSymlinks(state.temporaryDirectory),
+  ]);
+  return defaultAllowed(mode, { agentMode: currentAgentMode(), repoRoot: repositoryRoot, memoryDirectory: memoryRoot, skillRoots: resolvedSkills, agentDirectory, temporaryDirectory, homeDirectory: homedir() });
+}
+// Project skill roots count only while they resolve inside the repository. Global roots also
+// allow every entry they hold, since skills are commonly symlinked in from elsewhere.
+async function resolvedSkillRoots(repositoryRoot: string): Promise<string[]> {
+  const projectRoot = findRepositoryRoot();
+  const projectRoots = [join(projectRoot, ".agents", "skills"), join(projectRoot, ".pi", "skills")];
+  const globalRoots = [join(getAgentDir(), "skills"), join(homedir(), ".agents", "skills"), join(homedir(), ".claude", "skills")];
+  const resolved = new Set<string>();
+  for (const root of projectRoots) {
+    const resolvedRoot = await resolveThroughSymlinks(root);
+    if (contains(repositoryRoot, resolvedRoot)) resolved.add(resolvedRoot);
+  }
+  for (const root of globalRoots) {
+    resolved.add(await resolveThroughSymlinks(root));
+    const entries: string[] = await readdir(root).catch(() => []);
+    for (const entry of entries) resolved.add(await resolveThroughSymlinks(join(root, entry)));
+  }
+  return [...resolved];
+}
+// A subagent runs in execution mode but must apply the defaults and notices of the mode it was dispatched from.
+export function currentAgentMode(): AgentMode { return parentPolicy()?.agentMode ?? state.agentMode; }
+function parentPolicy(): ChildPathPolicy | undefined { return state.inherited.kind === "valid" ? state.inherited.policy : undefined; }
 
 function mergeInheritedSession(session: RuleSets, inherited: ChildPathPolicy | undefined): RuleSets {
   if (inherited === undefined) return session;

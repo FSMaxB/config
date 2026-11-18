@@ -5,47 +5,6 @@ import { isRecord } from "../../lib/untyped.ts";
 
 export const NETWORK_ENTRY_TYPE = "network-permissions";
 
-export interface NetworkGrants {
-  allow: Set<string>;
-  // The value is the user's reason, repeated to the agent whenever the deny blocks a connection.
-  deny: Map<string, string | undefined>;
-}
-
-export type NetworkDecision = "allow" | "deny";
-
-export interface OnceNetworkGrant {
-  decision: NetworkDecision;
-  holders: Set<number>;
-  note: string | undefined;
-}
-
-export type OnceNetworkGrants = Map<string, OnceNetworkGrant>;
-
-export interface DenialNoteSources {
-  grants: NetworkGrants;
-  once: OnceNetworkGrants;
-  settingsReasons: ReadonlyMap<string, string>;
-}
-
-export interface NetworkLists {
-  allowedDomains: string[];
-  deniedDomains: string[];
-}
-
-export interface NetworkConfig extends NetworkLists {
-  allowUnixSockets: string[];
-  allowLocalBinding: boolean;
-}
-
-// srt requires brackets around an IPv6 literal that carries a port.
-export function destinationKey(host: string, port: number): string {
-  return host.includes(":") ? `[${host}]:${port}` : `${host}:${port}`;
-}
-
-export function emptyGrants(): NetworkGrants {
-  return { allow: new Set(), deny: new Map() };
-}
-
 export function serializeGrants(grants: NetworkGrants): { allow: string[]; deny: string[]; denyReasons: Record<string, string> } {
   const reasons = [...grants.deny].filter((entry): entry is [string, string] => entry[1] !== undefined);
   return { allow: [...grants.allow], deny: [...grants.deny.keys()], denyReasons: Object.fromEntries(reasons) };
@@ -58,6 +17,10 @@ export function parseGrants(value: unknown): NetworkGrants {
   const { allow, deny, denyReasons } = value;
   const reasons = stringRecord(denyReasons);
   return { allow: new Set(strings(allow)), deny: new Map(strings(deny).map((pattern) => [pattern, reasons[pattern]])) };
+}
+
+export function emptyGrants(): NetworkGrants {
+  return { allow: new Set(), deny: new Map() };
 }
 
 export function networkSessionGrants(grants: NetworkGrants): SessionGrant[] {
@@ -107,12 +70,28 @@ export function networkDenialNote({ grants, once, settingsReasons }: DenialNoteS
   return undefined;
 }
 
+export interface DenialNoteSources {
+  grants: NetworkGrants;
+  once: OnceNetworkGrants;
+  settingsReasons: ReadonlyMap<string, string>;
+}
+
 export function releaseOnceGrants(once: OnceNetworkGrants, execution: number): void {
   for (const [host, grant] of once) {
     grant.holders.delete(execution);
     if (grant.holders.size === 0) once.delete(host);
   }
 }
+
+export type OnceNetworkGrants = Map<string, OnceNetworkGrant>;
+
+export interface OnceNetworkGrant {
+  decision: NetworkDecision;
+  holders: Set<number>;
+  note: string | undefined;
+}
+
+export type NetworkDecision = "allow" | "deny";
 
 // Subagents get no network at all: an empty allowlist plus a deny-all entry, and no local sockets.
 // Active profiles add their hosts and sockets; a session deny of the same host still wins, as it does over the settings file.
@@ -128,6 +107,11 @@ export function networkConfig(settings: Settings, grants: NetworkGrants, role: "
   };
 }
 
+export interface NetworkConfig extends NetworkLists {
+  allowUnixSockets: string[];
+  allowLocalBinding: boolean;
+}
+
 export const NO_PROFILE_NETWORK: NetworkAllowances = { allowedDomains: [], allowLocalBinding: false, allowUnixSockets: [] };
 
 // Session grants override the settings file: a session allow lifts a stored deny of the same host and vice versa.
@@ -137,8 +121,24 @@ export function effectiveNetwork(settings: Settings, grants: NetworkGrants): Net
   return { allowedDomains: [...new Set(allowedDomains)], deniedDomains: [...new Set(deniedDomains)] };
 }
 
+export interface NetworkGrants {
+  allow: Set<string>;
+  // The value is the user's reason, repeated to the agent whenever the deny blocks a connection.
+  deny: Map<string, string | undefined>;
+}
+
+export interface NetworkLists {
+  allowedDomains: string[];
+  deniedDomains: string[];
+}
+
 function candidateKeys(host: string, port: number | undefined): string[] {
   return port === undefined ? [host] : [destinationKey(host, port), host];
+}
+
+// srt requires brackets around an IPv6 literal that carries a port.
+export function destinationKey(host: string, port: number): string {
+  return host.includes(":") ? `[${host}]:${port}` : `${host}:${port}`;
 }
 
 function strings(value: unknown): string[] {

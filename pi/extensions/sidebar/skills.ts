@@ -14,9 +14,6 @@ export interface LoadedSkillReferenceData { skill: string; path: string }
 
 /** Whether the skill's own SKILL.md was loaded, or only some of its other files. */
 export const SkillState = { Loaded: "loaded", ReferencesOnly: "references-only" } as const;
-export type SkillState = (typeof SkillState)[keyof typeof SkillState];
-
-export interface SkillOnBranch { skill: Skill; state: SkillState; references: readonly string[] }
 
 /** The skill from a `/skill:name` expansion: `<skill name="NAME" location="...">`. */
 export function skillLoadFromUserContent(index: SkillIndex, content: unknown): SkillLoad | undefined {
@@ -73,6 +70,9 @@ function withReference(skill: Skill, path: string, current: SkillOnBranch | unde
     references: [...(current?.references ?? []), path],
   };
 }
+
+export interface SkillOnBranch { skill: Skill; state: SkillState; references: readonly string[] }
+export type SkillState = (typeof SkillState)[keyof typeof SkillState];
 
 function loadFromEntry(entry: BranchEntry, index: SkillIndex): SkillLoad | undefined {
   if (entry.type !== "custom") return undefined;

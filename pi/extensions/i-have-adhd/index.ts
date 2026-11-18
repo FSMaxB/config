@@ -42,71 +42,6 @@ const RULES_HEADER =
 const DISABLED_NOTICE =
   "ADHD MODE OFF. Ignore the i-have-adhd ruleset injected earlier in this conversation and return to your default response style.";
 
-interface AdhdModeState {
-  enabled: boolean;
-}
-
-function stripFrontmatter(content: string): string {
-  return content
-    .replace(
-      /^---[^\S\r\n]*\r?\n[\s\S]*?\r?\n---[^\S\r\n]*(?:\r?\n|$)/,
-      "",
-    )
-    .trim();
-}
-
-function loadRules(): string {
-  let content: string;
-
-  try {
-    content = readFileSync(SKILL_PATH, "utf8");
-  } catch (error) {
-    const reason = errorMessage(error);
-    throw new Error(
-      `Unable to load i-have-adhd rules from ${SKILL_PATH}: ${reason}`,
-      { cause: error },
-    );
-  }
-
-  const rules = stripFrontmatter(content);
-  if (!rules) {
-    throw new Error(`The i-have-adhd rules file is empty: ${SKILL_PATH}`);
-  }
-
-  return rules;
-}
-
-function getSavedState(context: ExtensionContext): boolean | undefined {
-  let savedState: boolean | undefined;
-
-  for (const entry of context.sessionManager.getBranch()) {
-    if (entry.type !== "custom" || entry.customType !== STATE_ENTRY_TYPE) {
-      continue;
-    }
-
-    if (isRecord(entry.data) && typeof entry.data.enabled === "boolean") {
-      savedState = entry.data.enabled;
-    }
-  }
-
-  return savedState;
-}
-
-/**
- * Whether the rules are still live in the context the model actually receives.
- *
- * Only the newest marker counts: a later "disabled" notice cancels an earlier
- * ruleset, and compaction drops summarized entries so the ruleset has to be
- * injected again.
- */
-function rulesAreInContext(context: ExtensionContext): boolean {
-  return latestMarkerIsActive(
-    contextMessages(context.sessionManager),
-    RULES_MESSAGE_TYPE,
-    DISABLED_MESSAGE_TYPE,
-  );
-}
-
 export default function adhdModeExtension(pi: ExtensionAPI): void {
   const rules = loadRules();
   const policyConfig = loadPolicyConfig(join(EXTENSION_DIR, "..", "subagent"));
@@ -237,6 +172,55 @@ export default function adhdModeExtension(pi: ExtensionAPI): void {
   });
 }
 
+interface AdhdModeState {
+  enabled: boolean;
+}
+
+function loadRules(): string {
+  let content: string;
+
+  try {
+    content = readFileSync(SKILL_PATH, "utf8");
+  } catch (error) {
+    const reason = errorMessage(error);
+    throw new Error(
+      `Unable to load i-have-adhd rules from ${SKILL_PATH}: ${reason}`,
+      { cause: error },
+    );
+  }
+
+  const rules = stripFrontmatter(content);
+  if (!rules) {
+    throw new Error(`The i-have-adhd rules file is empty: ${SKILL_PATH}`);
+  }
+
+  return rules;
+}
+
+function stripFrontmatter(content: string): string {
+  return content
+    .replace(
+      /^---[^\S\r\n]*\r?\n[\s\S]*?\r?\n---[^\S\r\n]*(?:\r?\n|$)/,
+      "",
+    )
+    .trim();
+}
+
+/**
+ * Whether the rules are still live in the context the model actually receives.
+ *
+ * Only the newest marker counts: a later "disabled" notice cancels an earlier
+ * ruleset, and compaction drops summarized entries so the ruleset has to be
+ * injected again.
+ */
+function rulesAreInContext(context: ExtensionContext): boolean {
+  return latestMarkerIsActive(
+    contextMessages(context.sessionManager),
+    RULES_MESSAGE_TYPE,
+    DISABLED_MESSAGE_TYPE,
+  );
+}
+
 function isEmpty(context: ExtensionContext): boolean {
   return sessionIsEmpty(context.sessionManager.getBranch());
 }
@@ -255,10 +239,20 @@ function resolveEnabled(
   );
 }
 
-interface ContextMessage {
-  customType: string;
-  content: string;
-  display: boolean;
+function getSavedState(context: ExtensionContext): boolean | undefined {
+  let savedState: boolean | undefined;
+
+  for (const entry of context.sessionManager.getBranch()) {
+    if (entry.type !== "custom" || entry.customType !== STATE_ENTRY_TYPE) {
+      continue;
+    }
+
+    if (isRecord(entry.data) && typeof entry.data.enabled === "boolean") {
+      savedState = entry.data.enabled;
+    }
+  }
+
+  return savedState;
 }
 
 function contextMessage(change: ContextChange, rules: string): ContextMessage | undefined {
@@ -278,4 +272,10 @@ function contextMessage(change: ContextChange, rules: string): ContextMessage | 
     case ContextChange.None:
       return undefined;
   }
+}
+
+interface ContextMessage {
+  customType: string;
+  content: string;
+  display: boolean;
 }

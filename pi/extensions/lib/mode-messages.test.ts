@@ -251,7 +251,7 @@ test("a request that lost the snapshot gets it appended and one durable copy is 
   // assert
   assert.deepEqual(first?.slice(0, -1), original);
   assert.deepEqual(compacted, original);
-  assert.equal(latestSnapshotContent(first ?? []), "on");
+  assert.equal(latestSnapshotContent(first), "on");
   assert.equal(latestSnapshotContent(second ?? []), "on");
   assert.deepEqual(sent, ["on"]);
 });
@@ -266,7 +266,7 @@ test("an obsolete snapshot in the request is superseded rather than removed", ()
 
   // assert
   assert.deepEqual(result?.slice(0, 2), messages);
-  assert.equal(latestSnapshotContent(result ?? []), "off");
+  assert.equal(latestSnapshotContent(result), "off");
 });
 
 test("a second compaction restores the same content again once the durable copy was seen", () => {

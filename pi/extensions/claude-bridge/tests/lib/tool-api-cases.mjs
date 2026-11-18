@@ -202,7 +202,7 @@ it("admits bash to subagents of the exploring mode while the sandbox is active",
 		return child;
 	});
 	syncBuiltinESMExports();
-	globalThis.piSandboxActive = true;
+	globalThis.piSandboxActive = { active: true };
 	const fixture = await toolApiSession({ extensions,
 		entries: [
 			{ type: "explore-mode", data: { enabled: true, sessionGrants: [], sessionDenials: [{ name: "grep" }] } },

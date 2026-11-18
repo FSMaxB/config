@@ -1,9 +1,285 @@
 import type { ExtensionAPI, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import { DEBUG, debug, diagDump, diagGuidance, diagLogPath } from "./debug.js";
+import { DEBUG, debug, diagDump, diagGuidance, diagLogPath, shortId } from "./debug.js";
+import { processGlobal } from "../../lib/process-global.ts";
 import type { QueryContext } from "./query-state.js";
 import { currentRequestLaneId } from "./request-lane.js";
 import { summarizeMissingToolNames } from "./tool-pairing-audit.js";
 import type { MissingToolResult } from "./tool-pairing-audit.js";
+
+const SHARED_SESSION_LANES_SYMBOL = Symbol.for("kendex.pi.claude-bridge.shared-session-lanes.v1");
+
+let extensionApi: ExtensionAPI | undefined;
+export let piUI: ExtensionUIContext | undefined;
+
+export function deleteSharedSessionLane(sessionId: string | undefined): void {
+	const store = sharedSessionLaneStore();
+	if (sessionId === undefined) store.defaultSession = undefined;
+	else store.sessions.delete(sessionId);
+}
+
+// The lane each pi session started in, keyed by its SessionManager. An in-memory
+// session (`pi --no-session`) forks by mutating the SAME SessionManager's id
+// before session_shutdown fires, so the live id there names the fork rather than
+// the session being torn down, and the fallback to it would prune a live
+// sibling. Keyed per manager (not one slot) so overlapping parent/child
+// session_start events keep their own entries, and on globalThis like the
+// registry above because session_start and session_shutdown can reach different
+// module instances (`/reload` mid-session, a child agent's own copy) and both
+// must see the same entry.
+const STARTED_LANES_SYMBOL = Symbol.for("kendex.pi.claude-bridge.started-lanes.v1");
+
+export function recordStartedLane(sessionManager: object, sessionId: string): void {
+	startedLaneStore().set(sessionManager, sessionId);
+}
+
+/** The lane recorded at this manager's session_start, removed as it is read —
+ *  one shutdown per start. Undefined when no start was recorded (the caller
+ *  falls back to the manager's live id). */
+export function takeStartedLane(sessionManager: object): string | undefined {
+	const store = startedLaneStore();
+	const sessionId = store.get(sessionManager);
+	store.delete(sessionManager);
+	return sessionId;
+}
+
+// Shared like the session lane store above; only this function writes it.
+function startedLaneStore(): WeakMap<object, string> {
+	return processGlobal(STARTED_LANES_SYMBOL, () => new WeakMap<object, string>());
+}
+
+export function setExtensionApi(next: ExtensionAPI | undefined): void {
+	extensionApi = next;
+}
+
+// Other modules read the API through this getter, not an imported binding: under
+// Pi's extension loader an imported `let` kept the first factory's API after a new
+// session re-ran the factory, so every call went to an invalidated API.
+export function getExtensionApi(): ExtensionAPI | undefined {
+	return extensionApi;
+}
+
+export function setPiUI(next: ExtensionUIContext | undefined): void {
+	piUI = next;
+}
+
+export function safeToolCallSummary(calls: readonly { id: string; toolName: string; arguments?: Record<string, unknown> }[]): { id: string; toolName: string; argKeys: string[] }[] {
+	return calls.map((call) => ({ id: call.id, toolName: call.toolName, argKeys: argumentKeys(call.arguments) }));
+}
+
+export function argumentKeys(toolArguments: Record<string, unknown> | undefined): string[] {
+	return Object.keys(toolArguments ?? {}).sort();
+}
+
+export const INTEGRITY_CUSTOM_TYPE = "claude-bridge-integrity";
+
+// A repair report samples the first missing results; a long list adds nothing a sample does not show.
+const MAX_SAMPLED_MISSING = 50;
+const MAX_LOGGED_TOOL_CALL_IDS = 12;
+
+export function reportSyntheticToolResultRepair(missing: readonly MissingToolResult[], context: Record<string, unknown>): void {
+	try {
+		if (missing.length === 0) return;
+		const toolNames = summarizeMissingToolNames(missing);
+		const toolNameSummary = compactToolNameSummary(toolNames);
+		const sampledToolCallIds = missing.slice(0, MAX_SAMPLED_MISSING).map((item) => item.id);
+		diagDump("repair_tool_pairing_synthetic_results", {
+			count: missing.length,
+			toolNames,
+			sampledToolCallIds,
+			missing: missing.slice(0, MAX_SAMPLED_MISSING),
+			...context,
+		});
+		appendIntegrityEntry("repair_tool_pairing_synthetic_results", {
+			count: missing.length,
+			toolNames,
+			sampledToolCallIds: sampledToolCallIds.slice(0, MAX_LOGGED_TOOL_CALL_IDS),
+		});
+		safeNotify(
+			`Claude bridge: ${missing.length} missing tool result(s) repaired with an explicit error placeholder` +
+			`${toolNameSummary.length ? ` for ${toolNameSummary.join(", ")}` : ""}. ` +
+			`Real tool output was lost before Claude session import; ${diagGuidance()}.`,
+			"error",
+		);
+	} catch (error) {
+		debug("reportSyntheticToolResultRepair failed:", error);
+	}
+}
+
+export function reportToolResultMismatch(
+	queryContext: QueryContext,
+	reason: string,
+	cwd: string | undefined,
+	options: { expectedInterruption?: boolean; forceRotate?: boolean } = {},
+): boolean {
+	try {
+		if (queryContext.reportedToolResultMismatch) return false;
+		const progress = queryContext.toolResultProgress();
+		const hasMismatch = progress.expectedCount > 0
+			? progress.unresolvedIds.length > 0 || progress.waitingCount > 0 || progress.queuedCount > 0 || progress.unmatchedResultCount > 0
+			: progress.waitingCount > 0 || progress.queuedCount > 0 || progress.unmatchedResultCount > 0;
+		if (!hasMismatch) return false;
+		queryContext.reportedToolResultMismatch = true;
+		// The single choke point every mismatch path funnels through (abort,
+		// unmatched result, stream-idle, teardown). A context with no claim on
+		// the shared record (reentrant subagent or foreign one-shot,)
+		// still gets the full diagnostics below, but its unresolved tool state is
+		// its own — marking the PARENT's record needsRebuild/forceRotate here
+		// would flush the parent's prompt cache for a query that never touched
+		// its session.
+		if (!queryContext.detachedFromSharedSession) markSessionForRebuild(`tool result delivery interrupted during ${reason}`, options);
+		// A user abort interrupting in-flight tool calls is expected teardown, not
+		// an integrity fault: mark the rebuild but skip the diag dump and toast.
+		if (options.expectedInterruption) {
+			debug(
+				`tool result delivery interrupted as expected during ${reason}; ` +
+				`delivered=${progress.deliveredCount}/${progress.expectedCount} ` +
+				`resolved=${progress.resolvedCount}/${progress.expectedCount} ` +
+				`waiting=${progress.waitingCount} queued=${progress.queuedCount}`,
+			);
+			return true;
+		}
+		const toolNameSummary = compactToolNameSummary(progress.toolNames);
+		const sharedSession = getSharedSession();
+		diagDump("tool_result_delivery_mismatch", {
+			reason,
+			cwd,
+			progress,
+			activeQueryExists: queryContext.activeQuery !== undefined,
+			detachedFromSharedSession: queryContext.detachedFromSharedSession,
+			sharedSession: sharedSession ? {
+				sessionId: shortId(sharedSession.sessionId),
+				cursor: sharedSession.cursor,
+				needsRebuild: sharedSession.needsRebuild === true,
+				forceRotate: sharedSession.forceRotate === true,
+			} : undefined,
+		});
+		appendIntegrityEntry("tool_result_delivery_mismatch", {
+			reason,
+			toolNames: progress.toolNames,
+			expectedCount: progress.expectedCount,
+			deliveredCount: progress.deliveredCount,
+			resolvedCount: progress.resolvedCount,
+			waitingIds: progress.waitingIds,
+			queuedIds: progress.queuedIds,
+			unmatchedResultIds: progress.unmatchedResultIds,
+		});
+		safeNotify(
+			`tool-result-mismatch=${JSON.stringify({ delivered: progress.deliveredCount, expected: progress.expectedCount, resolved: progress.resolvedCount, diagnostic: DEBUG ? diagLogPath() : "CLAUDE_BRIDGE_DEBUG=1" })}\n` +
+			`Claude bridge: tool result delivery interrupted during ${reason}; ` +
+			`delivered ${progress.deliveredCount}/${progress.expectedCount}, resolved ${progress.resolvedCount}/${progress.expectedCount}, ` +
+			`waiting=${progress.waitingCount}, queued=${progress.queuedCount}, unmatched=${progress.unmatchedResultCount}` +
+			`${toolNameSummary.length ? `, tools=${toolNameSummary.join(", ")}` : ""}. ` +
+			(queryContext.detachedFromSharedSession
+				? `Detached one-shot query — shared Claude session record left untouched; ${diagGuidance()}.`
+				: `Claude session will rebuild before the next turn; ${diagGuidance()}.`),
+			"error",
+		);
+		return true;
+	} catch (error) {
+		debug("reportToolResultMismatch failed:", error);
+		return false;
+	}
+}
+
+/** Force the next syncSharedSession down the REBUILD path (no-op without a
+ *  session). `reason` is shown to the user when the rebuild happens.
+ *  `forceRotate` additionally rotates the session UUID; set it only when a
+ *  killed CC child may still be writing its JSONL (see the field docs on
+ *  SessionState). */
+export function markSessionForRebuild(reason: string, options: { forceRotate?: boolean } = {}): void {
+	const sharedSession = getSharedSession();
+	if (!sharedSession) return;
+	setSharedSession({ ...sharedSession, needsRebuild: true, rebuildReason: reason, ...(options.forceRotate ? { forceRotate: true } : {}) });
+}
+
+export function safeNotify(message: string, level: "info" | "warning" | "error" = "warning"): void {
+	try { piUI?.notify(message, level); }
+	catch (error) { debug("notify failed:", error); }
+}
+
+/**
+ * Persist a bridge integrity event into the pi session transcript.
+ *
+ * The diag log and a piUI toast both die with the machine or render cycle, so
+ * they cannot support analysis from the session alone. A `CustomEntry` persists
+ * the record without adding it to built context or dispatching it through
+ * pi's agent loop. Payloads must stay compact metadata (ids,
+ * counts, tool names), never tool output.
+ *
+ * Never throws; returns whether the entry was appended (false outside a pi
+ * session — tests, embedded hosts without extensionApi).
+ */
+export function appendIntegrityEntry(label: string, data: Record<string, unknown>): boolean {
+	try {
+		if (!extensionApi) return false;
+		extensionApi.appendEntry(INTEGRITY_CUSTOM_TYPE, { label, at: new Date().toISOString(), ...data });
+		return true;
+	} catch (error) {
+		debug("appendIntegrityEntry failed:", error);
+		return false;
+	}
+}
+
+function compactToolNameSummary(names: readonly { name: string; count: number }[], limit = 12): string[] {
+	const shown = names.slice(0, limit).map(({ name, count }) => count > 1 ? `${name}×${count}` : name);
+	if (names.length > limit) shown.push(`+${names.length - limit} more`);
+	return shown;
+}
+
+export function __testSetBridgeIntegrityState(state: { ui?: ExtensionUIContext; sharedSession?: SessionState }): void {
+	if ("ui" in state) piUI = state.ui;
+	if ("sharedSession" in state) {
+		if (currentRequestLaneId() !== undefined) setSharedSession(state.sharedSession);
+		else {
+			clearSharedSessionLanes();
+			sharedSessionLaneStore().defaultSession = state.sharedSession;
+		}
+	}
+}
+
+export function setSharedSession(next: SessionState | undefined): void {
+	const store = sharedSessionLaneStore();
+	const sessionId = currentRequestLaneId();
+	if (sessionId === undefined) store.defaultSession = next;
+	else store.sessions.set(sessionId, next);
+}
+
+export function clearSharedSessionLanes(): void {
+	const store = sharedSessionLaneStore();
+	store.sessions.clear();
+	store.defaultSession = undefined;
+}
+
+export function __testGetBridgeIntegrityState(): { sharedSession: SessionState | undefined } {
+	return { sharedSession: getSharedSession() };
+}
+
+export function getSharedSession(): SessionState | undefined {
+	const store = sharedSessionLaneStore();
+	const sessionId = currentRequestLaneId();
+	return sessionId === undefined
+		? store.defaultSession
+		: store.sessions.get(sessionId);
+}
+
+export function __testSharedSessionLaneCount(): number {
+	return sharedSessionLaneStore().sessions.size;
+}
+
+// The store is shared by every copy of this module in the process; only this function writes it.
+function sharedSessionLaneStore(): SharedSessionLaneStoreV1 {
+	return processGlobal(SHARED_SESSION_LANES_SYMBOL, (): SharedSessionLaneStoreV1 => ({ defaultSession: undefined, sessions: new Map() }));
+}
+
+// Claude session state is scoped to Pi's provider `sessionId`. Parent and child
+// agents can load separate copies of the extension module while sharing the
+// primary provider closure, so the lane registry must live on globalThis rather
+// than in one module instance. The versioned symbol prevents an incompatible
+// future store shape from being mistaken for this one.
+interface SharedSessionLaneStoreV1 {
+	defaultSession: SessionState | undefined;
+	sessions: Map<string, SessionState | undefined>;
+}
 
 export interface SessionState {
 	sessionId: string;
@@ -62,287 +338,4 @@ export interface SessionState {
 	// completed query. Absent when the navigation target is the transcript's
 	// tail: a plain resume is enough there.
 	forkAt?: string;
-}
-
-// Claude session state is scoped to Pi's provider `sessionId`. Parent and child
-// agents can load separate copies of the extension module while sharing the
-// primary provider closure, so the lane registry must live on globalThis rather
-// than in one module instance. The versioned symbol prevents an incompatible
-// future store shape from being mistaken for this one.
-interface SharedSessionLaneStoreV1 {
-	defaultSession: SessionState | undefined;
-	sessions: Map<string, SessionState | undefined>;
-}
-
-const SHARED_SESSION_LANES_SYMBOL = Symbol.for("kendex.pi.claude-bridge.shared-session-lanes.v1");
-
-// The store is shared by every copy of this module in the process; only this function writes it.
-function sharedSessionLaneStore(): SharedSessionLaneStoreV1 {
-	const host = globalThis as Record<symbol, unknown>;
-	let store = host[SHARED_SESSION_LANES_SYMBOL] as SharedSessionLaneStoreV1 | undefined;
-	if (!store) {
-		store = { defaultSession: undefined, sessions: new Map() };
-		host[SHARED_SESSION_LANES_SYMBOL] = store;
-	}
-	return store;
-}
-
-let extensionApi: ExtensionAPI | undefined;
-export let piUI: ExtensionUIContext | undefined;
-
-export function getSharedSession(): SessionState | undefined {
-	const store = sharedSessionLaneStore();
-	const sessionId = currentRequestLaneId();
-	return sessionId === undefined
-		? store.defaultSession
-		: store.sessions.get(sessionId);
-}
-
-export function setSharedSession(next: SessionState | undefined): void {
-	const store = sharedSessionLaneStore();
-	const sessionId = currentRequestLaneId();
-	if (sessionId === undefined) store.defaultSession = next;
-	else store.sessions.set(sessionId, next);
-}
-
-export function deleteSharedSessionLane(sessionId: string | undefined): void {
-	const store = sharedSessionLaneStore();
-	if (sessionId === undefined) store.defaultSession = undefined;
-	else store.sessions.delete(sessionId);
-}
-
-export function clearSharedSessionLanes(): void {
-	const store = sharedSessionLaneStore();
-	store.sessions.clear();
-	store.defaultSession = undefined;
-}
-
-// The lane each pi session started in, keyed by its SessionManager. An in-memory
-// session (`pi --no-session`) forks by mutating the SAME SessionManager's id
-// before session_shutdown fires, so the live id there names the fork rather than
-// the session being torn down, and the fallback to it would prune a live
-// sibling. Keyed per manager (not one slot) so overlapping parent/child
-// session_start events keep their own entries, and on globalThis like the
-// registry above because session_start and session_shutdown can reach different
-// module instances (`/reload` mid-session, a child agent's own copy) and both
-// must see the same entry.
-const STARTED_LANES_SYMBOL = Symbol.for("kendex.pi.claude-bridge.started-lanes.v1");
-
-// Shared like the session lane store above; only this function writes it.
-function startedLaneStore(): WeakMap<object, string> {
-	const host = globalThis as Record<symbol, unknown>;
-	let store = host[STARTED_LANES_SYMBOL] as WeakMap<object, string> | undefined;
-	if (!store) {
-		store = new WeakMap<object, string>();
-		host[STARTED_LANES_SYMBOL] = store;
-	}
-	return store;
-}
-
-export function recordStartedLane(sessionManager: object, sessionId: string): void {
-	startedLaneStore().set(sessionManager, sessionId);
-}
-
-/** The lane recorded at this manager's session_start, removed as it is read —
- *  one shutdown per start. Undefined when no start was recorded (the caller
- *  falls back to the manager's live id). */
-export function takeStartedLane(sessionManager: object): string | undefined {
-	const store = startedLaneStore();
-	const sessionId = store.get(sessionManager);
-	store.delete(sessionManager);
-	return sessionId;
-}
-
-/** Force the next syncSharedSession down the REBUILD path (no-op without a
- *  session). `reason` is shown to the user when the rebuild happens.
- *  `forceRotate` additionally rotates the session UUID; set it only when a
- *  killed CC child may still be writing its JSONL (see the field docs on
- *  SessionState). */
-export function markSessionForRebuild(reason: string, options: { forceRotate?: boolean } = {}): void {
-	const sharedSession = getSharedSession();
-	if (!sharedSession) return;
-	setSharedSession({ ...sharedSession, needsRebuild: true, rebuildReason: reason, ...(options.forceRotate ? { forceRotate: true } : {}) });
-}
-
-export function setExtensionApi(next: ExtensionAPI | undefined): void {
-	extensionApi = next;
-}
-
-// Other modules read the API through this getter, not an imported binding: under
-// Pi's extension loader an imported `let` kept the first factory's API after a new
-// session re-ran the factory, so every call went to an invalidated API.
-export function getExtensionApi(): ExtensionAPI | undefined {
-	return extensionApi;
-}
-
-export function setPiUI(next: ExtensionUIContext | undefined): void {
-	piUI = next;
-}
-
-export function safeNotify(message: string, level: "info" | "warning" | "error" = "warning"): void {
-	try { piUI?.notify(message, level); }
-	catch (error) { debug("notify failed:", error); }
-}
-
-export function argumentKeys(toolArguments: Record<string, unknown> | undefined): string[] {
-	return Object.keys(toolArguments ?? {}).sort();
-}
-
-export function safeToolCallSummary(calls: readonly { id: string; toolName: string; arguments?: Record<string, unknown> }[]): { id: string; toolName: string; argKeys: string[] }[] {
-	return calls.map((call) => ({ id: call.id, toolName: call.toolName, argKeys: argumentKeys(call.arguments) }));
-}
-
-export const INTEGRITY_CUSTOM_TYPE = "claude-bridge-integrity";
-
-/**
- * Persist a bridge integrity event into the pi session transcript.
- *
- * The diag log and a piUI toast both die with the machine or render cycle, so
- * they cannot support analysis from the session alone. A `CustomEntry` persists
- * the record without adding it to built context or dispatching it through
- * pi's agent loop. Payloads must stay compact metadata (ids,
- * counts, tool names), never tool output.
- *
- * Never throws; returns whether the entry was appended (false outside a pi
- * session — tests, embedded hosts without extensionApi).
- */
-export function appendIntegrityEntry(label: string, data: Record<string, unknown>): boolean {
-	try {
-		if (!extensionApi) return false;
-		extensionApi.appendEntry(INTEGRITY_CUSTOM_TYPE, { label, at: new Date().toISOString(), ...data });
-		return true;
-	} catch (error) {
-		debug("appendIntegrityEntry failed:", error);
-		return false;
-	}
-}
-
-function compactToolNameSummary(names: readonly { name: string; count: number }[], limit = 12): string[] {
-	const shown = names.slice(0, limit).map(({ name, count }) => count > 1 ? `${name}×${count}` : name);
-	if (names.length > limit) shown.push(`+${names.length - limit} more`);
-	return shown;
-}
-
-export function reportSyntheticToolResultRepair(missing: readonly MissingToolResult[], context: Record<string, unknown>): void {
-	try {
-		if (missing.length === 0) return;
-		const toolNames = summarizeMissingToolNames(missing);
-		const toolNameSummary = compactToolNameSummary(toolNames);
-		const sampledToolCallIds = missing.slice(0, 50).map((item) => item.id);
-		diagDump("repair_tool_pairing_synthetic_results", {
-			count: missing.length,
-			toolNames,
-			sampledToolCallIds,
-			missing: missing.slice(0, 50),
-			...context,
-		});
-		appendIntegrityEntry("repair_tool_pairing_synthetic_results", {
-			count: missing.length,
-			toolNames,
-			sampledToolCallIds: sampledToolCallIds.slice(0, 12),
-		});
-		safeNotify(
-			`Claude bridge: ${missing.length} missing tool result(s) repaired with an explicit error placeholder` +
-			`${toolNameSummary.length ? ` for ${toolNameSummary.join(", ")}` : ""}. ` +
-			`Real tool output was lost before Claude session import; ${diagGuidance()}.`,
-			"error",
-		);
-	} catch (error) {
-		debug("reportSyntheticToolResultRepair failed:", error);
-	}
-}
-
-export function reportToolResultMismatch(
-	queryContext: QueryContext,
-	reason: string,
-	cwd: string | undefined,
-	options: { expectedInterruption?: boolean; forceRotate?: boolean } = {},
-): boolean {
-	try {
-		if (queryContext.reportedToolResultMismatch) return false;
-		const progress = queryContext.toolResultProgress();
-		const hasMismatch = progress.expectedCount > 0
-			? progress.unresolvedIds.length > 0 || progress.waitingCount > 0 || progress.queuedCount > 0 || progress.unmatchedResultCount > 0
-			: progress.waitingCount > 0 || progress.queuedCount > 0 || progress.unmatchedResultCount > 0;
-		if (!hasMismatch) return false;
-		queryContext.reportedToolResultMismatch = true;
-		// The single choke point every mismatch path funnels through (abort,
-		// unmatched result, stream-idle, teardown). A context with no claim on
-		// the shared record (reentrant subagent or foreign one-shot,)
-		// still gets the full diagnostics below, but its unresolved tool state is
-		// its own — marking the PARENT's record needsRebuild/forceRotate here
-		// would flush the parent's prompt cache for a query that never touched
-		// its session.
-		if (!queryContext.detachedFromSharedSession) markSessionForRebuild(`tool result delivery interrupted during ${reason}`, options);
-		// A user abort interrupting in-flight tool calls is expected teardown, not
-		// an integrity fault: mark the rebuild but skip the diag dump and toast.
-		if (options.expectedInterruption) {
-			debug(
-				`tool result delivery interrupted as expected during ${reason}; ` +
-				`delivered=${progress.deliveredCount}/${progress.expectedCount} ` +
-				`resolved=${progress.resolvedCount}/${progress.expectedCount} ` +
-				`waiting=${progress.waitingCount} queued=${progress.queuedCount}`,
-			);
-			return true;
-		}
-		const toolNameSummary = compactToolNameSummary(progress.toolNames);
-		const sharedSession = getSharedSession();
-		diagDump("tool_result_delivery_mismatch", {
-			reason,
-			cwd,
-			progress,
-			activeQueryExists: queryContext.activeQuery !== undefined,
-			detachedFromSharedSession: queryContext.detachedFromSharedSession,
-			sharedSession: sharedSession ? {
-				sessionId: sharedSession.sessionId.slice(0, 8),
-				cursor: sharedSession.cursor,
-				needsRebuild: sharedSession.needsRebuild === true,
-				forceRotate: sharedSession.forceRotate === true,
-			} : null,
-		});
-		appendIntegrityEntry("tool_result_delivery_mismatch", {
-			reason,
-			toolNames: progress.toolNames,
-			expectedCount: progress.expectedCount,
-			deliveredCount: progress.deliveredCount,
-			resolvedCount: progress.resolvedCount,
-			waitingIds: progress.waitingIds,
-			queuedIds: progress.queuedIds,
-			unmatchedResultIds: progress.unmatchedResultIds,
-		});
-		safeNotify(
-			`tool-result-mismatch=${JSON.stringify({ delivered: progress.deliveredCount, expected: progress.expectedCount, resolved: progress.resolvedCount, diagnostic: DEBUG ? diagLogPath() : "CLAUDE_BRIDGE_DEBUG=1" })}\n` +
-			`Claude bridge: tool result delivery interrupted during ${reason}; ` +
-			`delivered ${progress.deliveredCount}/${progress.expectedCount}, resolved ${progress.resolvedCount}/${progress.expectedCount}, ` +
-			`waiting=${progress.waitingCount}, queued=${progress.queuedCount}, unmatched=${progress.unmatchedResultCount}` +
-			`${toolNameSummary.length ? `, tools=${toolNameSummary.join(", ")}` : ""}. ` +
-			(queryContext.detachedFromSharedSession
-				? `Detached one-shot query — shared Claude session record left untouched; ${diagGuidance()}.`
-				: `Claude session will rebuild before the next turn; ${diagGuidance()}.`),
-			"error",
-		);
-		return true;
-	} catch (error) {
-		debug("reportToolResultMismatch failed:", error);
-		return false;
-	}
-}
-
-export function __testSetBridgeIntegrityState(state: { ui?: ExtensionUIContext; sharedSession?: SessionState }): void {
-	if ("ui" in state) piUI = state.ui;
-	if ("sharedSession" in state) {
-		if (currentRequestLaneId() !== undefined) setSharedSession(state.sharedSession);
-		else {
-			clearSharedSessionLanes();
-			sharedSessionLaneStore().defaultSession = state.sharedSession;
-		}
-	}
-}
-
-export function __testGetBridgeIntegrityState(): { sharedSession: SessionState | undefined } {
-	return { sharedSession: getSharedSession() };
-}
-
-export function __testSharedSessionLaneCount(): number {
-	return sharedSessionLaneStore().sessions.size;
 }

@@ -7,11 +7,6 @@ import type { LogRecord } from "./records.ts";
 const identity = { sessionId: "s", provider: "mistral", model: "large", api: "mistral-conversations" };
 const usage = { input: 10, output: 5, cacheRead: 100, cacheWrite: 0, cost: { total: 1 }, totalTokens: 115 };
 
-function arrange(): { records: LogRecord[]; tracker: RequestTracker } {
-  const records: LogRecord[] = [];
-  return { records, tracker: new RequestTracker((record) => records.push(record)) };
-}
-
 test("a request, its response and its message emit one completed record", () => {
   // arrange
   const { records, tracker } = arrange();
@@ -61,7 +56,7 @@ test("a message without a request emits a usage-only record", () => {
   tracker.assistantMessage({ ...identity, usage, stopReason: "stop", at: new Date(2000) });
 
   // assert
-  const [record] = records;
+  const record = records.at(0);
   assert.ok(record?.kind === "request");
   assert.equal(record.payload, undefined);
   assert.equal(record.outcome, Outcome.Completed);
@@ -107,7 +102,7 @@ test("the message provider and model override the request values", () => {
   tracker.assistantMessage({ ...identity, usage, stopReason: "stop", at: new Date(2000) });
 
   // assert
-  const [record] = records;
+  const record = records.at(0);
   assert.ok(record?.kind === "request");
   assert.equal(record.provider, "mistral");
   assert.equal(record.model, "large");
@@ -152,3 +147,8 @@ test("a warm decision labels only the first request after it", () => {
   // assert
   assert.equal(records[1]?.kind === "request" ? records[1].purpose : undefined, "turn");
 });
+
+function arrange(): { records: LogRecord[]; tracker: RequestTracker } {
+  const records: LogRecord[] = [];
+  return { records, tracker: new RequestTracker((record) => records.push(record)) };
+}

@@ -15,6 +15,7 @@ import { isInPlansDirectory } from "./lib/plan-file.ts";
 import { canSubmitReviewedPlan, submitReviewedPlan } from "./lib/plan-submission.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 import { sessionTemporaryDirectory } from "./lib/session-temporary-directory.ts";
+import { MILLISECONDS_PER_SECOND } from "./lib/units.ts";
 
 // Bounds crit's own commands; a review itself waits for the user without a timeout.
 const TIMEOUT = 60_000;
@@ -383,20 +384,6 @@ const STORY_SCHEMA = Type.Object(
   },
 );
 
-type Story = Static<typeof STORY_SCHEMA>;
-
-interface ReviewParameters {
-  paths?: string[];
-  pr?: string;
-  range?: string;
-  url?: string;
-  html?: string;
-  plan?: string;
-  story?: Story;
-  session?: string;
-  baseBranch?: string;
-}
-
 function reviewArguments(parameters: ReviewParameters): { args: string[]; slug?: string } {
   const { paths, pr, range, url, html, plan, story, session, baseBranch } =
     parameters;
@@ -428,6 +415,18 @@ function reviewArguments(parameters: ReviewParameters): { args: string[]; slug?:
   return { args: ["plan", "--name", slug, plan], slug };
 }
 
+interface ReviewParameters {
+  paths?: string[];
+  pr?: string;
+  range?: string;
+  url?: string;
+  html?: string;
+  plan?: string;
+  story?: Story;
+  session?: string;
+  baseBranch?: string;
+}
+
 // Ingest writes the story into crit's review file, starts or updates the review daemon and opens
 // the browser, but returns at once; the caller's bare `crit` run is what waits for Finish Review.
 // --refresh is required: without it crit keeps an existing story and silently skips the ingest.
@@ -444,7 +443,7 @@ async function ingestStory(
     const commandArguments = ["story", "--story-file", file, "--refresh", ...scopeArguments];
     const { stdout, stderr, code, killed, truncated } = await pi.exec("crit", commandArguments, { signal, timeout: TIMEOUT });
     if (truncated) throw new Error(`crit ${commandArguments.join(" ")} was killed: its output exceeded pi.exec's buffer limit.`);
-    if (killed) throw new Error(`crit ${commandArguments.join(" ")} timed out after ${TIMEOUT / 1000}s.`);
+    if (killed) throw new Error(`crit ${commandArguments.join(" ")} timed out after ${TIMEOUT / MILLISECONDS_PER_SECOND}s.`);
     if (code !== 0) {
       throw new Error(
         `crit rejected the story (exit ${code}):\n${stdout.trim()}\n${stderr.trim()}\n` +
@@ -458,6 +457,8 @@ async function ingestStory(
     await rm(directory, { recursive: true, force: true });
   }
 }
+
+type Story = Static<typeof STORY_SCHEMA>;
 
 // crit blocks for as long as the user is reviewing, so its output is streamed rather than
 // collected at the end: the review URL it prints on startup is the only way back in if the
@@ -506,16 +507,6 @@ function streamCrit(
   });
 }
 
-interface CommentParameters {
-  body: string;
-  path?: string;
-  line?: string;
-  endLine?: number;
-  replyTo?: string;
-  scope?: string;
-  resolve?: boolean;
-}
-
 function toCritEntry(comment: CommentParameters): Record<string, unknown> {
   const { body, path, line, endLine, replyTo, scope, resolve } = comment;
   return {
@@ -527,6 +518,16 @@ function toCritEntry(comment: CommentParameters): Record<string, unknown> {
     ...(scope ? { scope } : {}),
     ...(resolve ? { resolve: true } : {}),
   };
+}
+
+interface CommentParameters {
+  body: string;
+  path?: string;
+  line?: string;
+  endLine?: number;
+  replyTo?: string;
+  scope?: string;
+  resolve?: boolean;
 }
 
 async function runCrit(

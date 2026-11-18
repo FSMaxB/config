@@ -268,14 +268,6 @@ async function runInRepository(command: string): Promise<{ exitCode: number | nu
   return await runSandboxed(command, filesystem, repository);
 }
 
-function policyFilesystem(extraReadAllow: PathSelector[] = [], protectedWrite: PathSelector[] = []): ReturnType<typeof filesystemConfig> {
-  const policy = {
-    read: { allow: [tree(workDirectory), ...extraReadAllow], deny: [], protected: [] },
-    write: { allow: [tree(workDirectory)], deny: [], protected: protectedWrite },
-  };
-  return filesystemConfig(policy, { platform: testPlatform(), homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [], vcs: undefined });
-}
-
 async function runSandboxed(command: string, filesystem = policyFilesystem(), cwd = workDirectory): Promise<{ exitCode: number | null; output: string; commandId: string }> {
   const commandId = `${Date.now()}-${Math.random()}`;
   const wrapped = await SandboxManager.wrapWithSandbox(command, undefined, { filesystem }, undefined, { commandId, commandText: command });
@@ -291,6 +283,14 @@ async function runSandboxed(command: string, filesystem = policyFilesystem(), cw
   } finally {
     SandboxManager.cleanupAfterCommand();
   }
+}
+
+function policyFilesystem(extraReadAllow: PathSelector[] = [], protectedWrite: PathSelector[] = []): ReturnType<typeof filesystemConfig> {
+  const policy = {
+    read: { allow: [tree(workDirectory), ...extraReadAllow], deny: [], protected: [] },
+    write: { allow: [tree(workDirectory)], deny: [], protected: protectedWrite },
+  };
+  return filesystemConfig(policy, { platform: testPlatform(), homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [], vcs: undefined });
 }
 
 function testPlatform(): Platform {

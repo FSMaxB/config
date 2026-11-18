@@ -3,107 +3,49 @@ import { AgentMode, isRestricted, PathRuleStore } from "./agent-mode.ts";
 import { contains } from "./repo.ts";
 import type { SessionGrant } from "./session-grants.ts";
 import { isRecord } from "./untyped.ts";
-
-export type AccessMode = "read" | "write";
 export type RuleKind = "allow" | "deny";
-export type RuleTier = "session" | "always";
-export type Verdict = "allow" | "deny" | "prompt";
-
-export type PathSelector =
-  | { kind: "exact"; path: string }
-  | { kind: "tree"; path: string }
-  | { kind: "glob"; base: string; pattern: string };
-
-interface PathRuleBase {
-  mode: AccessMode;
-  tier: RuleTier;
-  selector: PathSelector;
-}
-
-export type PathRule =
-  | (PathRuleBase & { kind: "allow" })
-  // The note is the user's reason, repeated to the agent on every denial the rule causes.
-  | (PathRuleBase & { kind: "deny"; note: string | undefined });
-
-export interface ModeRules {
-  allow: Set<string>;
-  // Keyed by selectorKey like allow; the value is the deny rule's note.
-  deny: Map<string, string | undefined>;
-}
-
-export interface RuleSets {
-  read: ModeRules;
-  write: ModeRules;
-}
-
-export type DenyEntry = PathSelector & { note?: string };
-
-export interface SerializedRuleSets {
-  read: { allow: PathSelector[]; deny: DenyEntry[] };
-  write: { allow: PathSelector[]; deny: DenyEntry[] };
-}
 
 export const EntryKind = { File: "file", Directory: "directory" } as const;
-export type EntryKind = (typeof EntryKind)[keyof typeof EntryKind];
 
-// One mode's rules, as the subagent path policy carries them.
-export interface SerializedRules extends SerializedRuleSets { version: 2 }
-
-export type StoredRules = Record<PathRuleStore, RuleSets>;
-
-// Every mode's rules, as the rules file and the session entry hold them.
-export type SerializedStoredRules = { version: 3 } & Record<PathRuleStore, SerializedRuleSets>;
-
-export interface DefaultAllowedOptions {
-  agentMode: AgentMode;
-  repoRoot: string;
-  memoryDirectory: string;
-  skillRoots: readonly string[];
-  agentDirectory: string;
-  temporaryDirectory: string | undefined;
-  homeDirectory: string;
-}
-
-export interface RuleTiers { session: RuleSets; always: RuleSets }
-
-export function emptyRules(): RuleSets {
-  return { read: { allow: new Set(), deny: new Map() }, write: { allow: new Set(), deny: new Map() } };
-}
-
-export function emptyStoredRules(): StoredRules {
-  return { [PathRuleStore.Execution]: emptyRules(), [PathRuleStore.Plan]: emptyRules(), [PathRuleStore.Explore]: emptyRules() };
-}
-
-export function selectorKey(selector: PathSelector): string {
-  return selector.kind === "glob"
-    ? JSON.stringify([selector.kind, selector.base, selector.pattern])
-    : JSON.stringify([selector.kind, selector.path]);
-}
-
-export function selectorLabel(selector: PathSelector): string {
-  return selector.kind === "exact" ? selector.path : selector.kind === "tree" ? `${selector.path}${sep}**` : `${selector.base}${sep}${selector.pattern}`;
-}
+// Version 3 split the rules by mode (execution, plan, explore); older entries and files are not read.
+const RULES_VERSION = 3;
 
 export function serializeStoredRules(rules: StoredRules): SerializedStoredRules {
   return {
-    version: 3,
+    version: RULES_VERSION,
     [PathRuleStore.Execution]: serializeRuleSets(rules[PathRuleStore.Execution]),
     [PathRuleStore.Plan]: serializeRuleSets(rules[PathRuleStore.Plan]),
     [PathRuleStore.Explore]: serializeRuleSets(rules[PathRuleStore.Explore]),
   };
 }
 
+// Every mode's rules, as the rules file and the session entry hold them.
+export type SerializedStoredRules = { version: typeof RULES_VERSION } & Record<PathRuleStore, SerializedRuleSets>;
+
 export function parseStoredRules(value: unknown): StoredRules {
   const record = asRecord(value);
-  if (record.version !== 3) throw new Error(`Unsupported path permission rules version: ${String(record.version)}`);
+  if (record.version !== RULES_VERSION) throw new Error(`Unsupported path permission rules version: ${String(record.version)}`);
   const rules = emptyStoredRules();
   for (const store of Object.values(PathRuleStore)) rules[store] = parseRuleSets(record[store]);
   return rules;
 }
 
+export function emptyStoredRules(): StoredRules {
+  return { [PathRuleStore.Execution]: emptyRules(), [PathRuleStore.Plan]: emptyRules(), [PathRuleStore.Explore]: emptyRules() };
+}
+
+export type StoredRules = Record<PathRuleStore, RuleSets>;
+
+export function emptyRules(): RuleSets {
+  return { read: { allow: new Set(), deny: new Map() }, write: { allow: new Set(), deny: new Map() } };
+}
+
 export function serializeRules(rules: RuleSets): SerializedRules {
   return { version: 2, ...serializeRuleSets(rules) };
 }
+
+// One mode's rules, as the subagent path policy carries them.
+export interface SerializedRules extends SerializedRuleSets { version: 2 }
 
 export function parseRules(value: unknown): RuleSets {
   const record = asRecord(value);
@@ -119,13 +61,9 @@ export function sessionGrantsFromRules(rules: RuleSets): SessionGrant[] {
   );
 }
 
-export function matchesRule(resolvedPath: string, selector: PathSelector): boolean {
-  if (selector.kind === "exact") return resolvedPath === selector.path;
-  if (selector.kind === "tree") return contains(selector.path, resolvedPath);
-  return contains(selector.base, resolvedPath) && matchesGlob(relative(selector.base, resolvedPath), selector.pattern);
+export function selectorLabel(selector: PathSelector): string {
+  return selector.kind === "exact" ? selector.path : selector.kind === "tree" ? `${selector.path}${sep}**` : `${selector.base}${sep}${selector.pattern}`;
 }
-
-export interface PolicyLayers { defaults: Iterable<PathSelector>; always: RuleSets; session: RuleSets; protected?: Iterable<PathSelector> }
 
 // Explicit grants beat protection, protection beats defaults.
 export function evaluate(resolvedPath: string, mode: AccessMode, layers: PolicyLayers): Verdict {
@@ -136,6 +74,7 @@ export function evaluate(resolvedPath: string, mode: AccessMode, layers: PolicyL
   if (matchesAny(resolvedPath, defaults)) return "allow";
   return "prompt";
 }
+export type Verdict = "allow" | "deny" | "prompt";
 
 // The reason of a deny rule that blocks the path; evaluate checks "always" before "session" as well.
 export function denyNote(resolvedPath: string, mode: AccessMode, { always, session }: Pick<PolicyLayers, "always" | "session">): string | undefined {
@@ -145,12 +84,7 @@ export function denyNote(resolvedPath: string, mode: AccessMode, { always, sessi
   return undefined;
 }
 
-// A tree or exact grant covers a protected selector rooted inside it. Glob grants never cover.
-export function covers(grant: PathSelector, target: PathSelector): boolean {
-  if (grant.kind === "glob") return false;
-  const targetRoot = target.kind === "glob" ? target.base : target.path;
-  return grant.kind === "tree" ? contains(grant.path, targetRoot) : grant.path === targetRoot;
-}
+export interface PolicyLayers { defaults: Iterable<PathSelector>; always: RuleSets; session: RuleSets; protected?: Iterable<PathSelector> }
 
 // Protected selectors a grant would swallow, so the prompt can warn about them.
 export function coveredProtectedSelectors(grant: PathSelector, protectedSelectors: Iterable<PathSelector>): PathSelector[] {
@@ -162,6 +96,7 @@ export function narrowerSelectors(resolvedPath: string, entry: EntryKind, broad:
   const own = entry === EntryKind.Directory ? tree(resolvedPath) : exact(resolvedPath);
   return [own, ...ancestorTrees(resolvedPath)].filter((candidate) => isStrictlyInside(candidate, broad));
 }
+export type EntryKind = (typeof EntryKind)[keyof typeof EntryKind];
 
 export function defaultAllowed(mode: AccessMode, options: DefaultAllowedOptions): PathSelector[] {
   const { agentMode, repoRoot, memoryDirectory, skillRoots, agentDirectory, temporaryDirectory, homeDirectory } = options;
@@ -170,6 +105,16 @@ export function defaultAllowed(mode: AccessMode, options: DefaultAllowedOptions)
   // Even read-only jj commands take these locks to snapshot the working copy and import from a colocated git repository.
   const jjLocks = [join(".jj", "working_copy", "working_copy.lock"), join(".jj", "repo", "git_import_export.lock")].map((lock) => exact(join(repoRoot, lock)));
   return isRestricted(agentMode) ? [...scratch, ...jjLocks] : [tree(repoRoot), ...scratch];
+}
+
+export interface DefaultAllowedOptions {
+  agentMode: AgentMode;
+  repoRoot: string;
+  memoryDirectory: string;
+  skillRoots: readonly string[];
+  agentDirectory: string;
+  temporaryDirectory: string | undefined;
+  homeDirectory: string;
 }
 
 // Restricted modes drop the repository from the default write allows, so a write failure names it as the likely cause.
@@ -181,8 +126,6 @@ export function readOnlyRepositoryNotice(mode: AccessMode, agentMode: AgentMode)
 }
 
 export function exact(path: string): PathSelector { return { kind: "exact", path }; }
-export function tree(path: string): PathSelector { return { kind: "tree", path }; }
-export function glob(base: string, pattern: string): PathSelector { return { kind: "glob", base, pattern }; }
 
 export function recordRule(rule: PathRule, tiers: RuleTiers): Set<RuleTier> {
   const changed = new Set<RuleTier>([rule.tier]);
@@ -197,17 +140,30 @@ export function recordRule(rule: PathRule, tiers: RuleTiers): Set<RuleTier> {
   return changed;
 }
 
-export function selectorFromKey(key: string): PathSelector {
-  // Keys only come from selectorKey, so their shape is known.
-  const [kind, first, second] = JSON.parse(key) as [PathSelector["kind"], string, string?];
-  return kind === "glob" ? glob(first, second ?? "") : { kind, path: first };
+export type PathRule =
+  | (PathRuleBase & { kind: "allow" })
+  // The note is the user's reason, repeated to the agent on every denial the rule causes.
+  | (PathRuleBase & { kind: "deny"; note: string | undefined });
+
+interface PathRuleBase {
+  mode: AccessMode;
+  tier: RuleTier;
+  selector: PathSelector;
 }
+export type RuleTier = "session" | "always";
+
+export interface RuleTiers { session: RuleSets; always: RuleSets }
 
 function serializeRuleSets(rules: RuleSets): SerializedRuleSets {
   return {
     read: { allow: selectors(rules.read.allow), deny: denyEntries(rules.read.deny) },
     write: { allow: selectors(rules.write.allow), deny: denyEntries(rules.write.deny) },
   };
+}
+
+export interface SerializedRuleSets {
+  read: { allow: PathSelector[]; deny: DenyEntry[] };
+  write: { allow: PathSelector[]; deny: DenyEntry[] };
 }
 function parseRuleSets(value: unknown): RuleSets {
   const record = asRecord(value);
@@ -219,14 +175,16 @@ function asRecord(value: unknown): Record<string, unknown> {
   if (!isRecord(value)) throw new Error("Invalid path permission rules");
   return value;
 }
-function selectors(values: Iterable<string>): PathSelector[] {
-  return [...values].map(selectorFromKey).sort((left, right) => selectorKey(left).localeCompare(selectorKey(right)));
-}
 function denyEntries(values: ReadonlyMap<string, string | undefined>): DenyEntry[] {
   return selectors(values.keys()).map((selector) => {
     const note = values.get(selectorKey(selector));
     return note ? { ...selector, note } : selector;
   });
+}
+
+export type DenyEntry = PathSelector & { note?: string };
+function selectors(values: Iterable<string>): PathSelector[] {
+  return [...values].map(selectorFromKey).sort((left, right) => selectorKey(left).localeCompare(selectorKey(right)));
 }
 function ancestorTrees(path: string): PathSelector[] {
   const trees: PathSelector[] = [];
@@ -239,6 +197,13 @@ function isStrictlyInside(candidate: PathSelector, broad: PathSelector): boolean
   if (broad.kind === "tree") return covers(broad, candidate);
   return candidate.kind === "exact" && matchesRule(candidate.path, broad);
 }
+
+// A tree or exact grant covers a protected selector rooted inside it. Glob grants never cover.
+export function covers(grant: PathSelector, target: PathSelector): boolean {
+  if (grant.kind === "glob") return false;
+  const targetRoot = target.kind === "glob" ? target.base : target.path;
+  return grant.kind === "tree" ? contains(grant.path, targetRoot) : grant.path === targetRoot;
+}
 function parseModeRules(value: unknown): RuleSets[AccessMode] | undefined {
   if (!isRecord(value)) return undefined;
   const { allow, deny } = value;
@@ -246,6 +211,25 @@ function parseModeRules(value: unknown): RuleSets[AccessMode] | undefined {
   const allowed = allow.map(normalizeSelector), denied = deny.map(normalizeDenyEntry);
   if (!allowed.every(isDefined) || !denied.every(isDefined)) return undefined;
   return { allow: new Set(allowed.map(selectorKey)), deny: new Map(denied.map(({ selector, note }) => [selectorKey(selector), note])) };
+}
+
+export type AccessMode = "read" | "write";
+
+export interface RuleSets {
+  read: ModeRules;
+  write: ModeRules;
+}
+
+export interface ModeRules {
+  allow: Set<string>;
+  // Keyed by selectorKey like allow; the value is the deny rule's note.
+  deny: Map<string, string | undefined>;
+}
+
+export function selectorKey(selector: PathSelector): string {
+  return selector.kind === "glob"
+    ? JSON.stringify([selector.kind, selector.base, selector.pattern])
+    : JSON.stringify([selector.kind, selector.path]);
 }
 function normalizeDenyEntry(value: unknown): { selector: PathSelector; note: string | undefined } | undefined {
   const selector = normalizeSelector(value);
@@ -266,6 +250,7 @@ function pathSelector(kind: "exact" | "tree", path: string): PathSelector {
   // "/**" itself is the whole file system.
   return tree(path.slice(0, -TREE_SUFFIX.length) || sep);
 }
+export function tree(path: string): PathSelector { return { kind: "tree", path }; }
 const TREE_SUFFIX = `${sep}**`;
 function isDefined<T>(value: T | undefined): value is T { return value !== undefined; }
 function matchesAny(path: string, selectorsOrKeys: Iterable<string | PathSelector>): boolean {
@@ -274,4 +259,22 @@ function matchesAny(path: string, selectorsOrKeys: Iterable<string | PathSelecto
   }
   return false;
 }
+
+export function matchesRule(resolvedPath: string, selector: PathSelector): boolean {
+  if (selector.kind === "exact") return resolvedPath === selector.path;
+  if (selector.kind === "tree") return contains(selector.path, resolvedPath);
+  return contains(selector.base, resolvedPath) && matchesGlob(relative(selector.base, resolvedPath), selector.pattern);
+}
+
+export function selectorFromKey(key: string): PathSelector {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- keys only come from selectorKey
+  const [kind, first, second] = JSON.parse(key) as [PathSelector["kind"], string, string?];
+  return kind === "glob" ? glob(first, second ?? "") : { kind, path: first };
+}
+export function glob(base: string, pattern: string): PathSelector { return { kind: "glob", base, pattern }; }
+
+export type PathSelector =
+  | { kind: "exact"; path: string }
+  | { kind: "tree"; path: string }
+  | { kind: "glob"; base: string; pattern: string };
 

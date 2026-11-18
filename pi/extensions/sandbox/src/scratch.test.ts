@@ -9,10 +9,6 @@ import { exportSessionScratch, mktempShimDirectory, withSessionScratch } from ".
 const SESSION_ID = "01a1cfbf-1586-7514-9c42-4b6b53c37159";
 const SESSION_DIRECTORY = join(tmpdir(), "pi", "4b6b53c37159");
 
-function spawnContext(environment: NodeJS.ProcessEnv): BashSpawnContext {
-  return { command: "ls", cwd: "/repo", env: environment };
-}
-
 test("on macOS bash gets the session directory as TMPDIR and the mktemp shim first on PATH", () => {
   // arrange
   const context = spawnContext({ PI_SESSION_ID: SESSION_ID, PATH: "/usr/bin" });
@@ -58,6 +54,10 @@ test("a directory inherited from the parent session wins over the session id", (
   // assert
   assert.equal(result.env.TMPDIR, "/scratch/parent");
 });
+
+function spawnContext(environment: NodeJS.ProcessEnv): BashSpawnContext {
+  return { command: "ls", cwd: "/repo", env: environment };
+}
 
 test("the command is prefixed with a one-line TMPDIR export", () => {
   // arrange

@@ -94,7 +94,7 @@ it("does not invoke a handler after cancellation", async () => {
   let submitted = false;
   registerPlanSubmission(bus, {
     available: () => true,
-    submit: async (): Promise<PlanSubmissionResult> => { submitted = true; return { content: [], details: { path: null, outcome: "saved" } }; },
+    submit: async (): Promise<PlanSubmissionResult> => { submitted = true; return { content: [], details: { path: undefined, outcome: "saved" } }; },
   });
   controller.abort();
   // act
@@ -107,7 +107,7 @@ it("does not invoke a handler after cancellation", async () => {
 function savedService(): PlanSubmissionService {
   return {
     available: () => true,
-    submit: async () => ({ content: [], details: { path: null, outcome: "saved" } }),
+    submit: async () => ({ content: [], details: { path: undefined, outcome: "saved" } }),
   };
 }
 

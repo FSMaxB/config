@@ -37,7 +37,7 @@ test("subagents are refused even with a UI", () => {
 
   // assert
   assert.equal(outcome.kind, "refuse");
-  assert.match(outcome.kind === "refuse" ? outcome.reason : "", /Subagents cannot/);
+  assert.match(outcome.reason, /Subagents cannot/);
 });
 
 test("without a UI the bypass is refused instead of assumed", () => {
@@ -46,7 +46,7 @@ test("without a UI the bypass is refused instead of assumed", () => {
 
   // assert
   assert.equal(outcome.kind, "refuse");
-  assert.match(outcome.kind === "refuse" ? outcome.reason : "", /no interactive UI/);
+  assert.match(outcome.reason, /no interactive UI/);
 });
 
 test("a session decision skips the prompt", () => {

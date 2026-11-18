@@ -22,7 +22,7 @@ const DEFAULT_EXPORT_FILES = [
   "extensions/sandbox/src/extension.ts",
 ];
 
-const TEST_FILES = ["**/*.test.ts", "extensions/claude-bridge/tests/**"];
+const TEST_FILES = ["**/*.test.ts", "**/*.smoke.ts", "extensions/claude-bridge/tests/**"];
 
 export default defineConfig([
   { ignores: ["**/node_modules/**"] },
@@ -54,7 +54,11 @@ export default defineConfig([
   },
   {
     files: TEST_FILES,
-    rules: { "@typescript-eslint/no-magic-numbers": "off" },
+    rules: {
+      "@typescript-eslint/no-magic-numbers": "off",
+      // Test doubles stand in for pi's large context and API objects with only the members a test touches.
+      "@typescript-eslint/consistent-type-assertions": "off",
+    },
   },
 ]);
 

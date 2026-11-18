@@ -7,13 +7,11 @@ export const Outcome = {
   Superseded: "superseded", // the next request started first: cache warm, retry, compaction request
   Shutdown: "shutdown",
 } as const;
-export type Outcome = (typeof Outcome)[keyof typeof Outcome];
 
 export const RequestPurpose = {
   Turn: "turn",
   CacheWarm: "cache-warm", // pi re-sent the previous request to keep its prompt cache alive
 } as const;
-export type RequestPurpose = (typeof RequestPurpose)[keyof typeof RequestPurpose];
 
 export const MarkerEvent = {
   SessionStart: "session_start",
@@ -21,65 +19,6 @@ export const MarkerEvent = {
   ModelSelect: "model_select",
   LogCapped: "log_capped",
 } as const;
-export type MarkerEvent = (typeof MarkerEvent)[keyof typeof MarkerEvent];
-
-export interface Usage {
-  input: number;
-  output: number;
-  cacheRead: number;
-  cacheWrite: number;
-}
-
-export interface RequestRecord {
-  version: typeof RECORD_VERSION;
-  kind: "request";
-  sessionId: string;
-  provider: string;
-  model: string;
-  api: string;
-  // Read as Turn when absent.
-  purpose?: RequestPurpose;
-  startedAt: string;
-  completedAt?: string;
-  payload?: PayloadFingerprint; // absent when the provider never exposes its payload (pi-claude)
-  status?: number;
-  responseHeaders?: Record<string, string>;
-  usage?: Usage;
-  stopReason?: string;
-  responseId?: string; // provider's id for this response, for support tickets
-  outcome: Outcome;
-}
-
-export interface MarkerRecord {
-  version: typeof RECORD_VERSION;
-  kind: "marker";
-  sessionId: string;
-  at: string;
-  event: MarkerEvent;
-  detail?: string;
-}
-
-export type LogRecord = RequestRecord | MarkerRecord;
-
-interface RequestStart {
-  sessionId: string;
-  provider: string;
-  model: string;
-  api: string;
-  at: Date;
-  payload?: PayloadFingerprint;
-}
-
-interface AssistantMessageEnd {
-  sessionId: string;
-  provider: string;
-  model: string;
-  api: string;
-  usage: Usage;
-  stopReason: string;
-  responseId?: string;
-  at: Date;
-}
 
 // pi sends the refresh within milliseconds of deciding on it; a later request is a real turn.
 const CACHE_WARM_WINDOW_MILLISECONDS = 5_000;
@@ -140,6 +79,60 @@ export class RequestTracker {
   }
 }
 
+export type LogRecord = RequestRecord | MarkerRecord;
+
+export interface RequestRecord {
+  version: typeof RECORD_VERSION;
+  kind: "request";
+  sessionId: string;
+  provider: string;
+  model: string;
+  api: string;
+  // Read as Turn when absent.
+  purpose?: RequestPurpose;
+  startedAt: string;
+  completedAt?: string;
+  payload?: PayloadFingerprint; // absent when the provider never exposes its payload (pi-claude)
+  status?: number;
+  responseHeaders?: Record<string, string>;
+  usage?: Usage;
+  stopReason?: string;
+  responseId?: string; // provider's id for this response, for support tickets
+  outcome: Outcome;
+}
+export type Outcome = (typeof Outcome)[keyof typeof Outcome];
+export type RequestPurpose = (typeof RequestPurpose)[keyof typeof RequestPurpose];
+
+export interface MarkerRecord {
+  version: typeof RECORD_VERSION;
+  kind: "marker";
+  sessionId: string;
+  at: string;
+  event: MarkerEvent;
+  detail?: string;
+}
+export type MarkerEvent = (typeof MarkerEvent)[keyof typeof MarkerEvent];
+
+interface RequestStart {
+  sessionId: string;
+  provider: string;
+  model: string;
+  api: string;
+  at: Date;
+  payload?: PayloadFingerprint;
+}
+
+interface AssistantMessageEnd {
+  sessionId: string;
+  provider: string;
+  model: string;
+  api: string;
+  usage: Usage;
+  stopReason: string;
+  responseId?: string;
+  at: Date;
+}
+
 // Response headers carry request ids, rate limits and cache hints; only credentials and cookies stay out.
 const SECRET_HEADER = /cookie|authorization|api-key|secret/i;
 
@@ -149,4 +142,11 @@ export function filterHeaders(headers: Record<string, string>): Record<string, s
 
 function pickUsage({ input, output, cacheRead, cacheWrite }: Usage): Usage {
   return { input, output, cacheRead, cacheWrite };
+}
+
+export interface Usage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
 }

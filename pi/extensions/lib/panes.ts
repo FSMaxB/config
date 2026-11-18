@@ -2,8 +2,6 @@ import { basename } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { execChecked } from "./exec.ts";
 
-export type Multiplexer = "tmux" | "zellij";
-
 // tmux, zellij and ps answer in milliseconds; this only bounds a hung multiplexer.
 const TIMEOUT = 15_000;
 // A review needs most of the window; the caller's pane keeps the rest visible beside it.
@@ -80,6 +78,8 @@ export async function openPane(
     }
   }
 }
+
+export type Multiplexer = "tmux" | "zellij";
 
 // zellij's layout dump groups floating panes under `floating_panes {` and
 // carries no pane ids, so the caller pane can only be recognised by its

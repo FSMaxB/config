@@ -8,15 +8,6 @@ import { effectiveNetwork, emptyGrants, parseGrants, recordGrant, serializeGrant
 import { emptyProfileDefinition } from "./profiles.ts";
 import { loadActivationDecisions, loadProfiles, loadSettings, parseSettingsFile, resolveSettings, updateActivationDecisions, updateDomainLists, updateProfile } from "./settings.ts";
 
-async function withDirectory<T>(body: (directory: string) => Promise<T>): Promise<T> {
-  const directory = await mkdtemp(join(tmpdir(), "sandbox-settings-"));
-  try {
-    return await body(directory);
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-}
-
 test("a missing settings file yields the defaults", async () => {
   await withDirectory(async (directory) => {
     // arrange
@@ -317,6 +308,15 @@ test("deleting a profile removes its activation decision", async () => {
     assert.deepEqual([...decisions.allowed], ["other"]);
   });
 });
+
+async function withDirectory<T>(body: (directory: string) => Promise<T>): Promise<T> {
+  const directory = await mkdtemp(join(tmpdir(), "sandbox-settings-"));
+  try {
+    return await body(directory);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
 
 async function readSettingsFile(filePath: string): Promise<Record<string, unknown>> {
   const parsed: unknown = JSON.parse(await readFile(filePath, "utf8"));

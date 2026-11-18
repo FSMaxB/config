@@ -24,10 +24,10 @@ export const CLAUDE_BRIDGE_TOOL_ISOLATION = {
 export function bridgeOnlyToolHook(): HookCallback {
 	return async (input) => {
 		try {
-			const eventName = input.hook_event_name;
+			const eventName: unknown = input.hook_event_name;
 			if (typeof eventName !== "string" || !eventName) return denyTool("<unknown>");
 			if (eventName !== "PreToolUse") return { continue: true };
-			const name = input.tool_name;
+			const name: unknown = Reflect.get(input, "tool_name");
 			if (typeof name === "string" && name.startsWith(MCP_TOOL_PREFIX) && name.length > MCP_TOOL_PREFIX.length) {
 				return { continue: true };
 			}
@@ -38,10 +38,6 @@ export function bridgeOnlyToolHook(): HookCallback {
 	};
 }
 
-interface PreToolUseDenial {
-	hookSpecificOutput: { hookEventName: "PreToolUse"; permissionDecision: "deny"; permissionDecisionReason: string };
-}
-
 function denyTool(name: unknown): PreToolUseDenial {
 	return {
 		hookSpecificOutput: {
@@ -50,4 +46,8 @@ function denyTool(name: unknown): PreToolUseDenial {
 			permissionDecisionReason: `Tool "${typeof name === "string" ? name : "<unknown>"}" is not available; only Pi bridge tools are permitted.`,
 		},
 	};
+}
+
+interface PreToolUseDenial {
+	hookSpecificOutput: { hookEventName: "PreToolUse"; permissionDecision: "deny"; permissionDecisionReason: string };
 }
