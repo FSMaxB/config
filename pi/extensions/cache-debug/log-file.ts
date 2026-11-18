@@ -119,8 +119,8 @@ function parseRecord(line: string): LogRecord | undefined {
   try {
     const parsed: unknown = JSON.parse(line);
     if (!isRecord(parsed) || parsed.version !== RECORD_VERSION) return undefined;
-    // Only this extension writes the log, so a record of the current version has the current shape.
     const record: unknown = parsed;
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- only this extension writes the log, and the version check identifies the shape
     return record as LogRecord;
   } catch {
     return undefined;

@@ -3,6 +3,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { isRecord } from "./untyped.ts";
 
 export function registerPlanSubmission(
   events: ExtensionAPI["events"],
@@ -11,8 +12,7 @@ export function registerPlanSubmission(
   // Discovery must finish synchronously; awaiting submission here would let
   // Pi's event-bus error logging swallow failures instead of failing Crit.
   return events.on(DISCOVERY_CHANNEL, (data) => {
-    const request = data as DiscoveryRequest;
-    request.services.push(service);
+    if (isRecord(data) && Array.isArray(data.services)) data.services.push(service);
   });
 }
 

@@ -20,7 +20,7 @@ export function sdkQueryFactory(...queryArguments: Parameters<SdkQueryFactory>):
 }
 
 export function claudeAgentSdk(): ClaudeAgentSdk {
-	// require() returns the module untyped; its type is the package's own declaration.
+	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- require() is untyped; the type is the package's own declaration
 	loadedSdk ??= requirePackage("@anthropic-ai/claude-agent-sdk") as ClaudeAgentSdk;
 	return loadedSdk;
 }

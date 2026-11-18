@@ -10,6 +10,7 @@ import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import type { AssistantMessage, AssistantMessageEventStream, JsonObject, Model, SimpleStreamOptions, TextContent, ThinkingContent, ToolCall, TranscriptContext, Api } from "@earendil-works/pi-ai";
 import type { McpResult } from "./extract-tool-results.js";
 import { currentRequestLaneId } from "./request-lane.js";
+import { processGlobal } from "../../lib/process-global.ts";
 
 /** A mid-query user run captured for replay after the active query ends.
  *  `text` is the joined text form (previews, and the replay prompt when no
@@ -722,16 +723,10 @@ const QUERY_LANES_SYMBOL = Symbol.for("kendex.pi.claude-bridge.query-lanes.v1");
 
 // Every copy of this module in the process shares one store; only this function writes it.
 function queryLaneStore(): QueryLaneStoreV1 {
-	const host = globalThis as Record<symbol, unknown>;
-	let store = host[QUERY_LANES_SYMBOL] as QueryLaneStoreV1 | undefined;
-	if (!store) {
-		store = {
-			defaultLane: { current: new QueryContext(), stack: [] },
-			sessionLanes: new Map(),
-		};
-		host[QUERY_LANES_SYMBOL] = store;
-	}
-	return store;
+	return processGlobal(QUERY_LANES_SYMBOL, (): QueryLaneStoreV1 => ({
+		defaultLane: { current: new QueryContext(), stack: [] },
+		sessionLanes: new Map(),
+	}));
 }
 
 function lane(): QueryLaneState {

@@ -13,6 +13,7 @@ import { verifyWrittenSession as _verifyWrittenSession } from "./session-verify.
 import { conversationMessages } from "./transcript.js";
 import type { PiSessionMessage } from "./transcript.js";
 import { errorMessage } from "../../lib/errors.ts";
+import { processGlobal } from "../../lib/process-global.ts";
 import { isRecord, stringProperty } from "../../lib/untyped.ts";
 import {
 	findUnpairedToolUses,
@@ -195,8 +196,8 @@ function latestPersistedBridgeSession(sessionManager: SessionManagerView | undef
 
 function parsePersistedBridgeSession(data: unknown): PersistedBridgeSessionState | undefined {
 	if (!isRecord(data) || typeof data.sessionId !== "string" || typeof data.cursor !== "number" || typeof data.cwd !== "string" || typeof data.fingerprint !== "string") return undefined;
-	// Only schedulePersistSharedSession writes these entries, so the checked fields identify the shape.
 	const persisted: unknown = data;
+	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- only schedulePersistSharedSession writes these entries
 	return persisted as PersistedBridgeSessionState;
 }
 
@@ -314,13 +315,7 @@ type PersistenceTimer = ReturnType<typeof setTimeout>;
 
 // Shared by every copy of this module in the process; only this function writes it.
 function scheduledPersistenceTimers(): Map<object, PersistenceTimer> {
-	const host = globalThis as Record<symbol, unknown>;
-	let store = host[SCHEDULED_PERSISTENCE_SYMBOL] as Map<object, PersistenceTimer> | undefined;
-	if (!store) {
-		store = new Map<object, PersistenceTimer>();
-		host[SCHEDULED_PERSISTENCE_SYMBOL] = store;
-	}
-	return store;
+	return processGlobal(SCHEDULED_PERSISTENCE_SYMBOL, () => new Map<object, PersistenceTimer>());
 }
 
 export function cancelScheduledSessionPersistence(sessionManager: object): void {

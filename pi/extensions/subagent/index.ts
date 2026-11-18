@@ -110,7 +110,7 @@ export default function (pi: ExtensionAPI): void {
     .map(({ name, description }) => `${name} (${description})`)
     .join(", ");
 
-  registerToolWithGuidelines(pi, {
+  registerToolWithGuidelines<typeof SubagentParameters, SubagentDetails | undefined>(pi, {
     name: "subagent",
     exposure: "model-only",
     label: "Subagent",
@@ -327,7 +327,7 @@ export default function (pi: ExtensionAPI): void {
 
     renderResult(result, { expanded }, theme, context) {
       const { durationMs } = context;
-      const details = result.details as SubagentDetails | undefined;
+      const { details } = result;
       if (!details || details.results.length === 0) {
         const text = result.content[0];
         return new Text(text?.type === "text" ? text.text : "(no output)", 0, 0);
@@ -621,7 +621,7 @@ async function runSingleAgent(
         const { message: rawMessage } = event;
         const endsMessage = event.type === "message_end" || event.type === "tool_result_end";
         if (!endsMessage || typeof rawMessage !== "object" || rawMessage === null) return;
-        // The child is pi in JSON mode, which writes its own Message objects.
+        // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the child is pi in JSON mode, writing its own Message objects
         const message = rawMessage as Message;
         if (message.role === "toolResult" && completedToolCalls.has(message.toolCallId)) return;
         const usage = finalizedMessageUsage(message, completedToolCalls);

@@ -201,7 +201,7 @@ export function recordRule(rule: PathRule, tiers: RuleTiers): Set<RuleTier> {
 }
 
 export function selectorFromKey(key: string): PathSelector {
-  // Keys only come from selectorKey, so their shape is known.
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- keys only come from selectorKey
   const [kind, first, second] = JSON.parse(key) as [PathSelector["kind"], string, string?];
   return kind === "glob" ? glob(first, second ?? "") : { kind, path: first };
 }

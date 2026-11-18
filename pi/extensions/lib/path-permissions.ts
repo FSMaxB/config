@@ -19,6 +19,7 @@ import { profileDestinations } from "./permission-choices.ts";
 import { ALL_DURATIONS, askPermission, Duration, userReason } from "./permission-prompt.ts";
 import type { ScopeChoice } from "./permission-prompt.ts";
 import { permissionUI } from "./permission-ui.ts";
+import { processGlobal } from "./process-global.ts";
 import { announceSessionGrantsChanged } from "./session-grants.ts";
 import type { SessionGrant } from "./session-grants.ts";
 import { isRecord, stringProperty } from "./untyped.ts";
@@ -26,8 +27,7 @@ const RULES_FILE = join(getAgentDir(), "path-permissions.json");
 const RULES_ENTRY_TYPE = "path-permissions";
 interface SharedState { sessions: StoredRules; agentMode: AgentMode; temporaryDirectory: string | undefined; inherited: InheritedPolicy; persistSession: ((snapshot: SerializedStoredRules) => void) | undefined }
 // Every extension that imports this module shares one state per process, even when pi loads the module more than once.
-const globalState = globalThis as { piPathPermissions?: SharedState };
-const state = (globalState.piPathPermissions ??= { sessions: emptyStoredRules(), agentMode: AgentMode.Execution, temporaryDirectory: undefined, inherited: parseChildPathPolicy(process.env[CHILD_POLICY_ENV]), persistSession: undefined });
+const state = processGlobal("piPathPermissions", (): SharedState => ({ sessions: emptyStoredRules(), agentMode: AgentMode.Execution, temporaryDirectory: undefined, inherited: parseChildPathPolicy(process.env[CHILD_POLICY_ENV]), persistSession: undefined }));
 export function setAgentMode(mode: AgentMode): void { state.agentMode = mode; }
 // A subagent runs in execution mode but must apply the defaults and notices of the mode it was dispatched from.
 export function currentAgentMode(): AgentMode { return parentPolicy()?.agentMode ?? state.agentMode; }

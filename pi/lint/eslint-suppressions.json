@@ -37,9 +37,6 @@
     }
   },
   "extensions/cache-debug/log-file.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 1
     }
@@ -79,9 +76,6 @@
     }
   },
   "extensions/claude-bridge/src/billing-identity.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 3
-    },
     "local/step-down": {
       "count": 7
     }
@@ -92,9 +86,6 @@
     }
   },
   "extensions/claude-bridge/src/bridge-state.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 4
-    },
     "local/step-down": {
       "count": 12
     },
@@ -121,11 +112,8 @@
     }
   },
   "extensions/claude-bridge/src/config.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
-    },
     "@typescript-eslint/prefer-nullish-coalescing": {
-      "count": 2
+      "count": 1
     },
     "local/step-down": {
       "count": 20
@@ -204,9 +192,6 @@
     }
   },
   "extensions/claude-bridge/src/pi-ai-compat.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 2
     }
@@ -225,9 +210,6 @@
     }
   },
   "extensions/claude-bridge/src/query-state.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 2
-    },
     "local/step-down": {
       "count": 24
     }
@@ -243,25 +225,16 @@
     }
   },
   "extensions/claude-bridge/src/request-lane.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 2
-    },
     "local/step-down": {
       "count": 1
     }
   },
   "extensions/claude-bridge/src/sdk-query.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 2
     }
   },
   "extensions/claude-bridge/src/session-persistence.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 3
-    },
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 1
     },
@@ -316,12 +289,6 @@
     }
   },
   "extensions/claude-bridge/src/tool-server.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 4
-    },
-    "@typescript-eslint/no-deprecated": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 3
     }
@@ -470,9 +437,6 @@
     }
   },
   "extensions/lib/path-permission-rules.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 27
     }
@@ -488,9 +452,6 @@
     }
   },
   "extensions/lib/path-permissions.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 12
     }
@@ -526,9 +487,6 @@
     }
   },
   "extensions/lib/permission-prompt.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 8
     }
@@ -554,9 +512,6 @@
     }
   },
   "extensions/lib/plan-submission.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 1
     }
@@ -567,19 +522,8 @@
     }
   },
   "extensions/lib/restricted-mode.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 6
-    }
-  },
-  "extensions/lib/sandbox-state.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
-    },
-    "local/step-down": {
-      "count": 2
     }
   },
   "extensions/lib/search-binaries.ts": {
@@ -618,9 +562,6 @@
     }
   },
   "extensions/lib/session-grants.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 4
     }
@@ -897,9 +838,6 @@
     }
   },
   "extensions/subagent/index.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 2
-    },
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 10
     },

@@ -23,5 +23,6 @@ export async function resolveGetModels(
 // Which module exports getModels differs between pi-ai versions; its signature does not.
 function getModelsExport(module: object): GetModels | undefined {
 	const value: unknown = Reflect.get(module, "getModels");
+	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- getModels has the same signature in every pi-ai version
 	return typeof value === "function" ? (value as GetModels) : undefined;
 }

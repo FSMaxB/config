@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { processGlobal } from "../../lib/process-global.ts";
 
 /**
  * Selects the Pi agent session whose provider request is currently executing.
@@ -14,13 +15,7 @@ const REQUEST_LANE_SYMBOL = Symbol.for("kendex.pi.claude-bridge.request-lane.v1"
 
 // Every copy of this module in the process shares the storage; only this function creates it.
 function requestLaneStorage(): AsyncLocalStorage<string> {
-	const host = globalThis as Record<symbol, unknown>;
-	let storage = host[REQUEST_LANE_SYMBOL] as AsyncLocalStorage<string> | undefined;
-	if (!storage) {
-		storage = new AsyncLocalStorage<string>();
-		host[REQUEST_LANE_SYMBOL] = storage;
-	}
-	return storage;
+	return processGlobal(REQUEST_LANE_SYMBOL, () => new AsyncLocalStorage<string>());
 }
 
 /** Run `callback` in the lane for `sessionId`. `undefined` selects the default

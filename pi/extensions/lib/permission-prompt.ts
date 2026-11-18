@@ -66,6 +66,7 @@ async function askOnce<Scope, Destination>(ui: PermissionUI, request: Permission
   const answer = await resolveOption(ui, request, option);
   // resolveOption only answers "allow-to" for a destination of the request, and a request
   // without destinations has Destination = never, which drops that branch from the type.
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- Destination = never drops the "allow-to" branch for requests without destinations
   return answer === undefined ? undefined : (answer as PermissionAnswer<Scope, Destination>);
 }
 

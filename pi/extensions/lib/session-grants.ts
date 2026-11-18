@@ -1,4 +1,5 @@
 import type { AccessMode } from "./path-permission-rules.ts";
+import { isRecord } from "./untyped.ts";
 
 // Session-tier grants and denials live in several extensions (path rules, plan/explore tool decisions,
 // sandbox network hosts, sandbox profiles, unsandboxed bash). They meet on the runtime's event bus because the extensions
@@ -30,7 +31,7 @@ interface CollectRequest {
 // request by the time emit returns.
 export function provideSessionGrants(events: GrantEventBus, provide: () => readonly SessionGrant[]): void {
   events.on(COLLECT_CHANNEL, (data) => {
-    (data as CollectRequest).grants.push(...provide());
+    if (isRecord(data) && Array.isArray(data.grants)) data.grants.push(...provide());
   });
 }
 

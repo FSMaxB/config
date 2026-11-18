@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { DEBUG, debug, diagDump, diagGuidance, diagLogPath, shortId } from "./debug.js";
+import { processGlobal } from "../../lib/process-global.ts";
 import type { QueryContext } from "./query-state.js";
 import { currentRequestLaneId } from "./request-lane.js";
 import { summarizeMissingToolNames } from "./tool-pairing-audit.js";
@@ -78,13 +79,7 @@ const SHARED_SESSION_LANES_SYMBOL = Symbol.for("kendex.pi.claude-bridge.shared-s
 
 // The store is shared by every copy of this module in the process; only this function writes it.
 function sharedSessionLaneStore(): SharedSessionLaneStoreV1 {
-	const host = globalThis as Record<symbol, unknown>;
-	let store = host[SHARED_SESSION_LANES_SYMBOL] as SharedSessionLaneStoreV1 | undefined;
-	if (!store) {
-		store = { defaultSession: undefined, sessions: new Map() };
-		host[SHARED_SESSION_LANES_SYMBOL] = store;
-	}
-	return store;
+	return processGlobal(SHARED_SESSION_LANES_SYMBOL, (): SharedSessionLaneStoreV1 => ({ defaultSession: undefined, sessions: new Map() }));
 }
 
 let extensionApi: ExtensionAPI | undefined;
@@ -130,13 +125,7 @@ const STARTED_LANES_SYMBOL = Symbol.for("kendex.pi.claude-bridge.started-lanes.v
 
 // Shared like the session lane store above; only this function writes it.
 function startedLaneStore(): WeakMap<object, string> {
-	const host = globalThis as Record<symbol, unknown>;
-	let store = host[STARTED_LANES_SYMBOL] as WeakMap<object, string> | undefined;
-	if (!store) {
-		store = new WeakMap<object, string>();
-		host[STARTED_LANES_SYMBOL] = store;
-	}
-	return store;
+	return processGlobal(STARTED_LANES_SYMBOL, () => new WeakMap<object, string>());
 }
 
 export function recordStartedLane(sessionManager: object, sessionId: string): void {

@@ -51,7 +51,7 @@ import { announceSessionGrantsChanged, provideSessionGrants } from "./session-gr
 import type { SessionGrant } from "./session-grants.ts";
 import { planToolPermission, toolDecisionGrants, trustedReadOnlyToolNames } from "./tool-permission-policy.ts";
 import type { ToolPermission } from "./tool-permission-policy.ts";
-import { stringProperty } from "./untyped.ts";
+import { isRecord, stringProperty } from "./untyped.ts";
 
 export interface ModeDefinition {
   identity: ModeIdentity;
@@ -148,9 +148,8 @@ function discoverEngine(pi: ExtensionAPI): Engine | undefined {
 function createEngine(pi: ExtensionAPI): Engine {
   const engine = new Engine(pi);
   pi.events.on(DISCOVERY_CHANNEL, (data) => {
-    // Only discoverEngine emits on this channel, so the data is always its request.
-    const request = data as DiscoveryRequest;
-    request.engine ??= engine;
+    if (!isRecord(data)) return;
+    data.engine ??= engine;
   });
   return engine;
 }

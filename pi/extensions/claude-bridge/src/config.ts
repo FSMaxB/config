@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { debug } from "./debug.js";
 import { ancestorDirectories } from "../../lib/repo.ts";
+import { processGlobal } from "../../lib/process-global.ts";
 import { isRecord } from "../../lib/untyped.ts";
 
 export type BridgeEffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
@@ -101,17 +102,12 @@ function projectSettingsPath(cwd: string): string {
 const PROJECT_TRUST_SYMBOL = Symbol.for("kendex.pi.project-trust");
 
 interface ProjectTrustRegistry {
-	projectSettings?: Map<string, boolean>;
+	projectSettings: Map<string, boolean>;
 }
 
-// Every copy of this module in the process shares the registry; only this function creates it.
+// Every copy of this module in the process shares the registry.
 function projectTrustRegistry(): ProjectTrustRegistry {
-	const host = globalThis as Record<symbol, ProjectTrustRegistry | undefined>;
-	const existing = host[PROJECT_TRUST_SYMBOL];
-	if (existing) return existing;
-	const created: ProjectTrustRegistry = {};
-	host[PROJECT_TRUST_SYMBOL] = created;
-	return created;
+	return processGlobal(PROJECT_TRUST_SYMBOL, (): ProjectTrustRegistry => ({ projectSettings: new Map() }));
 }
 
 export function recordProjectTrust(context: { cwd?: string; isProjectTrusted?: () => boolean }): void {
@@ -126,13 +122,11 @@ export function recordProjectTrust(context: { cwd?: string; isProjectTrusted?: (
 	} catch {
 		trusted = false;
 	}
-	const registry = projectTrustRegistry();
-	if (!registry.projectSettings) registry.projectSettings = new Map();
-	registry.projectSettings.set(projectSettingsPath(context.cwd), trusted);
+	projectTrustRegistry().projectSettings.set(projectSettingsPath(context.cwd), trusted);
 }
 
 function projectSettingsTrusted(settingsPath: string): boolean {
-	return projectTrustRegistry().projectSettings?.get(settingsPath) === true;
+	return projectTrustRegistry().projectSettings.get(settingsPath) === true;
 }
 
 
