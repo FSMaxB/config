@@ -69,7 +69,7 @@ export interface RestrictedModeHandle {
   blockedReason(toolName: string): string | undefined;
   // Handles "" (toggle), "grants", "allow <glob>" and "deny <glob>"; false for anything else.
   handleCommand(argument: string, context: ExtensionCommandContext): Promise<boolean>;
-  completions(prefix: string): AutocompleteItem[] | null;
+  completions: (prefix: string) => AutocompleteItem[] | null;
 }
 
 // Plan mode and explore mode share one engine per runtime: the mode is a single state, the tool

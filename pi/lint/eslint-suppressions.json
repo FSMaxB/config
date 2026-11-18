@@ -591,17 +591,11 @@
     }
   },
   "extensions/explore-mode.ts": {
-    "@typescript-eslint/unbound-method": {
-      "count": 1
-    },
     "unicorn/name-replacements": {
       "count": 1
     }
   },
   "extensions/files.ts": {
-    "@typescript-eslint/unbound-method": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 1
     },
@@ -775,9 +769,6 @@
     }
   },
   "extensions/lib/mode-messages.ts": {
-    "@typescript-eslint/unbound-method": {
-      "count": 4
-    },
     "local/step-down": {
       "count": 4
     }
@@ -1108,9 +1099,6 @@
   "extensions/plan-mode.ts": {
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 6
-    },
-    "@typescript-eslint/unbound-method": {
-      "count": 1
     },
     "local/step-down": {
       "count": 1

@@ -178,7 +178,9 @@ function lsDefinition(cwd: string): ToolDefinition<typeof lsParameters, LsToolDe
       `Includes dotfiles. Output is truncated to ${LS_DEFAULT_LIMIT} entries or 50KB (whichever is hit first). ` +
       'Use output="count" to return only the exact number of immediate entries, omitting names and ignoring limit.',
     parameters: lsParameters,
-    execute: createLsExecute(stockDefinition.execute),
+    execute: createLsExecute((toolCallId, parameters, signal, onUpdate, context) =>
+      stockDefinition.execute(toolCallId, parameters, signal, onUpdate, context),
+    ),
   };
 }
 
