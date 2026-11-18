@@ -2,8 +2,10 @@ import { lstat, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { exact, glob, tree } from "../../lib/path-permission-rules.ts";
 import type { PathSelector } from "../../lib/path-permission-rules.ts";
+import type { Platform } from "./platform.ts";
+import { errorCode } from "../../lib/errors.ts";
+import { hasGlobCharacters } from "./glob-characters.ts";
 
-type Platform = "darwin" | "linux";
 
 // What git and jj write during normal operation, relative to the directory each spec describes.
 interface DirectorySpec {
@@ -101,7 +103,7 @@ export interface VcsLayout {
   // Every directory the specs describe that exists, keyed by absolute path.
   listings: ReadonlyMap<string, DirectoryListing>;
   // <repo>/.git when it is not a plain directory (linked worktree, submodule checkout or symlink): denied as a whole.
-  gitFile?: string;
+  gitFile: string | undefined;
 }
 
 export interface VcsWriteRules {
@@ -158,7 +160,7 @@ async function scanDirectory(path: string, spec: DirectorySpec, listings: Map<st
 // A directory that does not exist is simply not part of the layout. Dirents and stats of symlinks
 // describe the link itself, so a symlinked entry never counts as a directory.
 function ignoreMissing(error: unknown): undefined {
-  const code = (error as NodeJS.ErrnoException).code;
+  const code = errorCode(error);
   if (code === "ENOENT" || code === "ENOTDIR") return undefined;
   throw error;
 }
@@ -244,9 +246,4 @@ const COMPLEMENT_PATTERNS = [
 // needs its own pattern: `/**/*` matches every path at any depth below it.
 function complementOfVcsDirectories(repoRoot: string): PathSelector[] {
   return COMPLEMENT_PATTERNS.flatMap((pattern) => [glob(repoRoot, pattern), glob(repoRoot, `${pattern}/**/*`)]);
-}
-
-// srt reads a root path that contains these characters as a pattern itself.
-function hasGlobCharacters(path: string): boolean {
-  return /[*?[\]]/.test(path);
 }

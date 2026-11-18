@@ -20,7 +20,7 @@ function layoutOf(tree: Tree, repoRoot = REPO): VcsLayout {
     for (const [name, child] of Object.entries(node)) if (child !== "file") register(join(path, name), child);
   };
   for (const [name, child] of Object.entries(tree)) if (child !== "file") register(join(repoRoot, name), child);
-  return { repoRoot, listings };
+  return { repoRoot, listings, gitFile: undefined };
 }
 
 const COLOCATED: Tree = {

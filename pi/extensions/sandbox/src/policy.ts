@@ -7,13 +7,16 @@ import type { PathSelector } from "../../lib/path-permission-rules.ts";
 import { contains } from "../../lib/repo.ts";
 import { mktempShimDirectory } from "./scratch.ts";
 import type { VcsWriteRules } from "./vcs-policy.ts";
+import type { Platform } from "./platform.ts";
+import { unique } from "./settings-values.ts";
 
 export interface PolicyOptions {
-  platform: "darwin" | "linux";
+  platform: Platform;
   homeDirectory: string;
   toolchainRead: string[];
   extraDenyRead: string[];
-  vcs?: VcsWriteRules;
+  // Without it the repository stays a plain subtree allow.
+  vcs: VcsWriteRules | undefined;
 }
 
 export function filesystemConfig(policy: EffectivePolicy, options: PolicyOptions): FilesystemConfig {
@@ -39,15 +42,15 @@ export function filesystemConfig(policy: EffectivePolicy, options: PolicyOptions
 // On darwin the repository allow becomes "everything but .git and .jj" plus the paths git and jj write. A
 // grant of the repository root, which the violation prompt offers, is the same selector and is replaced
 // too, so it cannot re-open the VCS directories.
-function replaceRepositoryAllow(allow: PathSelector[], vcs: VcsWriteRules | undefined): PathSelector[] {
-  if (!vcs || vcs.repositoryAllow.length === 0) return allow;
+function replaceRepositoryAllow(allow: readonly PathSelector[], vcs: VcsWriteRules | undefined): PathSelector[] {
+  if (!vcs || vcs.repositoryAllow.length === 0) return [...allow];
   const isRepository = (selector: PathSelector) => selector.kind !== "glob" && selector.path === vcs.repositoryRoot;
   return [...allow.filter((selector) => !isRepository(selector)), ...(allow.some(isRepository) ? vcs.repositoryAllow : [])];
 }
 
 // srt applies a write deny after every allow, so the denies only matter once some allow reaches into a VCS
 // directory. Literal allows inside one, such as the jj lock files in plan mode, do not.
-function vcsDeny(writeAllow: PathSelector[], vcs: VcsWriteRules | undefined): string[] {
+function vcsDeny(writeAllow: readonly PathSelector[], vcs: VcsWriteRules | undefined): string[] {
   if (!vcs) return [];
   const reached = writeAllow.some((selector) => vcs.vcsDirectories.some((directory) => reachesVcsDirectory(selector, directory)));
   return reached ? vcs.deny : [];
@@ -81,7 +84,7 @@ function mayExposeSecret(selector: PathSelector, secret: string): boolean {
 
 // srt's glob semantics: no dotfile exception, `*` and `?` stay within a segment, `**` crosses any number.
 // A match that ends above the secret only exposes that directory entry, not the secret beneath it.
-function globMayReach(patternSegments: string[], secretSegments: string[]): boolean {
+function globMayReach(patternSegments: readonly string[], secretSegments: readonly string[]): boolean {
   const [segment, ...remainingSecret] = secretSegments;
   const [pattern, ...remainingPattern] = patternSegments;
   if (segment === undefined) return true;
@@ -118,8 +121,4 @@ function writeDenyPath(selector: PathSelector, platform: PolicyOptions["platform
 
 function selectorPath(selector: PathSelector): string {
   return selector.kind === "glob" ? `${selector.base}/${selector.pattern}` : selector.path;
-}
-
-function unique(values: string[]): string[] {
-  return [...new Set(values)];
 }

@@ -1,6 +1,7 @@
 import type { SessionGrant } from "../../lib/session-grants.ts";
 import type { NetworkAllowances } from "./profiles.ts";
 import type { Settings } from "./settings.ts";
+import { isRecord } from "../../lib/untyped.ts";
 
 export const NETWORK_ENTRY_TYPE = "network-permissions";
 
@@ -50,10 +51,11 @@ export function serializeGrants(grants: NetworkGrants): { allow: string[]; deny:
   return { allow: [...grants.allow], deny: [...grants.deny.keys()], denyReasons: Object.fromEntries(reasons) };
 }
 
-// Entries written before deny reasons existed have no denyReasons and parse as before.
+// Session entries are parsed leniently: an entry without denyReasons has no reasons, and malformed
+// values are dropped rather than failing the session.
 export function parseGrants(value: unknown): NetworkGrants {
-  if (typeof value !== "object" || value === null) return emptyGrants();
-  const { allow, deny, denyReasons } = value as { allow?: unknown; deny?: unknown; denyReasons?: unknown };
+  if (!isRecord(value)) return emptyGrants();
+  const { allow, deny, denyReasons } = value;
   const reasons = stringRecord(denyReasons);
   return { allow: new Set(strings(allow)), deny: new Map(strings(deny).map((pattern) => [pattern, reasons[pattern]])) };
 }
@@ -144,6 +146,6 @@ function strings(value: unknown): string[] {
 }
 
 function stringRecord(value: unknown): Record<string, string> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+  if (!isRecord(value)) return {};
   return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
 }

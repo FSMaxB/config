@@ -5,6 +5,7 @@ import type { EffectivePolicy } from "../../lib/path-permissions.ts";
 import { contains } from "../../lib/repo.ts";
 import { selectorText } from "./profiles.ts";
 import { isSecretPath } from "./violations.ts";
+import { hasGlobCharacters } from "./glob-characters.ts";
 
 export interface TraceAccess {
   mode: AccessMode;
@@ -47,7 +48,9 @@ export function traceAccesses(lines: readonly string[]): TraceAccess[] {
   for (const line of lines) {
     const match = ACCESS_LINE.exec(line);
     if (!match) continue;
-    const access: TraceAccess = { mode: match[2] as AccessMode, path: match[3] };
+    const mode = accessMode(match[2]);
+    if (mode === undefined) continue;
+    const access: TraceAccess = { mode, path: match[3] };
     accesses.set(`${access.mode}:${access.path}`, access);
   }
   return [...accesses.values()];
@@ -70,7 +73,7 @@ export function buildDraft(input: DraftInput): Draft {
       continue;
     }
     if (input.policy[access.mode].allow.some((selector) => matchesRule(access.path, selector))) continue;
-    if (access.mode === "read" && input.toolchainRead.some((path) => !isGlob(path) && contains(path, access.path))) continue;
+    if (access.mode === "read" && input.toolchainRead.some((path) => !hasGlobCharacters(path) && contains(path, access.path))) continue;
     kept.push(access);
   }
   const entries = (["read", "write"] as const).flatMap((mode) => {
@@ -103,22 +106,27 @@ const ENTRY_LINE = /^(read|write)\s+(\S.*)$/;
 export function parseDraftText(text: string): { entries: { mode: AccessMode; entry: string }[]; errors: string[] } {
   const entries: { mode: AccessMode; entry: string }[] = [];
   const errors: string[] = [];
-  text.split("\n").forEach((rawLine, index) => {
+  for (const [index, rawLine] of text.split("\n").entries()) {
     const line = rawLine.trim();
-    if (line === "" || line.startsWith("#")) return;
+    if (line === "" || line.startsWith("#")) continue;
     const match = ENTRY_LINE.exec(line);
-    if (!match) {
+    const mode = match ? accessMode(match[1]) : undefined;
+    if (!match || mode === undefined) {
       errors.push(`line ${index + 1}: expected "read <path>" or "write <path>", got "${line}"`);
-      return;
+      continue;
     }
     const entry = match[2].trim();
     if (!entry.startsWith("/") && !entry.startsWith("~/")) {
       errors.push(`line ${index + 1}: the path must start with / or ~/, got "${entry}"`);
-      return;
+      continue;
     }
-    entries.push({ mode: match[1] as AccessMode, entry });
-  });
+    entries.push({ mode, entry });
+  }
   return { entries, errors };
+}
+
+function accessMode(text: string | undefined): AccessMode | undefined {
+  return text === "read" || text === "write" ? text : undefined;
 }
 
 // Repeats until nothing changes, so a collapsed parent can itself collapse into its own parent.
@@ -153,9 +161,6 @@ function withoutNested(directories: readonly string[]): string[] {
     .sort();
 }
 
-function isGlob(path: string): boolean {
-  return /[*?[\]]/.test(path);
-}
 
 function firstLine(command: string): string {
   const [first = ""] = command.split("\n");

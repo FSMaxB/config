@@ -1,9 +1,12 @@
 import { basename } from "node:path";
 import type { FilesystemConfig } from "@anthropic-ai/sandbox-runtime";
+import type { AccessMode } from "../../lib/path-permission-rules.ts";
 import { contains, resolveThroughSymlinks } from "../../lib/repo.ts";
+import type { Platform } from "./platform.ts";
+import { hasGlobCharacters } from "./glob-characters.ts";
 
 export interface PathViolation {
-  mode: "read" | "write";
+  mode: AccessMode;
   path: string;
 }
 
@@ -11,7 +14,7 @@ export interface PathViolation {
 // Linux: `deny openat /home/max/x`
 const VIOLATION = /deny(?:\(\d+\))?\s+(\S+)\s+(\/.+?)\s*$/;
 
-export function pathViolations(lines: string[]): PathViolation[] {
+export function pathViolations(lines: readonly string[]): PathViolation[] {
   const violations = new Map<string, PathViolation>();
   for (const line of lines) {
     const violation = parseViolation(line);
@@ -25,12 +28,12 @@ export function pathViolations(lines: string[]): PathViolation[] {
 // when the sandbox exits. macOS refuses the write outright, so nothing is ever discarded there. Glob entries are
 // skipped: srt drops write globs on Linux and a read-deny glob is a user rule.
 export function discardedWrites(
-  violations: PathViolation[],
+  violations: readonly PathViolation[],
   filesystem: Pick<FilesystemConfig, "denyRead" | "allowWrite">,
-  platform: "darwin" | "linux",
+  platform: Platform,
 ): PathViolation[] {
   if (platform !== "linux") return [];
-  const literal = (entries: readonly string[]) => entries.filter((entry) => !/[*?[\]]/.test(entry));
+  const literal = (entries: readonly string[]): string[] => entries.filter((entry) => !hasGlobCharacters(entry));
   const denied = literal(filesystem.denyRead);
   const writable = literal(filesystem.allowWrite ?? []);
   return violations.filter(({ mode, path }) =>
@@ -52,14 +55,14 @@ export function isHereDocumentTemporaryFile(line: string): boolean {
   return violation?.mode === "write" && /^sh-thd[-.][A-Za-z0-9]+$/.test(basename(violation.path));
 }
 
-export function isSecretPath(path: string, secrets: string[]): boolean {
+export function isSecretPath(path: string, secrets: readonly string[]): boolean {
   return secrets.some((secret) => contains(secret, path));
 }
 
 // A violation path may travel through a symlink into a secret tree; resolve first so the report
 // names the real secret path. The existing parent is resolved for missing paths, so write-create
 // violations are covered too.
-export async function isSecretPathThroughSymlinks(path: string, secrets: string[]): Promise<boolean> {
+export async function isSecretPathThroughSymlinks(path: string, secrets: readonly string[]): Promise<boolean> {
   return isSecretPath(await resolveThroughSymlinks(path), secrets);
 }
 

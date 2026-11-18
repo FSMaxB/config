@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
+import { errorMessage } from "../../lib/errors.ts";
 import { shortenPath } from "../../lib/format.ts";
 import type { AccessMode, PathSelector } from "../../lib/path-permission-rules.ts";
+import { booleanValue, requireRecord, stringArray, unique } from "./settings-values.ts";
 
 export interface ProfileTriggers {
   commands: string[];
@@ -61,7 +63,7 @@ export function isValidProfileName(name: string): boolean {
 
 export function parseProfiles(value: unknown): Profile[] {
   if (value === undefined) return [];
-  const record = asRecord(value, "profiles");
+  const record = requireRecord(value, "profiles");
   return Object.keys(record)
     .sort()
     .map((name) => ({ name, ...parseProfileDefinition(record[name], name) }));
@@ -71,10 +73,10 @@ export function parseProfiles(value: unknown): Profile[] {
 export function parseProfileDefinition(value: unknown, name: string): ProfileDefinition {
   if (!isValidProfileName(name)) throw new Error(`profiles.${name}: the name must match ${NAME_PATTERN}`);
   const prefix = `profiles.${name}`;
-  const root = asRecord(value, prefix);
-  const triggers = asRecord(root.triggers ?? {}, `${prefix}.triggers`);
-  const filesystem = asRecord(root.filesystem ?? {}, `${prefix}.filesystem`);
-  const network = asRecord(root.network ?? {}, `${prefix}.network`);
+  const root = requireRecord(value, prefix);
+  const triggers = requireRecord(root.triggers ?? {}, `${prefix}.triggers`);
+  const filesystem = requireRecord(root.filesystem ?? {}, `${prefix}.filesystem`);
+  const network = requireRecord(root.network ?? {}, `${prefix}.network`);
   return {
     triggers: {
       commands: stringArray(triggers.commands, `${prefix}.triggers.commands`),
@@ -87,7 +89,7 @@ export function parseProfileDefinition(value: unknown, name: string): ProfileDef
     network: {
       access: networkAccess(network.access, `${prefix}.network.access`),
       allowedDomains: stringArray(network.allowedDomains, `${prefix}.network.allowedDomains`),
-      allowLocalBinding: boolean(network.allowLocalBinding, `${prefix}.network.allowLocalBinding`),
+      allowLocalBinding: booleanValue(network.allowLocalBinding, `${prefix}.network.allowLocalBinding`),
       allowUnixSockets: pathArray(network.allowUnixSockets, `${prefix}.network.allowUnixSockets`),
     },
     path: pathArray(root.path, `${prefix}.path`),
@@ -96,8 +98,8 @@ export function parseProfileDefinition(value: unknown, name: string): ProfileDef
 
 export function parseActivationDecisions(value: unknown): ActivationDecisions {
   if (value === undefined) return emptyActivationDecisions();
-  const record = asRecord(value, "profileActivation");
-  const reasons = record.deniedReasons === undefined ? {} : asRecord(record.deniedReasons, "profileActivation.deniedReasons");
+  const record = requireRecord(value, "profileActivation");
+  const reasons = record.deniedReasons === undefined ? {} : requireRecord(record.deniedReasons, "profileActivation.deniedReasons");
   const denied = stringArray(record.denied, "profileActivation.denied");
   return {
     allowed: new Set(stringArray(record.allowed, "profileActivation.allowed")),
@@ -121,13 +123,16 @@ export function serializeActivationDecisions({ allowed, denied }: ActivationDeci
   return { allowed: [...allowed], denied: [...denied.keys()], deniedReasons: Object.fromEntries(reasons) };
 }
 
+// Long enough that two profile sets never collide in practice, short enough for an environment variable.
+const FINGERPRINT_LENGTH = 16;
+
 // Triggers are left out on purpose: editing them never needs a restart of a long-lived server.
 export function profileFingerprint(profiles: readonly Profile[]): string {
   if (profiles.length === 0) return "";
   const reduced = [...profiles]
     .sort((left, right) => left.name.localeCompare(right.name))
     .map(({ name, filesystem, network, path }) => ({ name, filesystem, network, path }));
-  return createHash("sha256").update(JSON.stringify(reduced)).digest("hex").slice(0, 16);
+  return createHash("sha256").update(JSON.stringify(reduced)).digest("hex").slice(0, FINGERPRINT_LENGTH);
 }
 
 // Patterns srt's proxy matches; its config schema rejects "*" and "*.localhost", but the manager does not validate them.
@@ -170,50 +175,29 @@ export function addAllowedDomain(definition: ProfileDefinition, domain: string):
   return { ...definition, network: { ...definition.network, allowedDomains: [...definition.network.allowedDomains, domain] } };
 }
 
-function asRecord(value: unknown, name: string): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error(`${name} must be an object`);
-  return value as Record<string, unknown>;
-}
-
-function stringArray(value: unknown, name: string): string[] {
-  if (value === undefined) return [];
-  if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) throw new Error(`${name} must be an array of strings`);
-  return value;
-}
-
 function pathArray(value: unknown, name: string): string[] {
   const entries = stringArray(value, name);
-  entries.forEach((entry, index) => {
+  for (const [index, entry] of entries.entries()) {
     if (!entry.startsWith("/") && !entry.startsWith("~/")) throw new Error(`${name}[${index}] must start with / or ~/`);
-  });
+  }
   return entries;
 }
 
 function patternArray(value: unknown, name: string): string[] {
   const patterns = stringArray(value, name);
-  patterns.forEach((pattern, index) => {
+  for (const [index, pattern] of patterns.entries()) {
     try {
       new RegExp(pattern);
     } catch (error) {
-      throw new Error(`${name}[${index}] is not a valid regular expression: ${(error as Error).message}`);
+      throw new Error(`${name}[${index}] is not a valid regular expression: ${errorMessage(error)}`);
     }
-  });
+  }
   return patterns;
 }
 
 function networkAccess(value: unknown, name: string): NetworkAccess {
   if (value === undefined) return NetworkAccess.Listed;
-  const levels: readonly unknown[] = Object.values(NetworkAccess);
-  if (!levels.includes(value)) throw new Error(`${name} must be one of ${Object.values(NetworkAccess).map((level) => `"${level}"`).join(", ")}`);
-  return value as NetworkAccess;
-}
-
-function boolean(value: unknown, name: string): boolean {
-  if (value === undefined) return false;
-  if (typeof value !== "boolean") throw new Error(`${name} must be a boolean`);
-  return value;
-}
-
-function unique(values: string[]): string[] {
-  return [...new Set(values)];
+  const level = Object.values(NetworkAccess).find((candidate) => candidate === value);
+  if (level === undefined) throw new Error(`${name} must be one of ${Object.values(NetworkAccess).map((candidate) => `"${candidate}"`).join(", ")}`);
+  return level;
 }

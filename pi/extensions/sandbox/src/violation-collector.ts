@@ -68,7 +68,7 @@ function startSources(platform: PolicyOptions["platform"], store: SandboxViolati
 // (another pi, Claude Code) match too and are dropped because their command keys are not tracked here.
 function streamMacOSViolations(record: RecordViolation): () => void {
   const child = spawn("log", ["stream", "--predicate", 'eventMessage ENDSWITH "_SBX"', "--style", "compact"], { stdio: ["ignore", "pipe", "ignore"] });
-  // Without a listener a missing `log` binary would crash pi; violations then simply stay empty, as before.
+  // Without a listener a missing `log` binary would crash pi; violations then simply stay empty.
   child.on("error", () => undefined);
   child.stdout.setEncoding("utf8");
   let state = INITIAL_LOG_STREAM_STATE;

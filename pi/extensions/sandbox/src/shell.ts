@@ -14,6 +14,7 @@ const MINIMUM_VERSION: BashVersion = { major: 5, minor: 1 };
 // Homebrew's locations, for a pi started without Homebrew on PATH (e.g. from a GUI launcher).
 const WELL_KNOWN_SHELLS = ["/opt/homebrew/bin/bash", "/usr/local/bin/bash"];
 
+// `bash --version` answers in milliseconds; this only bounds a broken binary.
 const PROBE_TIMEOUT_MILLISECONDS = 2000;
 
 export interface BashVersion {
@@ -49,7 +50,7 @@ export function shellCandidates(environmentPath: string | undefined): string[] {
   return [...new Set([...onPath, ...WELL_KNOWN_SHELLS])];
 }
 
-export function chooseShell(probed: ProbedShell[]): ShellChoice {
+export function chooseShell(probed: readonly ProbedShell[]): ShellChoice {
   const supported = probed.find(({ version }) => isSupported(version));
   return supported ? { kind: "found", path: supported.path } : { kind: "missing", checked: probed.map(({ path }) => path) };
 }

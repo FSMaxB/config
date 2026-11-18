@@ -6,6 +6,7 @@ import { createBashToolDefinition, createLocalBashOperations, getAgentDir } from
 import type { AgentToolResult, BashOperations, BashSpawnContext, BashToolDetails, ExtensionAPI, ExtensionCommandContext, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import type { TSchema } from "typebox";
 import { currentAgentMode, currentPolicy, grantPathAccess } from "../../lib/path-permissions.ts";
 import type { OnceGrant } from "../../lib/path-permissions.ts";
 import { profileDestinations } from "../../lib/permission-choices.ts";
@@ -19,6 +20,7 @@ import { latestCustomData } from "../../lib/session-entries.ts";
 import { announceSessionGrantsChanged, provideSessionGrants } from "../../lib/session-grants.ts";
 import type { SessionGrant } from "../../lib/session-grants.ts";
 import { serialize } from "../../lib/ui-queue.ts";
+import { errorMessage } from "../../lib/errors.ts";
 import { BYPASS_DURATIONS, bypassOutcome, bypassPrompt, bypassSessionGrants, resolveAnswer } from "./bypass.ts";
 import type { BypassAuthorization, SessionDecision } from "./bypass.ts";
 import { callPrefix, PrefixedCallText, withSandboxProfiles } from "./call-line.ts";
@@ -28,7 +30,7 @@ import { NETWORK_ENTRY_TYPE, NO_PROFILE_NETWORK, destinationKey, emptyGrants, ne
 import type { NetworkDecision, NetworkGrants, OnceNetworkGrants } from "./network-grants.ts";
 import { activationOutcome, activationPrompt, emptyProfileState, parseProfileState, PROFILE_ENTRY_TYPE, profileSessionGrants, resolveActivationAnswer, serializeProfileState, settledResolution } from "./profile-activation.ts";
 import type { ActivationOrigin, ActivationResolution, RecordedDecision, ProfileSessionState } from "./profile-activation.ts";
-import { parseProfileCommand, profileCompletions, profileListText } from "./profile-command.ts";
+import { parseProfileCommand, profileCompletions, profileListText, SUBCOMMANDS } from "./profile-command.ts";
 import type { ProfileCommand } from "./profile-command.ts";
 import { profileEnvironment, withoutRepositoryWrites, stateDirectoryIn } from "./profile-grants.ts";
 import type { ProfileInputs } from "./profile-grants.ts";
@@ -48,9 +50,12 @@ import type { VcsWriteRules } from "./vcs-policy.ts";
 import { isHereDocumentTemporaryFile, isRepositoryRootRemoval, isSecretPath, pathViolations } from "./violations.ts";
 import type { PathViolation } from "./violations.ts";
 import { startViolationCollector } from "./violation-collector.ts";
-import type { ViolationCollector } from "./violation-collector.ts";
+import type { CollectedViolation, ViolationCollector } from "./violation-collector.ts";
 import { CommandExit, discardedWriteReport, HERE_DOCUMENT_REPORT, networkDenialReport, nextStep, promptDurations, rawViolationBlock, violationReport } from "./violation-outcomes.ts";
 import type { NextStep, ViolationOutcome } from "./violation-outcomes.ts";
+import { supportedPlatform } from "./platform.ts";
+import { SETTLE_POLL_MILLISECONDS, waitUntilCountSettles } from "./settle.ts";
+import type { Platform } from "./platform.ts";
 
 const SANDBOX_NOTE =
   "Commands run inside an OS sandbox that enforces the same read/write path rules as the file tools, with no network except allowed hosts. Denied paths are reported in a <sandbox_violations> block and the user is asked to grant them; after a grant the command has to be rerun, unless the user allowed it once: then the sandbox reruns it itself and the rerun's output follows the report. Never try to work around a denial. Sandbox profiles (extra permissions the user approved for tools such as bazel) apply to a single bash call: one whose command matches a profile's triggers, or one that names the profile in profiles (for commands the triggers miss, such as wrapper scripts). The user confirms a profile unless they already allowed it, and a refused requested profile fails the call; do not retry it with that profile. " +
@@ -62,12 +67,11 @@ const SCRATCH_GUIDELINE =
 const INSTALL_HINT =
   "Install with: sudo pacman -S bubblewrap socat ripgrep (Arch) or apt install bubblewrap socat ripgrep (Debian/Ubuntu, plus sysctl kernel.apparmor_restrict_unprivileged_userns=0 and apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict). Set PI_SANDBOX=0 to run without the sandbox.";
 
-// macOS reports violations asynchronously through `log stream`, so they land a moment after the child
-// exits, sometimes later than any single fixed wait. Keep polling until the count stops changing.
-const VIOLATION_POLL_MILLISECONDS = 250;
-const VIOLATION_MAX_POLLS = 6;
-// Per command, across all reruns of that command.
+// Per command, across all reruns of that command. A command that hits more paths than this is
+// usually scanning a tree, and its later paths are better granted with one broader rule.
 const MAX_PATH_PROMPTS_PER_COMMAND = 5;
+// The sandbox's scratch directory is private to the user, like the session scratch directory.
+const OWNER_ONLY_DIRECTORY_MODE = 0o700;
 
 const CONFIG_ID_WARNING =
   "Sandbox: this jj repo has no config-id, so on Linux the sandbox cannot stop a planted .jj/repo/config.toml or .jj/workspace-config.toml. Run `jj config path --repo` and `jj config path --workspace` once to create the ids.";
@@ -102,15 +106,16 @@ interface Runtime {
 
 type SandboxManagerType = typeof import("@anthropic-ai/sandbox-runtime")["SandboxManager"];
 
-export default function (pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI): void {
   if (process.env.PI_SANDBOX === "0") return;
   const cwd = process.cwd();
-  if (process.platform !== "darwin" && process.platform !== "linux") {
+  const platform = supportedPlatform();
+  if (platform === undefined) {
     registerToolWithGuidelines(pi, withSandboxNote(createBashToolDefinition(cwd, { operations: unsupportedOperations() })));
     return;
   }
   markSandboxActive();
-  const runtime = createRuntime(pi);
+  const runtime = createRuntime(pi, platform);
   provideSessionGrants(pi.events, () => runtime.sessionGrants());
   pi.on("session_start", (_event, context) => runtime.restoreGrants(context.sessionManager));
   // srt's proxies and macOS log monitor keep the event loop alive, so without this a `pi -p`
@@ -118,7 +123,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_shutdown", () => runtime.shutdown());
   registerToolWithGuidelines(pi, sandboxedBash(cwd, runtime));
   pi.registerCommand("sandbox-profile", {
-    description: "List sandbox profiles, or record|stop|edit|forget|delete one",
+    description: `List sandbox profiles, or ${SUBCOMMANDS.join("|")} one`,
     getArgumentCompletions: async (prefix) => profileCompletions(prefix, await runtime.profileNames().catch(() => [])),
     handler: async (args, context) => {
       const command = parseProfileCommand(args);
@@ -133,7 +138,7 @@ export default function (pi: ExtensionAPI) {
   });
 }
 
-function sandboxedBash(cwd: string, runtime: Runtime) {
+function sandboxedBash(cwd: string, runtime: Runtime): ToolDefinition<TSchema, SandboxedBashDetails | undefined, SandboxedBashRenderState> {
   const spawnHook = (context: BashSpawnContext) => withSessionScratch(context, process.platform);
   const sandboxed = createBashToolDefinition(cwd, { operations: runtime.operationsFor([], []), spawnHook });
   const unsandboxed = createBashToolDefinition(cwd, { spawnHook });
@@ -184,10 +189,10 @@ function callMode(args: { unsandboxed?: boolean }, state: SandboxedBashRenderSta
   return { kind: "sandboxed", profiles: state.sandboxProfiles ?? [] };
 }
 
-type BashRenderState = ReturnType<typeof createBashToolDefinition> extends ToolDefinition<any, any, infer State> ? State : never;
+type BashRenderState = ReturnType<typeof createBashToolDefinition> extends ToolDefinition<infer _Parameters, infer _Details, infer State> ? State : never;
 type SandboxedBashRenderState = BashRenderState & { sandboxProfiles?: readonly string[] };
 
-function withSandboxNote<Definition extends ToolDefinition<any, any, any>>(definition: Definition): Definition {
+function withSandboxNote<TParams extends TSchema, TDetails, TState>(definition: ToolDefinition<TParams, TDetails, TState>): ToolDefinition<TParams, TDetails, TState> {
   return { ...definition, description: `${definition.description}\n\n${SANDBOX_NOTE}` };
 }
 
@@ -199,7 +204,7 @@ function unsupportedOperations(): BashOperations {
   };
 }
 
-function createRuntime(pi: ExtensionAPI): Runtime {
+function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
   const stock = createLocalBashOperations();
   const subagent = Boolean(process.env.PI_SUBAGENT_CHILD);
   // pi passes the same session-scoped ExtensionContext to every tool call, so parallel bash
@@ -220,13 +225,12 @@ function createRuntime(pi: ExtensionAPI): Runtime {
   let shell: string | undefined;
   let collector: ViolationCollector | undefined;
   const onceNetworkGrants: OnceNetworkGrants = new Map();
-  // One id per bash call, shared by its reruns: once-answers to network prompts are scoped to these.
-  const runningExecutions = new Set<number>();
   let nextExecution = 0;
   // One id per pi process, i.e. per lifetime of srt's proxy: a bazel server started by an earlier pi keeps that pi's proxy.
   const instance = randomUUID();
   let profileState: ProfileSessionState = emptyProfileState();
-  // execution id → the profiles that call runs with
+  // One id per bash call, shared by its reruns, mapped to the profiles the call runs with. Once-answers
+  // to network prompts are scoped to the calls running at the time.
   const runningProfiles = new Map<number, string[]>();
   // srt command ids of profiled runs, newest last
   const profiledCommandIds: string[] = [];
@@ -283,13 +287,11 @@ function createRuntime(pi: ExtensionAPI): Runtime {
         await ensureInitialized();
         if (notices.length > 0) options.onData(Buffer.from(notices.map((line) => `${line}\n`).join("")));
         const execution = nextExecution++;
-        runningExecutions.add(execution);
         runningProfiles.set(execution, [...profileNames]);
         try {
           await refreshNetwork();
           return await runSandboxed(command, cwd, options, [], MAX_PATH_PROMPTS_PER_COMMAND, profileNames);
         } finally {
-          runningExecutions.delete(execution);
           runningProfiles.delete(execution);
           releaseOnceGrants(onceNetworkGrants, execution);
           await refreshNetwork().catch(() => undefined);
@@ -300,13 +302,13 @@ function createRuntime(pi: ExtensionAPI): Runtime {
 
   // Once-grants live only in this recursion, so they never outlast the command they were given for.
   // The prompt budget is per command too: each rerun draws from what the previous runs left.
-  async function runSandboxed(command: string, cwd: string, options: ExecOptions, onceGrants: OnceGrant[], promptsLeft: number, profileNames: readonly string[]): Promise<ExecResult> {
+  async function runSandboxed(command: string, cwd: string, options: ExecOptions, onceGrants: readonly OnceGrant[], promptsLeft: number, profileNames: readonly string[]): Promise<ExecResult> {
     const { result, step, promptsUsed } = await runOnce(command, cwd, options, onceGrants, promptsLeft, profileNames);
     if (step.kind === "return" || options.signal?.aborted) return result;
     return await runSandboxed(command, cwd, options, [...onceGrants, ...step.grants], promptsLeft - promptsUsed, profileNames);
   }
 
-  async function runOnce(command: string, cwd: string, options: ExecOptions, onceGrants: OnceGrant[], promptsLeft: number, profileNames: readonly string[]): Promise<{ result: ExecResult; step: NextStep; promptsUsed: number }> {
+  async function runOnce(command: string, cwd: string, options: ExecOptions, onceGrants: readonly OnceGrant[], promptsLeft: number, profileNames: readonly string[]): Promise<{ result: ExecResult; step: NextStep; promptsUsed: number }> {
     const commandId = randomUUID();
     // Reloaded on every run, so an "Add to profile" answer applies to the rerun and changes the fingerprint the shim sees.
     const profiles = (await loadProfiles(SETTINGS_FILE)).filter(({ name }) => profileNames.includes(name));
@@ -325,7 +327,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
       const exit = result.exitCode === 0 ? CommandExit.Succeeded : CommandExit.Failed;
       // Linux events arrive over the monitor socket and are best-effort after exit, so a successful command
       // pays one poll there; macOS reports asynchronously via `log stream`, so it polls until the count settles.
-      const collected = exit === CommandExit.Succeeded && process.platform === "linux"
+      const collected = exit === CommandExit.Succeeded && platform === "linux"
         ? await readViolationsAfterOneWait(commandId)
         : await collectViolations(commandId);
       const relevant = reportable(collected, vcs.repositoryRoot);
@@ -334,7 +336,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
       if (violations.length === 0) return { result, step: { kind: "return" }, promptsUsed: 0 };
       const lines = violations.map(({ line }) => line);
       options.onData(Buffer.from(rawViolationBlock(lines)));
-      const discarded = discardedWriteReport(pathViolations(lines), filesystem, process.platform as PolicyOptions["platform"]);
+      const discarded = discardedWriteReport(pathViolations(lines), filesystem, platform);
       if (discarded) options.onData(Buffer.from(discarded));
       const { outcomes, promptsUsed } = await resolveViolations(violations, promptsLeft, profileNames, promptDurations(exit));
       const step = nextStep(outcomes, exit);
@@ -361,10 +363,10 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     ({ SandboxManager: sandboxManager } = await import("@anthropic-ai/sandbox-runtime"));
     settings = await loadSettings(SETTINGS_FILE);
     // srt points TMPDIR here and always allows writes to it, but leaves creating it to the embedder.
-    await mkdir(SANDBOX_TEMPORARY_DIRECTORY, { recursive: true, mode: 0o700 });
+    await mkdir(SANDBOX_TEMPORARY_DIRECTORY, { recursive: true, mode: OWNER_ONLY_DIRECTORY_MODE });
     const { errors, warnings } = await manager().checkDependenciesAsync();
     // Without the seccomp filter a sandboxed process could open unix sockets to escape the network rules.
-    const seccompMissing = process.platform === "linux" ? warnings.filter((warning) => /seccomp/i.test(warning)) : [];
+    const seccompMissing = platform === "linux" ? warnings.filter((warning) => /seccomp/i.test(warning)) : [];
     const problems = [...errors, ...seccompMissing];
     if (problems.length > 0) throw new Error(`Sandboxed bash is unavailable: ${problems.join("; ")}. ${INSTALL_HINT}`);
     const choice = await resolveSandboxShell(process.env.PATH);
@@ -380,23 +382,23 @@ function createRuntime(pi: ExtensionAPI): Runtime {
       askNetwork,
       true,
     );
-    collector = startViolationCollector(process.platform as PolicyOptions["platform"], manager().getSandboxViolationStore());
+    collector = startViolationCollector(platform, manager().getSandboxViolationStore());
   }
 
   // Without vcs the repository stays a plain subtree allow, which the recorder wants: it traces without the generated VCS globs.
   function policyOptions(vcs: VcsWriteRules | undefined): PolicyOptions {
     if (!settings) throw new Error("Sandbox settings are not loaded.");
-    return { platform: process.platform as PolicyOptions["platform"], homeDirectory: homedir(), toolchainRead: settings.toolchainRead, extraDenyRead: settings.extraDenyRead, vcs };
+    return { platform: platform, homeDirectory: homedir(), toolchainRead: settings.toolchainRead, extraDenyRead: settings.extraDenyRead, vcs };
   }
 
   // Scanned per command: git and jj create and remove entries inside their directories all the time.
   async function vcsRules(): Promise<VcsWriteRules> {
     const layout = await scanVcsLayout(await resolveThroughSymlinks(findRepoRoot()));
-    return vcsWriteRules(layout, process.platform as PolicyOptions["platform"]);
+    return vcsWriteRules(layout, platform);
   }
 
   // Plan and explore mode keep the repository read-only without the VCS denies, so they stay silent.
-  function warnAboutMissingConfigIds(vcs: VcsWriteRules, denyWrite: string[]): void {
+  function warnAboutMissingConfigIds(vcs: VcsWriteRules, denyWrite: readonly string[]): void {
     if (warnedAboutConfigIds || vcs.missingConfigIds.length === 0) return;
     if (!vcs.deny.some((path) => denyWrite.includes(path))) return;
     warnedAboutConfigIds = true;
@@ -430,19 +432,13 @@ function createRuntime(pi: ExtensionAPI): Runtime {
 
   // The success-path report is best effort on Linux, where events arrive over the monitor socket, so
   // it pays one poll interval instead of waiting for the count to settle like a failed command does.
-  async function readViolationsAfterOneWait(commandId: string) {
-    await new Promise((resolve) => setTimeout(resolve, VIOLATION_POLL_MILLISECONDS));
+  async function readViolationsAfterOneWait(commandId: string): Promise<readonly CollectedViolation[]> {
+    await new Promise((resolve) => setTimeout(resolve, SETTLE_POLL_MILLISECONDS));
     return violationCollector().violationsFor(commandId);
   }
 
-  async function collectViolations(commandId: string) {
-    let previousCount = -1;
-    for (let poll = 0; poll < VIOLATION_MAX_POLLS; poll += 1) {
-      await new Promise((resolve) => setTimeout(resolve, VIOLATION_POLL_MILLISECONDS));
-      const count = violationCollector().violationsFor(commandId).length;
-      if (count === previousCount) break;
-      previousCount = count;
-    }
+  async function collectViolations(commandId: string): Promise<readonly CollectedViolation[]> {
+    await waitUntilCountSettles(() => violationCollector().violationsFor(commandId).length);
     return violationCollector().violationsFor(commandId);
   }
 
@@ -495,7 +491,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     }
     if (answer.decision === "allow") {
       if (answer.duration === Duration.Once) {
-        recordOnceGrant(onceNetworkGrants, "allow", answer.scope, runningExecutions, undefined);
+        recordOnceGrant(onceNetworkGrants, "allow", answer.scope, new Set(runningProfiles.keys()), undefined);
         return true;
       }
       rememberNetwork("allow", answer.scope, undefined);
@@ -503,7 +499,7 @@ function createRuntime(pi: ExtensionAPI): Runtime {
       return true;
     }
     if (answer.duration === Duration.Once) {
-      recordOnceGrant(onceNetworkGrants, "deny", host, runningExecutions, answer.note);
+      recordOnceGrant(onceNetworkGrants, "deny", host, new Set(runningProfiles.keys()), answer.note);
       return false;
     }
     rememberNetwork("deny", host, answer.note);
@@ -532,23 +528,23 @@ function createRuntime(pi: ExtensionAPI): Runtime {
     return networkDenialNote({ grants, once: onceNetworkGrants, settingsReasons: settings?.deniedDomainReasons ?? new Map() }, host, port);
   }
 
-  async function resolveViolations(violations: { line: string }[], promptsLeft: number, profileNames: readonly string[], durations: readonly Duration[]): Promise<{ outcomes: ViolationOutcome[]; promptsUsed: number }> {
+  async function resolveViolations(violations: readonly { line: string }[], promptsLeft: number, profileNames: readonly string[], durations: readonly Duration[]): Promise<{ outcomes: ViolationOutcome[]; promptsUsed: number }> {
     const secrets = secretPaths(homedir());
     const parsed = pathViolations(violations.map(({ line }) => line));
     const outcomes: ViolationOutcome[] = [];
     for (const [index, violation] of parsed.entries()) {
-      outcomes.push(await resolveViolation(violation, secrets, index < promptsLeft, profileNames, durations));
+      outcomes.push(await resolveViolation(violation, secrets, index < promptsLeft ? "ask" : "skip", profileNames, durations));
     }
     return { outcomes, promptsUsed: Math.min(parsed.length, promptsLeft) };
   }
 
-  async function resolveViolation({ mode, path }: PathViolation, secrets: string[], mayPrompt: boolean, profileNames: readonly string[], durations: readonly Duration[]): Promise<ViolationOutcome> {
+  async function resolveViolation({ mode, path }: PathViolation, secrets: readonly string[], prompting: "ask" | "skip", profileNames: readonly string[], durations: readonly Duration[]): Promise<ViolationOutcome> {
     // Resolve before the secret check so a symlink into a secret tree short-circuits and the
     // report names the real secret path. grantPathAccess already resolves internally.
     const resolved = await resolveThroughSymlinks(path);
     if (isSecretPath(resolved, secrets)) return { kind: "secret", path: resolved };
     if (!activeContext?.hasUI) return { kind: "no-ui", mode, path };
-    if (!mayPrompt) return { kind: "not-asked", mode, path };
+    if (prompting === "skip") return { kind: "not-asked", mode, path };
     const outcome = await grantPathAccess(path, mode, activeContext, profileNames, durations);
     if (outcome.kind === "add-to-profile") {
       const entry = selectorText(outcome.grant.selector, homedir());
@@ -688,14 +684,14 @@ function createRuntime(pi: ExtensionAPI): Runtime {
       const parsed = parseProfileDefinition(JSON.parse(edited), name);
       await updateProfile(SETTINGS_FILE, name, () => parsed);
     } catch (error) {
-      return context.ui.notify(`Profile ${name} was not saved: ${(error as Error).message}`, "error");
+      return context.ui.notify(`Profile ${name} was not saved: ${errorMessage(error)}`, "error");
     }
     await refreshNetwork();
     context.ui.notify(`Saved profile ${name}.`, "info");
   }
 }
 
-function reportable<Violation extends { line: string }>(violations: Violation[], repositoryRoot: string): Violation[] {
+function reportable<Violation extends { line: string }>(violations: readonly Violation[], repositoryRoot: string): Violation[] {
   return violations.filter(({ line }) => !isRepositoryRootRemoval(line, repositoryRoot));
 }
 

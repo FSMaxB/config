@@ -8,9 +8,9 @@ import { sessionTemporaryDirectory } from "../../lib/session-temporary-directory
 export function withSessionScratch(context: BashSpawnContext, platform: NodeJS.Platform): BashSpawnContext {
   const directory = sessionScratchDirectory(context.env);
   if (!directory) return context;
-  const env: NodeJS.ProcessEnv = { ...context.env, TMPDIR: directory };
-  if (platform === "darwin") env.PATH = `${mktempShimDirectory()}:${env.PATH ?? ""}`;
-  return { ...context, env };
+  const environment: NodeJS.ProcessEnv = { ...context.env, TMPDIR: directory };
+  if (platform === "darwin") environment.PATH = `${mktempShimDirectory()}:${environment.PATH ?? ""}`;
+  return { ...context, env: environment };
 }
 
 // srt's `env` wrapper sets TMPDIR=/tmp/claude after the inherited variables, so only the command itself can

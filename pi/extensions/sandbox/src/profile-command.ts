@@ -10,11 +10,14 @@ export type ProfileCommand =
   | { kind: "forget"; name: string }
   | { kind: "delete"; name: string };
 
-export type ProfileCommandError = { kind: "error"; message: string };
+export interface ProfileCommandError {
+  kind: "error";
+  message: string;
+}
 
 const NAMED_SUBCOMMANDS = ["record", "edit", "forget", "delete"] as const;
-const SUBCOMMANDS = ["stop", ...NAMED_SUBCOMMANDS];
-const USAGE = "Use /sandbox-profile [record <name> | stop | edit <name> | forget <name> | delete <name>].";
+export const SUBCOMMANDS = ["record", "stop", "edit", "forget", "delete"] as const;
+const USAGE = `Use /sandbox-profile [${SUBCOMMANDS.map((subcommand) => (subcommand === "stop" ? subcommand : `${subcommand} <name>`)).join(" | ")}].`;
 
 export function parseProfileCommand(args: string): ProfileCommand | ProfileCommandError {
   const [subcommand, name, ...rest] = args.trim().split(/\s+/).filter((word) => word !== "");
