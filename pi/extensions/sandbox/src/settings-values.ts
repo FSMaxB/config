@@ -19,7 +19,7 @@ export function stringRecord(value: unknown, name: string): Record<string, strin
   return strings;
 }
 
-// Checking parsers for hand-edited sandbox.json values. `name` is the value's path in the file,
+// Checking parsers for hand-edited sandbox.json and profile file values. `name` is the value's path in the file,
 // so an error points at the entry to fix. An absent optional value parses to its empty default.
 
 export function requireRecord(value: unknown, name: string): Record<string, unknown> {

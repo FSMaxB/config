@@ -16,7 +16,7 @@ import type { PermissionAnswer } from "../../lib/permission-prompt.ts";
 import { permissionUI } from "../../lib/permission-ui.ts";
 import { registerToolWithGuidelines } from "../../lib/register-tool.ts";
 import { findRepositoryRoot, resolveThroughSymlinks } from "../../lib/repo.ts";
-import { markSandboxActive } from "../../lib/sandbox-state.ts";
+import { markSandboxActive, sandboxProfilesDirectory } from "../../lib/sandbox-state.ts";
 import { latestCustomData } from "../../lib/session-entries.ts";
 import { announceSessionGrantsChanged, provideSessionGrants } from "../../lib/session-grants.ts";
 import type { SessionGrant } from "../../lib/session-grants.ts";
@@ -35,15 +35,16 @@ import { parseProfileCommand, profileCompletions, profileListText, SUBCOMMANDS }
 import type { ProfileCommand } from "./profile-command.ts";
 import { profileEnvironment, withoutRepositoryWrites, stateDirectoryIn } from "./profile-grants.ts";
 import type { ProfileInputs } from "./profile-grants.ts";
+import { loadProfiles, updateProfile } from "./profile-files.ts";
 import { profileGrants } from "./profile-policy.ts";
 import { matchTrigger } from "./profile-triggers.ts";
 import { filesystemConfig, secretPaths } from "./policy.ts";
 import type { PolicyOptions } from "./policy.ts";
-import { addAllowedDomain, addFilesystemEntry, emptyProfileDefinition, mergedProfileNetwork, parseProfileDefinition, recordActivationDecision, selectorText } from "./profiles.ts";
+import { addAllowedDomain, addFilesystemEntry, emptyProfileDefinition, forgetActivationDecision, mergedProfileNetwork, parseProfileDefinition, recordActivationDecision, selectorText } from "./profiles.ts";
 import type { NetworkAllowances, Profile } from "./profiles.ts";
 import { createRecorder } from "./recorder.ts";
 import { exportSessionScratch, withSessionScratch } from "./scratch.ts";
-import { loadActivationDecisions, loadProfiles, loadSettings, updateActivationDecisions, updateDomainLists, updateProfile } from "./settings.ts";
+import { loadActivationDecisions, loadSettings, updateActivationDecisions, updateDomainLists } from "./settings.ts";
 import type { Settings } from "./settings.ts";
 import { resolveSandboxShell } from "./shell.ts";
 import { scanVcsLayout, vcsWriteRules } from "./vcs-policy.ts";
@@ -85,6 +86,7 @@ const MAX_ADOPTED_COMMANDS = 200;
 
 const SANDBOX_TEMPORARY_DIRECTORY = "/tmp/claude";
 const SETTINGS_FILE = join(getAgentDir(), "sandbox.json");
+const PROFILES_DIRECTORY = sandboxProfilesDirectory(getAgentDir());
 
 export default function (pi: ExtensionAPI): void {
   if (process.env.PI_SANDBOX === "0") return;
@@ -218,7 +220,7 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
   // srt command ids of profiled runs, newest last
   const profiledCommandIds: string[] = [];
   const recorder = createRecorder({
-    settingsFile: SETTINGS_FILE,
+    profilesDirectory: PROFILES_DIRECTORY,
     homeDirectory: homedir(),
     ensureInitialized,
     stockExec: (command, cwd, options) => stock.exec(command, cwd, options),
@@ -238,7 +240,7 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
     operationsFor,
     profilesForCall,
     runProfileCommand,
-    profileNames: async () => (await loadProfiles(SETTINGS_FILE)).map(({ name }) => name),
+    profileNames: async () => (await loadProfiles(PROFILES_DIRECTORY)).map(({ name }) => name),
     recordingOperations: (command) => recorder.operationsFor(command),
     setActiveContext(context) { activeContext = context; },
     authorizeBypass,
@@ -247,7 +249,7 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
       grants = parseGrants(latestCustomData(sessionManager, NETWORK_ENTRY_TYPE));
       profileState = parseProfileState(latestCustomData(sessionManager, PROFILE_ENTRY_TYPE));
       applyNetwork();
-      // An invalid sandbox.json surfaces on the next bash call, which fails with its message.
+      // An invalid sandbox.json or profile file surfaces on the next bash call, which fails with its message.
       void refreshNetwork().catch(() => undefined);
       announceSessionGrantsChanged(pi.events);
     },
@@ -294,7 +296,7 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
   async function runOnce(command: string, cwd: string, options: ExecOptions, onceGrants: readonly OnceGrant[], promptsLeft: number, profileNames: readonly string[]): Promise<{ result: ExecResult; step: NextStep; promptsUsed: number }> {
     const commandId = randomUUID();
     // Reloaded on every run, so an "Add to profile" answer applies to the rerun and changes the fingerprint the shim sees.
-    const profiles = (await loadProfiles(SETTINGS_FILE)).filter(({ name }) => profileNames.includes(name));
+    const profiles = (await loadProfiles(PROFILES_DIRECTORY)).filter(({ name }) => profileNames.includes(name));
     const inputs = await profileInputs();
     // Only profile grants are filtered: a once grant is the user's explicit answer to a prompt.
     const profileOnceGrants = withoutRepositoryWrites(await profileGrants(profiles, inputs), inputs.repositoryRoot, inputs.agentMode);
@@ -409,7 +411,7 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
   // profiled bash call running right now are merged into it.
   async function refreshNetwork(): Promise<void> {
     const names = new Set([...runningProfiles.values()].flat());
-    profileNetwork = names.size === 0 ? NO_PROFILE_NETWORK : mergedProfileNetwork((await loadProfiles(SETTINGS_FILE)).filter(({ name }) => names.has(name)));
+    profileNetwork = names.size === 0 ? NO_PROFILE_NETWORK : mergedProfileNetwork((await loadProfiles(PROFILES_DIRECTORY)).filter(({ name }) => names.has(name)));
     applyNetwork();
   }
 
@@ -468,7 +470,7 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
 
   async function applyNetworkAnswer(answer: PermissionAnswer<string, string>, host: string): Promise<boolean> {
     if (answer.decision === "allow-to") {
-      await updateProfile(SETTINGS_FILE, answer.destination, (current) => current && addAllowedDomain(current, answer.scope));
+      await updateProfile(PROFILES_DIRECTORY, answer.destination, (current) => current && addAllowedDomain(current, answer.scope));
       await refreshNetwork();
       return true;
     }
@@ -531,7 +533,7 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
     const outcome = await grantPathAccess(path, mode, activeContext, profileNames, durations);
     if (outcome.kind === "add-to-profile") {
       const entry = selectorText(outcome.grant.selector, homedir());
-      await updateProfile(SETTINGS_FILE, outcome.profile, (current) => current && addFilesystemEntry(current, mode, entry));
+      await updateProfile(PROFILES_DIRECTORY, outcome.profile, (current) => current && addFilesystemEntry(current, mode, entry));
       return { kind: "added-to-profile", mode, path, profile: outcome.profile };
     }
     if (outcome.kind === "allowed-once") return { kind: "allowed-once", mode, path, grant: outcome.grant };
@@ -556,7 +558,7 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
   async function profilesForCall(command: string, requested: readonly string[], context: ExtensionContext): Promise<ProfilesForCall> {
     if (subagent && requested.length > 0) throw new Error("Sandbox profiles are not available to subagents.");
     if (subagent) return { names: [], notices: [] };
-    const profiles = await loadProfiles(SETTINGS_FILE);
+    const profiles = await loadProfiles(PROFILES_DIRECTORY);
     const applied = new Set<string>();
     for (const profile of requestedProfiles(requested, profiles)) {
       const activation = await activateProfile(profile, { kind: "request", command }, context);
@@ -626,7 +628,7 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
   async function runProfileCommand(command: ProfileCommand, context: ExtensionCommandContext): Promise<void> {
     switch (command.kind) {
       case "list": {
-        const text = profileListText(await loadProfiles(SETTINGS_FILE), profileState, await loadActivationDecisions(SETTINGS_FILE));
+        const text = profileListText(await loadProfiles(PROFILES_DIRECTORY), profileState, await loadActivationDecisions(SETTINGS_FILE));
         context.ui.notify(text, "info");
         return;
       }
@@ -643,7 +645,7 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
         return;
       }
       case "forget": {
-        await updateActivationDecisions(SETTINGS_FILE, ({ allowed, denied }) => { allowed.delete(command.name); denied.delete(command.name); });
+        await updateActivationDecisions(SETTINGS_FILE, (decisions) => { forgetActivationDecision(decisions, command.name); });
         profileState.allowed.delete(command.name);
         profileState.denied.delete(command.name);
         persistProfileState();
@@ -653,7 +655,8 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
       case "delete": {
         if (!(await knownProfile(command.name, context))) return;
         if (!(await context.ui.confirm("Delete sandbox profile", `Delete profile ${command.name} and its stored activation decision?`))) return;
-        await updateProfile(SETTINGS_FILE, command.name, () => undefined);
+        await updateProfile(PROFILES_DIRECTORY, command.name, () => undefined);
+        await updateActivationDecisions(SETTINGS_FILE, (decisions) => { forgetActivationDecision(decisions, command.name); });
         profileState.allowed.delete(command.name);
         profileState.denied.delete(command.name);
         persistProfileState();
@@ -665,19 +668,19 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
   }
 
   async function knownProfile(name: string, context: ExtensionCommandContext): Promise<boolean> {
-    if ((await loadProfiles(SETTINGS_FILE)).some((profile) => profile.name === name)) return true;
+    if ((await loadProfiles(PROFILES_DIRECTORY)).some((profile) => profile.name === name)) return true;
     context.ui.notify(`Unknown profile "${name}".`, "error");
     return false;
   }
 
   async function editProfile(name: string, context: ExtensionCommandContext): Promise<void> {
-    const existing = (await loadProfiles(SETTINGS_FILE)).find((profile) => profile.name === name);
+    const existing = (await loadProfiles(PROFILES_DIRECTORY)).find((profile) => profile.name === name);
     const { name: _name, ...definition } = existing ?? { name, ...emptyProfileDefinition() };
     const edited = await context.ui.editor(`Edit sandbox profile ${name}`, JSON.stringify(definition, null, 2));
     if (edited === undefined) return;
     try {
-      const parsed = parseProfileDefinition(JSON.parse(edited), name);
-      await updateProfile(SETTINGS_FILE, name, () => parsed);
+      const parsed = parseProfileDefinition(JSON.parse(edited));
+      await updateProfile(PROFILES_DIRECTORY, name, () => parsed);
     } catch (error) {
       context.ui.notify(`Profile ${name} was not saved: ${errorMessage(error)}`, "error");
       return;

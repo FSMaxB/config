@@ -1,10 +1,12 @@
 import { readFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { errorCode, errorMessage } from "../../lib/errors.ts";
 import { withFileLock } from "../../lib/file-lock.ts";
 import { writeJsonFileAtomically } from "../../lib/json.ts";
 import { expandHome } from "../../lib/path-resolution.ts";
-import { parseActivationDecisions, parseProfileDefinition, parseProfiles, serializeActivationDecisions } from "./profiles.ts";
-import type { ActivationDecisions, Profile, ProfileDefinition } from "./profiles.ts";
+import { sandboxProfilesDirectory } from "../../lib/sandbox-state.ts";
+import { parseActivationDecisions, serializeActivationDecisions } from "./profiles.ts";
+import type { ActivationDecisions } from "./profiles.ts";
 import { booleanValue, requireRecord, stringArray, stringRecord, unique } from "./settings-values.ts";
 
 const DEFAULT_ALLOWED_DOMAINS = ["github.com", "api.github.com", "*.githubusercontent.com", "registry.npmjs.org", "crates.io", "static.crates.io", "index.crates.io", "pypi.org", "files.pythonhosted.org"];
@@ -48,13 +50,9 @@ export interface Settings {
 }
 
 export async function readSettingsFile(filePath: string): Promise<SettingsFile> {
-  const text = await readFile(filePath, "utf8").catch((error: unknown) => {
-    if (errorCode(error) === "ENOENT") return undefined;
-    throw error;
-  });
-  if (text === undefined) return parseSettingsFile({});
+  const raw = await readRawSettings(filePath);
   try {
-    return parseSettingsFile(JSON.parse(text));
+    return parseSettingsFile(raw);
   } catch (error) {
     throw new Error(`Invalid sandbox settings in ${filePath}: ${errorMessage(error)}`, { cause: error });
   }
@@ -101,25 +99,6 @@ export interface SettingsFile {
   filesystem: { denyRead: string[]; allowRead: string[] };
 }
 
-// Profiles are read on every call, so hand edits apply without a restart.
-export async function loadProfiles(filePath: string): Promise<Profile[]> {
-  return parseProfiles((await readRawSettings(filePath)).profiles);
-}
-
-// Rewrites only profiles.<name>; returning undefined deletes it, together with its activation decision.
-export async function updateProfile(filePath: string, name: string, mutate: (current: ProfileDefinition | undefined) => ProfileDefinition | undefined): Promise<void> {
-  await rewriteSettings(filePath, (raw) => {
-    const profiles = requireRecord(raw.profiles ?? {}, "profiles");
-    const current = name in profiles ? parseProfileDefinition(profiles[name], name) : undefined;
-    const updated = mutate(current);
-    if (updated === undefined) {
-      const { [name]: _removed, ...remaining } = profiles;
-      return withoutActivation({ ...raw, profiles: remaining }, name);
-    }
-    return { ...raw, profiles: { ...profiles, [name]: parseProfileDefinition(updated, name) } };
-  });
-}
-
 export async function loadActivationDecisions(filePath: string): Promise<ActivationDecisions> {
   return parseActivationDecisions((await readRawSettings(filePath)).profileActivation);
 }
@@ -147,18 +126,12 @@ async function readRawSettings(filePath: string): Promise<Record<string, unknown
     throw error;
   });
   try {
-    return requireRecord(JSON.parse(text), "settings");
+    const raw = requireRecord(JSON.parse(text), "settings");
+    if ("profiles" in raw) throw new Error(`profiles is not read from here: put each profiles.<name> object into ${sandboxProfilesDirectory(dirname(filePath))}/<name>.json, then delete the profiles key`);
+    return raw;
   } catch (error) {
     throw new Error(`Invalid sandbox settings in ${filePath}: ${errorMessage(error)}`, { cause: error });
   }
-}
-
-function withoutActivation(raw: Record<string, unknown>, name: string): Record<string, unknown> {
-  if (!("profileActivation" in raw)) return raw;
-  const decisions = parseActivationDecisions(raw.profileActivation);
-  decisions.allowed.delete(name);
-  decisions.denied.delete(name);
-  return { ...raw, profileActivation: serializeActivationDecisions(decisions) };
 }
 
 interface DomainLists {

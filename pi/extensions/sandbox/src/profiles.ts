@@ -7,6 +7,7 @@ import { booleanValue, requireRecord, stringArray, unique } from "./settings-val
 export const NetworkAccess = { Listed: "listed", Local: "local", All: "all" } as const;
 
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+export const PROFILE_NAME_RULE = "use lowercase letters, digits and dashes, starting with a letter or digit";
 
 export function emptyProfileDefinition(): ProfileDefinition {
   return {
@@ -17,38 +18,28 @@ export function emptyProfileDefinition(): ProfileDefinition {
   };
 }
 
-export function parseProfiles(value: unknown): Profile[] {
-  if (value === undefined) return [];
-  const record = requireRecord(value, "profiles");
-  return Object.keys(record)
-    .sort()
-    .map((name) => ({ name, ...parseProfileDefinition(record[name], name) }));
-}
-
-// Throws with the profile name in the message, so a bad hand edit points at its profile.
-export function parseProfileDefinition(value: unknown, name: string): ProfileDefinition {
-  if (!isValidProfileName(name)) throw new Error(`profiles.${name}: the name must match ${NAME_PATTERN}`);
-  const prefix = `profiles.${name}`;
-  const root = requireRecord(value, prefix);
-  const triggers = requireRecord(root.triggers ?? {}, `${prefix}.triggers`);
-  const filesystem = requireRecord(root.filesystem ?? {}, `${prefix}.filesystem`);
-  const network = requireRecord(root.network ?? {}, `${prefix}.network`);
+// Throws with the field's path inside the profile file, so a bad hand edit points at the entry.
+export function parseProfileDefinition(value: unknown): ProfileDefinition {
+  const root = requireRecord(value, "profile");
+  const triggers = requireRecord(root.triggers ?? {}, "triggers");
+  const filesystem = requireRecord(root.filesystem ?? {}, "filesystem");
+  const network = requireRecord(root.network ?? {}, "network");
   return {
     triggers: {
-      commands: stringArray(triggers.commands, `${prefix}.triggers.commands`),
-      patterns: patternArray(triggers.patterns, `${prefix}.triggers.patterns`),
+      commands: stringArray(triggers.commands, "triggers.commands"),
+      patterns: patternArray(triggers.patterns, "triggers.patterns"),
     },
     filesystem: {
-      read: pathArray(filesystem.read, `${prefix}.filesystem.read`),
-      write: pathArray(filesystem.write, `${prefix}.filesystem.write`),
+      read: pathArray(filesystem.read, "filesystem.read"),
+      write: pathArray(filesystem.write, "filesystem.write"),
     },
     network: {
-      access: networkAccess(network.access, `${prefix}.network.access`),
-      allowedDomains: stringArray(network.allowedDomains, `${prefix}.network.allowedDomains`),
-      allowLocalBinding: booleanValue(network.allowLocalBinding, `${prefix}.network.allowLocalBinding`),
-      allowUnixSockets: pathArray(network.allowUnixSockets, `${prefix}.network.allowUnixSockets`),
+      access: networkAccess(network.access, "network.access"),
+      allowedDomains: stringArray(network.allowedDomains, "network.allowedDomains"),
+      allowLocalBinding: booleanValue(network.allowLocalBinding, "network.allowLocalBinding"),
+      allowUnixSockets: pathArray(network.allowUnixSockets, "network.allowUnixSockets"),
     },
-    path: pathArray(root.path, `${prefix}.path`),
+    path: pathArray(root.path, "path"),
   };
 }
 
@@ -82,13 +73,18 @@ export function recordActivationDecision(decisions: ActivationDecisions, name: s
   decisions.allowed.delete(name);
 }
 
+export function forgetActivationDecision(decisions: ActivationDecisions, name: string): void {
+  decisions.allowed.delete(name);
+  decisions.denied.delete(name);
+}
+
 export function serializeActivationDecisions({ allowed, denied }: ActivationDecisions): { allowed: string[]; denied: string[]; deniedReasons: Record<string, string> } {
   const reasons = [...denied].filter((entry): entry is [string, string] => entry[1] !== undefined);
   return { allowed: [...allowed], denied: [...denied.keys()], deniedReasons: Object.fromEntries(reasons) };
 }
 
-// The "Allow always" and "Deny always" answers to activation prompts. They live next to the profiles in
-// sandbox.json, never inside one, the way network answers go to network.allowedDomains.
+// The "Allow always" and "Deny always" answers to activation prompts. They live in sandbox.json, never
+// inside a profile file, the way network answers go to network.allowedDomains.
 export interface ActivationDecisions {
   allowed: Set<string>;
   // The value is the user's reason, repeated to the agent whenever the denial applies.

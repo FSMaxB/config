@@ -1,5 +1,5 @@
 import type { ProfileSessionState } from "./profile-activation.ts";
-import { NetworkAccess, isValidProfileName } from "./profiles.ts";
+import { NetworkAccess, PROFILE_NAME_RULE, isValidProfileName } from "./profiles.ts";
 import type { ActivationDecisions, Profile } from "./profiles.ts";
 
 const NAMED_SUBCOMMANDS = ["record", "edit", "forget", "delete"] as const;
@@ -16,7 +16,7 @@ export function parseProfileCommand(commandArguments: string): ProfileCommand | 
   const named = NAMED_SUBCOMMANDS.find((candidate) => candidate === subcommand);
   if (named === undefined) return error(`Unknown subcommand "${subcommand}". ${USAGE}`);
   if (name === undefined || rest.length > 0) return error(`${named} takes exactly one profile name. ${USAGE}`);
-  if (named === "record" && !isValidProfileName(name)) return error(`"${name}" is not a valid profile name: use lowercase letters, digits and dashes, starting with a letter or digit.`);
+  if (!isValidProfileName(name)) return error(`"${name}" is not a valid profile name: ${PROFILE_NAME_RULE}.`);
   return { kind: named, name };
 }
 

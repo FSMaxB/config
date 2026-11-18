@@ -26,7 +26,7 @@ test("every subcommand parses", () => {
 
 test("bad invocations give an error message", () => {
   // arrange
-  const inputs = ["frobnicate", "record", "edit a b", "stop now", "record Bad_Name", "on bazel"];
+  const inputs = ["frobnicate", "record", "edit a b", "stop now", "record Bad_Name", "on bazel", "edit ../x"];
 
   // act
   const results = inputs.map(parseProfileCommand);
@@ -36,6 +36,7 @@ test("bad invocations give an error message", () => {
   assert.match((results[0] as { message: string }).message, /Unknown subcommand "frobnicate"/);
   assert.match((results[4] as { message: string }).message, /not a valid profile name/);
   assert.match((results[5] as { message: string }).message, /Unknown subcommand "on"/);
+  assert.match((results[6] as { message: string }).message, /not a valid profile name/);
 });
 
 test("completions offer subcommands first and profile names after one", () => {

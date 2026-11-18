@@ -5,8 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { isRecord } from "../../lib/untyped.ts";
 import { effectiveNetwork, emptyGrants, parseGrants, recordGrant, serializeGrants } from "./network-grants.ts";
-import { emptyProfileDefinition } from "./profiles.ts";
-import { loadActivationDecisions, loadProfiles, loadSettings, parseSettingsFile, resolveSettings, updateActivationDecisions, updateDomainLists, updateProfile } from "./settings.ts";
+import { loadActivationDecisions, loadSettings, parseSettingsFile, resolveSettings, updateActivationDecisions, updateDomainLists } from "./settings.ts";
 
 test("a missing settings file yields the defaults", async () => {
   await withDirectory(async (directory) => {
@@ -211,57 +210,11 @@ test("a later decision for the same host replaces the earlier one", () => {
   assert.equal(grants.deny.has("a.com"), true);
 });
 
-test("loading profiles from a missing file yields none", async () => {
-  await withDirectory(async (directory) => {
-    // arrange
-    const filePath = join(directory, "sandbox.json");
-
-    // act
-    const profiles = await loadProfiles(filePath);
-
-    // assert
-    assert.deepEqual(profiles, []);
-  });
-});
-
-test("updating a profile creates, mutates and deletes it while keeping other keys", async () => {
-  await withDirectory(async (directory) => {
-    // arrange
-    const filePath = join(directory, "sandbox.json");
-    await writeFile(filePath, JSON.stringify({ network: { allowedDomains: ["a.com"] }, custom: 1 }));
-
-    // act
-    await updateProfile(filePath, "bazel", () => emptyProfileDefinition());
-    await updateProfile(filePath, "bazel", (current) => current && { ...current, path: ["/bin"] });
-    const created = await loadProfiles(filePath);
-    await updateProfile(filePath, "bazel", () => undefined);
-
-    // assert
-    assert.deepEqual(created.map(({ name, path }) => ({ name, path })), [{ name: "bazel", path: ["/bin"] }]);
-    const written = await readSettingsFile(filePath);
-    const network = section(written, "network");
-    assert.deepEqual(network, { allowedDomains: ["a.com"] });
-    assert.equal(written.custom, 1);
-    assert.deepEqual(written.profiles, {});
-  });
-});
-
-test("an invalid profile fails the load with its name", async () => {
-  await withDirectory(async (directory) => {
-    // arrange
-    const filePath = join(directory, "sandbox.json");
-    await writeFile(filePath, JSON.stringify({ profiles: { bazel: { path: ["relative"] } } }));
-
-    // act, assert
-    await assert.rejects(loadProfiles(filePath), /profiles\.bazel\.path\[0\]/);
-  });
-});
-
 test("updating activation decisions moves a name between the lists and keeps other keys", async () => {
   await withDirectory(async (directory) => {
     // arrange
     const filePath = join(directory, "sandbox.json");
-    await writeFile(filePath, JSON.stringify({ network: { allowedDomains: ["a.com"] }, profiles: { bazel: {} } }));
+    await writeFile(filePath, JSON.stringify({ network: { allowedDomains: ["a.com"] } }));
 
     // act
     await updateActivationDecisions(filePath, ({ allowed }) => { allowed.add("bazel"); });
@@ -274,7 +227,6 @@ test("updating activation decisions moves a name between the lists and keeps oth
     const written = await readSettingsFile(filePath);
     const network = section(written, "network");
     assert.deepEqual(network, { allowedDomains: ["a.com"] });
-    assert.deepEqual(Object.keys(section(written, "profiles")), ["bazel"]);
   });
 });
 
@@ -282,11 +234,10 @@ test("the activation key is absent from files that never had a decision", async 
   await withDirectory(async (directory) => {
     // arrange
     const filePath = join(directory, "sandbox.json");
-    await writeFile(filePath, JSON.stringify({ profiles: { bazel: {} } }));
+    await writeFile(filePath, JSON.stringify({ note: "keep" }));
 
     // act
     await updateActivationDecisions(filePath, () => undefined);
-    await updateProfile(filePath, "bazel", (current) => current);
 
     // assert
     const written = await readSettingsFile(filePath);
@@ -294,18 +245,20 @@ test("the activation key is absent from files that never had a decision", async 
   });
 });
 
-test("deleting a profile removes its activation decision", async () => {
+test("a profiles key in sandbox.json fails every reader with a move hint", async () => {
   await withDirectory(async (directory) => {
     // arrange
     const filePath = join(directory, "sandbox.json");
-    await writeFile(filePath, JSON.stringify({ profiles: { bazel: {} }, profileActivation: { allowed: ["bazel", "other"], denied: [] } }));
+    await writeFile(filePath, JSON.stringify({ profiles: { bazel: {} } }));
+    const hint = /sandbox-profiles\/<name>\.json/;
 
-    // act
-    await updateProfile(filePath, "bazel", () => undefined);
+    // act: thunks, so no rejection is pending while the other one is awaited.
+    const settings = () => loadSettings(filePath);
+    const decisions = () => loadActivationDecisions(filePath);
 
     // assert
-    const decisions = await loadActivationDecisions(filePath);
-    assert.deepEqual([...decisions.allowed], ["other"]);
+    await assert.rejects(settings, hint);
+    await assert.rejects(decisions, hint);
   });
 });
 

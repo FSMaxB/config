@@ -1,50 +1,33 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { exact, glob, tree } from "../../lib/path-permission-rules.ts";
-import { NetworkAccess, addAllowedDomain, addFilesystemEntry, emptyProfileDefinition, mergedProfileNetwork, parseActivationDecisions, parseProfileDefinition, parseProfiles, profileFingerprint, recordActivationDecision, selectorText, serializeActivationDecisions } from "./profiles.ts";
+import { NetworkAccess, addAllowedDomain, addFilesystemEntry, emptyProfileDefinition, mergedProfileNetwork, parseActivationDecisions, parseProfileDefinition, profileFingerprint, recordActivationDecision, selectorText, serializeActivationDecisions } from "./profiles.ts";
 import type { Profile } from "./profiles.ts";
 
 test("missing keys default to an empty profile", () => {
   // arrange
-  const value = { bazel: {} };
+  const expected = emptyProfileDefinition();
 
   // act
-  const profiles = parseProfiles(value);
+  const definition = parseProfileDefinition({});
 
   // assert
-  assert.deepEqual(profiles, [{ name: "bazel", ...emptyProfileDefinition() }]);
+  assert.deepEqual(definition, expected);
 });
 
-test("profiles are sorted by name", () => {
+test("invalid definitions throw with the field path", () => {
   // arrange
-  const value = { zeta: {}, alpha: {} };
-
-  // act
-  const names = parseProfiles(value).map(({ name }) => name);
-
-  // assert
-  assert.deepEqual(names, ["alpha", "zeta"]);
-});
-
-test("a missing profiles key yields no profiles", () => {
-  // arrange, act, assert
-  assert.deepEqual(parseProfiles(undefined), []);
-});
-
-test("invalid definitions throw with the profile name", () => {
-  // arrange
-  const cases: [string, unknown, RegExp][] = [
-    ["Bad_Name", {}, /profiles\.Bad_Name/],
-    ["bazel", { filesystem: { read: ["/ok", "/ok", "relative"] } }, /profiles\.bazel\.filesystem\.read\[2\] must start with \/ or ~\//],
-    ["bazel", { path: ["bin"] }, /profiles\.bazel\.path\[0\]/],
-    ["bazel", { triggers: { patterns: ["("] } }, /profiles\.bazel\.triggers\.patterns\[0\]/],
-    ["bazel", { network: { allowLocalBinding: "yes" } }, /profiles\.bazel\.network\.allowLocalBinding must be a boolean/],
-    ["bazel", { network: { access: "some" } }, /profiles\.bazel\.network\.access must be one of "listed", "local", "all"/],
+  const cases: [unknown, RegExp][] = [
+    [{ filesystem: { read: ["/ok", "/ok", "relative"] } }, /^filesystem\.read\[2\] must start with \/ or ~\//],
+    [{ path: ["bin"] }, /^path\[0\]/],
+    [{ triggers: { patterns: ["("] } }, /^triggers\.patterns\[0\]/],
+    [{ network: { allowLocalBinding: "yes" } }, /^network\.allowLocalBinding must be a boolean/],
+    [{ network: { access: "some" } }, /^network\.access must be one of "listed", "local", "all"/],
   ];
 
-  for (const [name, value, message] of cases) {
+  for (const [value, message] of cases) {
     // act, assert
-    assert.throws(() => parseProfileDefinition(value, name), message);
+    assert.throws(() => parseProfileDefinition(value), (error: unknown) => error instanceof Error && message.test(error.message));
   }
 });
 
@@ -122,10 +105,10 @@ test("merged network unions domains and sockets and ORs local binding", () => {
 
 test("network access defaults to listed and accepts local and all", () => {
   // arrange
-  const parse = (access: unknown) => parseProfileDefinition({ network: { access } }, "bazel").network.access;
+  const parse = (access: unknown) => parseProfileDefinition({ network: { access } }).network.access;
 
   // act
-  const defaulted = parseProfileDefinition({}, "bazel").network.access;
+  const defaulted = parseProfileDefinition({}).network.access;
   const levels = [parse("local"), parse("all")];
 
   // assert

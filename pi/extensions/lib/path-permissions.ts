@@ -20,6 +20,7 @@ import { ALL_DURATIONS, askPermission, Duration, userReason } from "./permission
 import type { ScopeChoice } from "./permission-prompt.ts";
 import { permissionUI } from "./permission-ui.ts";
 import { processGlobal } from "./process-global.ts";
+import { sandboxProfilesDirectory } from "./sandbox-state.ts";
 import { announceSessionGrantsChanged } from "./session-grants.ts";
 import type { SessionGrant } from "./session-grants.ts";
 import { isRecord, stringProperty } from "./untyped.ts";
@@ -152,7 +153,7 @@ async function effectiveLayers(mode: AccessMode): Promise<{ defaults: PathSelect
 // Writable policy the agent could use to disarm the sandbox or the path rules on the next restart.
 async function protectedWritePaths(): Promise<PathSelector[]> {
   const agentDirectory = getAgentDir();
-  const roots = [join(agentDirectory, "extensions"), join(agentDirectory, "skills"), join(homedir(), ".agents", "skills"), join(homedir(), ".claude", "skills"), join(agentDirectory, "install"), join(agentDirectory, "bin"), join(agentDirectory, "npm")];
+  const roots = [join(agentDirectory, "extensions"), join(agentDirectory, "skills"), join(homedir(), ".agents", "skills"), join(homedir(), ".claude", "skills"), join(agentDirectory, "install"), join(agentDirectory, "bin"), join(agentDirectory, "npm"), sandboxProfilesDirectory(agentDirectory)];
   const resolvedRoots = await Promise.all(roots.map((root) => resolveThroughSymlinks(root)));
   return [...new Set(resolvedRoots)].map(tree).concat(glob(await resolveThroughSymlinks(agentDirectory), "*.json"));
 }

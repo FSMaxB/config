@@ -13,7 +13,7 @@ import type { LogStreamFormat } from "./log-stream.ts";
 import { addFilesystemEntry, emptyProfileDefinition, isValidProfileName } from "./profiles.ts";
 import type { Profile } from "./profiles.ts";
 import { buildDraft, draftText, parseDraftText, traceAccesses } from "./recording.ts";
-import { loadProfiles, updateProfile } from "./settings.ts";
+import { loadProfiles, updateProfile } from "./profile-files.ts";
 import { traceProfile } from "./trace-profile.ts";
 
 // `log stream` prints its header within a second; a slow start must not block arming forever.
@@ -50,7 +50,7 @@ export function createRecorder(dependencies: RecorderDependencies): Recorder {
       return;
     }
     let created = false;
-    await updateProfile(dependencies.settingsFile, name, (current) => {
+    await updateProfile(dependencies.profilesDirectory, name, (current) => {
       created = current === undefined;
       return current ?? emptyProfileDefinition();
     });
@@ -70,7 +70,7 @@ export function createRecorder(dependencies: RecorderDependencies): Recorder {
     const active = recording;
     if (!active) throw new Error("No recording is armed.");
     await dependencies.ensureInitialized();
-    const profiles = (await loadProfiles(dependencies.settingsFile)).filter(({ name }) => name === active.profile);
+    const profiles = (await loadProfiles(dependencies.profilesDirectory)).filter(({ name }) => name === active.profile);
     const filesystem = await dependencies.traceFilesystem(profiles);
     const environment = await dependencies.profileEnvironment(options.env ?? process.env, profiles);
     // A fingerprint of its own makes the bazel shim restart a server that runs with another profile.
@@ -103,7 +103,7 @@ export function createRecorder(dependencies: RecorderDependencies): Recorder {
       context.ui.notify(`The recording was not saved:\n${errors.join("\n")}\nRun /sandbox-profile stop to fix it.`, "error");
       return;
     }
-    await updateProfile(dependencies.settingsFile, active.profile, (current) => {
+    await updateProfile(dependencies.profilesDirectory, active.profile, (current) => {
       let definition = current ?? emptyProfileDefinition();
       for (const { mode, entry } of entries) definition = addFilesystemEntry(definition, mode, entry);
       return definition;
@@ -121,7 +121,7 @@ export function createRecorder(dependencies: RecorderDependencies): Recorder {
     const accesses = traceAccesses(active.lines);
     const directories = new Set<string>();
     for (const { path } of accesses) if ((await stat(path).catch(() => undefined))?.isDirectory()) directories.add(path);
-    const profile = (await loadProfiles(dependencies.settingsFile)).find(({ name }) => name === active.profile);
+    const profile = (await loadProfiles(dependencies.profilesDirectory)).find(({ name }) => name === active.profile);
     const draft = buildDraft({
       accesses,
       directories,
@@ -141,7 +141,7 @@ export function createRecorder(dependencies: RecorderDependencies): Recorder {
 }
 
 export interface RecorderDependencies {
-  settingsFile: string;
+  profilesDirectory: string;
   homeDirectory: string;
   ensureInitialized(): Promise<void>;
   stockExec: BashOperations["exec"];
