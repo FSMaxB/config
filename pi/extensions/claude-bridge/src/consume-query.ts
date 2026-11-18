@@ -196,7 +196,7 @@ export async function consumeQuery(
 					const rateLimitType = rateLimitTypeFromInfo(info);
 					const resetAt = rateLimitResetFromInfo(info);
 					const resetAtMs = rateLimitResetMs(info);
-					const reason = `${rateLimitType ?? "unknown"} rate limit`;
+					const reason = `${typeof rateLimitType === "string" ? rateLimitType : "unknown"} rate limit`;
 					// A rejected event may precede a successful SDK fallback. Report it
 					// without holding a terminal failure until the final result arrives.
 					const resetsAt = formatResetTimestamp(resetAtMs ?? resetAt);

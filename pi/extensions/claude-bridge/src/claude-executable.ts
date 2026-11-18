@@ -51,7 +51,9 @@ function isPreflightError(error: unknown): boolean {
 }
 
 function displayValue(value: unknown): string {
-	return value === undefined || value === null || value === "" ? "<none>" : String(value);
+	if (typeof value === "string") return value === "" ? "<none>" : value;
+	if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return String(value);
+	return value === undefined || value === null ? "<none>" : JSON.stringify(value);
 }
 
 function makeClaudePreflightError(

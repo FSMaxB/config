@@ -167,9 +167,6 @@
     }
   },
   "extensions/claude-bridge/src/claude-executable.ts": {
-    "@typescript-eslint/no-base-to-string": {
-      "count": 1
-    },
     "@typescript-eslint/no-magic-numbers": {
       "count": 20
     },
@@ -221,9 +218,6 @@
     }
   },
   "extensions/claude-bridge/src/consume-query.ts": {
-    "@typescript-eslint/no-base-to-string": {
-      "count": 1
-    },
     "@typescript-eslint/no-magic-numbers": {
       "count": 3
     },
@@ -231,9 +225,6 @@
       "count": 4
     },
     "@typescript-eslint/prefer-nullish-coalescing": {
-      "count": 1
-    },
-    "@typescript-eslint/restrict-template-expressions": {
       "count": 1
     },
     "@typescript-eslint/use-unknown-in-catch-callback-variable": {
@@ -414,17 +405,11 @@
     }
   },
   "extensions/claude-bridge/src/rate-limit.ts": {
-    "@typescript-eslint/no-base-to-string": {
-      "count": 1
-    },
     "@typescript-eslint/no-magic-numbers": {
       "count": 6
     },
     "local/step-down": {
       "count": 4
-    },
-    "unicorn/no-null": {
-      "count": 1
     }
   },
   "extensions/claude-bridge/src/request-lane.ts": {
@@ -1091,9 +1076,6 @@
     },
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 1
-    },
-    "@typescript-eslint/restrict-template-expressions": {
-      "count": 8
     },
     "no-regex-spaces": {
       "count": 1

@@ -152,14 +152,14 @@ try {
     const entries = flattenFind(text);
 
     // assert
-    assert.ok(entries.includes("alpha.ts"), `missing alpha.ts: ${entries}`);
+    assert.ok(entries.includes("alpha.ts"), `missing alpha.ts: ${entries.join(", ")}`);
     assert.ok(
       entries.includes("nested") || entries.includes("nested/"),
-      `missing nested: ${entries}`,
+      `missing nested: ${entries.join(", ")}`,
     );
     assert.ok(
       !entries.includes("ignored.txt"),
-      `gitignored file listed: ${entries}`,
+      `gitignored file listed: ${entries.join(", ")}`,
     );
   }
 
@@ -169,14 +169,14 @@ try {
     const entries = flattenFind(text);
 
     // assert
-    assert.ok(entries.includes("alpha.ts"), `missing alpha.ts: ${entries}`);
+    assert.ok(entries.includes("alpha.ts"), `missing alpha.ts: ${entries.join(", ")}`);
     assert.ok(
       entries.includes("nested/gamma.ts"),
-      `missing gamma.ts: ${entries}`,
+      `missing gamma.ts: ${entries.join(", ")}`,
     );
     assert.ok(
       !entries.includes("nested") && !entries.includes("nested/"),
-      `directory listed under type=file: ${entries}`,
+      `directory listed under type=file: ${entries.join(", ")}`,
     );
   }
 
@@ -188,11 +188,11 @@ try {
     // assert
     assert.ok(
       entries.includes("nested") || entries.includes("nested/"),
-      `missing nested: ${entries}`,
+      `missing nested: ${entries.join(", ")}`,
     );
     assert.ok(
       !entries.includes("alpha.ts"),
-      `file listed under type=directory: ${entries}`,
+      `file listed under type=directory: ${entries.join(", ")}`,
     );
   }
 
