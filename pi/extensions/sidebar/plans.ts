@@ -1,4 +1,4 @@
-import { basename, sep } from "node:path";
+import { basename, extname, sep } from "node:path";
 import { ItemTone } from "./panel.ts";
 import type { PanelItem } from "./panel.ts";
 import type { BranchEntry } from "./section.ts";
@@ -41,7 +41,7 @@ export function withPlan(plans: readonly string[], path: string): readonly strin
 }
 
 export function planItems(plans: readonly string[]): PanelItem[] {
-  return plans.map((path) => ({ text: basename(path), depth: 0, tone: ItemTone.Normal }));
+  return plans.map((path) => ({ text: basename(path, extname(path)), depth: 0, tone: ItemTone.Normal }));
 }
 
 function planFromEntry(entry: BranchEntry): string | undefined {

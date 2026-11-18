@@ -98,7 +98,7 @@ test("plansOnBranch keeps first-load order, deduplicates and ignores unrelated e
   assert.deepEqual(result, ["/b.md", "/a.md"]);
 });
 
-test("planItems shows only the filename", () => {
+test("planItems shows the filename without the extension", () => {
   // arrange
   const plans = [plan];
 
@@ -106,5 +106,5 @@ test("planItems shows only the filename", () => {
   const items = planItems(plans);
 
   // assert
-  assert.deepEqual(items, [{ text: "20261116-1401-sidebar.md", depth: 0, tone: ItemTone.Normal }]);
+  assert.deepEqual(items, [{ text: "20261116-1401-sidebar", depth: 0, tone: ItemTone.Normal }]);
 });
