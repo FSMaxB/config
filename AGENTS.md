@@ -24,7 +24,7 @@ By default the script only downloads the host platform; `--all` gets all three. 
 
 ## pi extensions
 
-`pi/extensions/` is symlinked to `~/.pi/agent/extensions`, so every `*.ts` there is loaded globally. Nothing hot-reloads: pi has to be restarted before a change takes effect, and there is no typecheck for these files.
+`pi/extensions/` is symlinked to `~/.pi/agent/extensions`, so every `*.ts` there is loaded globally. Nothing hot-reloads: pi has to be restarted before a change takes effect, and the extensions without their own `package.json` are typechecked by `pi/lint` (see "pi extensions lint" below).
 
 Discovery only picks up `*.ts` and `*/index.ts`, so `pi/extensions/lib/` holds shared modules without being loaded as extensions — never add `lib/index.ts`.
 
@@ -60,6 +60,16 @@ Sandbox profiles (`sandbox/src/profile-*.ts`, `profiles.ts`, `recorder.ts`, `rec
 
 `submit_plan` and `crit_review` (when given a plan file inside the plans directory) commit the plan file into a repository in its plans directory (`~/.pi/agent/plans/<cwd-slug>/`), creating a colocated jj repository (or a git one when jj is missing) on first use. Commit messages are `Submit plan: <name>` and `Review plan: <name>`.
 
+## pi extensions lint
+
+`pi/lint/` holds ESLint (type-aware: typescript-eslint `strictTypeChecked` + `stylisticTypeChecked`, a curated set of unicorn rules, and `local/` rules in `pi/lint/rules/` for the step-down rule and separator comments) and `tsc` for the extensions without a `package.json`. It is a sibling of `pi/extensions/` on purpose: neither the package nor its `node_modules` may sit inside or above `pi/extensions/`, because pi would load an `eslint.config.ts` there as an extension and a `node_modules/` in an ancestor would change how the extensions' bare imports resolve.
+
+The npm scripts run from `pi/` (`cd ..`): `npm run lint`, `npm run lint:prune`, `npm run fix -- <rule>...` (applies the autofixes of the named rules only), `npm test` and `npm run typecheck`. Lint needs `npm ci` in `pi/lint` and in every `pi/extensions/*/` package, because their `tsconfig.json` resolves types from their own `node_modules`.
+
+Existing violations live in `pi/lint/eslint-suppressions.json` (ESLint bulk suppressions). New violations fail; after fixing suppressed ones, run `npm run lint:prune` and commit the file, or CI fails on the stale entries. Deliberate exceptions get an `eslint-disable-next-line <rule> -- <reason>` comment instead of a suppression.
+
+A new extension package with its own `tsconfig.json` must be added to `parserOptions.project` in `pi/lint/eslint.config.ts`; a new entry point that needs a default export outside `extensions/*.ts` and `extensions/*/index.ts` goes into `DEFAULT_EXPORT_FILES`. typescript-eslint caps TypeScript below 6.1, so `typescript` stays on `~6.0`.
+
 ## pi skills
 
 `pi/skills/` is symlinked to `~/.pi/agent/skills`, pi's global skill root. Each skill is `pi/skills/<name>/SKILL.md`. A skill meant for Claude Code as well stays there, and `install.sh` links its directory into `~/.claude/skills/`; add its name to the `for skill in ...` loop there (see `code-style`).
@@ -74,16 +84,17 @@ Sandbox profiles (`sandbox/src/profile-*.ts`, `profiles.ts`, `recorder.ts`, `rec
 
 ## CI
 
-`.github/workflows/` has six workflows with 8 independent jobs in total. GitHub's `paths:` filter works per workflow, so jobs that share inputs live in one workflow, each with a `push` (to `main`) and `pull_request` `paths:` filter (shared through a YAML anchor) that always includes the workflow's own file. `workflow_dispatch` and `schedule` ignore `paths:` and always run every job. `nvim`, `vim`, `extensions` and `binaries` also run weekly, to catch upstream breakage that a push wouldn't (`stable` nvim, vim-plug plugins, which have no lockfile, `latest` node, dead release URLs); `shellcheck` and `actionlint` don't, since their tools are pinned.
+`.github/workflows/` has six workflows with 9 independent jobs in total. GitHub's `paths:` filter works per workflow, so jobs that share inputs live in one workflow, each with a `push` (to `main`) and `pull_request` `paths:` filter (shared through a YAML anchor) that always includes the workflow's own file. `workflow_dispatch` and `schedule` ignore `paths:` and always run every job. `nvim`, `vim`, `extensions` and `binaries` also run weekly, to catch upstream breakage that a push wouldn't (`stable` nvim, vim-plug plugins, which have no lockfile, `latest` node, dead release URLs); `shellcheck` and `actionlint` don't, since their tools are pinned.
 
 Known gap: the `shellcheck` paths cover `.sh` files plus the extensionless shell files by name (`.ansi-colors`, `.shellrc-common`, `.git_template/hooks/`, `scripts/`); a new extensionless shell script elsewhere won't trigger it on its own PR, so add its path to `shellcheck.yml`.
 
-`shellcheck.yml` (paths: shell files and `.github/scripts/shellcheck.sh`), `actionlint.yml` (paths: `.github/workflows/**`), `nvim.yml` (paths: `nvim/**`, `nvim-check.lua`), `vim.yml` (paths: `.vimrc`, `.vim/**`), `extensions.yml` (paths: `pi/extensions/**`, because `sandbox` imports from `pi/extensions/lib/`) and `binaries.yml` (paths: `binaries/download.sh`):
+`shellcheck.yml` (paths: shell files and `.github/scripts/shellcheck.sh`), `actionlint.yml` (paths: `.github/workflows/**`), `nvim.yml` (paths: `nvim/**`, `nvim-check.lua`), `vim.yml` (paths: `.vimrc`, `.vim/**`), `extensions.yml` (paths: `pi/extensions/**` and `pi/lint/**`, because `sandbox` imports from `pi/extensions/lib/`) and `binaries.yml` (paths: `binaries/download.sh`):
 
 - **shellcheck**: lints shell scripts. `.github/scripts/shellcheck.sh` auto-discovers every tracked file with a shell shebang or `.sh` suffix and runs the same way locally.
 - **actionlint**: lints the workflow files.
 - **stylua**: checks formatting of `nvim/`.
 - **node**: `npm ci` + `npm test` + `npm run typecheck` in every `pi/extensions/*/` directory that has a `package.json` (discovered automatically, so new packages need no workflow change but must define both scripts), plus `node --test pi/extensions/*/*.test.ts` for the package-less directories (`lib`, `subagent`, `cache-debug`, `foreign-thinking`, `sidebar`, `pause`; the `lib` tests need `fd` on `PATH`). Matrixed on the `engines` floor (22.19.0) and `latest`.
+- **lint**: `npm ci` in `pi/lint` and in every extension package, then `npm run typecheck`, `npm test` and `npm run lint` in `pi/lint` on node 22.19.0.
 - **nvim**: installs plugins from `nvim/lazy-lock.json` via `Lazy! restore`, then runs `.github/scripts/nvim-check.lua` headless, which force-loads every plugin and fails on any config error. Matrixed on `v0.12.0` (the floor, since `nvim-treesitter` on `main` requires it) and `stable`. `nvim-check.lua` runs the same way locally: `nvim --headless --cmd "luafile .github/scripts/nvim-check.lua"`.
 - **vim**: installs plugins with vim-plug and checks for startup errors. vim-plug has no lockfile, so this always tests upstream HEAD — the weekly run is what surfaces breakage here.
 - **downloads**: runs `binaries/download.sh` and smoke-tests every binary, natively on all three supported platforms (`ubuntu-26.04`, `ubuntu-26.04-arm`, `macos-26`).
