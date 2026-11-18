@@ -8,7 +8,7 @@ import type {
 import {
   contextMessages,
   latestMarkerIsActive,
-} from "./context-compat";
+} from "./context-compat.ts";
 import {
   loadPolicyConfig,
 } from "../subagent/model-policy.ts";
@@ -19,6 +19,8 @@ import { ContextChange, requiredContextChange } from "./context-sync.ts";
 import { isOffByDefaultModel } from "../lib/model-defaults.ts";
 import { sessionIsEmpty } from "../lib/session-empty.ts";
 import { isAlwaysOn } from "./settings.ts";
+import { errorMessage } from "../lib/errors.ts";
+import { isRecord } from "../lib/untyped.ts";
 
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 const SKILL_PATH = join(
@@ -40,9 +42,9 @@ const RULES_HEADER =
 const DISABLED_NOTICE =
   "ADHD MODE OFF. Ignore the i-have-adhd ruleset injected earlier in this conversation and return to your default response style.";
 
-type AdhdModeState = {
+interface AdhdModeState {
   enabled: boolean;
-};
+}
 
 function stripFrontmatter(content: string): string {
   return content
@@ -59,7 +61,7 @@ function loadRules(): string {
   try {
     content = readFileSync(SKILL_PATH, "utf8");
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
+    const reason = errorMessage(error);
     throw new Error(
       `Unable to load i-have-adhd rules from ${SKILL_PATH}: ${reason}`,
     );
@@ -73,17 +75,16 @@ function loadRules(): string {
   return rules;
 }
 
-function getSavedState(ctx: ExtensionContext): boolean | undefined {
+function getSavedState(context: ExtensionContext): boolean | undefined {
   let savedState: boolean | undefined;
 
-  for (const entry of ctx.sessionManager.getBranch()) {
+  for (const entry of context.sessionManager.getBranch()) {
     if (entry.type !== "custom" || entry.customType !== STATE_ENTRY_TYPE) {
       continue;
     }
 
-    const data = entry.data as Partial<AdhdModeState> | undefined;
-    if (typeof data?.enabled === "boolean") {
-      savedState = data.enabled;
+    if (isRecord(entry.data) && typeof entry.data.enabled === "boolean") {
+      savedState = entry.data.enabled;
     }
   }
 
@@ -97,28 +98,28 @@ function getSavedState(ctx: ExtensionContext): boolean | undefined {
  * ruleset, and compaction drops summarized entries so the ruleset has to be
  * injected again.
  */
-function rulesAreInContext(ctx: ExtensionContext): boolean {
+function rulesAreInContext(context: ExtensionContext): boolean {
   return latestMarkerIsActive(
-    contextMessages(ctx.sessionManager),
+    contextMessages(context.sessionManager),
     RULES_MESSAGE_TYPE,
     DISABLED_MESSAGE_TYPE,
   );
 }
 
-export default function iHaveAdhdExtension(pi: ExtensionAPI) {
+export default function iHaveAdhdExtension(pi: ExtensionAPI): void {
   const rules = loadRules();
   const policyConfig = loadPolicyConfig(join(EXTENSION_DIR, "..", "subagent"));
   let enabled = false;
 
-  const updateStatus = (ctx: ExtensionContext): void => {
+  const updateStatus = (context: ExtensionContext): void => {
     if (!enabled) {
-      ctx.ui.setStatus(STATUS_KEY, undefined);
+      context.ui.setStatus(STATUS_KEY, undefined);
       return;
     }
 
-    const dot = ctx.ui.theme.fg("success", "●");
-    const label = ctx.ui.theme.fg("accent", "ADHD ON");
-    ctx.ui.setStatus(STATUS_KEY, `${dot} ${label}`);
+    const dot = context.ui.theme.fg("success", "●");
+    const label = context.ui.theme.fg("accent", "ADHD ON");
+    context.ui.setStatus(STATUS_KEY, `${dot} ${label}`);
   };
 
   /**
@@ -127,11 +128,11 @@ export default function iHaveAdhdExtension(pi: ExtensionAPI) {
    * session is left alone: `before_agent_start` injects with the first prompt, so
    * the model selected until then still decides the default.
    */
-  const syncContext = (ctx: ExtensionContext): void => {
-    if (isEmpty(ctx)) return;
+  const syncContext = (context: ExtensionContext): void => {
+    if (isEmpty(context)) return;
 
     const message = contextMessage(
-      requiredContextChange(enabled, rulesAreInContext(ctx)),
+      requiredContextChange(enabled, rulesAreInContext(context)),
       rules,
     );
     if (message === undefined) return;
@@ -139,28 +140,28 @@ export default function iHaveAdhdExtension(pi: ExtensionAPI) {
     pi.sendMessage(message, { triggerTurn: false });
   };
 
-  const restoreState = (ctx: ExtensionContext): void => {
-    enabled = resolveEnabled(pi, policyConfig, ctx, ctx.model);
-    updateStatus(ctx);
-    syncContext(ctx);
+  const restoreState = (context: ExtensionContext): void => {
+    enabled = resolveEnabled(pi, policyConfig, context, context.model);
+    updateStatus(context);
+    syncContext(context);
   };
 
   const followModel = (
-    ctx: ExtensionContext,
+    context: ExtensionContext,
     model: ExtensionContext["model"],
   ): void => {
-    if (!isEmpty(ctx)) return;
+    if (!isEmpty(context)) return;
 
-    enabled = resolveEnabled(pi, policyConfig, ctx, model);
-    updateStatus(ctx);
+    enabled = resolveEnabled(pi, policyConfig, context, model);
+    updateStatus(context);
   };
 
-  const setEnabled = (nextEnabled: boolean, ctx: ExtensionContext): void => {
+  const setEnabled = (nextEnabled: boolean, context: ExtensionContext): void => {
     enabled = nextEnabled;
     pi.appendEntry(STATE_ENTRY_TYPE, { enabled } satisfies AdhdModeState);
-    updateStatus(ctx);
-    syncContext(ctx);
-    ctx.ui.notify(`ADHD mode ${enabled ? "enabled" : "disabled"}`, "info");
+    updateStatus(context);
+    syncContext(context);
+    context.ui.notify(`ADHD mode ${enabled ? "enabled" : "disabled"}`, "info");
   };
 
   pi.registerFlag("adhd", {
@@ -171,42 +172,42 @@ export default function iHaveAdhdExtension(pi: ExtensionAPI) {
 
   pi.registerCommand("i-have-adhd", {
     description: "Toggle ADHD-friendly output for this session",
-    handler: async (args, ctx) => {
+    handler: async (args, context) => {
       const argument = args.trim().toLowerCase();
 
       if (argument === "") {
-        setEnabled(!enabled, ctx);
+        setEnabled(!enabled, context);
         return;
       }
 
       if (argument === "on") {
-        setEnabled(true, ctx);
+        setEnabled(true, context);
         return;
       }
 
       if (argument === "off" || argument === "stop") {
-        setEnabled(false, ctx);
+        setEnabled(false, context);
         return;
       }
 
-      ctx.ui.notify("Usage: /i-have-adhd [on|off]", "warning");
+      context.ui.notify("Usage: /i-have-adhd [on|off]", "warning");
     },
   });
 
-  pi.on("input", async (event, ctx) => {
+  pi.on("input", async (event, context) => {
     const input = event.text.trim().toLowerCase();
 
     // Keep the built-in skill command working as an alias without letting Pi
     // expand a second copy of the same rules into the conversation.
     if (input === "/skill:i-have-adhd") {
-      setEnabled(true, ctx);
+      setEnabled(true, context);
       return { action: "handled" };
     }
 
     if (enabled && STOP_PHRASES.has(input)) {
-      setEnabled(false, ctx);
+      setEnabled(false, context);
 
-      if (ctx.hasUI) {
+      if (context.hasUI) {
         return { action: "handled" };
       }
 
@@ -219,15 +220,15 @@ export default function iHaveAdhdExtension(pi: ExtensionAPI) {
     return { action: "continue" };
   });
 
-  pi.on("session_start", async (_event, ctx) => restoreState(ctx));
-  pi.on("session_tree", async (_event, ctx) => restoreState(ctx));
-  pi.on("session_compact", async (_event, ctx) => syncContext(ctx));
-  pi.on("model_select", async (event, ctx) => followModel(ctx, event.model));
-  pi.on("before_agent_start", async (_event, ctx) => {
-    followModel(ctx, ctx.model);
+  pi.on("session_start", async (_event, context) => restoreState(context));
+  pi.on("session_tree", async (_event, context) => restoreState(context));
+  pi.on("session_compact", async (_event, context) => syncContext(context));
+  pi.on("model_select", async (event, context) => followModel(context, event.model));
+  pi.on("before_agent_start", async (_event, context) => {
+    followModel(context, context.model);
 
     const message = contextMessage(
-      requiredContextChange(enabled, rulesAreInContext(ctx)),
+      requiredContextChange(enabled, rulesAreInContext(context)),
       rules,
     );
     if (message === undefined) return;
@@ -238,25 +239,31 @@ export default function iHaveAdhdExtension(pi: ExtensionAPI) {
   });
 }
 
-function isEmpty(ctx: ExtensionContext): boolean {
-  return sessionIsEmpty(ctx.sessionManager.getBranch());
+function isEmpty(context: ExtensionContext): boolean {
+  return sessionIsEmpty(context.sessionManager.getBranch());
 }
 
 function resolveEnabled(
   pi: ExtensionAPI,
   policyConfig: SubagentModelConfig,
-  ctx: ExtensionContext,
+  context: ExtensionContext,
   model: ExtensionContext["model"],
 ): boolean {
   return (
-    getSavedState(ctx) ??
+    getSavedState(context) ??
     (pi.getFlag("adhd") === true ||
       (isAlwaysOn(pi.getSettings()) &&
         !isOffByDefaultModel(model, policyConfig)))
   );
 }
 
-function contextMessage(change: ContextChange, rules: string) {
+interface ContextMessage {
+  customType: string;
+  content: string;
+  display: boolean;
+}
+
+function contextMessage(change: ContextChange, rules: string): ContextMessage | undefined {
   switch (change) {
     case ContextChange.InjectRules:
       return {

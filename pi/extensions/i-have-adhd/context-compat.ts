@@ -4,23 +4,17 @@ export type ContextMessageMarker = Readonly<{
   customType?: string;
 }>;
 
-type CompatibleSessionManager = {
+interface CompatibleSessionManager {
   buildSessionContext?: () => { messages: readonly ContextMessageMarker[] };
   buildContextEntries?: () => readonly ContextMessageMarker[];
-};
+}
 
 export function contextMessages(
-  sessionManager: unknown,
+  compatible: CompatibleSessionManager,
 ): readonly ContextMessageMarker[] {
   // Context inspection is advisory. If a runtime changes its session-manager
   // API or temporarily cannot build context, report "not present" so the
   // caller can safely re-inject the rules instead of breaking session startup.
-  if (sessionManager === null || typeof sessionManager !== "object") {
-    return [];
-  }
-
-  const compatible = sessionManager as CompatibleSessionManager;
-
   try {
     if (typeof compatible.buildSessionContext === "function") {
       const messages = compatible.buildSessionContext().messages;

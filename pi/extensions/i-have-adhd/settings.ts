@@ -1,8 +1,6 @@
-type AdhdSettings = {
-  iHaveAdhd?: { alwaysOn?: unknown };
-};
+import { isRecord } from "../lib/untyped.ts";
 
 export function isAlwaysOn(settings: object): boolean {
-  const { iHaveAdhd } = settings as AdhdSettings;
-  return iHaveAdhd?.alwaysOn === true;
+  const iHaveAdhd: unknown = Reflect.get(settings, "iHaveAdhd");
+  return isRecord(iHaveAdhd) && iHaveAdhd.alwaysOn === true;
 }
