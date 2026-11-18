@@ -412,11 +412,6 @@
       "count": 1
     }
   },
-  "extensions/foreign-thinking/policy.test.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 4
-    }
-  },
   "extensions/foreign-thinking/policy.ts": {
     "local/step-down": {
       "count": 6
@@ -477,9 +472,6 @@
     }
   },
   "extensions/lib/exec.test.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 2
-    },
     "local/step-down": {
       "count": 1
     }
@@ -517,11 +509,6 @@
       "count": 1
     }
   },
-  "extensions/lib/mode-context.test.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 7
-    }
-  },
   "extensions/lib/mode-entry.ts": {
     "local/step-down": {
       "count": 6
@@ -545,11 +532,6 @@
   "extensions/lib/mode-policy.ts": {
     "local/step-down": {
       "count": 5
-    }
-  },
-  "extensions/lib/model-defaults.test.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
     }
   },
   "extensions/lib/panes.ts": {
@@ -587,11 +569,6 @@
     },
     "local/step-down": {
       "count": 12
-    }
-  },
-  "extensions/lib/path-preflight.test.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
     }
   },
   "extensions/lib/path-preflight.ts": {
@@ -643,11 +620,6 @@
       "count": 8
     }
   },
-  "extensions/lib/plan-commit.test.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 2
-    }
-  },
   "extensions/lib/plan-commit.ts": {
     "local/step-down": {
       "count": 6
@@ -664,9 +636,6 @@
     }
   },
   "extensions/lib/plan-submission.test.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 6
-    },
     "unicorn/no-null": {
       "count": 2
     }
@@ -677,11 +646,6 @@
     },
     "local/step-down": {
       "count": 1
-    }
-  },
-  "extensions/lib/register-tool.test.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 2
     }
   },
   "extensions/lib/repo.ts": {
@@ -714,9 +678,6 @@
     }
   },
   "extensions/lib/search-tools.smoke.ts": {
-    "@typescript-eslint/no-magic-numbers": {
-      "count": 3
-    },
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 1
     }
@@ -757,11 +718,6 @@
   "extensions/lib/skill-index.ts": {
     "local/step-down": {
       "count": 5
-    }
-  },
-  "extensions/lib/tool-permission-policy.test.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
     }
   },
   "extensions/lib/tool-permission-policy.ts": {
@@ -822,9 +778,6 @@
     }
   },
   "extensions/sandbox/src/escape.test.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 1
     }
@@ -871,9 +824,6 @@
     }
   },
   "extensions/sandbox/src/profile-activation.test.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 1
     }
@@ -884,11 +834,6 @@
     },
     "unicorn/no-null": {
       "count": 1
-    }
-  },
-  "extensions/sandbox/src/profile-command.test.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 3
     }
   },
   "extensions/sandbox/src/profile-command.ts": {
@@ -974,9 +919,6 @@
     }
   },
   "extensions/sandbox/src/vcs-policy.test.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 2
     }
