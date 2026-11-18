@@ -6,7 +6,7 @@ import { shortId } from "./debug.js";
 import type { ClaudeTranscriptAnchor } from "./query-state.js";
 import { conversationMessages } from "./transcript.js";
 import type { PiSessionMessage } from "./transcript.js";
-import { stringProperty } from "../../lib/untyped.ts";
+import { isRecord, stringProperty } from "../../lib/untyped.ts";
 
 /** A /tree target the bridge can resume instead of rebuilding: the Claude
  *  transcript position stamped on the last message of the new branch, plus the
@@ -52,9 +52,13 @@ export function resolveForkPoint(target: ClaudeTranscriptAnchor, cwd: string, cl
 	} catch (error) {
 		return `Claude session ${shortId(target.sessionId)} cannot be read: ${error instanceof Error ? error.message : String(error)}`;
 	}
-	const record = session.messages.filter((candidate) => candidate.type === "assistant" && candidate.message?.id === target.messageId).at(-1);
+	const record = session.messages.filter((candidate) => candidate.type === "assistant" && messageIdOf(candidate.message) === target.messageId).at(-1);
 	if (!record) return `message ${target.messageId} is not in Claude session ${shortId(target.sessionId)}`;
 	return { uuid: record.uuid, isTail: session.messages.at(-1)?.uuid === record.uuid };
+}
+
+function messageIdOf(message: unknown): string | undefined {
+	return isRecord(message) ? stringProperty(message, "id") : undefined;
 }
 
 // The anchor finalizeCurrentStream stamps onto the messages the bridge produced (claudeBridge).

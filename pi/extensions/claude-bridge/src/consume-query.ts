@@ -3,7 +3,7 @@
 // query's captured Pi stream.
 
 import type { Model, Api } from "@earendil-works/pi-ai";
-import type { AccountInfo, query, SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk";
+import type { AccountInfo, query } from "@anthropic-ai/claude-agent-sdk";
 import { classifyClaudeFailure, rateLimitResetFromInfo, rateLimitResetMs, rateLimitTypeFromInfo } from "./claude-failure.js";
 import type { ClaudeFailureKind } from "./claude-failure.js";
 import { ensureTurnStarted, processAssistantMessage, processStreamEvent, updateTurnOutputModel } from "./assistant-stream.js";
@@ -14,7 +14,7 @@ import { refusalFallbackNotice } from "./models.js";
 import type { QueryContext } from "./query-state.js";
 import { RATE_LIMIT_AUTO_RESUME_EVENT, RATE_LIMIT_TOKEN, formatAllowedRateLimitWarning, formatResetTimestamp, isUsageLimitMessage, uniqueNonEmptyLines } from "./rate-limit.js";
 import { activeStreamIdleWatchdogs } from "./stream-idle-watchdog.js";
-import { stringProperty } from "../../lib/untyped.ts";
+import { isRecord, stringProperty } from "../../lib/untyped.ts";
 
 export function emitRateLimitEvent(payload: Record<string, unknown>): void {
 	try {
@@ -193,12 +193,14 @@ export async function consumeQuery(
 				break;
 			case "rate_limit_event": {
 				if (!streamLive) break;
-				const info: SDKRateLimitInfo | undefined = message.rate_limit_info;
+				const info: unknown = message.rate_limit_info;
+				const record = isRecord(info) ? info : undefined;
+				const status = record === undefined ? undefined : stringProperty(record, "status");
 				debug("consumeQuery: rate_limit_event", JSON.stringify(info).slice(0, RATE_LIMIT_PREVIEW_CHARACTERS));
-				if (info?.status === "rejected") {
-					const rateLimitType = rateLimitTypeFromInfo(info);
-					const resetAt = rateLimitResetFromInfo(info);
-					const resetAtMs = rateLimitResetMs(info);
+				if (status === "rejected") {
+					const rateLimitType = rateLimitTypeFromInfo(record);
+					const resetAt = rateLimitResetFromInfo(record);
+					const resetAtMs = rateLimitResetMs(record);
 					const reason = `${typeof rateLimitType === "string" ? rateLimitType : "unknown"} rate limit`;
 					// A rejected event may precede a successful SDK fallback. Report it
 					// without holding a terminal failure until the final result arrives.
@@ -209,8 +211,8 @@ export async function consumeQuery(
 						source: "claude-bridge", status: "rejected",
 					});
 					safeNotify(`${RATE_LIMIT_TOKEN} Claude ${reason} hit — resets ${resetsAt}`, "warning");
-				} else if (info?.status === "allowed_warning") {
-					const warning = formatAllowedRateLimitWarning(info);
+				} else if (status === "allowed_warning") {
+					const warning = formatAllowedRateLimitWarning(record);
 					if (warning) safeNotify(warning, "warning");
 					else debug("consumeQuery: suppressed low/ambiguous allowed_warning rate_limit_event", JSON.stringify(info).slice(0, RATE_LIMIT_PREVIEW_CHARACTERS));
 				}

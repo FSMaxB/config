@@ -61,13 +61,10 @@
   },
   "extensions/claude-bridge/src/assistant-stream.ts": {
     "@typescript-eslint/no-unnecessary-condition": {
-      "count": 34
+      "count": 2
     },
     "local/step-down": {
-      "count": 13
-    },
-    "unicorn/no-null": {
-      "count": 4
+      "count": 12
     }
   },
   "extensions/claude-bridge/src/auth-presence.ts": {
@@ -121,7 +118,7 @@
   },
   "extensions/claude-bridge/src/consume-query.ts": {
     "@typescript-eslint/no-unnecessary-condition": {
-      "count": 4
+      "count": 2
     },
     "@typescript-eslint/prefer-nullish-coalescing": {
       "count": 1
@@ -262,9 +259,6 @@
     }
   },
   "extensions/claude-bridge/src/tool-isolation.ts": {
-    "@typescript-eslint/no-unnecessary-condition": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 1
     }
@@ -294,9 +288,6 @@
     }
   },
   "extensions/claude-bridge/src/tree-resume.ts": {
-    "@typescript-eslint/no-unnecessary-condition": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 3
     }
