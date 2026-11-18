@@ -1182,9 +1182,6 @@
     "@typescript-eslint/consistent-type-assertions": {
       "count": 1
     },
-    "@typescript-eslint/restrict-plus-operands": {
-      "count": 2
-    },
     "local/step-down": {
       "count": 1
     },
@@ -1218,9 +1215,6 @@
     },
     "@typescript-eslint/prefer-includes": {
       "count": 1
-    },
-    "@typescript-eslint/restrict-plus-operands": {
-      "count": 2
     },
     "local/step-down": {
       "count": 3
@@ -1373,15 +1367,6 @@
     }
   },
   "extensions/sandbox/src/settings.test.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 6
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 13
-    },
     "local/step-down": {
       "count": 1
     }
