@@ -19,7 +19,7 @@ process.env.PI_CODING_AGENT_DIR = scratch;
 
 const { currentQueryContext, popContext, pushContext, resetStack, stackDepth } = await import("../src/query-state.js");
 const { abortRebuildReason, teardownQuery } = await import("../src/query-teardown.js");
-const { __testGetBridgeIntegrityState, __testSetBridgeIntegrityState } = await import("../src/bridge-state.js");
+const { __testSetBridgeIntegrityState } = await import("../src/bridge-state.js");
 
 import { describe, it, afterEach, beforeEach } from "node:test";
 import assert from "node:assert/strict";
@@ -142,13 +142,6 @@ describe("teardownQuery", () => {
 });
 
 describe("teardownQuery shared-record gating (#1001)", () => {
-	const parentRecord = () => ({
-		sessionId: "parent-session",
-		cursor: 40,
-		cwd: "/repo",
-		conversationFingerprint: "u:aaaaaaaaaaaa|a:bbbbbbbbbbbb",
-	});
-
 	beforeEach(() => {
 		resetStack();
 		__testSetBridgeIntegrityState({ sharedSession: undefined, ui: undefined });

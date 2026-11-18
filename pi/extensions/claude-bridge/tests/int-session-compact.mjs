@@ -36,7 +36,7 @@ const harness = createRpcHarness({
 	defaultTimeout: TIMEOUT,
 });
 
-const { start, stop, send, promptAndWait, DEBUG_LOG, RPC_LOG } = harness;
+const { start, stop, send, promptAndWait, DEBUG_LOG } = harness;
 
 function finish(code, msg) {
 	if (code !== 0) throw new Error(msg);

@@ -458,26 +458,6 @@
       "count": 2
     }
   },
-  "extensions/claude-bridge/tests/int-session-compact.mjs": {
-    "no-unused-vars": {
-      "count": 1
-    }
-  },
-  "extensions/claude-bridge/tests/int-session-new.mjs": {
-    "no-unused-vars": {
-      "count": 1
-    }
-  },
-  "extensions/claude-bridge/tests/lib/rpc-harness.mjs": {
-    "no-empty": {
-      "count": 1
-    }
-  },
-  "extensions/claude-bridge/tests/unit-query-teardown.mjs": {
-    "no-unused-vars": {
-      "count": 2
-    }
-  },
   "extensions/context.ts": {
     "@typescript-eslint/no-magic-numbers": {
       "count": 4
