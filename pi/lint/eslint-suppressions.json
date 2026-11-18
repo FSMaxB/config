@@ -198,9 +198,6 @@
     "no-restricted-syntax": {
       "count": 1
     },
-    "no-useless-assignment": {
-      "count": 1
-    },
     "unicorn/name-replacements": {
       "count": 2
     }
@@ -719,9 +716,6 @@
   "extensions/lib/format.ts": {
     "@typescript-eslint/no-magic-numbers": {
       "count": 7
-    },
-    "@typescript-eslint/no-misused-spread": {
-      "count": 1
     }
   },
   "extensions/lib/grep-collector.test.ts": {
@@ -1208,9 +1202,6 @@
   "extensions/sandbox/src/log-stream.ts": {
     "local/step-down": {
       "count": 3
-    },
-    "no-control-regex": {
-      "count": 1
     }
   },
   "extensions/sandbox/src/network-grants.ts": {

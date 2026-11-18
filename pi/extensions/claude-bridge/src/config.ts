@@ -122,7 +122,7 @@ export function recordProjectTrust(context: { cwd?: string; isProjectTrusted?: (
 	// run the cwd-ancestor `.pi/settings.json` walk (a filesystem probe outside
 	// the host-owned dirs) for a result nothing consumes. Skip it entirely.
 	if (isolatedFromEnv()) return;
-	let trusted = true;
+	let trusted: boolean;
 	try {
 		trusted = context.isProjectTrusted?.() === true;
 	} catch {

@@ -46,6 +46,7 @@ const SANDBOX_MESSAGE = /Sandbox:\s+(.+)$/;
 const ACTION = /^.*?\(\d+\)\s+(deny|allow)(?:\(\d+\))?\s/;
 // Copied from srt's sandbox-violation-store.js (not exported): violation text reaches the model inside a
 // <sandbox_violations> block, so control and bidi characters and angle brackets must not survive.
+// eslint-disable-next-line no-control-regex -- the control characters are what this pattern removes
 const DISPLAY_UNSAFE_CHARACTERS = /[\x00-\x1f\x7f-\x9f\u00ad\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff\u{e0000}-\u{e007f}]+/gu;
 
 function sanitizeViolationText(text: string): string {
