@@ -1,12 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MILLISECONDS_PER_SECOND } from "./units.ts";
 
-export interface ExecCheckedOptions {
-  signal?: AbortSignal;
-  timeout: number;
-  cwd?: string;
-}
-
 export async function execChecked(
   pi: ExtensionAPI,
   command: string,
@@ -25,4 +19,10 @@ export async function execChecked(
       `${invocation} failed with exit ${code}: ${stderr.trim() || stdout.trim()}`,
     );
   return stdout || stderr;
+}
+
+export interface ExecCheckedOptions {
+  signal?: AbortSignal;
+  timeout: number;
+  cwd?: string;
 }

@@ -309,11 +309,6 @@ function buildMessageRows(
   return rows;
 }
 
-interface Stats {
-  tokens: number;
-  count: number;
-}
-
 function tally<Key>(map: Map<Key, Stats>, key: Key, tokens: number): void {
   const stats = map.get(key) ?? { tokens: 0, count: 0 };
   stats.tokens += tokens;
@@ -332,6 +327,11 @@ function sumStats(entries: readonly [string, Stats][]): Stats {
     total.count += stats.count;
   }
   return total;
+}
+
+interface Stats {
+  tokens: number;
+  count: number;
 }
 
 function renderRows(rows: readonly Row[], contextWindow: number | undefined): string[] {

@@ -36,12 +36,6 @@ const STALE_MS = 10_000;
 const SCAN_TIMEOUT_MS = 30_000;
 const PROBE_TIMEOUT_MS = 5_000;
 
-type Rank = (
-  paths: readonly string[],
-  query: string,
-  signal: AbortSignal,
-) => Promise<string[]>;
-
 export default function (pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, context) => {
     if (!context.hasUI) return;
@@ -153,6 +147,12 @@ function createProvider(
     },
   };
 }
+
+type Rank = (
+  paths: readonly string[],
+  query: string,
+  signal: AbortSignal,
+) => Promise<string[]>;
 
 function rankWithFzf(
   paths: readonly string[],

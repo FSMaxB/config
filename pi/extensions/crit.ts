@@ -384,20 +384,6 @@ const STORY_SCHEMA = Type.Object(
   },
 );
 
-type Story = Static<typeof STORY_SCHEMA>;
-
-interface ReviewParameters {
-  paths?: string[];
-  pr?: string;
-  range?: string;
-  url?: string;
-  html?: string;
-  plan?: string;
-  story?: Story;
-  session?: string;
-  baseBranch?: string;
-}
-
 function reviewArguments(parameters: ReviewParameters): { args: string[]; slug?: string } {
   const { paths, pr, range, url, html, plan, story, session, baseBranch } =
     parameters;
@@ -427,6 +413,18 @@ function reviewArguments(parameters: ReviewParameters): { args: string[]; slug?:
 
   const slug = basename(plan, ".md");
   return { args: ["plan", "--name", slug, plan], slug };
+}
+
+interface ReviewParameters {
+  paths?: string[];
+  pr?: string;
+  range?: string;
+  url?: string;
+  html?: string;
+  plan?: string;
+  story?: Story;
+  session?: string;
+  baseBranch?: string;
 }
 
 // Ingest writes the story into crit's review file, starts or updates the review daemon and opens
@@ -459,6 +457,8 @@ async function ingestStory(
     await rm(directory, { recursive: true, force: true });
   }
 }
+
+type Story = Static<typeof STORY_SCHEMA>;
 
 // crit blocks for as long as the user is reviewing, so its output is streamed rather than
 // collected at the end: the review URL it prints on startup is the only way back in if the
@@ -507,16 +507,6 @@ function streamCrit(
   });
 }
 
-interface CommentParameters {
-  body: string;
-  path?: string;
-  line?: string;
-  endLine?: number;
-  replyTo?: string;
-  scope?: string;
-  resolve?: boolean;
-}
-
 function toCritEntry(comment: CommentParameters): Record<string, unknown> {
   const { body, path, line, endLine, replyTo, scope, resolve } = comment;
   return {
@@ -528,6 +518,16 @@ function toCritEntry(comment: CommentParameters): Record<string, unknown> {
     ...(scope ? { scope } : {}),
     ...(resolve ? { resolve: true } : {}),
   };
+}
+
+interface CommentParameters {
+  body: string;
+  path?: string;
+  line?: string;
+  endLine?: number;
+  replyTo?: string;
+  scope?: string;
+  resolve?: boolean;
 }
 
 async function runCrit(

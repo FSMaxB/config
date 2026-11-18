@@ -2,19 +2,6 @@ import type { ProfileSessionState } from "./profile-activation.ts";
 import { NetworkAccess, isValidProfileName } from "./profiles.ts";
 import type { ActivationDecisions, Profile } from "./profiles.ts";
 
-export type ProfileCommand =
-  | { kind: "list" }
-  | { kind: "record"; name: string }
-  | { kind: "stop" }
-  | { kind: "edit"; name: string }
-  | { kind: "forget"; name: string }
-  | { kind: "delete"; name: string };
-
-export interface ProfileCommandError {
-  kind: "error";
-  message: string;
-}
-
 const NAMED_SUBCOMMANDS = ["record", "edit", "forget", "delete"] as const;
 export const SUBCOMMANDS = ["record", "stop", "edit", "forget", "delete"] as const;
 const USAGE = `Use /sandbox-profile [${SUBCOMMANDS.map((subcommand) => (subcommand === "stop" ? subcommand : `${subcommand} <name>`)).join(" | ")}].`;
@@ -32,6 +19,14 @@ export function parseProfileCommand(commandArguments: string): ProfileCommand | 
   if (named === "record" && !isValidProfileName(name)) return error(`"${name}" is not a valid profile name: use lowercase letters, digits and dashes, starting with a letter or digit.`);
   return { kind: named, name };
 }
+
+export type ProfileCommand =
+  | { kind: "list" }
+  | { kind: "record"; name: string }
+  | { kind: "stop" }
+  | { kind: "edit"; name: string }
+  | { kind: "forget"; name: string }
+  | { kind: "delete"; name: string };
 
 export function profileCompletions(prefix: string, profileNames: readonly string[]): { value: string; label: string }[] | null {
   const words = prefix.split(" ");
@@ -67,4 +62,9 @@ function reasonText(note: string | undefined): string {
 
 function error(message: string): ProfileCommandError {
   return { kind: "error", message };
+}
+
+export interface ProfileCommandError {
+  kind: "error";
+  message: string;
 }

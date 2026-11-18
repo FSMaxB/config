@@ -3,14 +3,6 @@ import { test } from "node:test";
 import { fingerprintPayload, SectionKind } from "./fingerprint.ts";
 import type { Item } from "./fingerprint.ts";
 
-function messagesOf(payload: unknown): Item[] {
-  const fingerprint = fingerprintPayload(payload);
-  assert.ok(fingerprint);
-  const section = fingerprint.sections.find(({ key }) => key === "messages");
-  assert.ok(section?.items);
-  return section.items;
-}
-
 test("appending a message keeps the old items as an exact prefix", () => {
   // arrange
   const before = { model: "m", messages: [{ role: "user", content: "a" }, { role: "assistant", content: "b" }] };
@@ -81,6 +73,14 @@ test("items are labelled by role, tool name or type", () => {
   // assert
   assert.deepEqual(labels, ["tool", "bash", undefined]);
 });
+
+function messagesOf(payload: unknown): Item[] {
+  const fingerprint = fingerprintPayload(payload);
+  assert.ok(fingerprint);
+  const section = fingerprint.sections.find(({ key }) => key === "messages");
+  assert.ok(section?.items);
+  return section.items;
+}
 
 test("a payload that is not an object has no fingerprint", () => {
   // arrange

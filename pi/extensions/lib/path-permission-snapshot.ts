@@ -6,18 +6,11 @@ import { emptyRules, parseRules, selectorFromKey, selectorKey, serializeRules } 
 import type { PathSelector, RuleSets, SerializedRules } from "./path-permission-rules.ts";
 import { isRecord } from "./untyped.ts";
 import { BYTES_PER_KIBIBYTE } from "./units.ts";
-
-// ruleStore and agentMode describe the parent; without them the child uses its own.
-export interface ChildPathPolicy { version: 1; session: SerializedRules; readDefaults: PathSelector[]; writeDefaults: PathSelector[]; ruleStore?: PathRuleStore; agentMode?: AgentMode }
 export const CHILD_POLICY_ENV = "PI_SUBAGENT_PATH_POLICY";
 // The policy travels in an environment variable, and an exec fails with E2BIG once the
 // environment outgrows the system limit (256 KiB on macOS, shared with the arguments).
 const MAX_KIBIBYTES = 32;
 const MAX_BYTES = MAX_KIBIBYTES * BYTES_PER_KIBIBYTE;
-
-// A child process without the variable is not a subagent; one with an invalid variable must not
-// fall back to its own rules, so it disables the path tools instead.
-export type InheritedPolicy = { kind: "none" } | { kind: "invalid" } | { kind: "valid"; policy: ChildPathPolicy };
 
 const INVALID: InheritedPolicy = { kind: "invalid" };
 
@@ -50,6 +43,10 @@ export function parseChildPathPolicy(value: string | undefined): InheritedPolicy
   }
 }
 
+// A child process without the variable is not a subagent; one with an invalid variable must not
+// fall back to its own rules, so it disables the path tools instead.
+export type InheritedPolicy = { kind: "none" } | { kind: "invalid" } | { kind: "valid"; policy: ChildPathPolicy };
+
 export function inheritedRules(policy: ChildPathPolicy): RuleSets {
   const rules = emptyRules();
   for (const mode of ["read", "write"] as const) {
@@ -58,3 +55,6 @@ export function inheritedRules(policy: ChildPathPolicy): RuleSets {
   }
   return rules;
 }
+
+// ruleStore and agentMode describe the parent; without them the child uses its own.
+export interface ChildPathPolicy { version: 1; session: SerializedRules; readDefaults: PathSelector[]; writeDefaults: PathSelector[]; ruleStore?: PathRuleStore; agentMode?: AgentMode }

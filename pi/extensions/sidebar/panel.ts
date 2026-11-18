@@ -11,25 +11,6 @@ export const MIN_TERMINAL_WIDTH = 100;
 const BORDER_AND_PADDING_COLUMNS = 4;
 
 export const ItemTone = { Normal: "normal", Dim: "dim" } as const;
-export type ItemTone = (typeof ItemTone)[keyof typeof ItemTone];
-
-/** `depth` is layout: the panel indents two spaces per level. `tone` picks the text style. */
-export interface PanelItem { text: string; depth: number; tone: ItemTone }
-export interface PanelSection { title: string; items: readonly PanelItem[] }
-export interface PanelStyle {
-  border(text: string): string;
-  title(text: string): string;
-  dim(text: string): string;
-}
-
-/**
- * The terminal width helpers of pi-tui, injected so this module stays loadable by the package-less
- * `node --test` run in CI, where pi-tui is not installed.
- */
-export interface TextMeasure {
-  width(text: string): number;
-  truncate(text: string, maxWidth: number, ellipsis: string): string;
-}
 
 export class SidebarPanel implements Component {
   readonly #theme: Theme;
@@ -84,6 +65,16 @@ export function renderPanel(
   lines.push(style.border(`╰${"─".repeat(inner)}╯`));
   return lines;
 }
+export interface PanelSection { title: string; items: readonly PanelItem[] }
+
+/**
+ * The terminal width helpers of pi-tui, injected so this module stays loadable by the package-less
+ * `node --test` run in CI, where pi-tui is not installed.
+ */
+export interface TextMeasure {
+  width(text: string): number;
+  truncate(text: string, maxWidth: number, ellipsis: string): string;
+}
 
 /** Leading spaces of an item row inside the box: one for every item, two more per depth level. */
 function itemIndent(item: PanelItem): string {
@@ -92,4 +83,13 @@ function itemIndent(item: PanelItem): string {
 
 function styledText(item: PanelItem, style: PanelStyle): string {
   return item.tone === ItemTone.Dim ? style.dim(item.text) : item.text;
+}
+
+/** `depth` is layout: the panel indents two spaces per level. `tone` picks the text style. */
+export interface PanelItem { text: string; depth: number; tone: ItemTone }
+export type ItemTone = (typeof ItemTone)[keyof typeof ItemTone];
+export interface PanelStyle {
+  border(text: string): string;
+  title(text: string): string;
+  dim(text: string): string;
 }

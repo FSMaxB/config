@@ -7,27 +7,6 @@ import type { DraftInput, TraceAccess } from "./recording.ts";
 
 const HOME = "/Users/max";
 
-function policy(overrides: Partial<{ readAllow: ReturnType<typeof tree>[]; writeAllow: ReturnType<typeof tree>[]; protectedWrites: ReturnType<typeof tree>[] }> = {}): EffectivePolicy {
-  return {
-    read: { allow: overrides.readAllow ?? [], deny: [], protected: [] },
-    write: { allow: overrides.writeAllow ?? [], deny: [], protected: overrides.protectedWrites ?? [] },
-  };
-}
-
-function input(accesses: TraceAccess[], overrides: Partial<DraftInput> = {}): DraftInput {
-  return {
-    accesses,
-    directories: new Set(),
-    policy: policy(),
-    toolchainRead: [],
-    existing: { read: [], write: [] },
-    secrets: [`${HOME}/.ssh`, `${HOME}/.netrc`],
-    repositoryRoot: `${HOME}/repo`,
-    homeDirectory: HOME,
-    ...overrides,
-  };
-}
-
 
 test("trace accesses parse read and write operations and ignore other operations", () => {
   // arrange
@@ -192,6 +171,27 @@ test("exact selectors in the existing profile entries also silence accesses", ()
   // assert
   assert.deepEqual(draft.entries, []);
 });
+
+function input(accesses: TraceAccess[], overrides: Partial<DraftInput> = {}): DraftInput {
+  return {
+    accesses,
+    directories: new Set(),
+    policy: policy(),
+    toolchainRead: [],
+    existing: { read: [], write: [] },
+    secrets: [`${HOME}/.ssh`, `${HOME}/.netrc`],
+    repositoryRoot: `${HOME}/repo`,
+    homeDirectory: HOME,
+    ...overrides,
+  };
+}
+
+function policy(overrides: Partial<{ readAllow: ReturnType<typeof tree>[]; writeAllow: ReturnType<typeof tree>[]; protectedWrites: ReturnType<typeof tree>[] }> = {}): EffectivePolicy {
+  return {
+    read: { allow: overrides.readAllow ?? [], deny: [], protected: [] },
+    write: { allow: overrides.writeAllow ?? [], deny: [], protected: overrides.protectedWrites ?? [] },
+  };
+}
 
 function read(path: string): TraceAccess {
   return { mode: "read", path };

@@ -16,14 +16,6 @@ import { RATE_LIMIT_AUTO_RESUME_EVENT, RATE_LIMIT_TOKEN, formatAllowedRateLimitW
 import { activeStreamIdleWatchdogs } from "./stream-idle-watchdog.js";
 import { isRecord, nonEmpty, stringProperty } from "../../lib/untyped.ts";
 
-export function emitRateLimitEvent(payload: Record<string, unknown>): void {
-	try {
-		getExtensionApi()?.events.emit(RATE_LIMIT_AUTO_RESUME_EVENT, payload);
-	} catch {
-		// Cross-extension broker is best-effort only.
-	}
-}
-
 // The fastMode setting silently no-ops when Claude Code declines fast mode.
 // Surface the typed fast_mode_disabled_reason (SDK 0.3.219+) once per distinct
 // reason so an enabled-but-inert setting explains itself instead of looking
@@ -41,32 +33,6 @@ const FAST_MODE_DISABLED_REASON_TEXT: Record<string, string> = {
 	sdk_opt_in_required: "the SDK opt-in is missing",
 	unknown: "unavailable for an unknown reason",
 };
-
-function noteFastModeDisabledReason(message: object, bridgeConfig: Config): void {
-	if (bridgeConfig.provider?.fastMode !== true) return;
-	const reason: unknown = Reflect.get(message, "fast_mode_disabled_reason");
-	// "pending" means the CLI is still deciding — not a verdict worth announcing.
-	if (typeof reason !== "string" || reason === "pending") return;
-	if (reason === lastFastModeDisabledNoticeReason) return;
-	lastFastModeDisabledNoticeReason = reason;
-	const text = FAST_MODE_DISABLED_REASON_TEXT[reason] ?? `unavailable (${reason})`;
-	safeNotify(`Pi Claude: fast mode is enabled in settings but Claude Code declined it — ${text}.`, "warning");
-}
-
-/** Background consumer: iterates the SDK generator, pushing events to currentPiStream.
- *  Runs until the query ends. Per turn, the SDK yields stream_events (deltas), then
- *  an assistant message (completed blocks). On tool_use, the stream is ended by
- *  whichever path handles it first (processStreamEvent or processAssistantMessage),
- *  and the MCP handler blocks the generator until pi delivers the tool result. */
-export interface ClaudeAttemptFailure {
-	kind?: ClaudeFailureKind;
-	message: string;
-}
-
-export interface ConsumeQueryResult {
-	capturedSessionId?: string;
-	failure?: ClaudeAttemptFailure;
-}
 
 // A rate-limit event is logged in part: the leading fields identify it.
 const RATE_LIMIT_PREVIEW_CHARACTERS = 300;
@@ -230,4 +196,38 @@ export async function consumeQuery(
 
 	debug(`consumeQuery: for-await loop exited, wasAborted=${wasAborted()}, capturedSessionId=${shortIdOrNone(capturedSessionId)}, failure=${failure?.kind ?? "none"}`);
 	return { capturedSessionId, failure };
+}
+
+export function emitRateLimitEvent(payload: Record<string, unknown>): void {
+	try {
+		getExtensionApi()?.events.emit(RATE_LIMIT_AUTO_RESUME_EVENT, payload);
+	} catch {
+		// Cross-extension broker is best-effort only.
+	}
+}
+
+function noteFastModeDisabledReason(message: object, bridgeConfig: Config): void {
+	if (bridgeConfig.provider?.fastMode !== true) return;
+	const reason: unknown = Reflect.get(message, "fast_mode_disabled_reason");
+	// "pending" means the CLI is still deciding — not a verdict worth announcing.
+	if (typeof reason !== "string" || reason === "pending") return;
+	if (reason === lastFastModeDisabledNoticeReason) return;
+	lastFastModeDisabledNoticeReason = reason;
+	const text = FAST_MODE_DISABLED_REASON_TEXT[reason] ?? `unavailable (${reason})`;
+	safeNotify(`Pi Claude: fast mode is enabled in settings but Claude Code declined it — ${text}.`, "warning");
+}
+
+export interface ConsumeQueryResult {
+	capturedSessionId?: string;
+	failure?: ClaudeAttemptFailure;
+}
+
+/** Background consumer: iterates the SDK generator, pushing events to currentPiStream.
+ *  Runs until the query ends. Per turn, the SDK yields stream_events (deltas), then
+ *  an assistant message (completed blocks). On tool_use, the stream is ended by
+ *  whichever path handles it first (processStreamEvent or processAssistantMessage),
+ *  and the MCP handler blocks the generator until pi delivers the tool result. */
+export interface ClaudeAttemptFailure {
+	kind?: ClaudeFailureKind;
+	message: string;
 }

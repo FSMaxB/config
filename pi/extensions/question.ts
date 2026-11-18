@@ -223,25 +223,6 @@ function parseResponse(value: unknown): QuestionResponse | undefined {
   return undefined;
 }
 
-interface QuestionOption {
-  title: string;
-  description?: string;
-}
-
-type QuestionResponse =
-  | { kind: "selection"; selections: string[]; unresolved?: string[] }
-  | { kind: "freeform"; text: string };
-
-interface SelectionTokens {
-  selections: string[];
-  unresolved: string[];
-}
-
-type AskOutcome =
-  | QuestionResponse
-  | { kind: "cancelled" }
-  | { kind: "unparseable"; input: string };
-
 interface QuestionDetails {
   question: string;
   context?: string;
@@ -329,6 +310,15 @@ async function askFreeform(
   return trimmed ? { kind: "freeform", text: trimmed } : { kind: "cancelled" };
 }
 
+type AskOutcome =
+  | QuestionResponse
+  | { kind: "cancelled" }
+  | { kind: "unparseable"; input: string };
+
+type QuestionResponse =
+  | { kind: "selection"; selections: string[]; unresolved?: string[] }
+  | { kind: "freeform"; text: string };
+
 function resolveSelectionTokens(
   input: string,
   options: readonly QuestionOption[],
@@ -344,6 +334,11 @@ function resolveSelectionTokens(
     else unresolved.push(trimmed);
   }
   return { selections: [...new Set(selections)], unresolved };
+}
+
+interface SelectionTokens {
+  selections: string[];
+  unresolved: string[];
 }
 
 const RANGE_PATTERN = /^(\d+)\s*[-–—]\s*(\d+)$/;
@@ -391,6 +386,11 @@ function coerceOption(option: unknown): QuestionOption | undefined {
   if (typeof title !== "string" || !title.trim()) return undefined;
   const trimmedDescription = typeof description === "string" ? description.trim() : undefined;
   return trimmedDescription ? { title: title.trim(), description: trimmedDescription } : { title: title.trim() };
+}
+
+interface QuestionOption {
+  title: string;
+  description?: string;
 }
 
 function isCancelled(

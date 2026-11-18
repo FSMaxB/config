@@ -4,56 +4,6 @@ import { isolatedFromEnvironment, piUserDirectory } from "./config.js";
 import { debug } from "./debug.js";
 import { ancestorDirectories } from "../../lib/repo.ts";
 
-export interface PromptContextSettings {
-	includeAppendSystemPromptMd?: boolean;
-
-}
-
-export interface PromptContextAppend {
-	text?: string;
-	labels: string[];
-}
-
-function readTrimmed(path: string): string | undefined {
-	try {
-		if (!existsSync(path)) return undefined;
-		const content = readFileSync(path, "utf8").trim();
-		return content.length > 0 ? content : undefined;
-	} catch (error) {
-		// The file exists but could not be read: the user opted into forwarding
-		// it, so a silent drop looks like the setting being ignored.
-		debug(`prompt-context: failed to read ${path}:`, error instanceof Error ? error.message : String(error));
-		return undefined;
-	}
-}
-
-function findProjectAppendSystem(startDirectory: string): string | undefined {
-	for (const directory of ancestorDirectories(startDirectory)) {
-		const candidate = join(directory, ".pi", "APPEND_SYSTEM.md");
-		if (existsSync(candidate)) return candidate;
-	}
-	return undefined;
-}
-
-export function readAppendSystemPromptFiles(cwd: string): { label: string; content: string }[] {
-	const files: { label: string; path: string }[] = [
-		{ label: "global APPEND_SYSTEM.md", path: join(piUserDirectory(), "APPEND_SYSTEM.md") },
-	];
-	// Isolated mode: no cwd-ancestor discovery — the host app owns the prompt surface.
-	const projectPath = isolatedFromEnvironment() ? undefined : findProjectAppendSystem(cwd);
-	if (projectPath) files.push({ label: "project .pi/APPEND_SYSTEM.md", path: projectPath });
-
-	const seen = new Set<string>();
-	const output: { label: string; content: string }[] = [];
-	for (const file of files) {
-		if (seen.has(file.path)) continue;
-		seen.add(file.path);
-		const content = readTrimmed(file.path);
-		if (content) output.push({ label: file.label, content });
-	}
-	return output;
-}
-
 export function buildPromptContextAppend(cwd: string, settings: PromptContextSettings): PromptContextAppend {
 	const parts: string[] = [];
 	const labels: string[] = [];
@@ -86,6 +36,64 @@ export function buildPromptContextAppend(cwd: string, settings: PromptContextSet
 	};
 }
 
+export interface PromptContextSettings {
+	includeAppendSystemPromptMd?: boolean;
+
+}
+
+export interface PromptContextAppend {
+	text?: string;
+	labels: string[];
+}
+
+export function readAppendSystemPromptFiles(cwd: string): { label: string; content: string }[] {
+	const files: { label: string; path: string }[] = [
+		{ label: "global APPEND_SYSTEM.md", path: join(piUserDirectory(), "APPEND_SYSTEM.md") },
+	];
+	// Isolated mode: no cwd-ancestor discovery — the host app owns the prompt surface.
+	const projectPath = isolatedFromEnvironment() ? undefined : findProjectAppendSystem(cwd);
+	if (projectPath) files.push({ label: "project .pi/APPEND_SYSTEM.md", path: projectPath });
+
+	const seen = new Set<string>();
+	const output: { label: string; content: string }[] = [];
+	for (const file of files) {
+		if (seen.has(file.path)) continue;
+		seen.add(file.path);
+		const content = readTrimmed(file.path);
+		if (content) output.push({ label: file.label, content });
+	}
+	return output;
+}
+
+function readTrimmed(path: string): string | undefined {
+	try {
+		if (!existsSync(path)) return undefined;
+		const content = readFileSync(path, "utf8").trim();
+		return content.length > 0 ? content : undefined;
+	} catch (error) {
+		// The file exists but could not be read: the user opted into forwarding
+		// it, so a silent drop looks like the setting being ignored.
+		debug(`prompt-context: failed to read ${path}:`, error instanceof Error ? error.message : String(error));
+		return undefined;
+	}
+}
+
+function findProjectAppendSystem(startDirectory: string): string | undefined {
+	for (const directory of ancestorDirectories(startDirectory)) {
+		const candidate = join(directory, ".pi", "APPEND_SYSTEM.md");
+		if (existsSync(candidate)) return candidate;
+	}
+	return undefined;
+}
+
+function xmlBlock(tag: string, attributes: Record<string, string>, content: string, escapeContent = true): string {
+	const attributeText = Object.entries(attributes)
+		.map(([key, value]) => ` ${key}="${escapeXmlAttribute(value)}"`)
+		.join("");
+	const body = escapeContent ? escapeXmlText(content.trim()) : content.trim();
+	return `<${tag}${attributeText}>\n${body}\n</${tag}>`;
+}
+
 function escapeXmlAttribute(value: string): string {
 	return value
 		.replace(/&/g, "&amp;")
@@ -99,12 +107,4 @@ function escapeXmlText(value: string): string {
 		.replace(/&/g, "&amp;")
 		.replace(/</g, "&lt;")
 		.replace(/>/g, "&gt;");
-}
-
-function xmlBlock(tag: string, attributes: Record<string, string>, content: string, escapeContent = true): string {
-	const attributeText = Object.entries(attributes)
-		.map(([key, value]) => ` ${key}="${escapeXmlAttribute(value)}"`)
-		.join("");
-	const body = escapeContent ? escapeXmlText(content.trim()) : content.trim();
-	return `<${tag}${attributeText}>\n${body}\n</${tag}>`;
 }

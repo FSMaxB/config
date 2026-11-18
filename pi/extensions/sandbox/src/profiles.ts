@@ -4,43 +4,7 @@ import { shortenPath } from "../../lib/format.ts";
 import type { AccessMode, PathSelector } from "../../lib/path-permission-rules.ts";
 import { booleanValue, requireRecord, stringArray, unique } from "./settings-values.ts";
 
-export interface ProfileTriggers {
-  commands: string[];
-  patterns: string[];
-}
-
 export const NetworkAccess = { Listed: "listed", Local: "local", All: "all" } as const;
-export type NetworkAccess = (typeof NetworkAccess)[keyof typeof NetworkAccess];
-
-// What srt's network config takes from profiles.
-export interface NetworkAllowances {
-  allowedDomains: string[];
-  allowLocalBinding: boolean;
-  allowUnixSockets: string[];
-}
-
-export interface ProfileNetwork extends NetworkAllowances {
-  access: NetworkAccess;
-}
-
-export interface ProfileDefinition {
-  triggers: ProfileTriggers;
-  filesystem: { read: string[]; write: string[] };
-  network: ProfileNetwork;
-  path: string[];
-}
-
-export interface Profile extends ProfileDefinition {
-  name: string;
-}
-
-// The "Allow always" and "Deny always" answers to activation prompts. They live next to the profiles in
-// sandbox.json, never inside one, the way network answers go to network.allowedDomains.
-export interface ActivationDecisions {
-  allowed: Set<string>;
-  // The value is the user's reason, repeated to the agent whenever the denial applies.
-  denied: Map<string, string | undefined>;
-}
 
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -51,14 +15,6 @@ export function emptyProfileDefinition(): ProfileDefinition {
     network: { access: NetworkAccess.Listed, allowedDomains: [], allowLocalBinding: false, allowUnixSockets: [] },
     path: [],
   };
-}
-
-export function emptyActivationDecisions(): ActivationDecisions {
-  return { allowed: new Set(), denied: new Map() };
-}
-
-export function isValidProfileName(name: string): boolean {
-  return NAME_PATTERN.test(name);
 }
 
 export function parseProfiles(value: unknown): Profile[] {
@@ -96,6 +52,10 @@ export function parseProfileDefinition(value: unknown, name: string): ProfileDef
   };
 }
 
+export function isValidProfileName(name: string): boolean {
+  return NAME_PATTERN.test(name);
+}
+
 export function parseActivationDecisions(value: unknown): ActivationDecisions {
   if (value === undefined) return emptyActivationDecisions();
   const record = requireRecord(value, "profileActivation");
@@ -105,6 +65,10 @@ export function parseActivationDecisions(value: unknown): ActivationDecisions {
     allowed: new Set(stringArray(record.allowed, "profileActivation.allowed")),
     denied: new Map(denied.map((name) => [name, typeof reasons[name] === "string" ? reasons[name] : undefined])),
   };
+}
+
+export function emptyActivationDecisions(): ActivationDecisions {
+  return { allowed: new Set(), denied: new Map() };
 }
 
 // The latest answer for a name wins, so recording one side removes the other.
@@ -121,6 +85,14 @@ export function recordActivationDecision(decisions: ActivationDecisions, name: s
 export function serializeActivationDecisions({ allowed, denied }: ActivationDecisions): { allowed: string[]; denied: string[]; deniedReasons: Record<string, string> } {
   const reasons = [...denied].filter((entry): entry is [string, string] => entry[1] !== undefined);
   return { allowed: [...allowed], denied: [...denied.keys()], deniedReasons: Object.fromEntries(reasons) };
+}
+
+// The "Allow always" and "Deny always" answers to activation prompts. They live next to the profiles in
+// sandbox.json, never inside one, the way network answers go to network.allowedDomains.
+export interface ActivationDecisions {
+  allowed: Set<string>;
+  // The value is the user's reason, repeated to the agent whenever the denial applies.
+  denied: Map<string, string | undefined>;
 }
 
 // Long enough that two profile sets never collide in practice, short enough for an environment variable.
@@ -146,6 +118,10 @@ export function mergedProfileNetwork(profiles: readonly Profile[]): NetworkAllow
     allowLocalBinding: networks.some(({ access, allowLocalBinding }) => allowLocalBinding || access !== NetworkAccess.Listed),
     allowUnixSockets: unique(networks.flatMap(({ allowUnixSockets }) => allowUnixSockets)),
   };
+}
+
+export interface Profile extends ProfileDefinition {
+  name: string;
 }
 
 function networkHosts({ access, allowedDomains }: ProfileNetwork): string[] {
@@ -175,6 +151,29 @@ export function addAllowedDomain(definition: ProfileDefinition, domain: string):
   return { ...definition, network: { ...definition.network, allowedDomains: [...definition.network.allowedDomains, domain] } };
 }
 
+export interface ProfileDefinition {
+  triggers: ProfileTriggers;
+  filesystem: { read: string[]; write: string[] };
+  network: ProfileNetwork;
+  path: string[];
+}
+
+export interface ProfileTriggers {
+  commands: string[];
+  patterns: string[];
+}
+
+export interface ProfileNetwork extends NetworkAllowances {
+  access: NetworkAccess;
+}
+
+// What srt's network config takes from profiles.
+export interface NetworkAllowances {
+  allowedDomains: string[];
+  allowLocalBinding: boolean;
+  allowUnixSockets: string[];
+}
+
 function pathArray(value: unknown, name: string): string[] {
   const entries = stringArray(value, name);
   for (const [index, entry] of entries.entries()) {
@@ -201,3 +200,4 @@ function networkAccess(value: unknown, name: string): NetworkAccess {
   if (level === undefined) throw new Error(`${name} must be one of ${Object.values(NetworkAccess).map((candidate) => `"${candidate}"`).join(", ")}`);
   return level;
 }
+export type NetworkAccess = (typeof NetworkAccess)[keyof typeof NetworkAccess];

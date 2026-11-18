@@ -4,10 +4,6 @@ import { exact, glob, tree } from "../../lib/path-permission-rules.ts";
 import { NetworkAccess, addAllowedDomain, addFilesystemEntry, emptyProfileDefinition, mergedProfileNetwork, parseActivationDecisions, parseProfileDefinition, parseProfiles, profileFingerprint, recordActivationDecision, selectorText, serializeActivationDecisions } from "./profiles.ts";
 import type { Profile } from "./profiles.ts";
 
-function profile(name: string, overrides: Partial<Profile> = {}): Profile {
-  return { name, ...emptyProfileDefinition(), ...overrides };
-}
-
 test("missing keys default to an empty profile", () => {
   // arrange
   const value = { bazel: {} };
@@ -170,6 +166,10 @@ test("listed access with no local binding adds nothing", () => {
   // assert
   assert.deepEqual(merged, { allowedDomains: [], allowLocalBinding: false, allowUnixSockets: [] });
 });
+
+function profile(name: string, overrides: Partial<Profile> = {}): Profile {
+  return { name, ...emptyProfileDefinition(), ...overrides };
+}
 
 test("selector text writes the home directory as a tilde", () => {
   // arrange

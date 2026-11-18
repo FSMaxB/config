@@ -1,13 +1,5 @@
 import { isRecord } from "../../lib/untyped.ts";
 
-// Checking parsers for hand-edited sandbox.json values. `name` is the value's path in the file,
-// so an error points at the entry to fix. An absent optional value parses to its empty default.
-
-export function requireRecord(value: unknown, name: string): Record<string, unknown> {
-  if (!isRecord(value)) throw new Error(`${name} must be an object`);
-  return value;
-}
-
 export function stringArray(value: unknown, name: string): string[] {
   if (value === undefined) return [];
   if (!Array.isArray(value)) throw new Error(`${name} must be an array of strings`);
@@ -25,6 +17,14 @@ export function stringRecord(value: unknown, name: string): Record<string, strin
     strings[key] = entry;
   }
   return strings;
+}
+
+// Checking parsers for hand-edited sandbox.json values. `name` is the value's path in the file,
+// so an error points at the entry to fix. An absent optional value parses to its empty default.
+
+export function requireRecord(value: unknown, name: string): Record<string, unknown> {
+  if (!isRecord(value)) throw new Error(`${name} must be an object`);
+  return value;
 }
 
 export function booleanValue(value: unknown, name: string): boolean {

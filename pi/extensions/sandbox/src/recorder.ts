@@ -16,39 +16,6 @@ import { buildDraft, draftText, parseDraftText, traceAccesses } from "./recordin
 import { loadProfiles, updateProfile } from "./settings.ts";
 import { traceProfile } from "./trace-profile.ts";
 
-export interface RecorderDependencies {
-  settingsFile: string;
-  homeDirectory: string;
-  ensureInitialized(): Promise<void>;
-  stockExec: BashOperations["exec"];
-  // The filesystem the normal sandbox would apply to a bash call with these profiles, minus the generated VCS globs.
-  traceFilesystem(profiles: readonly Profile[]): Promise<FilesystemConfig>;
-  // The policy without profile grants, so the draft contains only what the profile still needs.
-  baselinePolicy(): Promise<EffectivePolicy>;
-  toolchainRead(): readonly string[];
-  secretPaths(): string[];
-  repositoryRoot(): Promise<string>;
-  profileEnvironment(base: NodeJS.ProcessEnv, profiles: readonly Profile[]): Promise<NodeJS.ProcessEnv>;
-}
-
-export interface Recorder {
-  arm(name: string, context: ExtensionCommandContext): Promise<void>;
-  stop(context: ExtensionCommandContext): Promise<void>;
-  // Records a `!` command and returns the tracing operations to run it with, or undefined while no recording is armed.
-  operationsFor(command: string): BashOperations | undefined;
-  shutdown(): void;
-}
-
-interface Recording {
-  profile: string;
-  tag: string;
-  commands: string[];
-  lines: string[];
-  stopStream: () => void;
-  // The editor text of a review that failed validation, so the user's edits are not lost.
-  reviewText: string | undefined;
-}
-
 // `log stream` prints its header within a second; a slow start must not block arming forever.
 const STREAM_HEADER_TIMEOUT_MILLISECONDS = 3000;
 
@@ -171,6 +138,39 @@ export function createRecorder(dependencies: RecorderDependencies): Recorder {
   async function selectors(entries: readonly string[]): Promise<PathSelector[]> {
     return await Promise.all(entries.map((entry) => normalizePathSelector(entry, dependencies.homeDirectory)));
   }
+}
+
+export interface RecorderDependencies {
+  settingsFile: string;
+  homeDirectory: string;
+  ensureInitialized(): Promise<void>;
+  stockExec: BashOperations["exec"];
+  // The filesystem the normal sandbox would apply to a bash call with these profiles, minus the generated VCS globs.
+  traceFilesystem(profiles: readonly Profile[]): Promise<FilesystemConfig>;
+  // The policy without profile grants, so the draft contains only what the profile still needs.
+  baselinePolicy(): Promise<EffectivePolicy>;
+  toolchainRead(): readonly string[];
+  secretPaths(): string[];
+  repositoryRoot(): Promise<string>;
+  profileEnvironment(base: NodeJS.ProcessEnv, profiles: readonly Profile[]): Promise<NodeJS.ProcessEnv>;
+}
+
+export interface Recorder {
+  arm(name: string, context: ExtensionCommandContext): Promise<void>;
+  stop(context: ExtensionCommandContext): Promise<void>;
+  // Records a `!` command and returns the tracing operations to run it with, or undefined while no recording is armed.
+  operationsFor(command: string): BashOperations | undefined;
+  shutdown(): void;
+}
+
+interface Recording {
+  profile: string;
+  tag: string;
+  commands: string[];
+  lines: string[];
+  stopStream: () => void;
+  // The editor text of a review that failed validation, so the user's edits are not lost.
+  reviewText: string | undefined;
 }
 
 const ALLOWED_ACCESS: LogStreamFormat = { action: "allow", tag: /^(PIREC_\w+_END)/ };

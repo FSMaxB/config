@@ -18,14 +18,14 @@ const FLAT_EDIT_PARAMETERS = {
 const FLAT_EDIT_DESCRIPTION =
 	"Edit a single file by replacing one exact, unique piece of text. For several changes, make one call per change; calls may run in parallel, and each one matches against the file as it is when it runs. Keep oldText short but unique, and merge nearby changes into one call instead of overlapping ones.";
 
-export interface ModelFacingTool {
-	description: string;
-	parameters: unknown;
-}
-
 export function modelFacingTool(tool: Tool): ModelFacingTool {
 	if (tool.name !== "edit" || !hasPiEditShape(tool.parameters)) return { description: tool.description, parameters: tool.parameters };
 	return { description: withFirstParagraph(tool.description, FLAT_EDIT_DESCRIPTION), parameters: FLAT_EDIT_PARAMETERS };
+}
+
+export interface ModelFacingTool {
+	description: string;
+	parameters: unknown;
 }
 
 // Only pi's own edit shape is flattened: another extension's edit tool may take arguments that pi's

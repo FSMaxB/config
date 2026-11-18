@@ -23,46 +23,13 @@ export const CLAUDE_BILLING_IDENTITY_SYMBOL = Symbol.for("kendex.pi.claude-bridg
  *  external credential whose payer this bridge cannot name. */
 const FIRST_PARTY = "firstParty";
 
-export interface ClaudeBillingIdentityV1 {
-	version: 1;
-	/** The Anthropic login email of the latest child attempt in `sessionId`, or
-	 *  undefined when that attempt authenticated with an API key or a
-	 *  third-party backend, has not reported yet, or its probe failed. A
-	 *  consumer passes the visible Pi session id, displays the result, and
-	 *  derives nothing further. */
-	currentLoginEmail(sessionId: string | undefined): string | undefined;
-}
-
-interface BillingIdentityStore extends ClaudeBillingIdentityV1 {
-	beginAttempt(sessionId: string | undefined): (info: AccountInfo) => void;
-	deleteLane(sessionId: string | undefined): void;
-	clear(): void;
-}
-
-interface BillingIdentityLane {
-	attempt: symbol;
-	loginEmail?: string;
-}
-
 const BILLING_IDENTITY_LANES_SYMBOL = Symbol.for("kendex.pi.claude-bridge.billing-identity-lanes.v1");
+
+export const BRIDGE_BILLING_IDENTITY = makeBillingIdentityStore(sharedBillingIdentityLanes());
 
 // Every copy of this module in the process shares the lanes; only this function creates them.
 function sharedBillingIdentityLanes(): Map<string | undefined, BillingIdentityLane> {
 	return processGlobal(BILLING_IDENTITY_LANES_SYMBOL, () => new Map<string | undefined, BillingIdentityLane>());
-}
-
-function nonEmpty(value: string | undefined): string | undefined {
-	return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
-}
-
-/** The login email an `accountInfo()` result confirms, or undefined when it
- *  confirms none. An API key is rejected even under the first-party backend:
- *  the key's owner is not the signed-in login, and `apiKeySource` is how the
- *  SDK reports that a key was used. */
-export function loginEmailFrom(info: AccountInfo): string | undefined {
-	if (info.apiProvider !== FIRST_PARTY) return undefined;
-	if (nonEmpty(info.apiKeySource)) return undefined;
-	return nonEmpty(info.email);
 }
 
 export function makeBillingIdentityStore(
@@ -85,7 +52,30 @@ export function makeBillingIdentityStore(
 	};
 }
 
-export const BRIDGE_BILLING_IDENTITY = makeBillingIdentityStore(sharedBillingIdentityLanes());
+interface BillingIdentityStore extends ClaudeBillingIdentityV1 {
+	beginAttempt(sessionId: string | undefined): (info: AccountInfo) => void;
+	deleteLane(sessionId: string | undefined): void;
+	clear(): void;
+}
+
+interface BillingIdentityLane {
+	attempt: symbol;
+	loginEmail?: string;
+}
+
+/** The login email an `accountInfo()` result confirms, or undefined when it
+ *  confirms none. An API key is rejected even under the first-party backend:
+ *  the key's owner is not the signed-in login, and `apiKeySource` is how the
+ *  SDK reports that a key was used. */
+export function loginEmailFrom(info: AccountInfo): string | undefined {
+	if (info.apiProvider !== FIRST_PARTY) return undefined;
+	if (nonEmpty(info.apiKeySource)) return undefined;
+	return nonEmpty(info.email);
+}
+
+function nonEmpty(value: string | undefined): string | undefined {
+	return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
 
 /** Start the billing probe for the current request lane. Starting clears that
  *  lane, so a rejected probe cannot leave the previous attempt's identity.
@@ -109,4 +99,14 @@ export function resolveClaudeBillingIdentity(): ClaudeBillingIdentityV1 | undefi
 	const published: unknown = candidate;
 	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- a bridge publishes this store, and its version identifies the shape
 	return published as ClaudeBillingIdentityV1;
+}
+
+export interface ClaudeBillingIdentityV1 {
+	version: 1;
+	/** The Anthropic login email of the latest child attempt in `sessionId`, or
+	 *  undefined when that attempt authenticated with an API key or a
+	 *  third-party backend, has not reported yet, or its probe failed. A
+	 *  consumer passes the visible Pi session id, displays the result, and
+	 *  derives nothing further. */
+	currentLoginEmail(sessionId: string | undefined): string | undefined;
 }

@@ -17,12 +17,6 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import { isRecord } from "../lib/untyped.ts";
 import { matchesWildcard } from "../lib/wildcard.ts";
 
-export interface SubagentModelConfig {
-  localProviders?: string[];
-  providerGroups?: string[][];
-  models?: { match: string; guidance: string }[];
-}
-
 export function loadPolicyConfig(directory: string): SubagentModelConfig {
   let parsed: unknown;
   try {
@@ -64,8 +58,6 @@ export function guidanceTable(options: {
     .filter((entry): entry is string => entry !== undefined)
     .join("\n");
 }
-
-export type ModelResolution = { ok: true; model: Model<Api> | undefined } | { ok: false; error: string };
 
 export function resolveSubagentModel(options: {
   requested: string | undefined;
@@ -111,6 +103,8 @@ export function resolveSubagentModel(options: {
   }
   return { ok: true, model };
 }
+
+export type ModelResolution = { ok: true; model: Model<Api> | undefined } | { ok: false; error: string };
 
 function findRequestedModels(requested: string, availableModels: readonly Model<Api>[]): Model<Api>[] {
   const exact = availableModels.filter((model) => `${model.provider}/${model.id}` === requested);
@@ -172,4 +166,10 @@ function guidanceFor(model: Model<Api>, config: SubagentModelConfig): string | u
   const qualified = `${model.provider}/${model.id}`;
   return (config.models ?? []).find(({ match }) => matchesWildcard(match, model.id) || matchesWildcard(match, qualified))
     ?.guidance;
+}
+
+export interface SubagentModelConfig {
+  localProviders?: string[];
+  providerGroups?: string[][];
+  models?: { match: string; guidance: string }[];
 }

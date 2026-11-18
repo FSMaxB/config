@@ -23,6 +23,49 @@ import { join } from "node:path";
 import { isRecord } from "../../lib/untyped.ts";
 
 /**
+ * True when real Claude credentials are present in any location the Claude Agent
+ * SDK would authenticate from, WITHOUT reading credential contents. Checked in
+ * cheap-first order:
+ *   - env: non-empty CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_API_KEY /
+ *     ANTHROPIC_AUTH_TOKEN, or any truthy cloud-provider routing flag the Claude
+ *     Code SDK recognizes — CLAUDE_CODE_USE_BEDROCK / _VERTEX / _FOUNDRY /
+ *     _ANTHROPIC_AWS / _MANTLE (such routing needs no local key file);
+ *   - `.credentials.json` in the resolved config dir (existence only — the file
+ *     is never opened; written mode 0600 by `claude login`);
+ *   - `settings.json` apiKeyHelper (presence only — see hasApiKeyHelper).
+ *
+ * PLATFORM ASYMMETRY: on macOS the `claude` CLI stores OAuth tokens in the login
+ * Keychain, NOT in `.credentials.json`, so file-absence is NOT evidence of
+ * logged-out and we cannot cheaply/safely probe the Keychain here. On darwin,
+ * when no other signal is present, we default to credentialed=true — preserving
+ * an "always available" result for Mac subscription users. Honesty
+ * enforcement therefore applies on Linux/Windows, where `.credentials.json`
+ * existence is an observable, truthful proxy (empirically, `claude auth logout`
+ * unlinks it).
+ */
+export function hasClaudeCredentials(
+	environment: NodeJS.ProcessEnv = process.env,
+	platform: NodeJS.Platform = osPlatform(),
+): boolean {
+	if (nonEmptyEnvironment(environment.CLAUDE_CODE_OAUTH_TOKEN)) return true;
+	if (nonEmptyEnvironment(environment.ANTHROPIC_API_KEY)) return true;
+	if (nonEmptyEnvironment(environment.ANTHROPIC_AUTH_TOKEN)) return true;
+	if (environmentTruthy(environment.CLAUDE_CODE_USE_BEDROCK)) return true;
+	if (environmentTruthy(environment.CLAUDE_CODE_USE_VERTEX)) return true;
+	if (environmentTruthy(environment.CLAUDE_CODE_USE_FOUNDRY)) return true;
+	if (environmentTruthy(environment.CLAUDE_CODE_USE_ANTHROPIC_AWS)) return true;
+	if (environmentTruthy(environment.CLAUDE_CODE_USE_MANTLE)) return true;
+
+	const configDirectory = resolveClaudeConfigDirectory(environment);
+	if (existsSync(join(configDirectory, ".credentials.json"))) return true;
+	if (hasApiKeyHelper(configDirectory)) return true;
+
+	if (platform === "darwin") return true;
+
+	return false;
+}
+
+/**
  * Resolve the Claude config directory the same way the bundled cc-session-io
  * (getClaudeDir) and Claude Code itself resolve it: an explicit
  * CLAUDE_CONFIG_DIR wins, otherwise ~/.claude.
@@ -65,47 +108,4 @@ function hasApiKeyHelper(configDirectory: string): boolean {
 	} catch {
 		return false;
 	}
-}
-
-/**
- * True when real Claude credentials are present in any location the Claude Agent
- * SDK would authenticate from, WITHOUT reading credential contents. Checked in
- * cheap-first order:
- *   - env: non-empty CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_API_KEY /
- *     ANTHROPIC_AUTH_TOKEN, or any truthy cloud-provider routing flag the Claude
- *     Code SDK recognizes — CLAUDE_CODE_USE_BEDROCK / _VERTEX / _FOUNDRY /
- *     _ANTHROPIC_AWS / _MANTLE (such routing needs no local key file);
- *   - `.credentials.json` in the resolved config dir (existence only — the file
- *     is never opened; written mode 0600 by `claude login`);
- *   - `settings.json` apiKeyHelper (presence only — see hasApiKeyHelper).
- *
- * PLATFORM ASYMMETRY: on macOS the `claude` CLI stores OAuth tokens in the login
- * Keychain, NOT in `.credentials.json`, so file-absence is NOT evidence of
- * logged-out and we cannot cheaply/safely probe the Keychain here. On darwin,
- * when no other signal is present, we default to credentialed=true — preserving
- * an "always available" result for Mac subscription users. Honesty
- * enforcement therefore applies on Linux/Windows, where `.credentials.json`
- * existence is an observable, truthful proxy (empirically, `claude auth logout`
- * unlinks it).
- */
-export function hasClaudeCredentials(
-	environment: NodeJS.ProcessEnv = process.env,
-	platform: NodeJS.Platform = osPlatform(),
-): boolean {
-	if (nonEmptyEnvironment(environment.CLAUDE_CODE_OAUTH_TOKEN)) return true;
-	if (nonEmptyEnvironment(environment.ANTHROPIC_API_KEY)) return true;
-	if (nonEmptyEnvironment(environment.ANTHROPIC_AUTH_TOKEN)) return true;
-	if (environmentTruthy(environment.CLAUDE_CODE_USE_BEDROCK)) return true;
-	if (environmentTruthy(environment.CLAUDE_CODE_USE_VERTEX)) return true;
-	if (environmentTruthy(environment.CLAUDE_CODE_USE_FOUNDRY)) return true;
-	if (environmentTruthy(environment.CLAUDE_CODE_USE_ANTHROPIC_AWS)) return true;
-	if (environmentTruthy(environment.CLAUDE_CODE_USE_MANTLE)) return true;
-
-	const configDirectory = resolveClaudeConfigDirectory(environment);
-	if (existsSync(join(configDirectory, ".credentials.json"))) return true;
-	if (hasApiKeyHelper(configDirectory)) return true;
-
-	if (platform === "darwin") return true;
-
-	return false;
 }

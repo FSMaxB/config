@@ -4,33 +4,8 @@
 import { isRecord } from "./untyped.ts";
 
 export const LineOutcome = { Continue: "continue", Stop: "stop" } as const;
-export type LineOutcome = (typeof LineOutcome)[keyof typeof LineOutcome];
 
 export const GrepRowKind = { Match: "match", Context: "context" } as const;
-export type GrepRowKind = (typeof GrepRowKind)[keyof typeof GrepRowKind];
-
-export interface GrepRow {
-  filePath: string;
-  lineNumber: number;
-  text: string;
-  kind: GrepRowKind;
-}
-
-// rg reports text that is not valid UTF-8 as base64 bytes.
-type RipgrepText = { kind: "text"; text: string } | { kind: "bytes"; bytes: string };
-
-// Only the events that carry a line; rg's begin, end and summary events parse to undefined.
-export interface RipgrepEvent {
-  type: "match" | "context";
-  path: RipgrepText;
-  lineNumber: number;
-  lines: RipgrepText;
-}
-
-interface TrailingWindow {
-  filePath: string;
-  end: number;
-}
 
 export class GrepCollector {
   readonly rows: GrepRow[] = [];
@@ -71,6 +46,12 @@ export class GrepCollector {
     return this.limitReached && windowComplete ? LineOutcome.Stop : LineOutcome.Continue;
   }
 }
+export type LineOutcome = (typeof LineOutcome)[keyof typeof LineOutcome];
+
+interface TrailingWindow {
+  filePath: string;
+  end: number;
+}
 
 export function parseRipgrepEvent(line: string): RipgrepEvent | undefined {
   let parsed: unknown;
@@ -103,6 +84,22 @@ function rowOf(event: RipgrepEvent): GrepRow {
   return { filePath: decodeRipgrepText(event.path), lineNumber: event.lineNumber, text, kind };
 }
 
+export interface GrepRow {
+  filePath: string;
+  lineNumber: number;
+  text: string;
+  kind: GrepRowKind;
+}
+export type GrepRowKind = (typeof GrepRowKind)[keyof typeof GrepRowKind];
+
+// Only the events that carry a line; rg's begin, end and summary events parse to undefined.
+export interface RipgrepEvent {
+  type: "match" | "context";
+  path: RipgrepText;
+  lineNumber: number;
+  lines: RipgrepText;
+}
+
 function decodeRipgrepText(value: RipgrepText): string {
   switch (value.kind) {
     case "text":
@@ -111,3 +108,6 @@ function decodeRipgrepText(value: RipgrepText): string {
       return Buffer.from(value.bytes, "base64").toString("utf8");
   }
 }
+
+// rg reports text that is not valid UTF-8 as base64 bytes.
+type RipgrepText = { kind: "text"; text: string } | { kind: "bytes"; bytes: string };

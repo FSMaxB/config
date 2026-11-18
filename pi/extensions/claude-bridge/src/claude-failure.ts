@@ -1,8 +1,6 @@
 import { resetTimestampMs } from "./rate-limit.js";
 import { isRecord } from "../../lib/untyped.ts";
 
-export type ClaudeFailureKind = "auth" | "billing" | "rate-limit" | "overloaded" | "server" | "network";
-
 export function rateLimitTypeFromInfo(info: Record<string, unknown> | undefined): unknown {
 	return info?.rateLimitType ?? info?.rate_limit_type ?? info?.type;
 }
@@ -59,6 +57,8 @@ function classifyStatusCode(status: number): ClaudeFailureKind | undefined {
 	if (status >= ServerErrorStatus.First && status <= ServerErrorStatus.Last) return "server";
 	return undefined;
 }
+
+export type ClaudeFailureKind = "auth" | "billing" | "rate-limit" | "overloaded" | "server" | "network";
 
 // 529 is Anthropic's "overloaded" status, outside the standard HTTP set.
 const HttpStatus = { Unauthorized: 401, PaymentRequired: 402, Forbidden: 403, TooManyRequests: 429, Overloaded: 529 } as const;

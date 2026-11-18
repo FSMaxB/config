@@ -7,36 +7,6 @@ import { selectorText } from "./profiles.ts";
 import { isSecretPath } from "./violations.ts";
 import { hasGlobCharacters } from "./glob-characters.ts";
 
-export interface TraceAccess {
-  mode: AccessMode;
-  path: string;
-}
-
-export interface DraftInput {
-  accesses: readonly TraceAccess[];
-  // Accessed paths that are directories, stat'ed by the caller.
-  directories: ReadonlySet<string>;
-  // currentPolicy() at stop time, profile grants excluded.
-  policy: EffectivePolicy;
-  toolchainRead: readonly string[];
-  // The profile's current entries.
-  existing: { read: readonly PathSelector[]; write: readonly PathSelector[] };
-  secrets: readonly string[];
-  repositoryRoot: string;
-  homeDirectory: string;
-}
-
-export interface DraftEntry {
-  mode: AccessMode;
-  directory: string;
-}
-
-export interface Draft {
-  entries: DraftEntry[];
-  secrets: TraceAccess[];
-  protected: TraceAccess[];
-}
-
 const SIBLINGS_BEFORE_COLLAPSE = 3;
 const MIN_COMPONENTS_OUTSIDE_HOME = 3;
 const MIN_COMPONENTS_INSIDE_HOME = 2;
@@ -85,6 +55,20 @@ export function buildDraft(input: DraftInput): Draft {
   return { entries, secrets, protected: protectedAccesses };
 }
 
+export interface DraftInput {
+  accesses: readonly TraceAccess[];
+  // Accessed paths that are directories, stat'ed by the caller.
+  directories: ReadonlySet<string>;
+  // currentPolicy() at stop time, profile grants excluded.
+  policy: EffectivePolicy;
+  toolchainRead: readonly string[];
+  // The profile's current entries.
+  existing: { read: readonly PathSelector[]; write: readonly PathSelector[] };
+  secrets: readonly string[];
+  repositoryRoot: string;
+  homeDirectory: string;
+}
+
 export function draftText(draft: Draft, summary: { profile: string; commands: readonly string[]; accessCount: number }, homeDirectory: string): string {
   const header = [
     `# Recording for profile "${summary.profile}": ${summary.commands.length} commands, ${summary.accessCount} accesses outside the sandbox policy.`,
@@ -99,6 +83,22 @@ export function draftText(draft: Draft, summary: { profile: string; commands: re
     `# ${mode} ${tilde(path, homeDirectory)}`,
   ]);
   return [...header, ...entries, ...secrets, ...protectedLines].join("\n");
+}
+
+export interface Draft {
+  entries: DraftEntry[];
+  secrets: TraceAccess[];
+  protected: TraceAccess[];
+}
+
+export interface TraceAccess {
+  mode: AccessMode;
+  path: string;
+}
+
+export interface DraftEntry {
+  mode: AccessMode;
+  directory: string;
 }
 
 const ENTRY_LINE = /^(read|write)\s+(\S.*)$/;

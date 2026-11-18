@@ -9,19 +9,7 @@ import { discardedWrites } from "./violations.ts";
 import type { PathViolation } from "./violations.ts";
 import type { Platform } from "./platform.ts";
 
-export type ViolationOutcome =
-  | { kind: "secret"; path: string }
-  | { kind: "no-ui"; mode: AccessMode; path: string }
-  | { kind: "not-asked"; mode: AccessMode; path: string }
-  | { kind: "allowed"; mode: AccessMode; path: string }
-  | { kind: "allowed-once"; mode: AccessMode; path: string; grant: OnceGrant }
-  | { kind: "added-to-profile"; mode: AccessMode; path: string; profile: string }
-  | { kind: "denied"; mode: AccessMode; path: string; note: string | undefined };
-
-export type NextStep = { kind: "rerun"; grants: OnceGrant[] } | { kind: "return" };
-
 export const CommandExit = { Succeeded: "succeeded", Failed: "failed" } as const;
-export type CommandExit = (typeof CommandExit)[keyof typeof CommandExit];
 
 // A command that exited 0 is never rerun, so a once grant would have nothing to apply to.
 export function promptDurations(exit: CommandExit): readonly Duration[] {
@@ -54,6 +42,7 @@ function reportFooter(step: NextStep, exit: CommandExit): string[] {
   if (exit === CommandExit.Succeeded) return ["The command exited 0, but the denied operations did not take effect, so its result can be incomplete. It was not rerun."];
   return [];
 }
+export type CommandExit = (typeof CommandExit)[keyof typeof CommandExit];
 
 function outcomeLine(outcome: ViolationOutcome, step: NextStep, agentMode: AgentMode): string {
   if (outcome.kind === "secret") return `${outcome.path} is on the sandbox secret list and cannot be granted.`;
@@ -72,6 +61,17 @@ function outcomeLine(outcome: ViolationOutcome, step: NextStep, agentMode: Agent
     case "denied": return `${mode} access to ${path} was denied; do not retry it.${userReason(outcome.note)}${notice}`;
   }
 }
+
+export type ViolationOutcome =
+  | { kind: "secret"; path: string }
+  | { kind: "no-ui"; mode: AccessMode; path: string }
+  | { kind: "not-asked"; mode: AccessMode; path: string }
+  | { kind: "allowed"; mode: AccessMode; path: string }
+  | { kind: "allowed-once"; mode: AccessMode; path: string; grant: OnceGrant }
+  | { kind: "added-to-profile"; mode: AccessMode; path: string; profile: string }
+  | { kind: "denied"; mode: AccessMode; path: string; note: string | undefined };
+
+export type NextStep = { kind: "rerun"; grants: OnceGrant[] } | { kind: "return" };
 
 // srt records each refused connection as `deny network-outbound <host>:<port> (<reason>)`.
 const NETWORK_DENIAL = /^deny network-outbound (.+):(\d+) \(/;

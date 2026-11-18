@@ -5,42 +5,6 @@ import { fingerprintPayload } from "./fingerprint.ts";
 import { MarkerEvent, Outcome, RECORD_VERSION, RequestPurpose } from "./records.ts";
 import type { LogRecord, Usage } from "./records.ts";
 
-interface RequestOptions {
-  messages: string[];
-  at: number;
-  usage?: Usage;
-  model?: string;
-  maxTokens?: number;
-  withPayload?: boolean;
-  purpose?: RequestPurpose;
-}
-
-function request({ messages, at, usage, model = "large", maxTokens = 4096, withPayload = true, purpose }: RequestOptions): LogRecord {
-  const payload = withPayload ? fingerprintPayload({ model, messages: messages.map((content) => ({ role: "user", content })), maxTokens }) : undefined;
-  return {
-    version: RECORD_VERSION,
-    kind: "request",
-    sessionId: "s",
-    provider: "mistral",
-    model,
-    api: "mistral-conversations",
-    ...(purpose ? { purpose } : {}),
-    startedAt: new Date(at).toISOString(),
-    completedAt: new Date(at + 1000).toISOString(),
-    ...(payload ? { payload } : {}),
-    ...(usage ? { usage } : {}),
-    outcome: usage ? Outcome.Completed : Outcome.Superseded,
-  };
-}
-
-function marker(event: MarkerEvent, at: number): LogRecord {
-  return { version: RECORD_VERSION, kind: "marker", sessionId: "s", at: new Date(at).toISOString(), event };
-}
-
-function usageOf(cacheRead: number, input: number): Usage {
-  return { input, output: 10, cacheRead, cacheWrite: 0 };
-}
-
 const turn = "x".repeat(1000);
 
 test("a miss on an exact prefix is a provider miss", () => {
@@ -174,6 +138,10 @@ test("a compaction marker resets the comparison", () => {
   assert.equal(finding?.verdict, Verdict.First);
 });
 
+function marker(event: MarkerEvent, at: number): LogRecord {
+  return { version: RECORD_VERSION, kind: "marker", sessionId: "s", at: new Date(at).toISOString(), event };
+}
+
 test("a model change is reported as such", () => {
   // arrange
   const records = [
@@ -237,3 +205,35 @@ test("the report lists problems only and arguments parse", () => {
   assert.deepEqual(parsed, { verbosity: "all", target: "abc" });
   assert.equal(renderReport([], ReportVerbosity.All), "No requests logged.");
 });
+
+function request({ messages, at, usage, model = "large", maxTokens = 4096, withPayload = true, purpose }: RequestOptions): LogRecord {
+  const payload = withPayload ? fingerprintPayload({ model, messages: messages.map((content) => ({ role: "user", content })), maxTokens }) : undefined;
+  return {
+    version: RECORD_VERSION,
+    kind: "request",
+    sessionId: "s",
+    provider: "mistral",
+    model,
+    api: "mistral-conversations",
+    ...(purpose ? { purpose } : {}),
+    startedAt: new Date(at).toISOString(),
+    completedAt: new Date(at + 1000).toISOString(),
+    ...(payload ? { payload } : {}),
+    ...(usage ? { usage } : {}),
+    outcome: usage ? Outcome.Completed : Outcome.Superseded,
+  };
+}
+
+interface RequestOptions {
+  messages: string[];
+  at: number;
+  usage?: Usage;
+  model?: string;
+  maxTokens?: number;
+  withPayload?: boolean;
+  purpose?: RequestPurpose;
+}
+
+function usageOf(cacheRead: number, input: number): Usage {
+  return { input, output: 10, cacheRead, cacheWrite: 0 };
+}

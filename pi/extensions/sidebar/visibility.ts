@@ -6,7 +6,6 @@ export const VISIBILITY_ENTRY = "sidebar-visibility";
 export interface VisibilityData { enabled: boolean }
 
 export const Visibility = { On: "on", Off: "off" } as const;
-export type Visibility = (typeof Visibility)[keyof typeof Visibility];
 
 /** Latest session toggle on the branch, or undefined when the session never toggled. */
 export function sessionVisibility(entries: readonly BranchEntry[]): Visibility | undefined {
@@ -23,3 +22,4 @@ export function defaultVisibility(settings: object): Visibility {
   const sidebar: unknown = Reflect.get(settings, "sidebar");
   return isRecord(sidebar) && sidebar.enabled === false ? Visibility.Off : Visibility.On;
 }
+export type Visibility = (typeof Visibility)[keyof typeof Visibility];

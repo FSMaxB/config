@@ -12,37 +12,6 @@ import { shortenedCommand } from "./command-text.ts";
 
 export const PROFILE_ENTRY_TYPE = "sandbox-profiles";
 
-export interface ProfileSessionState {
-  // Applied without asking whenever a bash call triggers or requests them.
-  allowed: Set<string>;
-  // The value is the user's reason, repeated to the agent whenever the denial applies.
-  denied: Map<string, string | undefined>;
-}
-
-export type ActivationOrigin = { kind: "trigger"; match: TriggerMatch; command: string } | { kind: "request"; command: string };
-
-export interface ActivationSituation {
-  agentMode: AgentMode;
-  hasUI: boolean;
-  always: ActivationDecisions;
-}
-
-export type ActivationOutcome =
-  | { kind: "activate" }
-  | { kind: "refuse"; reason: string }
-  | { kind: "ask"; preselected: string };
-
-// What to remember for the session, or to persist in sandbox.json's profileActivation lists. Never written into the profile.
-export type RecordedDecision = { decision: "allow" } | { decision: "deny"; note: string | undefined };
-
-export type ActivationResolution =
-  | { kind: "activate"; remember: RecordedDecision | undefined; persist: RecordedDecision | undefined }
-  | { kind: "refuse"; reason: string; remember: RecordedDecision | undefined; persist: RecordedDecision | undefined };
-
-export function emptyProfileState(): ProfileSessionState {
-  return { allowed: new Set(), denied: new Map() };
-}
-
 // Session decisions beat the stored ones, as for network grants.
 export function activationOutcome(profile: Profile, state: ProfileSessionState, { agentMode, hasUI, always }: ActivationSituation): ActivationOutcome {
   const { name } = profile;
@@ -54,12 +23,23 @@ export function activationOutcome(profile: Profile, state: ProfileSessionState, 
   return { kind: "ask", preselected: isRestricted(agentMode) ? ALLOW_ONCE : ALLOW_SESSION };
 }
 
+export interface ActivationSituation {
+  agentMode: AgentMode;
+  hasUI: boolean;
+  always: ActivationDecisions;
+}
+
 // An outcome that needs no prompt, in the shape an answered prompt resolves to. An activation comes from a decision that is
 // already stored, so remembering it again would only append a session entry on every call.
 export function settledResolution(outcome: Exclude<ActivationOutcome, { kind: "ask" }>): ActivationResolution {
   if (outcome.kind === "refuse") return { kind: "refuse", reason: outcome.reason, remember: undefined, persist: undefined };
   return { kind: "activate", remember: undefined, persist: undefined };
 }
+
+export type ActivationOutcome =
+  | { kind: "activate" }
+  | { kind: "refuse"; reason: string }
+  | { kind: "ask"; preselected: string };
 
 export function resolveActivationAnswer(profile: Profile, answer: PermissionAnswer<string>): ActivationResolution {
   if (answer.decision === "allow") {
@@ -77,6 +57,13 @@ export function resolveActivationAnswer(profile: Profile, answer: PermissionAnsw
     persist: answer.duration === Duration.Always ? denial : undefined,
   };
 }
+
+export type ActivationResolution =
+  | { kind: "activate"; remember: RecordedDecision | undefined; persist: RecordedDecision | undefined }
+  | { kind: "refuse"; reason: string; remember: RecordedDecision | undefined; persist: RecordedDecision | undefined };
+
+// What to remember for the session, or to persist in sandbox.json's profileActivation lists. Never written into the profile.
+export type RecordedDecision = { decision: "allow" } | { decision: "deny"; note: string | undefined };
 
 // Entries per list in the prompt; the prompt has to fit on screen next to its options.
 const LIST_LIMIT = 5;
@@ -106,6 +93,8 @@ function originText(origin: ActivationOrigin): string {
   const trigger = origin.match.kind === "command" ? `\`${origin.match.command}\`` : `pattern ${origin.match.pattern}`;
   return `Triggered by ${trigger} in: ${shortened(origin.command)}`;
 }
+
+export type ActivationOrigin = { kind: "trigger"; match: TriggerMatch; command: string } | { kind: "request"; command: string };
 
 function shortened(command: string): string {
   return shortenedCommand(command, " ");
@@ -153,4 +142,15 @@ export function parseProfileState(value: unknown): ProfileSessionState {
     for (const [name, note] of Object.entries(denied)) state.denied.set(name, typeof note === "string" ? note : undefined);
   }
   return state;
+}
+
+export function emptyProfileState(): ProfileSessionState {
+  return { allowed: new Set(), denied: new Map() };
+}
+
+export interface ProfileSessionState {
+  // Applied without asking whenever a bash call triggers or requests them.
+  allowed: Set<string>;
+  // The value is the user's reason, repeated to the agent whenever the denial applies.
+  denied: Map<string, string | undefined>;
 }

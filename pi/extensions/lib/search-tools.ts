@@ -134,15 +134,7 @@ export const grepParameters = Type.Object({
   ),
   output: outputParameter,
 });
-
-export type GrepParameters = Static<typeof grepParameters>;
-export type FindParameters = Static<typeof findParameters>;
 export type LsParameters = Static<typeof lsParameters>;
-
-// The details keys of pi's built-in grep and find tools, so their renderers show the notices.
-export type SearchDetails = GrepToolDetails & FindToolDetails;
-
-type SearchResult = AgentToolResult<SearchDetails | undefined>;
 
 export function createGrepExecute(): ToolDefinition<typeof grepParameters, SearchDetails | undefined>["execute"] {
   return (_toolCallId, parameters, signal, _onUpdate, context) => searchGrep(parameters, context.cwd, signal);
@@ -289,6 +281,8 @@ export async function searchGrep(parameters: GrepParameters, cwd: string, signal
   return searchResult(outputLines.join("\n"), notices);
 }
 
+export type GrepParameters = Static<typeof grepParameters>;
+
 const FD_TYPES = { file: "f", directory: "d", symlink: "l" } as const;
 
 export async function searchFind(parameters: FindParameters, cwd: string, signal: AbortSignal | undefined): Promise<SearchResult> {
@@ -358,6 +352,7 @@ export async function searchFind(parameters: FindParameters, cwd: string, signal
     : [];
   return searchResult(groupByDirectory(relativized), notices);
 }
+export type FindParameters = Static<typeof findParameters>;
 
 function throwOnRipgrepFailure(run: RunOutcome): void {
   // rg exits 1 when nothing matched, which is a result and not a failure.
@@ -375,17 +370,6 @@ function limitNotice(limit: number, unit: "matches" | "files"): Notice {
 // rg and fd never match a leading "./" ("./src/*.ts" finds nothing); "!" negates an rg glob.
 function withoutLeadingDotSlash(glob: string): string {
   return glob.replace(/^(!?)(?:\.\/)+/, "$1");
-}
-
-interface RunOutcome {
-  code: number | null;
-  stderr: string;
-  stoppedEarly: boolean;
-}
-
-interface SpawnOptions {
-  cwd?: string;
-  signal: AbortSignal | undefined;
 }
 
 // Streams stdout line by line. A handler returning Stop kills the process once it has enough,
@@ -440,9 +424,15 @@ function runLines(
   });
 }
 
-interface Notice {
-  text: string;
-  details: SearchDetails;
+interface RunOutcome {
+  code: number | null;
+  stderr: string;
+  stoppedEarly: boolean;
+}
+
+interface SpawnOptions {
+  cwd?: string;
+  signal: AbortSignal | undefined;
 }
 
 function searchResult(body: string, notices: readonly Notice[]): SearchResult {
@@ -465,9 +455,15 @@ function searchResult(body: string, notices: readonly Notice[]): SearchResult {
   };
 }
 
-function textResult(text: string): AgentToolResult<undefined> {
-  return { content: [{ type: "text", text }], details: undefined };
+type SearchResult = AgentToolResult<SearchDetails | undefined>;
+
+interface Notice {
+  text: string;
+  details: SearchDetails;
 }
+
+// The details keys of pi's built-in grep and find tools, so their renderers show the notices.
+export type SearchDetails = GrepToolDetails & FindToolDetails;
 
 export async function countEntries(
   directoryPath: string,
@@ -501,6 +497,10 @@ export async function countEntries(
   }
   throwIfAborted();
   return textResult(`${entryCount} entries`);
+}
+
+function textResult(text: string): AgentToolResult<undefined> {
+  return { content: [{ type: "text", text }], details: undefined };
 }
 
 // Each directory prefix is printed once; on a repo-wide listing that is a third of the bytes.

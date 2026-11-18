@@ -12,15 +12,6 @@ import { dropDuplicateNames } from "./agent-names.ts";
 
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const satisfies readonly ModelThinkingLevel[];
 
-export interface AgentConfig {
-  name: string;
-  description: string;
-  tools?: string[];
-  model?: string;
-  thinkingLevel?: ModelThinkingLevel;
-  systemPrompt: string;
-}
-
 export function discoverAgents(): { agents: AgentConfig[]; skipped: string[] } {
   // Agents ship next to this extension so the whole setup lives in the config repo.
   const agentsDirectory = join(dirname(fileURLToPath(import.meta.url)), "agents");
@@ -69,6 +60,15 @@ function loadAgentsFromDirectory(directory: string): { agents: AgentConfig[]; sk
   }
 
   return dropDuplicateNames(pairs);
+}
+
+export interface AgentConfig {
+  name: string;
+  description: string;
+  tools?: string[];
+  model?: string;
+  thinkingLevel?: ModelThinkingLevel;
+  systemPrompt: string;
 }
 
 /**

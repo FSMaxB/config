@@ -86,27 +86,6 @@ const MAX_ADOPTED_COMMANDS = 200;
 const SANDBOX_TEMPORARY_DIRECTORY = "/tmp/claude";
 const SETTINGS_FILE = join(getAgentDir(), "sandbox.json");
 
-interface ProfilesForCall {
-  names: string[];
-  // Why a triggered profile was not activated; shown to the agent before the command's output.
-  notices: string[];
-}
-
-interface Runtime {
-  operationsFor(profileNames: readonly string[], notices: readonly string[]): BashOperations;
-  profilesForCall(command: string, requested: readonly string[], context: ExtensionContext): Promise<ProfilesForCall>;
-  runProfileCommand(command: ProfileCommand, context: ExtensionCommandContext): Promise<void>;
-  profileNames(): Promise<string[]>;
-  recordingOperations(command: string): BashOperations | undefined;
-  setActiveContext(context: ExtensionContext): void;
-  authorizeBypass(command: string, context: ExtensionContext): Promise<BypassAuthorization>;
-  restoreGrants(sessionManager: { getEntries(): readonly unknown[] }): void;
-  sessionGrants(): SessionGrant[];
-  shutdown(): Promise<void>;
-}
-
-type SandboxManagerType = (typeof SandboxRuntime)["SandboxManager"];
-
 export default function (pi: ExtensionAPI): void {
   if (process.env.PI_SANDBOX === "0") return;
   const cwd = process.cwd();
@@ -192,9 +171,9 @@ function callMode(toolArguments: { unsandboxed?: boolean }, state: SandboxedBash
   if (toolArguments.unsandboxed === true) return { kind: "unsandboxed" };
   return { kind: "sandboxed", profiles: state.sandboxProfiles ?? [] };
 }
+type SandboxedBashRenderState = BashRenderState & { sandboxProfiles?: readonly string[] };
 
 type BashRenderState = ReturnType<typeof createBashToolDefinition> extends ToolDefinition<infer _Parameters, infer _Details, infer State> ? State : never;
-type SandboxedBashRenderState = BashRenderState & { sandboxProfiles?: readonly string[] };
 
 function withSandboxNote<TParameters extends TSchema, TDetails, TState>(definition: ToolDefinition<TParameters, TDetails, TState>): ToolDefinition<TParameters, TDetails, TState> {
   return { ...definition, description: `${definition.description}\n\n${SANDBOX_NOTE}` };
@@ -707,6 +686,27 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
     context.ui.notify(`Saved profile ${name}.`, "info");
   }
 }
+
+interface Runtime {
+  operationsFor(profileNames: readonly string[], notices: readonly string[]): BashOperations;
+  profilesForCall(command: string, requested: readonly string[], context: ExtensionContext): Promise<ProfilesForCall>;
+  runProfileCommand(command: ProfileCommand, context: ExtensionCommandContext): Promise<void>;
+  profileNames(): Promise<string[]>;
+  recordingOperations(command: string): BashOperations | undefined;
+  setActiveContext(context: ExtensionContext): void;
+  authorizeBypass(command: string, context: ExtensionContext): Promise<BypassAuthorization>;
+  restoreGrants(sessionManager: { getEntries(): readonly unknown[] }): void;
+  sessionGrants(): SessionGrant[];
+  shutdown(): Promise<void>;
+}
+
+interface ProfilesForCall {
+  names: string[];
+  // Why a triggered profile was not activated; shown to the agent before the command's output.
+  notices: string[];
+}
+
+type SandboxManagerType = (typeof SandboxRuntime)["SandboxManager"];
 
 function reportable<Violation extends { line: string }>(violations: readonly Violation[], repositoryRoot: string): Violation[] {
   return violations.filter(({ line }) => !isRepositoryRootRemoval(line, repositoryRoot));

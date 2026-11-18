@@ -38,10 +38,6 @@ export function bridgeOnlyToolHook(): HookCallback {
 	};
 }
 
-interface PreToolUseDenial {
-	hookSpecificOutput: { hookEventName: "PreToolUse"; permissionDecision: "deny"; permissionDecisionReason: string };
-}
-
 function denyTool(name: unknown): PreToolUseDenial {
 	return {
 		hookSpecificOutput: {
@@ -50,4 +46,8 @@ function denyTool(name: unknown): PreToolUseDenial {
 			permissionDecisionReason: `Tool "${typeof name === "string" ? name : "<unknown>"}" is not available; only Pi bridge tools are permitted.`,
 		},
 	};
+}
+
+interface PreToolUseDenial {
+	hookSpecificOutput: { hookEventName: "PreToolUse"; permissionDecision: "deny"; permissionDecisionReason: string };
 }

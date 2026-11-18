@@ -3,19 +3,6 @@ import test from "node:test";
 import { announceSessionGrantsChanged, collectSessionGrants, onSessionGrantsChanged, provideSessionGrants } from "./session-grants.ts";
 import type { GrantEventBus, SessionGrant } from "./session-grants.ts";
 
-function fakeBus(): GrantEventBus {
-  const handlers = new Map<string, ((data: unknown) => void)[]>();
-  return {
-    emit: (channel, data) => {
-      for (const handler of handlers.get(channel) ?? []) handler(data);
-    },
-    on: (channel, handler) => {
-      handlers.set(channel, [...(handlers.get(channel) ?? []), handler]);
-      return () => {};
-    },
-  };
-}
-
 const network: SessionGrant = { kind: "network", decision: "allow", host: "example.com" };
 const tool: SessionGrant = { kind: "tool", decision: "deny", name: "fetch_content" };
 const unsandboxed: SessionGrant = { kind: "unsandboxed", decision: "allow" };
@@ -73,3 +60,16 @@ test("announcing a change calls every change handler once", () => {
   // assert
   assert.deepEqual(calls, ["first", "second"]);
 });
+
+function fakeBus(): GrantEventBus {
+  const handlers = new Map<string, ((data: unknown) => void)[]>();
+  return {
+    emit: (channel, data) => {
+      for (const handler of handlers.get(channel) ?? []) handler(data);
+    },
+    on: (channel, handler) => {
+      handlers.set(channel, [...(handlers.get(channel) ?? []), handler]);
+      return () => {};
+    },
+  };
+}

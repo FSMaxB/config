@@ -1,11 +1,3 @@
-export type PauseState = "running" | "pausing" | "paused";
-
-export interface HoldOptions {
-  signal: AbortSignal | undefined;
-  hasPendingMessages: () => boolean;
-  pollIntervalMs: number;
-}
-
 export class PauseGate {
   #state: PauseState = "running";
   #release: (() => void) | undefined;
@@ -49,4 +41,12 @@ export class PauseGate {
     this.#state = "running";
     this.#release?.();
   }
+}
+
+export type PauseState = "running" | "pausing" | "paused";
+
+export interface HoldOptions {
+  signal: AbortSignal | undefined;
+  hasPendingMessages: () => boolean;
+  pollIntervalMs: number;
 }

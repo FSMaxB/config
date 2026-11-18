@@ -3,13 +3,6 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 export { resolveThroughSymlinks } from "./path-resolution.ts";
 
-// Without a repository, root is the directory the detection started from.
-export type VcsInfo =
-  | { kind: "none"; root: string }
-  | { kind: "git"; root: string }
-  // A colocated jj repository also has a .git directory that jj keeps in sync.
-  | { kind: "jj"; root: string; colocated: boolean };
-
 export function findRepositoryRoot(from: string = process.cwd()): string {
   return findVcsRoot(from) ?? resolve(from);
 }
@@ -20,6 +13,13 @@ export function detectVcs(from: string = process.cwd()): VcsInfo {
   if (!existsSync(join(root, ".jj"))) return { kind: "git", root };
   return { kind: "jj", root, colocated: existsSync(join(root, ".git")) };
 }
+
+// Without a repository, root is the directory the detection started from.
+export type VcsInfo =
+  | { kind: "none"; root: string }
+  | { kind: "git"; root: string }
+  // A colocated jj repository also has a .git directory that jj keeps in sync.
+  | { kind: "jj"; root: string; colocated: boolean };
 
 export function isVcsInternal(path: string): boolean {
   return path

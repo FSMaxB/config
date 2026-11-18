@@ -13,16 +13,6 @@ import { debug } from "./debug.js";
 // alive after that is treated as a possible writer to its session JSONL.
 export const ABORT_EXIT_GRACE_MS = 3000;
 
-export type ChildExitOutcome = "exited" | "still-running";
-
-export interface ChildExitTracker {
-	/** Drop-in for the SDK's spawnClaudeCodeProcess option. */
-	spawn: (options: SpawnOptions) => SpawnedProcess;
-	/** Resolves "exited" once every child spawned through this tracker has
-	 *  exited (at once when none was spawned), or "still-running" after graceMs. */
-	awaitExit(graceMs: number): Promise<ChildExitOutcome>;
-}
-
 // ESM live bindings: importers read the CURRENT values at call time.
 export let spawnClaudeCodeProcessImpl: (options: SpawnOptions) => SpawnedProcess = spawnClaudeCodeWithDiagnostics;
 export let abortExitGraceMs = ABORT_EXIT_GRACE_MS;
@@ -63,3 +53,13 @@ export function createChildExitTracker(): ChildExitTracker {
 		},
 	};
 }
+
+export interface ChildExitTracker {
+	/** Drop-in for the SDK's spawnClaudeCodeProcess option. */
+	spawn: (options: SpawnOptions) => SpawnedProcess;
+	/** Resolves "exited" once every child spawned through this tracker has
+	 *  exited (at once when none was spawned), or "still-running" after graceMs. */
+	awaitExit(graceMs: number): Promise<ChildExitOutcome>;
+}
+
+export type ChildExitOutcome = "exited" | "still-running";

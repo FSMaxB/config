@@ -18,24 +18,6 @@ after(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-function freshDirectory(): string {
-  counter += 1;
-  return join(root, `case-${counter}`);
-}
-
-function record(id: string): LogRecord {
-  return {
-    version: RECORD_VERSION,
-    kind: "request",
-    sessionId: "session",
-    provider: "p",
-    model: id,
-    api: "a",
-    startedAt: new Date(0).toISOString(),
-    outcome: Outcome.Completed,
-  };
-}
-
 test("appends are written in order with owner-only permissions", async () => {
   // arrange
   const directory = freshDirectory();
@@ -142,6 +124,19 @@ test("readLog skips torn lines and other versions", async () => {
   assert.deepEqual(records.map((entry) => entry.kind === "request" && entry.model), ["good"]);
 });
 
+function record(id: string): LogRecord {
+  return {
+    version: RECORD_VERSION,
+    kind: "request",
+    sessionId: "session",
+    provider: "p",
+    model: id,
+    api: "a",
+    startedAt: new Date(0).toISOString(),
+    outcome: Outcome.Completed,
+  };
+}
+
 test("resolveLogPath picks the newest log, a session id or a path", async () => {
   // arrange
   const directory = freshDirectory();
@@ -162,3 +157,8 @@ test("resolveLogPath picks the newest log, a session id or a path", async () => 
   assert.equal(byId, join(directory, "abc-1.jsonl"));
   assert.equal(byPath, "/somewhere/else.jsonl");
 });
+
+function freshDirectory(): string {
+  counter += 1;
+  return join(root, `case-${counter}`);
+}

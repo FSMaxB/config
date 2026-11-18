@@ -2,11 +2,25 @@ import { createHash } from "node:crypto";
 import { isRecord } from "../lib/untyped.ts";
 
 export const SectionKind = { Content: "content", Parameter: "parameter" } as const;
-export type SectionKind = (typeof SectionKind)[keyof typeof SectionKind];
+
+export function fingerprintPayload(payload: unknown): PayloadFingerprint | undefined {
+  if (!isRecord(payload)) return undefined;
+  const sections = Object.entries(payload).map(([key, value]) => fingerprintSection(key, value));
+  return { totalChars: sections.reduce((sum, { chars }) => sum + chars, 0), sections };
+}
 
 export interface PayloadFingerprint {
   totalChars: number;
   sections: Section[];
+}
+
+function fingerprintSection(key: string, value: unknown): Section {
+  // Numbers and booleans are generation parameters (maxTokens, stream, temperature). Cache warming
+  // sends maxTokens: 1, so treating them as content would flag every request after a warm.
+  const kind = typeof value === "number" || typeof value === "boolean" ? SectionKind.Parameter : SectionKind.Content;
+  const section = { key, kind, ...digest(value) };
+  if (!Array.isArray(value)) return section;
+  return { ...section, items: value.map((item) => ({ ...digest(item), ...labelOf(item) })) };
 }
 
 export interface Section {
@@ -22,21 +36,7 @@ export interface Item {
   chars: number;
   label?: string;
 }
-
-export function fingerprintPayload(payload: unknown): PayloadFingerprint | undefined {
-  if (!isRecord(payload)) return undefined;
-  const sections = Object.entries(payload).map(([key, value]) => fingerprintSection(key, value));
-  return { totalChars: sections.reduce((sum, { chars }) => sum + chars, 0), sections };
-}
-
-function fingerprintSection(key: string, value: unknown): Section {
-  // Numbers and booleans are generation parameters (maxTokens, stream, temperature). Cache warming
-  // sends maxTokens: 1, so treating them as content would flag every request after a warm.
-  const kind = typeof value === "number" || typeof value === "boolean" ? SectionKind.Parameter : SectionKind.Content;
-  const section = { key, kind, ...digest(value) };
-  if (!Array.isArray(value)) return section;
-  return { ...section, items: value.map((item) => ({ ...digest(item), ...labelOf(item) })) };
-}
+export type SectionKind = (typeof SectionKind)[keyof typeof SectionKind];
 
 // Prompt caches key on content, not on breakpoint markers, and Anthropic moves its marker to the
 // newest message every turn. Key order is deliberately not normalized: providers serialize in

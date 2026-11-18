@@ -12,27 +12,6 @@ import type {
   TuicrComment,
 } from "./tuicr-session.ts";
 
-function entry(overrides: Partial<SessionEntry>): SessionEntry {
-  return {
-    slug: "owner/repo@main/worktree",
-    updated_at: "2026-05-22T17:20:00Z",
-    active: true,
-    ...overrides,
-  };
-}
-
-function comment(overrides: Partial<TuicrComment>): TuicrComment {
-  return {
-    id: "79c9b3e1",
-    location: "src/main.rs:42",
-    path: undefined,
-    side: undefined,
-    comment_type: "none",
-    content: "Handle the empty case here.",
-    ...overrides,
-  };
-}
-
 test("pickNewSession ignores inactive entries and entries active before launch, picking the most recently updated of the rest", () => {
   // arrange
   const entries = [
@@ -64,6 +43,15 @@ test("pickNewSession returns undefined when nothing new is active", () => {
   // assert
   assert.equal(picked, undefined);
 });
+
+function entry(overrides: Partial<SessionEntry>): SessionEntry {
+  return {
+    slug: "owner/repo@main/worktree",
+    updated_at: "2026-05-22T17:20:00Z",
+    active: true,
+    ...overrides,
+  };
+}
 
 test("advanceQuiet returns undefined for zero unseen comments", () => {
   // arrange
@@ -158,6 +146,18 @@ test("formatComments renders type none without a tag", () => {
   // assert
   assert.doesNotMatch(formatted, /\[none\]/);
 });
+
+function comment(overrides: Partial<TuicrComment>): TuicrComment {
+  return {
+    id: "79c9b3e1",
+    location: "src/main.rs:42",
+    path: undefined,
+    side: undefined,
+    comment_type: "none",
+    content: "Handle the empty case here.",
+    ...overrides,
+  };
+}
 
 test("shellQuote escapes single quotes", () => {
   // arrange

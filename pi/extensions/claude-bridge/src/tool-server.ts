@@ -18,19 +18,9 @@ import type * as McpTypesNamespace from "@modelcontextprotocol/sdk/types.js";
 import type { McpResult } from "./extract-tool-results.js";
 import { isRecord } from "../../lib/untyped.ts";
 
-type McpServerModule = typeof McpServerNamespace;
-type McpTypesModule = typeof McpTypesNamespace;
-
 // Required on first use, not imported: the MCP SDK (with zod and ajv) cost every pi startup
 // ~60 ms although only a query ever builds a tool server.
 const requirePackage = createRequire(import.meta.url);
-
-export interface BridgedTool {
-	name: string;
-	description: string;
-	parameters: unknown;
-	handler: (toolArguments: Record<string, unknown> | undefined) => Promise<McpResult>;
-}
 
 export function createToolServer(name: string, tools: readonly BridgedTool[]): McpSdkServerConfigWithInstance {
 	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-deprecated -- require() is untyped, and the type is the package's own declaration; the low-level Server forwards pi's JSON Schema unchanged, where McpServer would convert it (see README)
@@ -55,6 +45,16 @@ export function createToolServer(name: string, tools: readonly BridgedTool[]): M
 	});
 	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the Agent SDK types the instance with its own copy of the MCP SDK's Server class
 	return { type: "sdk", name, instance: server as unknown as McpSdkServerConfigWithInstance["instance"] };
+}
+
+type McpServerModule = typeof McpServerNamespace;
+type McpTypesModule = typeof McpTypesNamespace;
+
+export interface BridgedTool {
+	name: string;
+	description: string;
+	parameters: unknown;
+	handler: (toolArguments: Record<string, unknown> | undefined) => Promise<McpResult>;
 }
 
 // The JSON round trip drops TypeBox's symbol keys and keeps everything else verbatim.

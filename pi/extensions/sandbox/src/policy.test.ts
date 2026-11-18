@@ -12,17 +12,6 @@ import type { VcsLayout } from "./vcs-policy.ts";
 
 const HOME = "/Users/max";
 
-function options(overrides: Partial<PolicyOptions> = {}): PolicyOptions {
-  return { platform: "darwin", homeDirectory: HOME, toolchainRead: [`${HOME}/.cargo`], extraDenyRead: [], vcs: undefined, ...overrides };
-}
-
-function policy(overrides: { read?: Partial<EffectivePolicy["read"]>; write?: Partial<EffectivePolicy["write"]> } = {}): EffectivePolicy {
-  return {
-    read: { allow: [tree(`${HOME}/repo`)], deny: [], protected: [], ...overrides.read },
-    write: { allow: [tree(`${HOME}/repo`)], deny: [], protected: [], ...overrides.write },
-  };
-}
-
 test("the repository tree is readable and writable", () => {
   // arrange
   const effective = policy();
@@ -213,14 +202,6 @@ test("the sandbox-runtime package stays readable under a denied home directory",
   assert.ok(existsSync(join(runtimeDirectory, "vendor", "seccomp")), `${runtimeDirectory} must contain the vendored seccomp helper`);
 });
 
-function vcsLayout(): VcsLayout {
-  const listings = new Map([
-    [`${HOME}/repo/.git`, { path: `${HOME}/repo/.git`, entries: [{ name: "config", directory: false }, { name: "objects", directory: true }] }],
-    [`${HOME}/repo/.jj`, { path: `${HOME}/repo/.jj`, entries: [{ name: "working_copy", directory: true }] }],
-  ]);
-  return { repoRoot: `${HOME}/repo`, listings, gitFile: undefined };
-}
-
 test("on darwin the repository write allow is replaced by the complement of the VCS directories", () => {
   // arrange
   const vcs = vcsWriteRules(vcsLayout(), "darwin");
@@ -291,3 +272,22 @@ test("the jj lock files of plan mode add no VCS denies", () => {
   assert.ok(!linux.denyWrite.includes(`${HOME}/repo/.git/config`));
   assert.ok(darwin.allowWrite.includes(`${HOME}/repo/.jj/working_copy/working_copy.lock`));
 });
+
+function options(overrides: Partial<PolicyOptions> = {}): PolicyOptions {
+  return { platform: "darwin", homeDirectory: HOME, toolchainRead: [`${HOME}/.cargo`], extraDenyRead: [], vcs: undefined, ...overrides };
+}
+
+function policy(overrides: { read?: Partial<EffectivePolicy["read"]>; write?: Partial<EffectivePolicy["write"]> } = {}): EffectivePolicy {
+  return {
+    read: { allow: [tree(`${HOME}/repo`)], deny: [], protected: [], ...overrides.read },
+    write: { allow: [tree(`${HOME}/repo`)], deny: [], protected: [], ...overrides.write },
+  };
+}
+
+function vcsLayout(): VcsLayout {
+  const listings = new Map([
+    [`${HOME}/repo/.git`, { path: `${HOME}/repo/.git`, entries: [{ name: "config", directory: false }, { name: "objects", directory: true }] }],
+    [`${HOME}/repo/.jj`, { path: `${HOME}/repo/.jj`, entries: [{ name: "working_copy", directory: true }] }],
+  ]);
+  return { repoRoot: `${HOME}/repo`, listings, gitFile: undefined };
+}

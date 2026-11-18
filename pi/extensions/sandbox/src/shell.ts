@@ -17,20 +17,6 @@ const WELL_KNOWN_SHELLS = ["/opt/homebrew/bin/bash", "/usr/local/bin/bash"];
 // `bash --version` answers in milliseconds; this only bounds a broken binary.
 const PROBE_TIMEOUT_MILLISECONDS = 2000;
 
-export interface BashVersion {
-  major: number;
-  minor: number;
-}
-
-export interface ProbedShell {
-  path: string;
-  version: BashVersion | undefined;
-}
-
-export type ShellChoice =
-  | { kind: "found"; path: string }
-  | { kind: "missing"; checked: string[] };
-
 export async function resolveSandboxShell(environmentPath: string | undefined): Promise<ShellChoice> {
   const candidates = shellCandidates(environmentPath);
   const probed: ProbedShell[] = [];
@@ -55,11 +41,14 @@ export function chooseShell(probed: readonly ProbedShell[]): ShellChoice {
   return supported ? { kind: "found", path: supported.path } : { kind: "missing", checked: probed.map(({ path }) => path) };
 }
 
-// Output of `echo "${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}"`.
-export function parseBashVersion(output: string): BashVersion | undefined {
-  const match = /^(\d+)\.(\d+)\s*$/.exec(output);
-  return match ? { major: Number(match[1]), minor: Number(match[2]) } : undefined;
+export interface ProbedShell {
+  path: string;
+  version: BashVersion | undefined;
 }
+
+export type ShellChoice =
+  | { kind: "found"; path: string }
+  | { kind: "missing"; checked: string[] };
 
 function isSupported(version: BashVersion | undefined): boolean {
   if (!version) return false;
@@ -75,4 +64,15 @@ async function bashVersion(path: string): Promise<BashVersion | undefined> {
   } catch {
     return undefined;
   }
+}
+
+// Output of `echo "${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}"`.
+export function parseBashVersion(output: string): BashVersion | undefined {
+  const match = /^(\d+)\.(\d+)\s*$/.exec(output);
+  return match ? { major: Number(match[1]), minor: Number(match[2]) } : undefined;
+}
+
+export interface BashVersion {
+  major: number;
+  minor: number;
 }

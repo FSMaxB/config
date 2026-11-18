@@ -4,31 +4,6 @@ import { errorMessage } from "./errors.ts";
 import { detectVcs } from "./repo.ts";
 import type { VcsInfo } from "./repo.ts";
 
-export interface CommandResult {
-  stdout: string;
-  stderr: string;
-  code: number;
-}
-
-export type Executor = (
-  command: string,
-  commandArguments: readonly string[],
-  cwd: string,
-) => Promise<CommandResult>;
-
-export type RepositoryKind = Exclude<VcsInfo["kind"], "none">;
-
-export interface Invocation {
-  command: string;
-  args: string[];
-}
-
-export type CommitOutcome =
-  | { kind: "committed"; vcs: RepositoryKind }
-  | { kind: "unchanged"; vcs: RepositoryKind };
-
-export type CommitReason = "submit" | "review";
-
 // The commit is bookkeeping for the user, not something the model can act on, so
 // failures surface as a UI warning and never change the tool result.
 export async function commitPlanFileForUser(
@@ -80,6 +55,10 @@ export async function commitPlanFile(
   return { kind: "committed", vcs };
 }
 
+export type CommitOutcome =
+  | { kind: "committed"; vcs: RepositoryKind }
+  | { kind: "unchanged"; vcs: RepositoryKind };
+
 export function initInvocation(vcs: RepositoryKind): Invocation {
   return vcs === "jj"
     ? { command: "jj", args: ["git", "init", "--colocate"] }
@@ -115,10 +94,14 @@ export function commitInvocations(
   ];
 }
 
+export type RepositoryKind = Exclude<VcsInfo["kind"], "none">;
+
 export function commitMessage(planFile: string, reason: CommitReason): string {
   const prefix = reason === "submit" ? "Submit plan" : "Review plan";
   return `${prefix}: ${basename(planFile, ".md")}`;
 }
+
+export type CommitReason = "submit" | "review";
 
 // -R / -C pin the command to the detected root, so the process cwd can never redirect
 // the commit into another repository.
@@ -142,4 +125,21 @@ async function run(execute: Executor, invocation: Invocation, cwd: string): Prom
     throw new Error(`${invocation.command} ${invocation.args.join(" ")} failed: ${detail}`);
   }
   return result;
+}
+
+export type Executor = (
+  command: string,
+  commandArguments: readonly string[],
+  cwd: string,
+) => Promise<CommandResult>;
+
+export interface CommandResult {
+  stdout: string;
+  stderr: string;
+  code: number;
+}
+
+export interface Invocation {
+  command: string;
+  args: string[];
 }

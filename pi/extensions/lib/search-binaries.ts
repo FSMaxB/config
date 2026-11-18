@@ -7,9 +7,9 @@ import { findAncestorWith } from "./repo.ts";
 // Short enough that a binary installed mid-session is picked up without a restart.
 const MISSING_RETRY_MILLISECONDS = 60_000;
 
-type BinaryLookup = { kind: "found"; path: string } | { kind: "missing"; since: number };
-
 const lookups = new Map<string, BinaryLookup>();
+
+type BinaryLookup = { kind: "found"; path: string } | { kind: "missing"; since: number };
 
 export function locateBinary(name: string, fallbackNames: readonly string[] = [], now: () => number = Date.now): string {
   const cached = lookups.get(name);

@@ -1,6 +1,4 @@
 export const AgentMode = { Execution: "execution", Planning: "planning", Exploring: "exploring" } as const;
-export type AgentMode = (typeof AgentMode)[keyof typeof AgentMode];
-export type RestrictedMode = Exclude<AgentMode, typeof AgentMode.Execution>;
 
 // Shared by the mode message and the subagent system prompt, so children get the same wording.
 export const READ_ONLY_JJ_NOTE =
@@ -8,18 +6,6 @@ export const READ_ONLY_JJ_NOTE =
 
 // Each agent mode has its own path rules; the values are the sub-field names in the rules file and the session entry.
 export const PathRuleStore = { Execution: "execution", Plan: "plan", Explore: "explore" } as const;
-export type PathRuleStore = (typeof PathRuleStore)[keyof typeof PathRuleStore];
-
-export interface ModeIdentity {
-  mode: RestrictedMode;
-  label: string;
-  // Also the name of the startup flag.
-  command: string;
-  entryType: string;
-  // Relative to the agent directory.
-  decisionsFileName: string;
-  statusIcon: string;
-}
 
 // entryType and decisionsFileName are persisted in sessions and the agent directory, so they must not be renamed.
 export const MODE_IDENTITIES: Record<RestrictedMode, ModeIdentity> = {
@@ -41,11 +27,23 @@ export const MODE_IDENTITIES: Record<RestrictedMode, ModeIdentity> = {
   },
 };
 
+export interface ModeIdentity {
+  mode: RestrictedMode;
+  label: string;
+  // Also the name of the startup flag.
+  command: string;
+  entryType: string;
+  // Relative to the agent directory.
+  decisionsFileName: string;
+  statusIcon: string;
+}
+
 export const RESTRICTED_MODES: readonly RestrictedMode[] = [AgentMode.Planning, AgentMode.Exploring];
 
 export function isRestricted(mode: AgentMode): mode is RestrictedMode {
   return mode !== AgentMode.Execution;
 }
+export type RestrictedMode = Exclude<AgentMode, typeof AgentMode.Execution>;
 
 const MODE_RULE_STORES: Record<AgentMode, PathRuleStore> = {
   [AgentMode.Execution]: PathRuleStore.Execution,
@@ -60,7 +58,9 @@ export function storeForMode(mode: AgentMode): PathRuleStore {
 export function isPathRuleStore(value: unknown): value is PathRuleStore {
   return Object.values(PathRuleStore).some((store) => store === value);
 }
+export type PathRuleStore = (typeof PathRuleStore)[keyof typeof PathRuleStore];
 
 export function isAgentMode(value: unknown): value is AgentMode {
   return Object.values(AgentMode).some((mode) => mode === value);
 }
+export type AgentMode = (typeof AgentMode)[keyof typeof AgentMode];

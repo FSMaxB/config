@@ -7,21 +7,6 @@ import { addPathRule, clearPathRules, listPathRules, normalizePathSelector, remo
 export const CLEAR_ALL = "Clear all";
 export const DONE = "Done";
 
-export interface DecisionEntry {
-  label: string;
-  remove: () => void | Promise<void>;
-}
-
-export interface DecisionList {
-  title: string;
-  emptyMessage: string;
-  clearedMessage: string;
-  entries(): Promise<DecisionEntry[]>;
-  clearAll(): Promise<void>;
-  // Runs after each removal, for callers that keep the entries in a store of their own.
-  removed(): Promise<void>;
-}
-
 export async function managePathRules(store: PathRuleStore, context: ExtensionContext): Promise<void> {
   if (!context.hasUI) {
     context.ui.notify(`Managing ${store} path rules needs an interactive UI.`, "error");
@@ -57,6 +42,16 @@ export async function manageDecisions(list: DecisionList, context: ExtensionCont
     entries = await list.entries();
   }
   context.ui.notify(list.emptyMessage);
+}
+
+export interface DecisionList {
+  title: string;
+  emptyMessage: string;
+  clearedMessage: string;
+  entries(): Promise<DecisionEntry[]>;
+  clearAll(): Promise<void>;
+  // Runs after each removal, for callers that keep the entries in a store of their own.
+  removed(): Promise<void>;
 }
 
 // `command` is everything before the rule kind in the usage hint, e.g. "/plan" or "/paths plan".
@@ -105,4 +100,9 @@ export function pathRuleEntries(rules: readonly PathRule[], store: PathRuleStore
     label: `${rule.mode} ${rule.kind} ${selectorLabel(rule.selector)} — path (${rule.tier})${rule.kind === "deny" && rule.note ? `: ${rule.note}` : ""}`,
     remove: () => removePathRule(rule, store),
   }));
+}
+
+export interface DecisionEntry {
+  label: string;
+  remove: () => void | Promise<void>;
 }

@@ -34,34 +34,22 @@ import { ancestorDirectories } from "../../lib/repo.ts";
 
 const CONTEXT_FILE_CANDIDATES = ["AGENTS.override.md", "AGENTS.md", "AGENTS.MD"];
 
-function contextFileInDirectory(directory: string): string | undefined {
-	for (const filename of CONTEXT_FILE_CANDIDATES) {
-		const candidate = join(directory, filename);
+export function extractAgentsAppend(): string | undefined {
+	const sections: string[] = [];
+	for (const agentsPath of resolveAgentsMdPaths()) {
 		try {
-			if (statSync(candidate).isFile()) return candidate;
+			const content = readFileSync(agentsPath, "utf-8").trim();
+			if (!content) continue;
+			const sanitized = sanitizeAgentsContent(content);
+			if (sanitized.length > 0) sections.push(sanitized);
 		} catch (error) {
-			// A genuinely absent candidate is the normal case and stays silent. Anything else --
-			// a dangling symlink (which reports ENOENT through stat but resolves through lstat),
-			// a permissions error, an I/O fault -- means a context file the user intended is being
-			// skipped, and skipping an override silently forwards the AGENTS.md it was meant to
-			// supersede. Only ENOENT from lstat proves genuine absence; a traversal or permission
-			// fault throws from both calls and must not be mistaken for "no such file".
-			let lstatCode: string | undefined;
-			let entryExists = false;
-			try {
-				lstatSync(candidate);
-				entryExists = true;
-			} catch (lstatError) {
-				lstatCode = errorCode(lstatError);
-			}
-			if (entryExists || lstatCode !== "ENOENT") {
-				const detail = errorCode(error) ?? String(error);
-				const suffix = entryExists ? "" : ` (lstat: ${lstatCode ?? "unknown"})`;
-				debug(`agents-md: skipping unusable ${candidate}: ${detail}${suffix}`);
-			}
+			// An unreadable AGENTS.md silently drops the user's standing instructions
+			// from every child prompt — keep going without it, but leave a trace.
+			debug(`agents-md: failed to read ${agentsPath}:`, error instanceof Error ? error.message : String(error));
 		}
 	}
-	return undefined;
+	if (sections.length === 0) return undefined;
+	return `# CLAUDE.md\n\n${sections.join("\n\n")}`;
 }
 
 export function resolveAgentsMdPaths(): string[] {
@@ -93,22 +81,34 @@ export function findAgentsMdInParents(startDirectory: string): string | undefine
 	return undefined;
 }
 
-export function extractAgentsAppend(): string | undefined {
-	const sections: string[] = [];
-	for (const agentsPath of resolveAgentsMdPaths()) {
+function contextFileInDirectory(directory: string): string | undefined {
+	for (const filename of CONTEXT_FILE_CANDIDATES) {
+		const candidate = join(directory, filename);
 		try {
-			const content = readFileSync(agentsPath, "utf-8").trim();
-			if (!content) continue;
-			const sanitized = sanitizeAgentsContent(content);
-			if (sanitized.length > 0) sections.push(sanitized);
+			if (statSync(candidate).isFile()) return candidate;
 		} catch (error) {
-			// An unreadable AGENTS.md silently drops the user's standing instructions
-			// from every child prompt — keep going without it, but leave a trace.
-			debug(`agents-md: failed to read ${agentsPath}:`, error instanceof Error ? error.message : String(error));
+			// A genuinely absent candidate is the normal case and stays silent. Anything else --
+			// a dangling symlink (which reports ENOENT through stat but resolves through lstat),
+			// a permissions error, an I/O fault -- means a context file the user intended is being
+			// skipped, and skipping an override silently forwards the AGENTS.md it was meant to
+			// supersede. Only ENOENT from lstat proves genuine absence; a traversal or permission
+			// fault throws from both calls and must not be mistaken for "no such file".
+			let lstatCode: string | undefined;
+			let entryExists = false;
+			try {
+				lstatSync(candidate);
+				entryExists = true;
+			} catch (lstatError) {
+				lstatCode = errorCode(lstatError);
+			}
+			if (entryExists || lstatCode !== "ENOENT") {
+				const detail = errorCode(error) ?? String(error);
+				const suffix = entryExists ? "" : ` (lstat: ${lstatCode ?? "unknown"})`;
+				debug(`agents-md: skipping unusable ${candidate}: ${detail}${suffix}`);
+			}
 		}
 	}
-	if (sections.length === 0) return undefined;
-	return `# CLAUDE.md\n\n${sections.join("\n\n")}`;
+	return undefined;
 }
 
 export function sanitizeAgentsContent(content: string): string {

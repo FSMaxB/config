@@ -4,25 +4,6 @@ import { addToProfileLabel, ALLOW_NARROWER, ALLOW_ONCE, ALLOW_SESSION, DENY_ALWA
 import { ALL_DURATIONS, askPermission, Duration, userReason } from "./permission-prompt.ts";
 import type { PermissionRequest, PermissionUI } from "./permission-prompt.ts";
 
-interface SelectCall { title: string; options: readonly string[]; preselected: string | undefined }
-
-// Answers are consumed in order; undefined stands for Esc.
-function scriptedUI(answers: readonly (string | undefined)[]): PermissionUI & { selects: SelectCall[]; inputs: string[] } {
-  const queue = [...answers];
-  const selects: SelectCall[] = [];
-  const inputs: string[] = [];
-  return {
-    selects,
-    inputs,
-    async select(title, options, preselected) { selects.push({ title, options, preselected }); return queue.shift(); },
-    async input(title) { inputs.push(title); return queue.shift(); },
-  };
-}
-
-function request<Destination = never>(overrides: Partial<PermissionRequest<string, Destination>> = {}): PermissionRequest<string, Destination> {
-  return { title: "Allow it?", subject: "network access to example.com", scope: "broad", narrower: [], durations: ALL_DURATIONS, ...overrides };
-}
-
 test("a plain option answers after one select and no input", async () => {
   // arrange
   const ui = scriptedUI([ALLOW_SESSION]);
@@ -208,3 +189,22 @@ test("no destination options appear when none are passed", async () => {
   // assert
   assert.ok(!ui.selects[0].options.some((option) => option.startsWith("Add to profile")));
 });
+
+// Answers are consumed in order; undefined stands for Esc.
+function scriptedUI(answers: readonly (string | undefined)[]): PermissionUI & { selects: SelectCall[]; inputs: string[] } {
+  const queue = [...answers];
+  const selects: SelectCall[] = [];
+  const inputs: string[] = [];
+  return {
+    selects,
+    inputs,
+    async select(title, options, preselected) { selects.push({ title, options, preselected }); return queue.shift(); },
+    async input(title) { inputs.push(title); return queue.shift(); },
+  };
+}
+
+interface SelectCall { title: string; options: readonly string[]; preselected: string | undefined }
+
+function request<Destination = never>(overrides: Partial<PermissionRequest<string, Destination>> = {}): PermissionRequest<string, Destination> {
+  return { title: "Allow it?", subject: "network access to example.com", scope: "broad", narrower: [], durations: ALL_DURATIONS, ...overrides };
+}

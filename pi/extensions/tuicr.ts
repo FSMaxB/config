@@ -37,12 +37,6 @@ const DEFAULT_QUIET_SECONDS = 10;
 const DEFAULT_WAIT_TIMEOUT_MINUTES = 30;
 const DEFAULT_WAIT_TIMEOUT_SECONDS = DEFAULT_WAIT_TIMEOUT_MINUTES * SECONDS_PER_MINUTE;
 
-interface Session {
-  repo: string;
-  slug: string;
-  seen: Set<string>;
-}
-
 // The session opened by tuicr_open (or attached by tuicr_wait), so the other
 // tools do not need repo/slug repeated on every call.
 let current: Session | undefined;
@@ -335,11 +329,6 @@ async function waitForSession(
   return await pollUntil(deadline, signal, async () => pickNewSession(await listSessions(pi, repository, signal), activeBefore));
 }
 
-interface SessionParameters {
-  session?: string;
-  repo?: string;
-}
-
 async function resolveSession(
   pi: ExtensionAPI,
   parameters: SessionParameters,
@@ -363,6 +352,11 @@ async function resolveSession(
   return current;
 }
 
+interface SessionParameters {
+  session?: string;
+  repo?: string;
+}
+
 function newestActive(entries: readonly SessionEntry[]): SessionEntry | undefined {
   return entries
     .filter((entry) => entry.active)
@@ -382,6 +376,12 @@ async function pollUntil<T>(deadline: number, signal: AbortSignal | undefined, p
 
 function markSeen(session: Session, comments: readonly TuicrComment[]): void {
   for (const comment of comments) session.seen.add(comment.id);
+}
+
+interface Session {
+  repo: string;
+  slug: string;
+  seen: Set<string>;
 }
 
 const TUICR_NAMESPACE = { name: "tuicr", description: "Run terminal reviews and exchange review feedback." };

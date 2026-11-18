@@ -12,15 +12,6 @@ import type { McpResult } from "./extract-tool-results.js";
 import { currentRequestLaneId } from "./request-lane.js";
 import { processGlobal } from "../../lib/process-global.ts";
 
-/** A mid-query user run captured for replay after the active query ends.
- *  `text` is the joined text form (previews, and the replay prompt when no
- *  image blocks were captured). `blocks` is present when the run carried
- *  images — the replay must send the blocks or the images are silently lost. */
-export interface DeferredUserMessage {
-	text: string;
-	blocks?: ContentBlockParam[];
-}
-
 /** Diag payload for a deferred-message drop: counts, sites, and lengths only.
  *  The messages are user-authored prompt text and the diag log sits outside
  *  any host app's retention boundary, so no content — not even a preview —
@@ -34,51 +25,11 @@ export function summarizeDroppedUserMessages(site: string, dropped: readonly Def
 	};
 }
 
-/** A provider call held to replace a query whose Pi history was replaced while
- *  it ran: the callback's own model, context, options and stream, so the
- *  replacement runs under the current request instead of the dead query's. */
-export interface QueryRestartRequest {
-	model: Model<Api>;
-	context: TranscriptContext;
-	options: SimpleStreamOptions | undefined;
-	stream: AssistantMessageEventStream;
-}
-
-export interface PendingToolCall {
-	toolName: string;
-	/** The MCP invocation's schema-validated arguments. The SDK hands the handler
-	 *  the COMPLETE input, so this is the authoritative copy — the grace-timer
-	 *  finalize settles a still-partial streamed block from here instead of from
-	 *  its truncated partial JSON (a `{}` settle would make Pi execute
-	 *  empty-argument calls). */
-	args: JsonObject;
-	/** `QueryContext.callbackGeneration` at registration. A handler from an older
-	 *  generation whose id was never forwarded to Pi can never be answered — see
-	 *  drainStrandedToolCalls. */
-	generation: number;
-	resolve: (result: McpResult) => void;
-}
-
-// Why pending MCP handlers were drained without a real tool result. A drained
-// handler is waiting on a result pi will now never deliver, so the drain must
-// resolve as an error — never as a successful result whose text merely says the
-// turn died, which a consumer cannot tell apart from a tool that genuinely
-// returned that string. The cause is carried because an abort, an idle timeout,
-// and a plain end-with-stragglers are different things to act on.
-export type ToolCallDrainCause = "abort" | "stream-idle-timeout" | "query-end";
-
 const DRAIN_CAUSE_TEXT: Record<ToolCallDrainCause, string> = {
 	"abort": "the turn was aborted",
 	"stream-idle-timeout": "the Claude Code stream went idle and the turn timed out",
 	"query-end": "the query ended",
 };
-
-export function interruptedToolCallResult(cause: ToolCallDrainCause): McpResult {
-	return {
-		content: [{ type: "text", text: `tool-call-drain=${cause}\nClaude bridge: ${DRAIN_CAUSE_TEXT[cause]} before this tool call's result was delivered. The call did not complete and produced no output.` }],
-		isError: true,
-	};
-}
 
 // Precedence matches the forceRotate expression at the query-teardown site: an
 // explicit abort (pi's signal or our own abort handler) outranks a stream-idle
@@ -101,15 +52,20 @@ export function drainPendingToolCalls(queryContext: QueryContext, cause: ToolCal
 	return drained;
 }
 
-/** The error a stranded handler resolves with: its call never reached Pi and
- *  the forward paths have marked it dead, so no result can ever arrive and the
- *  call is guaranteed not to have executed on the Pi side. */
-export function strandedToolCallResult(): McpResult {
+export function interruptedToolCallResult(cause: ToolCallDrainCause): McpResult {
 	return {
-		content: [{ type: "text", text: "tool-call-stranded=unforwarded\nClaude bridge: this tool call was never forwarded to Pi before its turn ended, so it did not execute and no result can arrive. Re-run the tool." }],
+		content: [{ type: "text", text: `tool-call-drain=${cause}\nClaude bridge: ${DRAIN_CAUSE_TEXT[cause]} before this tool call's result was delivered. The call did not complete and produced no output.` }],
 		isError: true,
 	};
 }
+
+// Why pending MCP handlers were drained without a real tool result. A drained
+// handler is waiting on a result pi will now never deliver, so the drain must
+// resolve as an error — never as a successful result whose text merely says the
+// turn died, which a consumer cannot tell apart from a tool that genuinely
+// returned that string. The cause is carried because an abort, an idle timeout,
+// and a plain end-with-stragglers are different things to act on.
+export type ToolCallDrainCause = "abort" | "stream-idle-timeout" | "query-end";
 
 /** Fail ONE waiting handler whose call never reached Pi. No-op when the id was
  *  forwarded (Pi owes it a result — steer-split deliveries arrive turns later)
@@ -146,6 +102,16 @@ export function drainStrandedToolCalls(queryContext: QueryContext): { id: string
 	return stranded.map(([id, pending]) => ({ id, toolName: pending.toolName }));
 }
 
+/** The error a stranded handler resolves with: its call never reached Pi and
+ *  the forward paths have marked it dead, so no result can ever arrive and the
+ *  call is guaranteed not to have executed on the Pi side. */
+export function strandedToolCallResult(): McpResult {
+	return {
+		content: [{ type: "text", text: "tool-call-stranded=unforwarded\nClaude bridge: this tool call was never forwarded to Pi before its turn ended, so it did not execute and no result can arrive. Re-run the tool." }],
+		isError: true,
+	};
+}
+
 /** Consume a result waiting for `id`, checking the live queue first and the
  *  reap-parked store second. Late handlers land here: Pi delivers every result
  *  of a turn in one callback, while the SDK staggers handler invocations, so a
@@ -164,100 +130,104 @@ export function takeQueuedOrParkedResult(queryContext: QueryContext, id: string)
 	return undefined;
 }
 
-// A content block of the in-flight turn. A streamed block carries its stream index until
-// content_block_stop, and a streamed tool call the raw JSON its arguments are parsed from; both
-// fields are deleted before the turn ends.
-export type TurnBlock =
-	| (TextContent & { index?: number })
-	| (ThinkingContent & { index?: number })
-	| StreamingToolCall;
+const QUERY_LANES_SYMBOL = Symbol.for("kendex.pi.claude-bridge.query-lanes.v1");
 
-export interface StreamingToolCall extends ToolCall {
-	index?: number;
-	partialJson?: string;
+export function currentQueryContext(): QueryContext { return lane().current; }
+
+export function stackDepth(): number { return lane().stack.length; }
+
+export function pushContext(): void {
+	const state = lane();
+	if (!state.current.activeQuery) throw new Error("query-stack-push=inactive\npushContext() called with no active query");
+	state.stack.push(state.current);
+	state.current = new QueryContext();
 }
 
-export interface ScheduledToolUseEnd {
-	stream: unknown;
-	timer: ReturnType<typeof setTimeout>;
-	action: () => void;
-	source: string;
-}
-
-export interface ChildSideCallState {
-	name: string;
-}
-
-export interface TurnToolCallRecord {
-	id: string;
-	toolName: string;
-	arguments: JsonObject;
-}
-
-export interface ClaimedToolCall {
-	toolCallId?: string;
-	match: "tool-args" | "tool-name" | "none";
-	ambiguous: boolean;
-	available: number;
-	/** True when the claim went through the sole-same-name fallback even though
-	 *  the recorded call had (different) arguments. Recorded args come from the
-	 *  raw streamed input while the handler receives the MCP server's
-	 *  schema-validated copy, so a benign divergence (stripped unknown key,
-	 *  applied default) must not strand the call — but it is worth a diagnostic. */
-	argsMismatch?: boolean;
-}
-
-export interface ToolResultProgress {
-	expectedIds: string[];
-	deliveredIds: string[];
-	resolvedIds: string[];
-	waitingIds: string[];
-	queuedIds: string[];
-	unmatchedResultIds: string[];
-	missingDeliveredIds: string[];
-	unresolvedIds: string[];
-	toolNames: { name: string; count: number }[];
-	expectedCount: number;
-	deliveredCount: number;
-	resolvedCount: number;
-	waitingCount: number;
-	queuedCount: number;
-	unmatchedResultCount: number;
-}
-
-function normalizeForCompare(value: unknown): unknown {
-	if (Array.isArray(value)) return value.map(normalizeForCompare);
-	if (value && typeof value === "object") {
-		const out: Record<string, unknown> = {};
-		for (const [key, child] of Object.entries(value).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))) {
-			if (child !== undefined) out[key] = normalizeForCompare(child);
-		}
-		return out;
+/** Pop the context that belongs to ONE specific query, wherever it sits.
+ *
+ *  The common case is `target === currentQueryContext()` and this is exactly popContext(). The
+ *  reason this exists: a reentrant parent query can end ABNORMALLY (abort, child
+ *  process death) while its own subagent's context is still pushed above it. A
+ *  bare popContext() there would discard the live grandchild's context and
+ *  merge the wrong deferred messages. Instead, splice `target` out of the stack
+ *  and hand its deferred messages to its own parent (the element below it), so
+ *  the still-live contexts above keep their positions and later pops restore
+ *  the correct lineage. Returns false when `target` is nowhere in the state —
+ *  already popped — so callers can treat that as "someone else tore this down". */
+export function popContextFor(target: QueryContext): boolean {
+	const state = lane();
+	if (state.current === target) {
+		popContext();
+		return true;
 	}
-	return value;
+	const index = state.stack.indexOf(target);
+	if (index < 0) return false;
+	const parent = index > 0 ? state.stack[index - 1] : undefined;
+	parent?.deferredUserMessages.push(...target.deferredUserMessages);
+	state.stack.splice(index, 1);
+	return true;
 }
 
-function argumentsKey(value: unknown): string {
-	return JSON.stringify(normalizeForCompare(value ?? {}));
+export function popContext(): void {
+	const state = lane();
+	const parent = state.stack.pop();
+	if (parent === undefined) throw new Error("query-stack-pop=empty\npopContext() called with empty stack");
+	parent.deferredUserMessages.push(...state.current.deferredUserMessages);
+	state.current = parent;
 }
 
-function sameArguments(left: unknown, right: unknown): boolean {
-	return argumentsKey(left) === argumentsKey(right);
-}
-
-function hasRecordedArguments(toolArguments: JsonObject | undefined): boolean {
-	return Object.keys(toolArguments ?? {}).length > 0;
-}
-
-function unique(values: Iterable<string | undefined>): string[] {
-	const out: string[] = [];
-	const seen = new Set<string>();
-	for (const value of values) {
-		if (!value || seen.has(value)) continue;
-		seen.add(value);
-		out.push(value);
+function lane(): QueryLaneState {
+	const store = queryLaneStore();
+	const sessionId = currentRequestLaneId();
+	if (sessionId === undefined) return store.defaultLane;
+	let state = store.sessionLanes.get(sessionId);
+	if (!state) {
+		state = { current: new QueryContext(), stack: [] };
+		store.sessionLanes.set(sessionId, state);
 	}
-	return out;
+	return state;
+}
+
+// Test-only: drop every lane so test files can start clean.
+export function resetStack(): void {
+	clearQueryLanes();
+}
+
+export function deleteQueryLane(sessionId: string | undefined): void {
+	const store = queryLaneStore();
+	if (sessionId === undefined) {
+		store.defaultLane.current = new QueryContext();
+		store.defaultLane.stack.length = 0;
+	} else store.sessionLanes.delete(sessionId);
+}
+
+export function clearQueryLanes(): void {
+	const store = queryLaneStore();
+	store.sessionLanes.clear();
+	store.defaultLane.current = new QueryContext();
+	store.defaultLane.stack.length = 0;
+}
+
+export function __testQueryLaneCount(): number {
+	return queryLaneStore().sessionLanes.size;
+}
+
+// Every copy of this module in the process shares one store; only this function writes it.
+function queryLaneStore(): QueryLaneStoreV1 {
+	return processGlobal(QUERY_LANES_SYMBOL, (): QueryLaneStoreV1 => ({
+		defaultLane: { current: new QueryContext(), stack: [] },
+		sessionLanes: new Map(),
+	}));
+}
+
+interface QueryLaneStoreV1 {
+	defaultLane: QueryLaneState;
+	sessionLanes: Map<string, QueryLaneState>;
+}
+
+interface QueryLaneState {
+	current: QueryContext;
+	stack: QueryContext[];
 }
 
 export class QueryContext {
@@ -687,7 +657,136 @@ export class QueryContext {
 	}
 }
 
-interface UsageCounters { input: number; output: number; cacheRead: number; cacheWrite: number }
+
+/** A mid-query user run captured for replay after the active query ends.
+ *  `text` is the joined text form (previews, and the replay prompt when no
+ *  image blocks were captured). `blocks` is present when the run carried
+ *  images — the replay must send the blocks or the images are silently lost. */
+export interface DeferredUserMessage {
+	text: string;
+	blocks?: ContentBlockParam[];
+}
+
+/** A provider call held to replace a query whose Pi history was replaced while
+ *  it ran: the callback's own model, context, options and stream, so the
+ *  replacement runs under the current request instead of the dead query's. */
+export interface QueryRestartRequest {
+	model: Model<Api>;
+	context: TranscriptContext;
+	options: SimpleStreamOptions | undefined;
+	stream: AssistantMessageEventStream;
+}
+
+export interface PendingToolCall {
+	toolName: string;
+	/** The MCP invocation's schema-validated arguments. The SDK hands the handler
+	 *  the COMPLETE input, so this is the authoritative copy — the grace-timer
+	 *  finalize settles a still-partial streamed block from here instead of from
+	 *  its truncated partial JSON (a `{}` settle would make Pi execute
+	 *  empty-argument calls). */
+	args: JsonObject;
+	/** `QueryContext.callbackGeneration` at registration. A handler from an older
+	 *  generation whose id was never forwarded to Pi can never be answered — see
+	 *  drainStrandedToolCalls. */
+	generation: number;
+	resolve: (result: McpResult) => void;
+}
+
+// A content block of the in-flight turn. A streamed block carries its stream index until
+// content_block_stop, and a streamed tool call the raw JSON its arguments are parsed from; both
+// fields are deleted before the turn ends.
+export type TurnBlock =
+	| (TextContent & { index?: number })
+	| (ThinkingContent & { index?: number })
+	| StreamingToolCall;
+
+export interface StreamingToolCall extends ToolCall {
+	index?: number;
+	partialJson?: string;
+}
+
+export interface ScheduledToolUseEnd {
+	stream: unknown;
+	timer: ReturnType<typeof setTimeout>;
+	action: () => void;
+	source: string;
+}
+
+export interface ChildSideCallState {
+	name: string;
+}
+
+export interface TurnToolCallRecord {
+	id: string;
+	toolName: string;
+	arguments: JsonObject;
+}
+
+export interface ClaimedToolCall {
+	toolCallId?: string;
+	match: "tool-args" | "tool-name" | "none";
+	ambiguous: boolean;
+	available: number;
+	/** True when the claim went through the sole-same-name fallback even though
+	 *  the recorded call had (different) arguments. Recorded args come from the
+	 *  raw streamed input while the handler receives the MCP server's
+	 *  schema-validated copy, so a benign divergence (stripped unknown key,
+	 *  applied default) must not strand the call — but it is worth a diagnostic. */
+	argsMismatch?: boolean;
+}
+
+export interface ToolResultProgress {
+	expectedIds: string[];
+	deliveredIds: string[];
+	resolvedIds: string[];
+	waitingIds: string[];
+	queuedIds: string[];
+	unmatchedResultIds: string[];
+	missingDeliveredIds: string[];
+	unresolvedIds: string[];
+	toolNames: { name: string; count: number }[];
+	expectedCount: number;
+	deliveredCount: number;
+	resolvedCount: number;
+	waitingCount: number;
+	queuedCount: number;
+	unmatchedResultCount: number;
+}
+
+function sameArguments(left: unknown, right: unknown): boolean {
+	return argumentsKey(left) === argumentsKey(right);
+}
+
+function argumentsKey(value: unknown): string {
+	return JSON.stringify(normalizeForCompare(value ?? {}));
+}
+
+function normalizeForCompare(value: unknown): unknown {
+	if (Array.isArray(value)) return value.map(normalizeForCompare);
+	if (value && typeof value === "object") {
+		const out: Record<string, unknown> = {};
+		for (const [key, child] of Object.entries(value).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))) {
+			if (child !== undefined) out[key] = normalizeForCompare(child);
+		}
+		return out;
+	}
+	return value;
+}
+
+function hasRecordedArguments(toolArguments: JsonObject | undefined): boolean {
+	return Object.keys(toolArguments ?? {}).length > 0;
+}
+
+function unique(values: Iterable<string | undefined>): string[] {
+	const out: string[] = [];
+	const seen = new Set<string>();
+	for (const value of values) {
+		if (!value || seen.has(value)) continue;
+		seen.add(value);
+		out.push(value);
+	}
+	return out;
+}
 
 function unbilledUsage(current: UsageCounters, billed: UsageCounters | undefined): UsageCounters {
 	if (!billed) return { ...current };
@@ -709,105 +808,7 @@ function maxUsage(billed: UsageCounters | undefined, current: UsageCounters): Us
 	};
 }
 
-interface QueryLaneState {
-	current: QueryContext;
-	stack: QueryContext[];
-}
-
-interface QueryLaneStoreV1 {
-	defaultLane: QueryLaneState;
-	sessionLanes: Map<string, QueryLaneState>;
-}
-
-const QUERY_LANES_SYMBOL = Symbol.for("kendex.pi.claude-bridge.query-lanes.v1");
-
-// Every copy of this module in the process shares one store; only this function writes it.
-function queryLaneStore(): QueryLaneStoreV1 {
-	return processGlobal(QUERY_LANES_SYMBOL, (): QueryLaneStoreV1 => ({
-		defaultLane: { current: new QueryContext(), stack: [] },
-		sessionLanes: new Map(),
-	}));
-}
-
-function lane(): QueryLaneState {
-	const store = queryLaneStore();
-	const sessionId = currentRequestLaneId();
-	if (sessionId === undefined) return store.defaultLane;
-	let state = store.sessionLanes.get(sessionId);
-	if (!state) {
-		state = { current: new QueryContext(), stack: [] };
-		store.sessionLanes.set(sessionId, state);
-	}
-	return state;
-}
-
-export function currentQueryContext(): QueryContext { return lane().current; }
-
-export function stackDepth(): number { return lane().stack.length; }
-
-export function pushContext(): void {
-	const state = lane();
-	if (!state.current.activeQuery) throw new Error("query-stack-push=inactive\npushContext() called with no active query");
-	state.stack.push(state.current);
-	state.current = new QueryContext();
-}
-
-export function popContext(): void {
-	const state = lane();
-	const parent = state.stack.pop();
-	if (parent === undefined) throw new Error("query-stack-pop=empty\npopContext() called with empty stack");
-	parent.deferredUserMessages.push(...state.current.deferredUserMessages);
-	state.current = parent;
-}
-
-/** Pop the context that belongs to ONE specific query, wherever it sits.
- *
- *  The common case is `target === currentQueryContext()` and this is exactly popContext(). The
- *  reason this exists: a reentrant parent query can end ABNORMALLY (abort, child
- *  process death) while its own subagent's context is still pushed above it. A
- *  bare popContext() there would discard the live grandchild's context and
- *  merge the wrong deferred messages. Instead, splice `target` out of the stack
- *  and hand its deferred messages to its own parent (the element below it), so
- *  the still-live contexts above keep their positions and later pops restore
- *  the correct lineage. Returns false when `target` is nowhere in the state —
- *  already popped — so callers can treat that as "someone else tore this down". */
-export function popContextFor(target: QueryContext): boolean {
-	const state = lane();
-	if (state.current === target) {
-		popContext();
-		return true;
-	}
-	const index = state.stack.indexOf(target);
-	if (index < 0) return false;
-	const parent = index > 0 ? state.stack[index - 1] : undefined;
-	parent?.deferredUserMessages.push(...target.deferredUserMessages);
-	state.stack.splice(index, 1);
-	return true;
-}
-
-// Test-only: drop every lane so test files can start clean.
-export function resetStack(): void {
-	clearQueryLanes();
-}
-
-export function deleteQueryLane(sessionId: string | undefined): void {
-	const store = queryLaneStore();
-	if (sessionId === undefined) {
-		store.defaultLane.current = new QueryContext();
-		store.defaultLane.stack.length = 0;
-	} else store.sessionLanes.delete(sessionId);
-}
-
-export function clearQueryLanes(): void {
-	const store = queryLaneStore();
-	store.sessionLanes.clear();
-	store.defaultLane.current = new QueryContext();
-	store.defaultLane.stack.length = 0;
-}
-
-export function __testQueryLaneCount(): number {
-	return queryLaneStore().sessionLanes.size;
-}
+interface UsageCounters { input: number; output: number; cacheRead: number; cacheWrite: number }
 
 /** Where a Pi assistant message ends in the Claude transcript: the Claude
  *  session that produced it and the API message id of its last message. Pi

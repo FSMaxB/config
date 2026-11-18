@@ -100,299 +100,7 @@ const ACTIVE_STREAM_SIMPLE_KEY = Symbol.for("claude-bridge:activeStreamSimple");
 // MODELS is buildModels(getModels("anthropic")) — projection kept in models.js.
 const MODELS = buildModels(getModels("anthropic"));
 
-
-
-// Pi doesn't pass tool results directly — it appends them to the context and calls
-// the provider again. Thin wrapper over extract-tool-results.js that adds per-turn
-// debug logging at the extraction boundary.
-function extractAllToolResults(messages: readonly Message[]): McpResult[] {
-	const { results, stopIdx: stopIndex } = _extractAllToolResults(messages);
-	debug(`extractAllToolResults: ${results.length} results from ${messages.length} msgs, stopped at index ${stopIndex}`);
-	debug(`extractAllToolResults: all msg roles:`, messages.map((m, index) => `[${index}]${m.role}`).join(" "));
-	for (let r = 0; r < results.length; r++) {
-		debug(`extractAllToolResults: result[${r}] id=${results[r].toolCallId}${results[r].isError ? " ERROR" : ""} preview:`, JSON.stringify(results[r].content).slice(0, RESULT_LOG_PREVIEW_CHARACTERS));
-	}
-	return results;
-}
-
-/** Combine one or more consecutive user messages into a single SDK prompt.
- *
- *  Representation divergence, accepted on purpose: this MERGES N pi user
- *  messages into ONE Claude user record ("\n\n"-joined), while a REBUILD
- *  (convertPiMessages in convert.ts) imports the same pi history as N separate
- *  user records. Streaming N SDKUserMessages instead would collapse N pi turns
- *  into one Pi reply with double-counted usage, so the join stays. The merged
- *  form is only ever a query's live prompt — it is never re-imported, so the
- *  two representations never meet in one session file. */
-function extractUserPrompt(messages: readonly Message[]): string | undefined {
-	if (messages.length === 0 || messages.some((message) => message.role !== "user")) return undefined;
-	return messages.map((message) =>
-		typeof message.content === "string" ? message.content : messageContentToText(message.content) || "",
-	).join("\n\n");
-}
-
-/** Combine consecutive user messages as ContentBlockParam[] while preserving images.
- *  Returns null if no images — caller should fall back to the string prompt.
- *  Same N-into-1 merge as extractUserPrompt (see its comment for why). */
-function extractUserPromptBlocks(messages: readonly Message[]): ContentBlockParam[] | undefined {
-	if (messages.length === 0 || messages.some((message) => message.role !== "user")) return undefined;
-
-	let hasImage = false;
-	const blocks: ContentBlockParam[] = [];
-	for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
-		const content = messages[messageIndex].content;
-		if (messageIndex > 0) blocks.push({ type: "text", text: "\n\n" });
-		if (typeof content === "string") {
-			if (content) blocks.push({ type: "text", text: content });
-			continue;
-		}
-		if (!Array.isArray(content)) {
-			debug(`extractUserPromptBlocks: content is ${typeof content}`);
-			continue;
-		}
-		debug(`extractUserPromptBlocks: ${content.length} blocks, types=${content.map((block) => block.type).join(",")}`);
-		for (const block of content) {
-			if (block.type === "text" && block.text) {
-				blocks.push({ type: "text", text: block.text });
-			} else if (block.type === "image") {
-				debug(`image block: mimeType=${block.mimeType}, data length=${block.data.length}, keys=${Object.keys(block).join(",")}`);
-				const mediaType = imageMediaType(block.mimeType);
-				if (!block.data || !mediaType) {
-					debug(`image block missing data or a supported mimeType, skipping`);
-					continue;
-				}
-				hasImage = true;
-				blocks.push({
-					type: "image",
-					source: { type: "base64", media_type: mediaType, data: block.data },
-				});
-			}
-		}
-	}
-	return hasImage ? blocks : undefined;
-}
-
 const IMAGE_MEDIA_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const satisfies readonly Base64ImageSource["media_type"][];
-
-// The image types the Anthropic API accepts; any other would fail the whole request.
-function imageMediaType(mimeType: string | undefined): Base64ImageSource["media_type"] | undefined {
-	return IMAGE_MEDIA_TYPES.find((mediaType) => mediaType === mimeType);
-}
-
-export interface DeferredUserReplayPlan {
-	// Index where the trailing consecutive user run begins (=== messages.length
-	// when the context doesn't end in a user message; never below the caller's
-	// capturedThrough bound).
-	runStart: number;
-	userMessageCount: number;
-	// All trailing user messages combined into one replay prompt, or undefined
-	// when there is nothing usable to replay (no trailing users, or all-empty
-	// text with no image blocks).
-	prompt: string | undefined;
-	// Present when the run carries image blocks — the replay must send these
-	// (via wrapPromptStream) or the images are silently lost.
-	blocks: ContentBlockParam[] | undefined;
-}
-
-/** Plan replay of user messages pi injected mid-query (steer drain, followUp).
- *  Captures the ENTIRE trailing consecutive user run, not just the last
- *  message, but never walks below `capturedThrough`, the position a prior callback
- *  of the SAME query already captured (or deliberately held at, for an
- *  all-empty run). Without that lower bound a second mid-query steer re-planned
- *  the whole run from scratch and the first steer was queued — and delivered to
- *  Claude — twice. */
-export function planDeferredUserReplay(messages: readonly Message[], capturedThrough = 0): DeferredUserReplayPlan {
-	let runStart = messages.length;
-	while (runStart > capturedThrough && messages[runStart - 1]?.role === "user") runStart--;
-	const trailingUsers = messages.slice(runStart);
-	const prompt = trailingUsers.length > 0 ? extractUserPrompt(trailingUsers) : undefined;
-	const blocks = trailingUsers.length > 0 ? extractUserPromptBlocks(trailingUsers) : undefined;
-	return {
-		runStart,
-		userMessageCount: trailingUsers.length,
-		prompt: prompt?.trim() ? prompt : undefined,
-		blocks,
-	};
-}
-
-async function* wrapPromptStream(blocks: readonly ContentBlockParam[]): AsyncIterable<SDKUserMessage> {
-	yield {
-		type: "user",
-		message: { role: "user", content: [...blocks] },
-		// eslint-disable-next-line unicorn/no-null -- the Agent SDK's user message requires parent_tool_use_id: null
-		parent_tool_use_id: null,
-	};
-}
-
-
-
-// QueryContext + context stack live in query-state.js so tests can import
-// them without activating the extension. `currentQueryContext()`, `pushContext()`, `popContext()`
-// are imported at the top of this file.
-
-export function resolveMcpTools(context: TranscriptContext, excludeToolName?: string): {
-	mcpTools: Tool[];
-	customToolNameToSdk: Map<string, string>;
-	customToolNameToPi: Map<string, string>;
-} {
-	const mcpTools: Tool[] = [];
-	const customToolNameToSdk = new Map<string, string>();
-	const customToolNameToPi = new Map<string, string>();
-
-	// The tool set is declared by the transcript's system messages; replaying
-	// them yields what the model may call right now, including tools added or
-	// removed mid-conversation.
-	for (const tool of getCurrentTools(context.messages)) {
-		if (tool.name === excludeToolName) continue;
-		const sdkName = `${MCP_TOOL_PREFIX}${tool.name}`;
-		mcpTools.push(tool);
-		// Case-insensitive aliases mean two tools differing only by case would
-		// silently overwrite each other's mapping — surface it if it ever happens.
-		const lowerName = tool.name.toLowerCase();
-		const collision = customToolNameToSdk.get(lowerName);
-		if (collision !== undefined && collision !== sdkName) {
-			debug(`WARNING: resolveMcpTools lowercase alias collision: ${tool.name} overwrites mapping previously held by ${collision}`);
-		}
-		customToolNameToSdk.set(tool.name, sdkName);
-		customToolNameToSdk.set(lowerName, sdkName);
-		customToolNameToPi.set(sdkName, tool.name);
-		customToolNameToPi.set(sdkName.toLowerCase(), tool.name);
-	}
-
-	return { mcpTools, customToolNameToSdk, customToolNameToPi };
-}
-
-// A tool-use turn ends through the grace timer that scheduleToolUseTurnEnd arms
-// (assistant-stream.ts), not at MCP handler invocation: the CLI invokes MCP
-// handlers before message_delta arrives, and message_delta carries the real
-// output-token count. Ending the pi stream at handler invocation would freeze
-// pi's per-turn output figures at the message_start placeholders (1–7 tokens).
-
-// Bridges pi tools to the SDK via a low-level MCP server (tool-server.ts) that
-// forwards each tool's JSON Schema unchanged, except for `edit` (see flat-edit.ts). Each tool handler blocks on a
-// Promise until pi delivers the tool result via streamSimple. Handlers claim
-// their tool_call id by matching the actual MCP call (tool name + arguments)
-// against the recorded tool_use blocks, then results are matched by ID.
-// Handlers close over the captured `queryCtx`, ensuring they operate on the
-// correct query's state even across pushContext/popContext calls.
-function buildMcpServers(tools: readonly Tool[], queryContext: QueryContext): Record<string, ReturnType<typeof createToolServer>> | undefined {
-	if (!tools.length) return undefined;
-	const mcpTools: BridgedTool[] = tools.map((tool) => ({
-		name: tool.name,
-		...modelFacingTool(tool),
-		handler: async (toolArguments?: Record<string, unknown>) => {
-			const mappedArguments = mapToolArguments(tool.name, toolArguments);
-			const claim = queryContext.claimToolCall(tool.name, mappedArguments);
-			const toolCallId = claim.toolCallId;
-			if (!toolCallId) {
-				debug(`WARNING: mcp handler ${tool.name} has no toolCallId (available=${claim.available})`);
-				diagDump("tool_handler_unmatched", {
-					toolName: tool.name,
-					argKeys: argumentKeys(mappedArguments),
-					available: claim.available,
-					turnToolCallIds: queryContext.turnToolCallIds,
-					turnToolCalls: safeToolCallSummary(queryContext.turnToolCalls),
-				});
-				appendIntegrityEntry("tool_handler_unmatched", {
-					toolName: tool.name,
-					argKeys: argumentKeys(mappedArguments),
-					available: claim.available,
-					turnToolCallIds: queryContext.turnToolCallIds,
-				});
-				return { content: [{ type: "text", text: `Claude bridge internal error: no matching tool_call id for ${tool.name}` }], isError: true } satisfies McpResult;
-			}
-			if (claim.argsMismatch) {
-				// Claimed anyway (sole same-name candidate). The handler now receives
-				// the raw MCP arguments, so this can no longer come from Zod stripping
-				// keys — only a genuine schema/validator drift reaches here, and this
-				// branch is a safety net rather than the normal path.
-				debug(`mcp handler: ${tool.name} [${toolCallId}] claimed sole same-name call despite args mismatch`);
-				diagDump("tool_claim_args_mismatch", {
-					toolName: tool.name,
-					toolCallId,
-					handlerArgKeys: argumentKeys(mappedArguments),
-					recordedArgKeys: argumentKeys(queryContext.turnToolCalls.find((call) => call.id === toolCallId)?.arguments),
-				});
-			} else if (claim.match !== "tool-args" || claim.ambiguous) {
-				debug(`mcp handler: ${tool.name} [${toolCallId}] claimed by ${claim.match}${claim.ambiguous ? " (ambiguous)" : ""}`);
-			}
-			const earlyResult = toolCallId ? takeQueuedOrParkedResult(queryContext, toolCallId) : undefined;
-			if (earlyResult !== undefined) {
-				queryContext.markToolResultResolved(toolCallId);
-				debug(`mcp handler: ${tool.name} [${toolCallId}] → resolved from queue/parked (${queryContext.pendingResults.size} queued, ${queryContext.reapedResults.size} parked remaining)`);
-				return earlyResult;
-			}
-			debug(`mcp handler: ${tool.name} [${toolCallId}] → waiting`);
-			// Don't end the pi turn here — message_delta (real output tokens) and
-			// message_stop are normally milliseconds behind this invocation. Arm the
-			// grace timer instead; it force-finalizes only if they never arrive.
-			scheduleToolUseTurnEnd(
-				queryContext,
-				() => finalizeToolUseTurnFromMcpInvocation(queryContext, toolCallId, tool.name, mappedArguments),
-				`mcp-invocation:${tool.name}`,
-			);
-			return new Promise<McpResult>((resolve) => {
-				queryContext.pendingToolCalls.set(toolCallId, {
-					toolName: tool.name,
-					args: mappedArguments,
-					generation: queryContext.callbackGeneration,
-					resolve: (result) => {
-						queryContext.markToolResultResolved(toolCallId);
-						resolve(result);
-					},
-				});
-			});
-		},
-	}));
-	return { [MCP_SERVER_NAME]: createToolServer(MCP_SERVER_NAME, mcpTools) };
-}
-
-
-//
-// Push-based streaming with MCP tool bridge:
-// 1. streamSimple starts a query() and kicks off consumeQuery() in background
-// 2. consumeQuery() iterates the SDK generator, pushing events to currentPiStream
-// 3. On tool_use: ends the current pi stream, nulls it out. The MCP handler
-//    blocks the generator naturally — no events arrive until resolved.
-// 4. Pi executes the tool and calls streamSimple again. We swap in the replacement
-//    stream, resolve the MCP handler, and the generator unblocks into that stream.
-//
-// Note: resetTurnState clears turnSawStreamEvent while the generator may still
-// have queued messages from the previous turn. This is safe because step 3 nulls
-// currentPiStream, so any leftover messages hit the `!currentQueryContext().currentPiStream` guard
-// in consumeQuery and are skipped before resetTurnState runs.
-
-
-// Claim the primary-instance token for this module instance if unclaimed, and
-// report whether this instance is the primary. First-loaded instance wins,
-// UNCONDITIONALLY (before any credential check), so a later subagent load can
-// never become primary and steal registration ownership.
-function claimPrimaryInstance(): boolean {
-	const g = processGlobals();
-	g[PRIMARY_INSTANCE_KEY] ??= streamClaudeAgentSdk;
-	return g[PRIMARY_INSTANCE_KEY] === streamClaudeAgentSdk;
-}
-
-// Release both process-global tokens this instance owns. Called on
-// session_shutdown (incl. /reload) so the freshly loaded instance starts clean.
-// NOTE: this does NOT unregister the provider. Each session runtime has its own
-// model registry, and the next factory call registers into the new one
-// (registerNativeProvider is replace-by-id); logout-hiding is the provider's own
-// auth check.
-function releaseProviderTokens(event: string): void {
-	const g = processGlobals();
-	// Billing identity is request-lane state. The shutdown handler removes its
-	// one lane after this call. The process publisher remains available to
-	// sibling sessions and reads the shared lane registry across reloads until a
-	// new primary replaces it.
-	if (g[ACTIVE_STREAM_SIMPLE_KEY] === streamClaudeAgentSdk) {
-		debug(`${event}: clearing ACTIVE_STREAM_SIMPLE_KEY`);
-		g[ACTIVE_STREAM_SIMPLE_KEY] = undefined;
-	}
-	if (g[PRIMARY_INSTANCE_KEY] !== streamClaudeAgentSdk) return;
-	debug(`${event}: clearing PRIMARY_INSTANCE_KEY`);
-	g[PRIMARY_INSTANCE_KEY] = undefined;
-}
 
 // Native (pi >=0.81) provider registration. Run at extension load, on every
 // session_start, and at pre-spawn.
@@ -427,153 +135,11 @@ let notifiedNativeUnsupported = false;
 // is only worth its refresh when this changes.
 let lastRegisteredCredentialed: boolean | undefined;
 
-function applyProviderRegistration(trigger: string): void {
-	const pi = getExtensionApi();
-	if (!pi) { debug(`${trigger}: applyProviderRegistration skipped — no extensionApi`); return; }
-	const g = processGlobals();
-	const isPrimary = claimPrimaryInstance();
-	if (!isPrimary) {
-		debug(`${trigger}: registration noop — non-primary instance (module=${moduleInstanceId})`);
-		return;
-	}
-	if (!supportsNativeProvider(piAi)) {
-		debug(`${trigger}: host pi-ai lacks createProvider; refusing to register (module=${moduleInstanceId})`);
-		if (!notifiedNativeUnsupported) {
-			notifiedNativeUnsupported = true;
-			safeNotify(NATIVE_PROVIDER_UNSUPPORTED_MESSAGE, "error");
-		}
-		return;
-	}
-	const credentialed = hasClaudeCredentials();
-	// Claim ordering: stream guard BEFORE registerProvider so a concurrent
-	// subagent can never observe a registered provider without an owner.
-	g[ACTIVE_STREAM_SIMPLE_KEY] = streamClaudeAgentSdk;
-	if (nativeProviderInstance && lastRegisteredCredentialed === credentialed) {
-		debug(`${trigger}: native registration upsert skipped, credentialed=${credentialed} unchanged (module=${moduleInstanceId})`);
-		return;
-	}
-	debug(`${trigger}: native registration upsert, credentialed=${credentialed} (module=${moduleInstanceId})`);
-	try {
-		nativeProviderInstance ??= buildNativeProvider(
-			piAi,
-			MODELS,
-			streamClaudeAgentSdk,
-			process.env,
-			() => hasClaudeCredentials(),
-		);
-		pi.registerProvider(nativeProviderInstance);
-		lastRegisteredCredentialed = credentialed;
-	} catch (error) {
-		// Self-heal: release ONLY the stream guard we just claimed so a later
-		// re-check retries cleanly. Keep PRIMARY_INSTANCE_KEY: releasing it would
-		// reopen the subagent ownership-steal window.
-		if (g[ACTIVE_STREAM_SIMPLE_KEY] === streamClaudeAgentSdk) g[ACTIVE_STREAM_SIMPLE_KEY] = undefined;
-		debug(`${trigger}: registerProvider threw; released stream guard for retry (kept primary):`, error);
-	}
-}
-
 /** Prompt for the query that replaces one whose Pi history was replaced. Pi's
  *  whole context becomes imported history — the summary, the retained messages
  *  and the results of the tool calls that already ran — so the replacement query
  *  is only told to carry on from it. */
 export const HISTORY_REPLACED_PROMPT = "The conversation above was rewritten by Pi (compaction or history navigation). It is the complete current history, including the results of every tool call that has already run. Continue the turn from there, and do not repeat a tool call whose result is already above.";
-
-/** Pi's new context plus the continuation prompt, so the rebuild imports every
- *  message Pi holds — trailing tool results included, which keeps each one
- *  paired with its tool call and present exactly once. */
-function restartContext(request: QueryRestartRequest): TranscriptContext {
-	return {
-		...request.context,
-		messages: [...request.context.messages, { role: "user", content: HISTORY_REPLACED_PROMPT, timestamp: Date.now() }],
-	};
-}
-
-/** Pi replaced the conversation's history: pi /compact and session-tree
- *  navigation (rewind / fork-at-point / branch switch) both mutate pi's messages
- *  array out from under the bridge. syncSharedSession's REUSE check would
- *  otherwise see slice(cursor) === [] (or skip entries) and keep --resume'ing a
- *  CC session that does not match pi's history; /compact in particular triggers
- *  CC's autocompact-thrashing guard. Force the next call down the REBUILD path,
- *  and mark an ACTIVE query stale so the next provider callback restarts it
- *  rather than continuing it on history Pi has thrown away.
- *
- *  Exported for the compaction-restart unit test; pi.on wires the two events. */
-export function onPiHistoryReplaced(event: string): void {
-	const activeSession = getSharedSession();
-	const queryContext = currentQueryContext();
-	// Whether THIS call requests a restart. A query with no claim on the shared
-	// record — a reentrant subagent, a foreign one-shot — is running its own
-	// conversation, so pi's replacement is not its history and it is never
-	// restarted on it. Read here rather than off piHistoryReplaced below, which
-	// outlives a query that ended without its restart.
-	const running = queryContext.activeQuery !== undefined;
-	const restarts = running && !queryContext.detachedFromSharedSession;
-	if (running) {
-		if (restarts) queryContext.piHistoryReplaced = true;
-		// A restart re-imports the interrupted calls' results from pi's own
-		// history, so their interruption is expected teardown rather than the
-		// integrity fault an unhandled one reports.
-		reportToolResultMismatch(queryContext, event, activeSession?.cwd ?? process.cwd(), { expectedInterruption: restarts });
-	}
-	if (!activeSession) return;
-	debug(`${event}: marking needsRebuild on session ${shortId(activeSession.sessionId)}`);
-	// A restart kills the child, which goes on flushing its jsonl: rebuilding
-	// in place would race that writer, so the replacement takes a new session
-	// id and leaves the old transcript alone. A compaction that kills nothing
-	// has no writer to race and rebuilds in place.
-	markSessionForRebuild(`pi replaced the history (${event})`, { forceRotate: restarts });
-}
-
-/** After /tree navigation, replace the record with the Claude transcript
- *  position the new branch ends at, so the next turn resumes (and, when the
- *  branch ends before the transcript's tail, forks) instead of rebuilding.
- *  onPiHistoryReplaced has already marked the record for rebuild; every
- *  rejection below simply leaves that in place. A running query is left to the
- *  restart path, which rotates the session id because the killed child may
- *  still be writing. Exported for the tree-resume unit tests. */
-export function adoptTreeResumeTarget(sessionManager: { buildSessionProjection(): SessionProjection; getCwd(): string }): void {
-	if (currentQueryContext().activeQuery !== undefined) return;
-	const target = findTreeResumeTarget(sessionManager.buildSessionProjection());
-	if (typeof target === "string") {
-		debug(`tree-resume: rebuilding instead (${target})`);
-		return;
-	}
-	const cwd = getSharedSession()?.cwd ?? sessionManager.getCwd();
-	const forkPoint = resolveForkPoint(target, cwd, process.env.CLAUDE_CONFIG_DIR);
-	if (typeof forkPoint === "string") {
-		debug(`tree-resume: rebuilding instead (${forkPoint})`);
-		return;
-	}
-	const fingerprint = conversationFingerprint(target.conversation);
-	setSharedSession({
-		sessionId: target.sessionId,
-		cursor: target.conversation.length,
-		cwd,
-		...(fingerprint ? { conversationFingerprint: fingerprint } : {}),
-		...(forkPoint.isTail ? {} : { forkAt: forkPoint.uuid }),
-	});
-	debug(`tree-resume: session ${shortId(target.sessionId)} ${forkPoint.isTail ? "resumes at its tail" : `forks at ${shortId(forkPoint.uuid)}`}, cursor=${target.conversation.length}`);
-}
-
-/** Provider entry point. Pi calls this for each prompt and each tool result.
- *  Two cases: tool result delivery (active query) or fresh query. Exported for
- *  the rotation-stream unit tests, which drive it with a fake SDK factory. */
-export function streamClaudeAgentSdk(model: Model<Api>, context: TranscriptContext, options?: SimpleStreamOptions): AssistantMessageEventStream {
-	return runInRequestLane(requestLaneId(options), () => streamClaudeAgentSdkInLane(model, context, options));
-}
-
-/** Pi marks every one-shot request (compaction, branch summary, bug-report
- *  summary) with cacheRetention "none", and so does pi-web-access's answer
- *  mode. Some of them reuse the caller's session id; answer mode even runs
- *  inside a tool call of the query that owns that lane. None of them
- *  continues the session's conversation. In the session's lane, such a
- *  request is taken for a tool-result callback of the running query, and
- *  releasing the lane afterwards deletes the session's state. A private lane
- *  per request makes it an ordinary fresh query. */
-function requestLaneId(options?: SimpleStreamOptions): string | undefined {
-	if (options?.cacheRetention === "none") return `one-shot:${randomUUID()}`;
-	return options?.sessionId;
-}
 
 function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContext, options?: SimpleStreamOptions): AssistantMessageEventStream {
 	const stream = newAssistantMessageEventStream();
@@ -1432,6 +998,261 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 	return stream;
 }
 
+
+
+// Pi doesn't pass tool results directly — it appends them to the context and calls
+// the provider again. Thin wrapper over extract-tool-results.js that adds per-turn
+// debug logging at the extraction boundary.
+function extractAllToolResults(messages: readonly Message[]): McpResult[] {
+	const { results, stopIdx: stopIndex } = _extractAllToolResults(messages);
+	debug(`extractAllToolResults: ${results.length} results from ${messages.length} msgs, stopped at index ${stopIndex}`);
+	debug(`extractAllToolResults: all msg roles:`, messages.map((m, index) => `[${index}]${m.role}`).join(" "));
+	for (let r = 0; r < results.length; r++) {
+		debug(`extractAllToolResults: result[${r}] id=${results[r].toolCallId}${results[r].isError ? " ERROR" : ""} preview:`, JSON.stringify(results[r].content).slice(0, RESULT_LOG_PREVIEW_CHARACTERS));
+	}
+	return results;
+}
+
+/** Plan replay of user messages pi injected mid-query (steer drain, followUp).
+ *  Captures the ENTIRE trailing consecutive user run, not just the last
+ *  message, but never walks below `capturedThrough`, the position a prior callback
+ *  of the SAME query already captured (or deliberately held at, for an
+ *  all-empty run). Without that lower bound a second mid-query steer re-planned
+ *  the whole run from scratch and the first steer was queued — and delivered to
+ *  Claude — twice. */
+export function planDeferredUserReplay(messages: readonly Message[], capturedThrough = 0): DeferredUserReplayPlan {
+	let runStart = messages.length;
+	while (runStart > capturedThrough && messages[runStart - 1]?.role === "user") runStart--;
+	const trailingUsers = messages.slice(runStart);
+	const prompt = trailingUsers.length > 0 ? extractUserPrompt(trailingUsers) : undefined;
+	const blocks = trailingUsers.length > 0 ? extractUserPromptBlocks(trailingUsers) : undefined;
+	return {
+		runStart,
+		userMessageCount: trailingUsers.length,
+		prompt: prompt?.trim() ? prompt : undefined,
+		blocks,
+	};
+}
+
+/** Combine one or more consecutive user messages into a single SDK prompt.
+ *
+ *  Representation divergence, accepted on purpose: this MERGES N pi user
+ *  messages into ONE Claude user record ("\n\n"-joined), while a REBUILD
+ *  (convertPiMessages in convert.ts) imports the same pi history as N separate
+ *  user records. Streaming N SDKUserMessages instead would collapse N pi turns
+ *  into one Pi reply with double-counted usage, so the join stays. The merged
+ *  form is only ever a query's live prompt — it is never re-imported, so the
+ *  two representations never meet in one session file. */
+function extractUserPrompt(messages: readonly Message[]): string | undefined {
+	if (messages.length === 0 || messages.some((message) => message.role !== "user")) return undefined;
+	return messages.map((message) =>
+		typeof message.content === "string" ? message.content : messageContentToText(message.content) || "",
+	).join("\n\n");
+}
+
+/** Combine consecutive user messages as ContentBlockParam[] while preserving images.
+ *  Returns null if no images — caller should fall back to the string prompt.
+ *  Same N-into-1 merge as extractUserPrompt (see its comment for why). */
+function extractUserPromptBlocks(messages: readonly Message[]): ContentBlockParam[] | undefined {
+	if (messages.length === 0 || messages.some((message) => message.role !== "user")) return undefined;
+
+	let hasImage = false;
+	const blocks: ContentBlockParam[] = [];
+	for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
+		const content = messages[messageIndex].content;
+		if (messageIndex > 0) blocks.push({ type: "text", text: "\n\n" });
+		if (typeof content === "string") {
+			if (content) blocks.push({ type: "text", text: content });
+			continue;
+		}
+		if (!Array.isArray(content)) {
+			debug(`extractUserPromptBlocks: content is ${typeof content}`);
+			continue;
+		}
+		debug(`extractUserPromptBlocks: ${content.length} blocks, types=${content.map((block) => block.type).join(",")}`);
+		for (const block of content) {
+			if (block.type === "text" && block.text) {
+				blocks.push({ type: "text", text: block.text });
+			} else if (block.type === "image") {
+				debug(`image block: mimeType=${block.mimeType}, data length=${block.data.length}, keys=${Object.keys(block).join(",")}`);
+				const mediaType = imageMediaType(block.mimeType);
+				if (!block.data || !mediaType) {
+					debug(`image block missing data or a supported mimeType, skipping`);
+					continue;
+				}
+				hasImage = true;
+				blocks.push({
+					type: "image",
+					source: { type: "base64", media_type: mediaType, data: block.data },
+				});
+			}
+		}
+	}
+	return hasImage ? blocks : undefined;
+}
+
+// The image types the Anthropic API accepts; any other would fail the whole request.
+function imageMediaType(mimeType: string | undefined): Base64ImageSource["media_type"] | undefined {
+	return IMAGE_MEDIA_TYPES.find((mediaType) => mediaType === mimeType);
+}
+
+export interface DeferredUserReplayPlan {
+	// Index where the trailing consecutive user run begins (=== messages.length
+	// when the context doesn't end in a user message; never below the caller's
+	// capturedThrough bound).
+	runStart: number;
+	userMessageCount: number;
+	// All trailing user messages combined into one replay prompt, or undefined
+	// when there is nothing usable to replay (no trailing users, or all-empty
+	// text with no image blocks).
+	prompt: string | undefined;
+	// Present when the run carries image blocks — the replay must send these
+	// (via wrapPromptStream) or the images are silently lost.
+	blocks: ContentBlockParam[] | undefined;
+}
+
+async function* wrapPromptStream(blocks: readonly ContentBlockParam[]): AsyncIterable<SDKUserMessage> {
+	yield {
+		type: "user",
+		message: { role: "user", content: [...blocks] },
+		// eslint-disable-next-line unicorn/no-null -- the Agent SDK's user message requires parent_tool_use_id: null
+		parent_tool_use_id: null,
+	};
+}
+
+
+
+// QueryContext + context stack live in query-state.js so tests can import
+// them without activating the extension. `currentQueryContext()`, `pushContext()`, `popContext()`
+// are imported at the top of this file.
+
+export function resolveMcpTools(context: TranscriptContext, excludeToolName?: string): {
+	mcpTools: Tool[];
+	customToolNameToSdk: Map<string, string>;
+	customToolNameToPi: Map<string, string>;
+} {
+	const mcpTools: Tool[] = [];
+	const customToolNameToSdk = new Map<string, string>();
+	const customToolNameToPi = new Map<string, string>();
+
+	// The tool set is declared by the transcript's system messages; replaying
+	// them yields what the model may call right now, including tools added or
+	// removed mid-conversation.
+	for (const tool of getCurrentTools(context.messages)) {
+		if (tool.name === excludeToolName) continue;
+		const sdkName = `${MCP_TOOL_PREFIX}${tool.name}`;
+		mcpTools.push(tool);
+		// Case-insensitive aliases mean two tools differing only by case would
+		// silently overwrite each other's mapping — surface it if it ever happens.
+		const lowerName = tool.name.toLowerCase();
+		const collision = customToolNameToSdk.get(lowerName);
+		if (collision !== undefined && collision !== sdkName) {
+			debug(`WARNING: resolveMcpTools lowercase alias collision: ${tool.name} overwrites mapping previously held by ${collision}`);
+		}
+		customToolNameToSdk.set(tool.name, sdkName);
+		customToolNameToSdk.set(lowerName, sdkName);
+		customToolNameToPi.set(sdkName, tool.name);
+		customToolNameToPi.set(sdkName.toLowerCase(), tool.name);
+	}
+
+	return { mcpTools, customToolNameToSdk, customToolNameToPi };
+}
+
+// A tool-use turn ends through the grace timer that scheduleToolUseTurnEnd arms
+// (assistant-stream.ts), not at MCP handler invocation: the CLI invokes MCP
+// handlers before message_delta arrives, and message_delta carries the real
+// output-token count. Ending the pi stream at handler invocation would freeze
+// pi's per-turn output figures at the message_start placeholders (1–7 tokens).
+
+// Bridges pi tools to the SDK via a low-level MCP server (tool-server.ts) that
+// forwards each tool's JSON Schema unchanged, except for `edit` (see flat-edit.ts). Each tool handler blocks on a
+// Promise until pi delivers the tool result via streamSimple. Handlers claim
+// their tool_call id by matching the actual MCP call (tool name + arguments)
+// against the recorded tool_use blocks, then results are matched by ID.
+// Handlers close over the captured `queryCtx`, ensuring they operate on the
+// correct query's state even across pushContext/popContext calls.
+function buildMcpServers(tools: readonly Tool[], queryContext: QueryContext): Record<string, ReturnType<typeof createToolServer>> | undefined {
+	if (!tools.length) return undefined;
+	const mcpTools: BridgedTool[] = tools.map((tool) => ({
+		name: tool.name,
+		...modelFacingTool(tool),
+		handler: async (toolArguments?: Record<string, unknown>) => {
+			const mappedArguments = mapToolArguments(tool.name, toolArguments);
+			const claim = queryContext.claimToolCall(tool.name, mappedArguments);
+			const toolCallId = claim.toolCallId;
+			if (!toolCallId) {
+				debug(`WARNING: mcp handler ${tool.name} has no toolCallId (available=${claim.available})`);
+				diagDump("tool_handler_unmatched", {
+					toolName: tool.name,
+					argKeys: argumentKeys(mappedArguments),
+					available: claim.available,
+					turnToolCallIds: queryContext.turnToolCallIds,
+					turnToolCalls: safeToolCallSummary(queryContext.turnToolCalls),
+				});
+				appendIntegrityEntry("tool_handler_unmatched", {
+					toolName: tool.name,
+					argKeys: argumentKeys(mappedArguments),
+					available: claim.available,
+					turnToolCallIds: queryContext.turnToolCallIds,
+				});
+				return { content: [{ type: "text", text: `Claude bridge internal error: no matching tool_call id for ${tool.name}` }], isError: true } satisfies McpResult;
+			}
+			if (claim.argsMismatch) {
+				// Claimed anyway (sole same-name candidate). The handler now receives
+				// the raw MCP arguments, so this can no longer come from Zod stripping
+				// keys — only a genuine schema/validator drift reaches here, and this
+				// branch is a safety net rather than the normal path.
+				debug(`mcp handler: ${tool.name} [${toolCallId}] claimed sole same-name call despite args mismatch`);
+				diagDump("tool_claim_args_mismatch", {
+					toolName: tool.name,
+					toolCallId,
+					handlerArgKeys: argumentKeys(mappedArguments),
+					recordedArgKeys: argumentKeys(queryContext.turnToolCalls.find((call) => call.id === toolCallId)?.arguments),
+				});
+			} else if (claim.match !== "tool-args" || claim.ambiguous) {
+				debug(`mcp handler: ${tool.name} [${toolCallId}] claimed by ${claim.match}${claim.ambiguous ? " (ambiguous)" : ""}`);
+			}
+			const earlyResult = toolCallId ? takeQueuedOrParkedResult(queryContext, toolCallId) : undefined;
+			if (earlyResult !== undefined) {
+				queryContext.markToolResultResolved(toolCallId);
+				debug(`mcp handler: ${tool.name} [${toolCallId}] → resolved from queue/parked (${queryContext.pendingResults.size} queued, ${queryContext.reapedResults.size} parked remaining)`);
+				return earlyResult;
+			}
+			debug(`mcp handler: ${tool.name} [${toolCallId}] → waiting`);
+			// Don't end the pi turn here — message_delta (real output tokens) and
+			// message_stop are normally milliseconds behind this invocation. Arm the
+			// grace timer instead; it force-finalizes only if they never arrive.
+			scheduleToolUseTurnEnd(
+				queryContext,
+				() => finalizeToolUseTurnFromMcpInvocation(queryContext, toolCallId, tool.name, mappedArguments),
+				`mcp-invocation:${tool.name}`,
+			);
+			return new Promise<McpResult>((resolve) => {
+				queryContext.pendingToolCalls.set(toolCallId, {
+					toolName: tool.name,
+					args: mappedArguments,
+					generation: queryContext.callbackGeneration,
+					resolve: (result) => {
+						queryContext.markToolResultResolved(toolCallId);
+						resolve(result);
+					},
+				});
+			});
+		},
+	}));
+	return { [MCP_SERVER_NAME]: createToolServer(MCP_SERVER_NAME, mcpTools) };
+}
+
+/** Pi's new context plus the continuation prompt, so the rebuild imports every
+ *  message Pi holds — trailing tool results included, which keeps each one
+ *  paired with its tool call and present exactly once. */
+function restartContext(request: QueryRestartRequest): TranscriptContext {
+	return {
+		...request.context,
+		messages: [...request.context.messages, { role: "user", content: HISTORY_REPLACED_PROMPT, timestamp: Date.now() }],
+	};
+}
+
 const CONCURRENT_REQUEST_MESSAGE = "Claude bridge: another request for this Pi session arrived while its response stream is still open. A one-shot request must not reuse a running session's id.";
 
 /** An error or abort outcome for a request the running query does not serve,
@@ -1534,6 +1355,185 @@ export default function (pi: ExtensionAPI): void {
 	// reload always no-ops, so it never overwrites the parent's streamSimple nor
 	// steals ownership. See PRIMARY_INSTANCE_KEY / ACTIVE_STREAM_SIMPLE_KEY.
 	applyProviderRegistration("load");
+}
+
+// Release both process-global tokens this instance owns. Called on
+// session_shutdown (incl. /reload) so the freshly loaded instance starts clean.
+// NOTE: this does NOT unregister the provider. Each session runtime has its own
+// model registry, and the next factory call registers into the new one
+// (registerNativeProvider is replace-by-id); logout-hiding is the provider's own
+// auth check.
+function releaseProviderTokens(event: string): void {
+	const g = processGlobals();
+	// Billing identity is request-lane state. The shutdown handler removes its
+	// one lane after this call. The process publisher remains available to
+	// sibling sessions and reads the shared lane registry across reloads until a
+	// new primary replaces it.
+	if (g[ACTIVE_STREAM_SIMPLE_KEY] === streamClaudeAgentSdk) {
+		debug(`${event}: clearing ACTIVE_STREAM_SIMPLE_KEY`);
+		g[ACTIVE_STREAM_SIMPLE_KEY] = undefined;
+	}
+	if (g[PRIMARY_INSTANCE_KEY] !== streamClaudeAgentSdk) return;
+	debug(`${event}: clearing PRIMARY_INSTANCE_KEY`);
+	g[PRIMARY_INSTANCE_KEY] = undefined;
+}
+
+function applyProviderRegistration(trigger: string): void {
+	const pi = getExtensionApi();
+	if (!pi) { debug(`${trigger}: applyProviderRegistration skipped — no extensionApi`); return; }
+	const g = processGlobals();
+	const isPrimary = claimPrimaryInstance();
+	if (!isPrimary) {
+		debug(`${trigger}: registration noop — non-primary instance (module=${moduleInstanceId})`);
+		return;
+	}
+	if (!supportsNativeProvider(piAi)) {
+		debug(`${trigger}: host pi-ai lacks createProvider; refusing to register (module=${moduleInstanceId})`);
+		if (!notifiedNativeUnsupported) {
+			notifiedNativeUnsupported = true;
+			safeNotify(NATIVE_PROVIDER_UNSUPPORTED_MESSAGE, "error");
+		}
+		return;
+	}
+	const credentialed = hasClaudeCredentials();
+	// Claim ordering: stream guard BEFORE registerProvider so a concurrent
+	// subagent can never observe a registered provider without an owner.
+	g[ACTIVE_STREAM_SIMPLE_KEY] = streamClaudeAgentSdk;
+	if (nativeProviderInstance && lastRegisteredCredentialed === credentialed) {
+		debug(`${trigger}: native registration upsert skipped, credentialed=${credentialed} unchanged (module=${moduleInstanceId})`);
+		return;
+	}
+	debug(`${trigger}: native registration upsert, credentialed=${credentialed} (module=${moduleInstanceId})`);
+	try {
+		nativeProviderInstance ??= buildNativeProvider(
+			piAi,
+			MODELS,
+			streamClaudeAgentSdk,
+			process.env,
+			() => hasClaudeCredentials(),
+		);
+		pi.registerProvider(nativeProviderInstance);
+		lastRegisteredCredentialed = credentialed;
+	} catch (error) {
+		// Self-heal: release ONLY the stream guard we just claimed so a later
+		// re-check retries cleanly. Keep PRIMARY_INSTANCE_KEY: releasing it would
+		// reopen the subagent ownership-steal window.
+		if (g[ACTIVE_STREAM_SIMPLE_KEY] === streamClaudeAgentSdk) g[ACTIVE_STREAM_SIMPLE_KEY] = undefined;
+		debug(`${trigger}: registerProvider threw; released stream guard for retry (kept primary):`, error);
+	}
+}
+
+
+//
+// Push-based streaming with MCP tool bridge:
+// 1. streamSimple starts a query() and kicks off consumeQuery() in background
+// 2. consumeQuery() iterates the SDK generator, pushing events to currentPiStream
+// 3. On tool_use: ends the current pi stream, nulls it out. The MCP handler
+//    blocks the generator naturally — no events arrive until resolved.
+// 4. Pi executes the tool and calls streamSimple again. We swap in the replacement
+//    stream, resolve the MCP handler, and the generator unblocks into that stream.
+//
+// Note: resetTurnState clears turnSawStreamEvent while the generator may still
+// have queued messages from the previous turn. This is safe because step 3 nulls
+// currentPiStream, so any leftover messages hit the `!currentQueryContext().currentPiStream` guard
+// in consumeQuery and are skipped before resetTurnState runs.
+
+
+// Claim the primary-instance token for this module instance if unclaimed, and
+// report whether this instance is the primary. First-loaded instance wins,
+// UNCONDITIONALLY (before any credential check), so a later subagent load can
+// never become primary and steal registration ownership.
+function claimPrimaryInstance(): boolean {
+	const g = processGlobals();
+	g[PRIMARY_INSTANCE_KEY] ??= streamClaudeAgentSdk;
+	return g[PRIMARY_INSTANCE_KEY] === streamClaudeAgentSdk;
+}
+
+/** Provider entry point. Pi calls this for each prompt and each tool result.
+ *  Two cases: tool result delivery (active query) or fresh query. Exported for
+ *  the rotation-stream unit tests, which drive it with a fake SDK factory. */
+export function streamClaudeAgentSdk(model: Model<Api>, context: TranscriptContext, options?: SimpleStreamOptions): AssistantMessageEventStream {
+	return runInRequestLane(requestLaneId(options), () => streamClaudeAgentSdkInLane(model, context, options));
+}
+
+/** Pi marks every one-shot request (compaction, branch summary, bug-report
+ *  summary) with cacheRetention "none", and so does pi-web-access's answer
+ *  mode. Some of them reuse the caller's session id; answer mode even runs
+ *  inside a tool call of the query that owns that lane. None of them
+ *  continues the session's conversation. In the session's lane, such a
+ *  request is taken for a tool-result callback of the running query, and
+ *  releasing the lane afterwards deletes the session's state. A private lane
+ *  per request makes it an ordinary fresh query. */
+function requestLaneId(options?: SimpleStreamOptions): string | undefined {
+	if (options?.cacheRetention === "none") return `one-shot:${randomUUID()}`;
+	return options?.sessionId;
+}
+
+/** Pi replaced the conversation's history: pi /compact and session-tree
+ *  navigation (rewind / fork-at-point / branch switch) both mutate pi's messages
+ *  array out from under the bridge. syncSharedSession's REUSE check would
+ *  otherwise see slice(cursor) === [] (or skip entries) and keep --resume'ing a
+ *  CC session that does not match pi's history; /compact in particular triggers
+ *  CC's autocompact-thrashing guard. Force the next call down the REBUILD path,
+ *  and mark an ACTIVE query stale so the next provider callback restarts it
+ *  rather than continuing it on history Pi has thrown away.
+ *
+ *  Exported for the compaction-restart unit test; pi.on wires the two events. */
+export function onPiHistoryReplaced(event: string): void {
+	const activeSession = getSharedSession();
+	const queryContext = currentQueryContext();
+	// Whether THIS call requests a restart. A query with no claim on the shared
+	// record — a reentrant subagent, a foreign one-shot — is running its own
+	// conversation, so pi's replacement is not its history and it is never
+	// restarted on it. Read here rather than off piHistoryReplaced below, which
+	// outlives a query that ended without its restart.
+	const running = queryContext.activeQuery !== undefined;
+	const restarts = running && !queryContext.detachedFromSharedSession;
+	if (running) {
+		if (restarts) queryContext.piHistoryReplaced = true;
+		// A restart re-imports the interrupted calls' results from pi's own
+		// history, so their interruption is expected teardown rather than the
+		// integrity fault an unhandled one reports.
+		reportToolResultMismatch(queryContext, event, activeSession?.cwd ?? process.cwd(), { expectedInterruption: restarts });
+	}
+	if (!activeSession) return;
+	debug(`${event}: marking needsRebuild on session ${shortId(activeSession.sessionId)}`);
+	// A restart kills the child, which goes on flushing its jsonl: rebuilding
+	// in place would race that writer, so the replacement takes a new session
+	// id and leaves the old transcript alone. A compaction that kills nothing
+	// has no writer to race and rebuilds in place.
+	markSessionForRebuild(`pi replaced the history (${event})`, { forceRotate: restarts });
+}
+
+/** After /tree navigation, replace the record with the Claude transcript
+ *  position the new branch ends at, so the next turn resumes (and, when the
+ *  branch ends before the transcript's tail, forks) instead of rebuilding.
+ *  onPiHistoryReplaced has already marked the record for rebuild; every
+ *  rejection below simply leaves that in place. A running query is left to the
+ *  restart path, which rotates the session id because the killed child may
+ *  still be writing. Exported for the tree-resume unit tests. */
+export function adoptTreeResumeTarget(sessionManager: { buildSessionProjection(): SessionProjection; getCwd(): string }): void {
+	if (currentQueryContext().activeQuery !== undefined) return;
+	const target = findTreeResumeTarget(sessionManager.buildSessionProjection());
+	if (typeof target === "string") {
+		debug(`tree-resume: rebuilding instead (${target})`);
+		return;
+	}
+	const cwd = getSharedSession()?.cwd ?? sessionManager.getCwd();
+	const forkPoint = resolveForkPoint(target, cwd, process.env.CLAUDE_CONFIG_DIR);
+	if (typeof forkPoint === "string") {
+		debug(`tree-resume: rebuilding instead (${forkPoint})`);
+		return;
+	}
+	const fingerprint = conversationFingerprint(target.conversation);
+	setSharedSession({
+		sessionId: target.sessionId,
+		cursor: target.conversation.length,
+		cwd,
+		...(fingerprint ? { conversationFingerprint: fingerprint } : {}),
+		...(forkPoint.isTail ? {} : { forkAt: forkPoint.uuid }),
+	});
+	debug(`tree-resume: session ${shortId(target.sessionId)} ${forkPoint.isTail ? "resumes at its tail" : `forks at ${shortId(forkPoint.uuid)}`}, cursor=${target.conversation.length}`);
 }
 
 // Process-global slots shared by every copy of this module, keyed by registered symbols; only this

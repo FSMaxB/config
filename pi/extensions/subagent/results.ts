@@ -10,19 +10,13 @@ export function subagentOutcome(results: readonly SubagentOutcome[]): { isError:
 // The exit code of a task whose child process has not exited yet.
 export const RUNNING_EXIT_CODE = -1;
 
-export function isRunningResult(result: { exitCode: number }): boolean {
-  return result.exitCode === RUNNING_EXIT_CODE;
-}
-
 export function isFailedResult(result: { exitCode: number; stopReason?: string }): boolean {
   if (isRunningResult(result)) return false;
   return result.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "aborted";
 }
 
-export interface FailureSources {
-  errorMessage?: string;
-  stderr: string;
-  assistantOutput: string;
+export function isRunningResult(result: { exitCode: number }): boolean {
+  return result.exitCode === RUNNING_EXIT_CODE;
 }
 
 // A failure can leave its cause in any of these, so every distinct one is shown. A single source
@@ -41,6 +35,12 @@ export function failureEvidence({ errorMessage, stderr, assistantOutput }: Failu
   if (distinct.size === 0) return "(no output)";
   if (distinct.size === 1) return [...distinct.values()][0];
   return [...distinct].map(([label, text]) => `${label}: ${text}`).join("\n\n");
+}
+
+export interface FailureSources {
+  errorMessage?: string;
+  stderr: string;
+  assistantOutput: string;
 }
 
 export function truncateTaskOutput(output: string, capBytes: number): string {

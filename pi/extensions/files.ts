@@ -135,8 +135,6 @@ function withNote<TParameters extends TSchema, TDetails>(
   };
 }
 
-type ReadDefinition = ReturnType<typeof createReadToolDefinition>;
-
 /** Labels collapsed reads of a skill's other files the way pi labels reads of its SKILL.md. */
 function withSkillReferenceLabel(pi: ExtensionAPI, definition: ReadDefinition): ReadDefinition {
   const stockRenderCall = definition.renderCall;
@@ -157,6 +155,8 @@ function withSkillReferenceLabel(pi: ExtensionAPI, definition: ReadDefinition): 
     },
   };
 }
+
+type ReadDefinition = ReturnType<typeof createReadToolDefinition>;
 
 function skillReferenceCall(reference: SkillReference, toolArguments: ReadToolInput, theme: Theme): string {
   const range = formatReadLineRange(toolArguments.offset, toolArguments.limit);

@@ -10,15 +10,6 @@ import type { VcsWriteRules } from "./vcs-policy.ts";
 import type { Platform } from "./platform.ts";
 import { unique } from "./settings-values.ts";
 
-export interface PolicyOptions {
-  platform: Platform;
-  homeDirectory: string;
-  toolchainRead: string[];
-  extraDenyRead: string[];
-  // Without it the repository stays a plain subtree allow.
-  vcs: VcsWriteRules | undefined;
-}
-
 export function filesystemConfig(policy: EffectivePolicy, options: PolicyOptions): FilesystemConfig {
   const { platform, homeDirectory, toolchainRead, extraDenyRead } = options;
   const secrets = secretPaths(homeDirectory);
@@ -119,6 +110,15 @@ function userRoots(platform: PolicyOptions["platform"]): string[] {
 function writeDenyPath(selector: PathSelector, platform: PolicyOptions["platform"]): string {
   if (selector.kind === "glob" && platform === "linux") return selector.base;
   return selectorPath(selector);
+}
+
+export interface PolicyOptions {
+  platform: Platform;
+  homeDirectory: string;
+  toolchainRead: string[];
+  extraDenyRead: string[];
+  // Without it the repository stays a plain subtree allow.
+  vcs: VcsWriteRules | undefined;
 }
 
 function selectorPath(selector: PathSelector): string {

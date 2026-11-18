@@ -10,10 +10,6 @@ import type { Profile } from "./profiles.ts";
 
 const profile: Profile = { name: "bazel", ...emptyProfileDefinition() };
 
-function situation(overrides: Partial<ActivationSituation> = {}): ActivationSituation {
-  return { agentMode: AgentMode.Execution, hasUI: true, always: emptyActivationDecisions(), ...overrides };
-}
-
 test("a session denial refuses with the reason", () => {
   // arrange
   const state = emptyProfileState();
@@ -108,6 +104,10 @@ test("the preselected answer depends on the agent mode", () => {
     { kind: "ask", preselected: ALLOW_ONCE },
   ]);
 });
+
+function situation(overrides: Partial<ActivationSituation> = {}): ActivationSituation {
+  return { agentMode: AgentMode.Execution, hasUI: true, always: emptyActivationDecisions(), ...overrides };
+}
 
 test("allow answers map to session memory and persistence", () => {
   // arrange

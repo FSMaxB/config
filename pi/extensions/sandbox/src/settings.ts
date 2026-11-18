@@ -7,22 +7,6 @@ import { parseActivationDecisions, parseProfileDefinition, parseProfiles, serial
 import type { ActivationDecisions, Profile, ProfileDefinition } from "./profiles.ts";
 import { booleanValue, requireRecord, stringArray, stringRecord, unique } from "./settings-values.ts";
 
-export interface SettingsFile {
-  network: { allowedDomains: string[]; deniedDomains: string[]; deniedDomainReasons: Record<string, string>; allowUnixSockets: string[]; allowLocalBinding: boolean };
-  filesystem: { denyRead: string[]; allowRead: string[] };
-}
-
-export interface Settings {
-  allowedDomains: string[];
-  deniedDomains: string[];
-  // The user's reasons for denied domains, keyed by exact host or host:port, repeated to the agent on a denial.
-  deniedDomainReasons: ReadonlyMap<string, string>;
-  allowUnixSockets: string[];
-  allowLocalBinding: boolean;
-  toolchainRead: string[];
-  extraDenyRead: string[];
-}
-
 const DEFAULT_ALLOWED_DOMAINS = ["github.com", "api.github.com", "*.githubusercontent.com", "registry.npmjs.org", "crates.io", "static.crates.io", "index.crates.io", "pypi.org", "files.pythonhosted.org"];
 // Besides toolchains this holds config that git, jj and CFNetwork clients (curl) read on startup;
 // denying it makes them warn or fail even though nothing secret lives there.
@@ -52,6 +36,17 @@ export function resolveSettings(file: SettingsFile): Settings {
   };
 }
 
+export interface Settings {
+  allowedDomains: string[];
+  deniedDomains: string[];
+  // The user's reasons for denied domains, keyed by exact host or host:port, repeated to the agent on a denial.
+  deniedDomainReasons: ReadonlyMap<string, string>;
+  allowUnixSockets: string[];
+  allowLocalBinding: boolean;
+  toolchainRead: string[];
+  extraDenyRead: string[];
+}
+
 export async function readSettingsFile(filePath: string): Promise<SettingsFile> {
   const text = await readFile(filePath, "utf8").catch((error: unknown) => {
     if (errorCode(error) === "ENOENT") return undefined;
@@ -63,6 +58,23 @@ export async function readSettingsFile(filePath: string): Promise<SettingsFile> 
   } catch (error) {
     throw new Error(`Invalid sandbox settings in ${filePath}: ${errorMessage(error)}`, { cause: error });
   }
+}
+
+// Rewrites only the network domain lists and keeps every other key of the file as the user wrote it.
+export async function updateDomainLists(filePath: string, mutate: (lists: DomainLists) => void): Promise<void> {
+  await rewriteSettings(filePath, (raw) => {
+    const { network } = parseSettingsFile(raw);
+    const lists: DomainLists = {
+      allowedDomains: new Set(network.allowedDomains),
+      deniedDomains: new Set(network.deniedDomains),
+      deniedDomainReasons: new Map(Object.entries(network.deniedDomainReasons)),
+    };
+    mutate(lists);
+    const rawNetwork = requireRecord(raw.network ?? {}, "network");
+    // The reasons key stays out of files that never had one.
+    const reasons = lists.deniedDomainReasons.size > 0 || "deniedDomainReasons" in rawNetwork ? { deniedDomainReasons: Object.fromEntries(lists.deniedDomainReasons) } : {};
+    return { ...raw, network: { ...rawNetwork, allowedDomains: [...lists.allowedDomains], deniedDomains: [...lists.deniedDomains], ...reasons } };
+  });
 }
 
 export function parseSettingsFile(value: unknown): SettingsFile {
@@ -84,21 +96,9 @@ export function parseSettingsFile(value: unknown): SettingsFile {
   };
 }
 
-// Rewrites only the network domain lists and keeps every other key of the file as the user wrote it.
-export async function updateDomainLists(filePath: string, mutate: (lists: DomainLists) => void): Promise<void> {
-  await rewriteSettings(filePath, (raw) => {
-    const { network } = parseSettingsFile(raw);
-    const lists: DomainLists = {
-      allowedDomains: new Set(network.allowedDomains),
-      deniedDomains: new Set(network.deniedDomains),
-      deniedDomainReasons: new Map(Object.entries(network.deniedDomainReasons)),
-    };
-    mutate(lists);
-    const rawNetwork = requireRecord(raw.network ?? {}, "network");
-    // The reasons key stays out of files that never had one.
-    const reasons = lists.deniedDomainReasons.size > 0 || "deniedDomainReasons" in rawNetwork ? { deniedDomainReasons: Object.fromEntries(lists.deniedDomainReasons) } : {};
-    return { ...raw, network: { ...rawNetwork, allowedDomains: [...lists.allowedDomains], deniedDomains: [...lists.deniedDomains], ...reasons } };
-  });
+export interface SettingsFile {
+  network: { allowedDomains: string[]; deniedDomains: string[]; deniedDomainReasons: Record<string, string>; allowUnixSockets: string[]; allowLocalBinding: boolean };
+  filesystem: { denyRead: string[]; allowRead: string[] };
 }
 
 // Profiles are read on every call, so hand edits apply without a restart.
@@ -134,6 +134,13 @@ export async function updateActivationDecisions(filePath: string, mutate: (decis
   });
 }
 
+async function rewriteSettings(filePath: string, mutate: (raw: Record<string, unknown>) => Record<string, unknown>): Promise<void> {
+  await withFileLock(filePath, "sandbox settings", async () => {
+    const raw = await readRawSettings(filePath);
+    await writeJsonFileAtomically(filePath, mutate(raw));
+  });
+}
+
 async function readRawSettings(filePath: string): Promise<Record<string, unknown>> {
   const text = await readFile(filePath, "utf8").catch((error: unknown) => {
     if (errorCode(error) === "ENOENT") return "{}";
@@ -144,13 +151,6 @@ async function readRawSettings(filePath: string): Promise<Record<string, unknown
   } catch (error) {
     throw new Error(`Invalid sandbox settings in ${filePath}: ${errorMessage(error)}`, { cause: error });
   }
-}
-
-async function rewriteSettings(filePath: string, mutate: (raw: Record<string, unknown>) => Record<string, unknown>): Promise<void> {
-  await withFileLock(filePath, "sandbox settings", async () => {
-    const raw = await readRawSettings(filePath);
-    await writeJsonFileAtomically(filePath, mutate(raw));
-  });
 }
 
 function withoutActivation(raw: Record<string, unknown>, name: string): Record<string, unknown> {

@@ -16,18 +16,6 @@ const BRIDGED_TOOL_PREFIXES = [
 	`mcp/${MCP_SERVER_NAME.replace(/-/g, "_")}/`,
 ];
 
-
-function bridgedToolSuffix(normalized: string): string | undefined {
-	const prefix = BRIDGED_TOOL_PREFIXES.find((candidate) => normalized.startsWith(candidate));
-	return prefix ? normalized.slice(prefix.length) : undefined;
-}
-
-export function isForeignMcpTool(name: unknown): boolean {
-	if (typeof name !== "string") return false;
-	const normalized = name.toLowerCase();
-	return (normalized.startsWith("mcp__") || normalized.startsWith("mcp/")) && bridgedToolSuffix(normalized) === undefined;
-}
-
 export function isPiDispatchable(name: unknown, customToolNameToPi?: ReadonlyMap<string, string>): boolean {
 	if (typeof name !== "string" || !name) return false;
 	const normalized = name.toLowerCase();
@@ -43,6 +31,12 @@ export function isPiDispatchable(name: unknown, customToolNameToPi?: ReadonlyMap
 	return false;
 }
 
+export function isForeignMcpTool(name: unknown): boolean {
+	if (typeof name !== "string") return false;
+	const normalized = name.toLowerCase();
+	return (normalized.startsWith("mcp__") || normalized.startsWith("mcp/")) && bridgedToolSuffix(normalized) === undefined;
+}
+
 export function mapToolName(name: string, customToolNameToPi?: ReadonlyMap<string, string>): string {
 	const normalized = name.toLowerCase();
 	const builtin = SDK_TO_PI_TOOL_NAME[normalized];
@@ -56,6 +50,12 @@ export function mapToolName(name: string, customToolNameToPi?: ReadonlyMap<strin
 		return customToolNameToPi?.get(`${MCP_TOOL_PREFIX}${bridgedSuffix}`) ?? bridgedSuffix;
 	}
 	return name;
+}
+
+
+function bridgedToolSuffix(normalized: string): string | undefined {
+	const prefix = BRIDGED_TOOL_PREFIXES.find((candidate) => normalized.startsWith(candidate));
+	return prefix ? normalized.slice(prefix.length) : undefined;
 }
 
 // Renames for Claude Code SDK param names that differ from pi's native names.

@@ -11,62 +11,6 @@ import { parseAssistantMessage, parseStreamEvent } from "./stream-events.js";
 import type { BlockDelta, CompletedAssistantMessage, ReportedUsage, StartedBlock } from "./stream-events.js";
 import { PERCENT } from "../../lib/units.ts";
 
-
-function updateUsage(output: AssistantMessage, usage: ReportedUsage, model: Model<Api>, queryContext: QueryContext): void {
-	// Anthropic reports per-message counters and RE-reports them as the message
-	// grows, so the in-flight message's figures replace, never accumulate. What
-	// accumulates is every child message already finished in this Pi turn — see
-	// `turnUsageCarry` in query-state.ts for why a turn can span several. A
-	// message already billed by an earlier Pi turn contributes only its increase
-	// (`billedMessageUsage` in query-state.ts).
-	const current = queryContext.currentMessageUsage;
-	const carry = queryContext.turnUsageCarry;
-	if (usage.input !== undefined) current.input = usage.input;
-	if (usage.output !== undefined) current.output = usage.output;
-	if (usage.cacheRead !== undefined) current.cacheRead = usage.cacheRead;
-	if (usage.cacheWrite !== undefined) current.cacheWrite = usage.cacheWrite;
-	const unbilled = queryContext.unbilledCurrentMessageUsage();
-	output.usage.input = carry.input + unbilled.input;
-	output.usage.output = carry.output + unbilled.output;
-	output.usage.cacheRead = carry.cacheRead + unbilled.cacheRead;
-	output.usage.cacheWrite = carry.cacheWrite + unbilled.cacheWrite;
-	output.usage.totalTokens = output.usage.input + output.usage.output + output.usage.cacheRead + output.usage.cacheWrite;
-	calculateCost(model, output.usage);
-	const promptTokens = output.usage.input + output.usage.cacheRead + output.usage.cacheWrite;
-	const cachePct = promptTokens > 0 ? Math.round(output.usage.cacheRead / promptTokens * PERCENT) : 0;
-	debug(`usage: in=${output.usage.input} out=${output.usage.output} cacheRead=${output.usage.cacheRead} cacheWrite=${output.usage.cacheWrite} total=${output.usage.totalTokens} cachePct=${cachePct}% model=${model.id}`);
-}
-
-
-function mapStopReason(reason: string | undefined): "stop" | "length" | "toolUse" {
-	if (reason === "tool_use") return "toolUse";
-	if (reason === "max_tokens") return "length";
-	return "stop";
-}
-
-export function parsePartialJson(input: string, fallback: JsonObject): JsonObject {
-	if (!input) return fallback;
-	return parseJsonObject(input) ?? fallback;
-}
-
-function isToolCallWithId(block: TurnBlock, id: string): block is StreamingToolCall {
-	return block.type === "toolCall" && block.id === id;
-}
-
-// A streamed tool call whose arguments are still a partial parse; it must never execute.
-function isPartialToolCall(block: TurnBlock): block is StreamingToolCall {
-	return block.type === "toolCall" && block.partialJson !== undefined;
-}
-
-// Both take the query context explicitly (defaulting to the live one) so the
-// completion/teardown closures in index.ts can finalize the stream of the query
-// they were created for — under reentrancy the live currentQueryContext() is the subagent's.
-export function ensureTurnStarted(queryContext: QueryContext = currentQueryContext()): void {
-	if (queryContext.turnStarted || !queryContext.currentPiStream || !queryContext.turnOutput) return;
-	queryContext.currentPiStream.push({ type: "start", partial: queryContext.output });
-	queryContext.turnStarted = true;
-}
-
 export function finalizeCurrentStream(stopReason?: string, queryContext: QueryContext = currentQueryContext(), anchor?: ClaudeTranscriptAnchor): void {
 	if (!queryContext.currentPiStream || !queryContext.turnOutput) return;
 	debug(`provider: finalizeCurrentStream called, stopReason=${stopReason}, turnOutput=${JSON.stringify({stopReason: queryContext.turnOutput.stopReason, error: queryContext.turnOutput.errorMessage})}`);
@@ -100,56 +44,6 @@ export function finalizeCurrentStream(stopReason?: string, queryContext: QueryCo
 
 const TOOL_USE_END_GRACE_MS = 1500;
 
-/** End the current pi stream as a tool_use turn boundary. Safe to call when the
- *  turn already ended (no-op). Every end path funnels here, so this is where
- *  two invariants are enforced by construction: a block still
- *  carrying partialJson never ships — Pi executes the done message's content,
- *  and truncated arguments must never execute — and every call that DOES ship
- *  is stamped forwarded so no lagging replay can dispatch it again. */
-export function endToolUseTurn(queryContext: QueryContext): void {
-	if (!queryContext.currentPiStream || !queryContext.turnOutput) return;
-	cancelScheduledToolUseEnd(queryContext);
-	const partial = queryContext.turnBlocks.filter(isPartialToolCall);
-	if (partial.length > 0) {
-		const calls = partial.map((block) => ({ id: block.id, name: block.name }));
-		debug(`endToolUseTurn: pruning ${partial.length} still-partial tool call(s) — truncated arguments never execute:`, calls.map((entry) => `${entry.name} [${entry.id}]`).join(", "));
-		diagDump("partial_tool_calls_pruned", { count: partial.length, calls });
-		appendIntegrityEntry("partial_tool_calls_pruned", { count: partial.length, calls });
-		queryContext.turnOutput.content = queryContext.turnBlocks.filter((block) => !isPartialToolCall(block));
-	}
-	// Every tool call Pi is about to execute from this turn is owed a result and
-	// must never be dispatched again: a lagging stream replays the same tool_use
-	// into the NEXT turn, whose per-message dedup cannot see it.
-	for (const block of queryContext.turnOutput.content) {
-		if (block.type === "toolCall") queryContext.forwardedToolCallIds.add(block.id);
-	}
-	queryContext.turnOutput.stopReason = "toolUse";
-	queryContext.markCurrentMessageBilled();
-	queryContext.currentPiStream.push({ type: "done", reason: "toolUse", message: queryContext.turnOutput });
-	queryContext.currentPiStream.end();
-	queryContext.currentPiStream = undefined;
-}
-
-export function cancelScheduledToolUseEnd(queryContext: QueryContext): void {
-	if (!queryContext.scheduledToolUseEnd) return;
-	clearTimeout(queryContext.scheduledToolUseEnd.timer);
-	queryContext.scheduledToolUseEnd = undefined;
-}
-
-/**
- * Arm the grace timer that force-ends the current tool_use turn if the stream
- * goes silent. First arming per stream wins; every stream event postpones it
- * (postponeToolUseTurnEnd); message_stop (or resetTurnState) disarms it.
- * `action` runs only if the SAME stream is still current when the grace
- * elapses — a turn that ended normally makes it a no-op.
- */
-export function scheduleToolUseTurnEnd(queryContext: QueryContext, action: () => void, source: string): void {
-	if (!queryContext.currentPiStream || !queryContext.turnOutput) return;
-	if (queryContext.scheduledToolUseEnd?.stream === queryContext.currentPiStream) return;
-	cancelScheduledToolUseEnd(queryContext);
-	queryContext.scheduledToolUseEnd = armToolUseTurnEnd(queryContext, queryContext.currentPiStream, action, source);
-}
-
 /**
  * Park queued tool results whose handler has not fired by a child message
  * boundary, and say so everywhere it matters. The boundary is where stale
@@ -162,28 +56,6 @@ export function scheduleToolUseTurnEnd(queryContext: QueryContext, action: () =>
  */
 // A parked-results notice names the first few tools; the rest only lengthen the message.
 const MAX_LISTED_TOOL_NAMES = 6;
-
-export function reapStaleQueuedResults(queryContext: QueryContext): void {
-	const stale = queryContext.takeStaleQueuedResults();
-	if (stale.length === 0) return;
-	const names = stale.map((entry) => entry.toolName);
-	debug(`reapStaleQueuedResults: parked ${stale.length} early tool result(s) awaiting a late handler:`, names.join(", "));
-	diagDump("stale_queued_tool_results_parked", { count: stale.length, stale });
-	appendIntegrityEntry("stale_queued_tool_results_parked", { count: stale.length, stale });
-	safeNotify(
-		`queued-results-parked=${JSON.stringify({ count: stale.length, tools: names })}\n` +
-		`Claude bridge: parked ${stale.length} early tool result(s) whose handler has not arrived (${names.slice(0, MAX_LISTED_TOOL_NAMES).join(", ")}${names.length > MAX_LISTED_TOOL_NAMES ? ", …" : ""}). ` +
-		`A late handler can still consume them.`,
-		"warning",
-	);
-}
-
-export function updateTurnOutputModel(modelId: unknown, queryContext: QueryContext = currentQueryContext()): void {
-	if (typeof modelId !== "string" || !modelId || !queryContext.turnOutput) return;
-	if (queryContext.turnOutput.model === modelId) return;
-	debug(`provider: active Claude model changed ${queryContext.turnOutput.model} -> ${modelId}`);
-	queryContext.turnOutput.model = modelId;
-}
 
 export const FINALIZE_MAX_REARMS = 3;
 
@@ -376,6 +248,13 @@ export function processStreamEvent(
 	}
 }
 
+
+function mapStopReason(reason: string | undefined): "stop" | "length" | "toolUse" {
+	if (reason === "tool_use") return "toolUse";
+	if (reason === "max_tokens") return "length";
+	return "stop";
+}
+
 function processContentBlockStart(
 	index: number,
 	contentBlock: StartedBlock,
@@ -516,6 +395,11 @@ function processContentBlockStop(index: number, queryContext: QueryContext, stre
 	}
 }
 
+export function parsePartialJson(input: string, fallback: JsonObject): JsonObject {
+	if (!input) return fallback;
+	return parseJsonObject(input) ?? fallback;
+}
+
 /** Restart an armed grace period for the CURRENT stream. Called on every stream
  *  event, so the timer only fires after TOOL_USE_END_GRACE_MS of silence. */
 export function postponeToolUseTurnEnd(queryContext: QueryContext): void {
@@ -523,85 +407,6 @@ export function postponeToolUseTurnEnd(queryContext: QueryContext): void {
 	if (!scheduled || scheduled.stream !== queryContext.currentPiStream) return;
 	clearTimeout(scheduled.timer);
 	queryContext.scheduledToolUseEnd = armToolUseTurnEnd(queryContext, scheduled.stream, scheduled.action, scheduled.source);
-}
-
-function armToolUseTurnEnd(queryContext: QueryContext, stream: unknown, action: () => void, source: string): NonNullable<QueryContext["scheduledToolUseEnd"]> {
-	const timer = setTimeout(() => {
-		if (queryContext.currentPiStream !== stream) return;
-		debug(`scheduleToolUseTurnEnd: no stream event for ${TOOL_USE_END_GRACE_MS}ms (${source}) — force-ending tool_use turn`);
-		queryContext.scheduledToolUseEnd = undefined;
-		action();
-	}, TOOL_USE_END_GRACE_MS);
-	timer.unref();
-	return { stream, timer, action, source };
-}
-
-// The SDK always yields `assistant` messages (completed content blocks) after streaming.
-// When stream_events already delivered the content, this is a no-op. But after
-// resetTurnState (e.g. tool result delivery), if the next turn's assistant message
-// arrives before any stream_events, this is the primary content path. Must maintain
-// the same stream lifecycle as processStreamEvent — including ending the stream on
-// tool_use to prevent deadlock with the MCP handler.
-function appendMissingToolUsesFromAssistant(
-	assistantMessage: CompletedAssistantMessage,
-	model: Model<Api>,
-	customToolNameToPi: ReadonlyMap<string, string>,
-	queryContext: QueryContext,
-): boolean {
-	// With a dead stream, ids are still RECORDED (claims and result matching
-	// need them) but the content is never touched: turnBlocks IS the content
-	// array of a turnOutput that endToolUseTurn already handed Pi BY REFERENCE
-	// in its done event, so a push here appends calls into a delivered message
-	// behind Pi's back — whether Pi's dispatch enumerates before or after the
-	// push is a microtask race.
-	const streamLive = Boolean(queryContext.currentPiStream && queryContext.turnOutput);
-	let sawToolUse = false;
-	for (const block of assistantMessage.content) {
-		if (block.type !== "tool_use") continue;
-		if (!isPiDispatchable(block.name, customToolNameToPi)) {
-			queryContext.noteUnexpectedChildCall(block.id, block.name);
-			debug(`assistant message: non-dispatchable tool ${block.name} [${block.id}] — not mirrored as a Pi tool call`);
-			continue;
-		}
-		const existingIndex = queryContext.turnBlocks.findIndex((existing) => isToolCallWithId(existing, block.id));
-		if (existingIndex < 0 && (queryContext.forwardedToolCallIds.has(block.id) || queryContext.deadToolCallIds.has(block.id))) {
-			// Completed-message replay of a call Pi already executed in a turn that
-			// has ended (or one already failed as stranded). Not a live Pi turn
-			// boundary: sawToolUse stays false for it, and no block is emitted.
-			debug(`assistant message: tool_use ${block.id} already ${queryContext.forwardedToolCallIds.has(block.id) ? "forwarded" : "dead"} — skipping duplicate`);
-			continue;
-		}
-		sawToolUse = true;
-		const name = mapToolName(block.name, customToolNameToPi);
-		const mappedArguments = mapToolArguments(name, block.input);
-		queryContext.recordToolCall(block.id, name, mappedArguments);
-		if (!streamLive) continue;
-		const existing = existingIndex === -1 ? undefined : queryContext.turnBlocks[existingIndex];
-		if (existing?.type === "toolCall") {
-			existing.name = name;
-			existing.arguments = mappedArguments;
-			queryContext.updateToolCallArgs(block.id, mappedArguments);
-			if (existing.partialJson !== undefined) {
-				delete existing.partialJson;
-				delete existing.index;
-				queryContext.currentPiStream?.push({ type: "toolcall_end", contentIndex: existingIndex, toolCall: existing, partial: queryContext.output });
-			}
-			continue;
-		}
-
-		ensureTurnStarted(queryContext);
-		const toolBlock: StreamingToolCall = { type: "toolCall", id: block.id, name, arguments: mappedArguments };
-		queryContext.turnBlocks.push(toolBlock);
-		const index = queryContext.turnBlocks.length - 1;
-		queryContext.currentPiStream?.push({ type: "toolcall_start", contentIndex: index, partial: queryContext.output });
-		queryContext.currentPiStream?.push({ type: "toolcall_end", contentIndex: index, toolCall: toolBlock, partial: queryContext.output });
-	}
-	// Only while the stream is still live: the SDK's assistant yields carry the
-	// message_start placeholder usage, and once the done event has delivered
-	// turnOutput to pi, overwriting its usage with those placeholders would
-	// corrupt the very figure message_delta got right.
-	if (assistantMessage.usage !== undefined && queryContext.turnOutput && queryContext.currentPiStream) updateUsage(queryContext.turnOutput, assistantMessage.usage, model, queryContext);
-	return sawToolUse;
 }
 
 export function processAssistantMessage(message: SDKAssistantMessage, model: Model<Api>, customToolNameToPi: ReadonlyMap<string, string>, queryContext: QueryContext = currentQueryContext()): void {
@@ -733,4 +538,199 @@ export function processAssistantMessage(message: SDKAssistantMessage, model: Mod
 	if (queryContext.turnSawToolCall && queryContext.currentPiStream && queryContext.turnOutput) {
 		endToolUseTurn(queryContext);
 	}
+}
+
+/** End the current pi stream as a tool_use turn boundary. Safe to call when the
+ *  turn already ended (no-op). Every end path funnels here, so this is where
+ *  two invariants are enforced by construction: a block still
+ *  carrying partialJson never ships — Pi executes the done message's content,
+ *  and truncated arguments must never execute — and every call that DOES ship
+ *  is stamped forwarded so no lagging replay can dispatch it again. */
+export function endToolUseTurn(queryContext: QueryContext): void {
+	if (!queryContext.currentPiStream || !queryContext.turnOutput) return;
+	cancelScheduledToolUseEnd(queryContext);
+	const partial = queryContext.turnBlocks.filter(isPartialToolCall);
+	if (partial.length > 0) {
+		const calls = partial.map((block) => ({ id: block.id, name: block.name }));
+		debug(`endToolUseTurn: pruning ${partial.length} still-partial tool call(s) — truncated arguments never execute:`, calls.map((entry) => `${entry.name} [${entry.id}]`).join(", "));
+		diagDump("partial_tool_calls_pruned", { count: partial.length, calls });
+		appendIntegrityEntry("partial_tool_calls_pruned", { count: partial.length, calls });
+		queryContext.turnOutput.content = queryContext.turnBlocks.filter((block) => !isPartialToolCall(block));
+	}
+	// Every tool call Pi is about to execute from this turn is owed a result and
+	// must never be dispatched again: a lagging stream replays the same tool_use
+	// into the NEXT turn, whose per-message dedup cannot see it.
+	for (const block of queryContext.turnOutput.content) {
+		if (block.type === "toolCall") queryContext.forwardedToolCallIds.add(block.id);
+	}
+	queryContext.turnOutput.stopReason = "toolUse";
+	queryContext.markCurrentMessageBilled();
+	queryContext.currentPiStream.push({ type: "done", reason: "toolUse", message: queryContext.turnOutput });
+	queryContext.currentPiStream.end();
+	queryContext.currentPiStream = undefined;
+}
+
+// A streamed tool call whose arguments are still a partial parse; it must never execute.
+function isPartialToolCall(block: TurnBlock): block is StreamingToolCall {
+	return block.type === "toolCall" && block.partialJson !== undefined;
+}
+
+/**
+ * Arm the grace timer that force-ends the current tool_use turn if the stream
+ * goes silent. First arming per stream wins; every stream event postpones it
+ * (postponeToolUseTurnEnd); message_stop (or resetTurnState) disarms it.
+ * `action` runs only if the SAME stream is still current when the grace
+ * elapses — a turn that ended normally makes it a no-op.
+ */
+export function scheduleToolUseTurnEnd(queryContext: QueryContext, action: () => void, source: string): void {
+	if (!queryContext.currentPiStream || !queryContext.turnOutput) return;
+	if (queryContext.scheduledToolUseEnd?.stream === queryContext.currentPiStream) return;
+	cancelScheduledToolUseEnd(queryContext);
+	queryContext.scheduledToolUseEnd = armToolUseTurnEnd(queryContext, queryContext.currentPiStream, action, source);
+}
+
+function armToolUseTurnEnd(queryContext: QueryContext, stream: unknown, action: () => void, source: string): NonNullable<QueryContext["scheduledToolUseEnd"]> {
+	const timer = setTimeout(() => {
+		if (queryContext.currentPiStream !== stream) return;
+		debug(`scheduleToolUseTurnEnd: no stream event for ${TOOL_USE_END_GRACE_MS}ms (${source}) — force-ending tool_use turn`);
+		queryContext.scheduledToolUseEnd = undefined;
+		action();
+	}, TOOL_USE_END_GRACE_MS);
+	timer.unref();
+	return { stream, timer, action, source };
+}
+
+export function cancelScheduledToolUseEnd(queryContext: QueryContext): void {
+	if (!queryContext.scheduledToolUseEnd) return;
+	clearTimeout(queryContext.scheduledToolUseEnd.timer);
+	queryContext.scheduledToolUseEnd = undefined;
+}
+
+export function reapStaleQueuedResults(queryContext: QueryContext): void {
+	const stale = queryContext.takeStaleQueuedResults();
+	if (stale.length === 0) return;
+	const names = stale.map((entry) => entry.toolName);
+	debug(`reapStaleQueuedResults: parked ${stale.length} early tool result(s) awaiting a late handler:`, names.join(", "));
+	diagDump("stale_queued_tool_results_parked", { count: stale.length, stale });
+	appendIntegrityEntry("stale_queued_tool_results_parked", { count: stale.length, stale });
+	safeNotify(
+		`queued-results-parked=${JSON.stringify({ count: stale.length, tools: names })}\n` +
+		`Claude bridge: parked ${stale.length} early tool result(s) whose handler has not arrived (${names.slice(0, MAX_LISTED_TOOL_NAMES).join(", ")}${names.length > MAX_LISTED_TOOL_NAMES ? ", …" : ""}). ` +
+		`A late handler can still consume them.`,
+		"warning",
+	);
+}
+
+export function updateTurnOutputModel(modelId: unknown, queryContext: QueryContext = currentQueryContext()): void {
+	if (typeof modelId !== "string" || !modelId || !queryContext.turnOutput) return;
+	if (queryContext.turnOutput.model === modelId) return;
+	debug(`provider: active Claude model changed ${queryContext.turnOutput.model} -> ${modelId}`);
+	queryContext.turnOutput.model = modelId;
+}
+
+// The SDK always yields `assistant` messages (completed content blocks) after streaming.
+// When stream_events already delivered the content, this is a no-op. But after
+// resetTurnState (e.g. tool result delivery), if the next turn's assistant message
+// arrives before any stream_events, this is the primary content path. Must maintain
+// the same stream lifecycle as processStreamEvent — including ending the stream on
+// tool_use to prevent deadlock with the MCP handler.
+function appendMissingToolUsesFromAssistant(
+	assistantMessage: CompletedAssistantMessage,
+	model: Model<Api>,
+	customToolNameToPi: ReadonlyMap<string, string>,
+	queryContext: QueryContext,
+): boolean {
+	// With a dead stream, ids are still RECORDED (claims and result matching
+	// need them) but the content is never touched: turnBlocks IS the content
+	// array of a turnOutput that endToolUseTurn already handed Pi BY REFERENCE
+	// in its done event, so a push here appends calls into a delivered message
+	// behind Pi's back — whether Pi's dispatch enumerates before or after the
+	// push is a microtask race.
+	const streamLive = Boolean(queryContext.currentPiStream && queryContext.turnOutput);
+	let sawToolUse = false;
+	for (const block of assistantMessage.content) {
+		if (block.type !== "tool_use") continue;
+		if (!isPiDispatchable(block.name, customToolNameToPi)) {
+			queryContext.noteUnexpectedChildCall(block.id, block.name);
+			debug(`assistant message: non-dispatchable tool ${block.name} [${block.id}] — not mirrored as a Pi tool call`);
+			continue;
+		}
+		const existingIndex = queryContext.turnBlocks.findIndex((existing) => isToolCallWithId(existing, block.id));
+		if (existingIndex < 0 && (queryContext.forwardedToolCallIds.has(block.id) || queryContext.deadToolCallIds.has(block.id))) {
+			// Completed-message replay of a call Pi already executed in a turn that
+			// has ended (or one already failed as stranded). Not a live Pi turn
+			// boundary: sawToolUse stays false for it, and no block is emitted.
+			debug(`assistant message: tool_use ${block.id} already ${queryContext.forwardedToolCallIds.has(block.id) ? "forwarded" : "dead"} — skipping duplicate`);
+			continue;
+		}
+		sawToolUse = true;
+		const name = mapToolName(block.name, customToolNameToPi);
+		const mappedArguments = mapToolArguments(name, block.input);
+		queryContext.recordToolCall(block.id, name, mappedArguments);
+		if (!streamLive) continue;
+		const existing = existingIndex === -1 ? undefined : queryContext.turnBlocks[existingIndex];
+		if (existing?.type === "toolCall") {
+			existing.name = name;
+			existing.arguments = mappedArguments;
+			queryContext.updateToolCallArgs(block.id, mappedArguments);
+			if (existing.partialJson !== undefined) {
+				delete existing.partialJson;
+				delete existing.index;
+				queryContext.currentPiStream?.push({ type: "toolcall_end", contentIndex: existingIndex, toolCall: existing, partial: queryContext.output });
+			}
+			continue;
+		}
+
+		ensureTurnStarted(queryContext);
+		const toolBlock: StreamingToolCall = { type: "toolCall", id: block.id, name, arguments: mappedArguments };
+		queryContext.turnBlocks.push(toolBlock);
+		const index = queryContext.turnBlocks.length - 1;
+		queryContext.currentPiStream?.push({ type: "toolcall_start", contentIndex: index, partial: queryContext.output });
+		queryContext.currentPiStream?.push({ type: "toolcall_end", contentIndex: index, toolCall: toolBlock, partial: queryContext.output });
+	}
+	// Only while the stream is still live: the SDK's assistant yields carry the
+	// message_start placeholder usage, and once the done event has delivered
+	// turnOutput to pi, overwriting its usage with those placeholders would
+	// corrupt the very figure message_delta got right.
+	if (assistantMessage.usage !== undefined && queryContext.turnOutput && queryContext.currentPiStream) updateUsage(queryContext.turnOutput, assistantMessage.usage, model, queryContext);
+	return sawToolUse;
+}
+
+
+function updateUsage(output: AssistantMessage, usage: ReportedUsage, model: Model<Api>, queryContext: QueryContext): void {
+	// Anthropic reports per-message counters and RE-reports them as the message
+	// grows, so the in-flight message's figures replace, never accumulate. What
+	// accumulates is every child message already finished in this Pi turn — see
+	// `turnUsageCarry` in query-state.ts for why a turn can span several. A
+	// message already billed by an earlier Pi turn contributes only its increase
+	// (`billedMessageUsage` in query-state.ts).
+	const current = queryContext.currentMessageUsage;
+	const carry = queryContext.turnUsageCarry;
+	if (usage.input !== undefined) current.input = usage.input;
+	if (usage.output !== undefined) current.output = usage.output;
+	if (usage.cacheRead !== undefined) current.cacheRead = usage.cacheRead;
+	if (usage.cacheWrite !== undefined) current.cacheWrite = usage.cacheWrite;
+	const unbilled = queryContext.unbilledCurrentMessageUsage();
+	output.usage.input = carry.input + unbilled.input;
+	output.usage.output = carry.output + unbilled.output;
+	output.usage.cacheRead = carry.cacheRead + unbilled.cacheRead;
+	output.usage.cacheWrite = carry.cacheWrite + unbilled.cacheWrite;
+	output.usage.totalTokens = output.usage.input + output.usage.output + output.usage.cacheRead + output.usage.cacheWrite;
+	calculateCost(model, output.usage);
+	const promptTokens = output.usage.input + output.usage.cacheRead + output.usage.cacheWrite;
+	const cachePct = promptTokens > 0 ? Math.round(output.usage.cacheRead / promptTokens * PERCENT) : 0;
+	debug(`usage: in=${output.usage.input} out=${output.usage.output} cacheRead=${output.usage.cacheRead} cacheWrite=${output.usage.cacheWrite} total=${output.usage.totalTokens} cachePct=${cachePct}% model=${model.id}`);
+}
+
+function isToolCallWithId(block: TurnBlock, id: string): block is StreamingToolCall {
+	return block.type === "toolCall" && block.id === id;
+}
+
+// Both take the query context explicitly (defaulting to the live one) so the
+// completion/teardown closures in index.ts can finalize the stream of the query
+// they were created for — under reentrancy the live currentQueryContext() is the subagent's.
+export function ensureTurnStarted(queryContext: QueryContext = currentQueryContext()): void {
+	if (queryContext.turnStarted || !queryContext.currentPiStream || !queryContext.turnOutput) return;
+	queryContext.currentPiStream.push({ type: "start", partial: queryContext.output });
+	queryContext.turnStarted = true;
 }

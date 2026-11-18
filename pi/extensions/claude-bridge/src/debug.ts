@@ -10,10 +10,6 @@ import { nonEmpty } from "../../lib/untyped.ts";
 export const DEBUG = process.env.CLAUDE_BRIDGE_DEBUG === "1";
 export const DEBUG_LOG_PATH = nonEmpty(process.env.CLAUDE_BRIDGE_DEBUG_PATH) ?? join(piUserDirectory(), "claude-bridge.log");
 
-export function diagLogPath(): string {
-	return nonEmpty(process.env.CLAUDE_BRIDGE_DIAG_PATH) ?? join(piUserDirectory(), "claude-bridge-diag.log");
-}
-
 /** Trailing clause for user-facing integrity notifications. With DEBUG on the
  *  diag log exists and is worth pointing at; without it the file was never
  *  written (diagDump early-returns), so point at the switch that would have
@@ -55,6 +51,55 @@ export function shortIdOrNone(id: string | undefined): string {
 
 export function shortId(id: string): string {
 	return id.slice(0, SHORT_ID_LENGTH);
+}
+
+// Per-query CLI debug capture. When CLAUDE_BRIDGE_DEBUG=1, ask the Claude Code
+// CLI subprocess to write its own debug log to a file we choose, and also
+// forward its stderr into our debug stream. Drops straight into the real SDK's
+// Options — see @anthropic-ai/claude-agent-sdk sdk.d.ts:1245 (debug, debugFile,
+// stderr). Without this, CC's internal view of the world is invisible to us
+// and "No conversation found" / empty-error reports are unactionable.
+let nextCliDebugSeq = 1;
+export function makeCliDebugOptions(tag: string): { debug?: boolean; debugFile?: string; stderr?: (data: string) => void } {
+	if (!DEBUG) return {};
+	const seq = nextCliDebugSeq++;
+	const ts = new Date().toISOString().replace(/[:.]/g, "-");
+	const logDirectory = join(dirname(DEBUG_LOG_PATH), "cc-cli-logs");
+	try { mkdirSync(logDirectory, { recursive: true, mode: OWNER_ONLY_DIRECTORY_MODE }); chmodSync(logDirectory, OWNER_ONLY_DIRECTORY_MODE); } catch { /* ignore */ }
+	const debugFile = join(logDirectory, `${ts}-${tag}-${seq}.log`);
+	debug(`cli-debug: ${tag} #${seq} → ${debugFile}`);
+	return {
+		debug: true,
+		debugFile,
+		stderr: (data: string) => {
+			for (const line of data.split(/\r?\n/)) {
+				if (line) debug(`[cli-stderr ${tag}#${seq}] ${line}`);
+			}
+		},
+	};
+}
+
+/** Diagnostic dump — for "should never happen" paths. Gated on the same
+ *  CLAUDE_BRIDGE_DEBUG flag as debug(): the entries carry session metadata
+ *  and land in a log outside any host app's retention/cleanup boundary, so
+ *  a host that has not opted into debugging must get no disk write. */
+export function diagDump(label: string, data: Record<string, unknown>): void {
+	if (!DEBUG) return;
+	try {
+		const ts = new Date().toISOString();
+		const entry = { ts, moduleInstanceId, label, ...data };
+		const path = diagLogPath();
+		try { mkdirSync(dirname(path), { recursive: true, mode: OWNER_ONLY_DIRECTORY_MODE }); } catch { /* best effort */ }
+		appendFileSync(path, JSON.stringify(entry) + "\n", { mode: OWNER_ONLY_FILE_MODE });
+		try { chmodSync(path, OWNER_ONLY_FILE_MODE); } catch { /* best effort */ }
+		debug(`DIAG: ${label} (see ${path})`);
+	} catch (error) {
+		debug(`DIAG FAILED: ${label}`, error);
+	}
+}
+
+export function diagLogPath(): string {
+	return nonEmpty(process.env.CLAUDE_BRIDGE_DIAG_PATH) ?? join(piUserDirectory(), "claude-bridge-diag.log");
 }
 
 export function debug(...values: readonly unknown[]): void {
@@ -106,49 +151,4 @@ export function debug(...values: readonly unknown[]): void {
 	};
 	const message = values.map(safeFmt).join(" ");
 	try { appendFileSync(DEBUG_LOG_PATH, `[${ts}] [${moduleInstanceId}] ${message}\n`, { mode: OWNER_ONLY_FILE_MODE }); } catch { /* debug is best effort */ }
-}
-
-// Per-query CLI debug capture. When CLAUDE_BRIDGE_DEBUG=1, ask the Claude Code
-// CLI subprocess to write its own debug log to a file we choose, and also
-// forward its stderr into our debug stream. Drops straight into the real SDK's
-// Options — see @anthropic-ai/claude-agent-sdk sdk.d.ts:1245 (debug, debugFile,
-// stderr). Without this, CC's internal view of the world is invisible to us
-// and "No conversation found" / empty-error reports are unactionable.
-let nextCliDebugSeq = 1;
-export function makeCliDebugOptions(tag: string): { debug?: boolean; debugFile?: string; stderr?: (data: string) => void } {
-	if (!DEBUG) return {};
-	const seq = nextCliDebugSeq++;
-	const ts = new Date().toISOString().replace(/[:.]/g, "-");
-	const logDirectory = join(dirname(DEBUG_LOG_PATH), "cc-cli-logs");
-	try { mkdirSync(logDirectory, { recursive: true, mode: OWNER_ONLY_DIRECTORY_MODE }); chmodSync(logDirectory, OWNER_ONLY_DIRECTORY_MODE); } catch { /* ignore */ }
-	const debugFile = join(logDirectory, `${ts}-${tag}-${seq}.log`);
-	debug(`cli-debug: ${tag} #${seq} → ${debugFile}`);
-	return {
-		debug: true,
-		debugFile,
-		stderr: (data: string) => {
-			for (const line of data.split(/\r?\n/)) {
-				if (line) debug(`[cli-stderr ${tag}#${seq}] ${line}`);
-			}
-		},
-	};
-}
-
-/** Diagnostic dump — for "should never happen" paths. Gated on the same
- *  CLAUDE_BRIDGE_DEBUG flag as debug(): the entries carry session metadata
- *  and land in a log outside any host app's retention/cleanup boundary, so
- *  a host that has not opted into debugging must get no disk write. */
-export function diagDump(label: string, data: Record<string, unknown>): void {
-	if (!DEBUG) return;
-	try {
-		const ts = new Date().toISOString();
-		const entry = { ts, moduleInstanceId, label, ...data };
-		const path = diagLogPath();
-		try { mkdirSync(dirname(path), { recursive: true, mode: OWNER_ONLY_DIRECTORY_MODE }); } catch { /* best effort */ }
-		appendFileSync(path, JSON.stringify(entry) + "\n", { mode: OWNER_ONLY_FILE_MODE });
-		try { chmodSync(path, OWNER_ONLY_FILE_MODE); } catch { /* best effort */ }
-		debug(`DIAG: ${label} (see ${path})`);
-	} catch (error) {
-		debug(`DIAG FAILED: ${label}`, error);
-	}
 }

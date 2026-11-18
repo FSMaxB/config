@@ -6,110 +6,15 @@ import { currentRequestLaneId } from "./request-lane.js";
 import { summarizeMissingToolNames } from "./tool-pairing-audit.js";
 import type { MissingToolResult } from "./tool-pairing-audit.js";
 
-export interface SessionState {
-	sessionId: string;
-	cursor: number;
-	cwd: string;
-	// Identity anchor of the pi conversation this record belongs to, encoded
-	// component-wise as `u:<12hex>` or `u:<12hex>|a:<12hex>` (see
-	// conversationFingerprint in session-persistence.ts): a short sha256 of the
-	// FIRST user message's normalized text, plus — once the conversation has
-	// one — of the FIRST assistant message's normalized text. Pi histories
-	// never rewrite those opening messages — compact/tree-nav mutations set
-	// needsRebuild instead — so a component mismatch marks a FOREIGN
-	// conversation (a subagent-shaped query arriving while the parent is idle,
-	//) that must run as a clean one-shot without touching this
-	// record. The user component must always match; the assistant component is
-	// compared only when BOTH sides carry one, so a record stamped on turn 1
-	// (no assistant yet) still matches its own grown conversation and upgrades
-	// to the two-component form on the next REUSE. Absent on records restored
-	// from pre-3.1.1 markers → identity unknown, pre-fingerprint behavior.
-	conversationFingerprint?: string;
-	// Force the next syncSharedSession call down the REBUILD path. Set when
-	// pi has mutated its messages array out from under us (compact, tree
-	// navigation), or when an abort interrupted a tool call, dropped queued
-	// user input, or ended before the killed child exited. An abort that did
-	// none of those keeps the record untouched and the next turn resumes.
-	// REBUILD wipes and rewrites the file to match pi's current history.
-	needsRebuild?: boolean;
-	// Set when a killed CC subprocess may still be flushing to its session
-	// JSONL: an abort whose child had not exited within the grace in
-	// child-exit.ts, or a history replacement (compact, tree navigation) that
-	// stops an ACTIVE query to restart it on pi's new context. Reusing the
-	// same sessionId/path would race that orphan write into our fresh file and
-	// break CC's parent-uuid chain on the next resume. When this flag is set,
-	// REBUILD takes a fresh UUID and skips deleteSession so the orphan writes
-	// land on a dead inode. A compact or tree event with no active query kills
-	// nothing, so it leaves this unset and rebuilds in place (preserve UUID,
-	// deleteSession + createSession).
-	forceRotate?: boolean;
-	// Why needsRebuild was set, in words the "session replaced" notification can
-	// show when the rebuild happens ("abort with a tool call in flight", "pi
-	// replaced the history (session_compact)", ...). Lives and dies with
-	// needsRebuild: a REBUILD and a completed query both write a fresh record.
-	rebuildReason?: string;
-	// Tool-call ids whose results the Claude transcript already holds although
-	// Pi delivered them after the record was written: an abort that interrupted
-	// the query made Claude Code record a rejected result for every pending call,
-	// while Pi appended its own "Operation aborted" results afterwards. The REUSE
-	// plan skips Pi's trailing toolResult messages with these ids. Consumed by the
-	// next REUSE; a completed query writes a fresh record without it.
-	interruptedToolCallIds?: string[];
-	// Record uuid at which the next query resumes `sessionId` with the SDK's
-	// resumeSessionAt + forkSession options, set by the tree-resume path when a
-	// /tree navigation landed inside a Claude transcript the bridge produced
-	// (src/tree-resume.ts). The fork continues under a new session id, which the
-	// completed query persists in a fresh record, so the field never survives a
-	// completed query. Absent when the navigation target is the transcript's
-	// tail: a plain resume is enough there.
-	forkAt?: string;
-}
-
-// Claude session state is scoped to Pi's provider `sessionId`. Parent and child
-// agents can load separate copies of the extension module while sharing the
-// primary provider closure, so the lane registry must live on globalThis rather
-// than in one module instance. The versioned symbol prevents an incompatible
-// future store shape from being mistaken for this one.
-interface SharedSessionLaneStoreV1 {
-	defaultSession: SessionState | undefined;
-	sessions: Map<string, SessionState | undefined>;
-}
-
 const SHARED_SESSION_LANES_SYMBOL = Symbol.for("kendex.pi.claude-bridge.shared-session-lanes.v1");
-
-// The store is shared by every copy of this module in the process; only this function writes it.
-function sharedSessionLaneStore(): SharedSessionLaneStoreV1 {
-	return processGlobal(SHARED_SESSION_LANES_SYMBOL, (): SharedSessionLaneStoreV1 => ({ defaultSession: undefined, sessions: new Map() }));
-}
 
 let extensionApi: ExtensionAPI | undefined;
 export let piUI: ExtensionUIContext | undefined;
-
-export function getSharedSession(): SessionState | undefined {
-	const store = sharedSessionLaneStore();
-	const sessionId = currentRequestLaneId();
-	return sessionId === undefined
-		? store.defaultSession
-		: store.sessions.get(sessionId);
-}
-
-export function setSharedSession(next: SessionState | undefined): void {
-	const store = sharedSessionLaneStore();
-	const sessionId = currentRequestLaneId();
-	if (sessionId === undefined) store.defaultSession = next;
-	else store.sessions.set(sessionId, next);
-}
 
 export function deleteSharedSessionLane(sessionId: string | undefined): void {
 	const store = sharedSessionLaneStore();
 	if (sessionId === undefined) store.defaultSession = undefined;
 	else store.sessions.delete(sessionId);
-}
-
-export function clearSharedSessionLanes(): void {
-	const store = sharedSessionLaneStore();
-	store.sessions.clear();
-	store.defaultSession = undefined;
 }
 
 // The lane each pi session started in, keyed by its SessionManager. An in-memory
@@ -122,11 +27,6 @@ export function clearSharedSessionLanes(): void {
 // module instances (`/reload` mid-session, a child agent's own copy) and both
 // must see the same entry.
 const STARTED_LANES_SYMBOL = Symbol.for("kendex.pi.claude-bridge.started-lanes.v1");
-
-// Shared like the session lane store above; only this function writes it.
-function startedLaneStore(): WeakMap<object, string> {
-	return processGlobal(STARTED_LANES_SYMBOL, () => new WeakMap<object, string>());
-}
 
 export function recordStartedLane(sessionManager: object, sessionId: string): void {
 	startedLaneStore().set(sessionManager, sessionId);
@@ -142,15 +42,9 @@ export function takeStartedLane(sessionManager: object): string | undefined {
 	return sessionId;
 }
 
-/** Force the next syncSharedSession down the REBUILD path (no-op without a
- *  session). `reason` is shown to the user when the rebuild happens.
- *  `forceRotate` additionally rotates the session UUID; set it only when a
- *  killed CC child may still be writing its JSONL (see the field docs on
- *  SessionState). */
-export function markSessionForRebuild(reason: string, options: { forceRotate?: boolean } = {}): void {
-	const sharedSession = getSharedSession();
-	if (!sharedSession) return;
-	setSharedSession({ ...sharedSession, needsRebuild: true, rebuildReason: reason, ...(options.forceRotate ? { forceRotate: true } : {}) });
+// Shared like the session lane store above; only this function writes it.
+function startedLaneStore(): WeakMap<object, string> {
+	return processGlobal(STARTED_LANES_SYMBOL, () => new WeakMap<object, string>());
 }
 
 export function setExtensionApi(next: ExtensionAPI | undefined): void {
@@ -168,49 +62,15 @@ export function setPiUI(next: ExtensionUIContext | undefined): void {
 	piUI = next;
 }
 
-export function safeNotify(message: string, level: "info" | "warning" | "error" = "warning"): void {
-	try { piUI?.notify(message, level); }
-	catch (error) { debug("notify failed:", error); }
+export function safeToolCallSummary(calls: readonly { id: string; toolName: string; arguments?: Record<string, unknown> }[]): { id: string; toolName: string; argKeys: string[] }[] {
+	return calls.map((call) => ({ id: call.id, toolName: call.toolName, argKeys: argumentKeys(call.arguments) }));
 }
 
 export function argumentKeys(toolArguments: Record<string, unknown> | undefined): string[] {
 	return Object.keys(toolArguments ?? {}).sort();
 }
 
-export function safeToolCallSummary(calls: readonly { id: string; toolName: string; arguments?: Record<string, unknown> }[]): { id: string; toolName: string; argKeys: string[] }[] {
-	return calls.map((call) => ({ id: call.id, toolName: call.toolName, argKeys: argumentKeys(call.arguments) }));
-}
-
 export const INTEGRITY_CUSTOM_TYPE = "claude-bridge-integrity";
-
-/**
- * Persist a bridge integrity event into the pi session transcript.
- *
- * The diag log and a piUI toast both die with the machine or render cycle, so
- * they cannot support analysis from the session alone. A `CustomEntry` persists
- * the record without adding it to built context or dispatching it through
- * pi's agent loop. Payloads must stay compact metadata (ids,
- * counts, tool names), never tool output.
- *
- * Never throws; returns whether the entry was appended (false outside a pi
- * session — tests, embedded hosts without extensionApi).
- */
-export function appendIntegrityEntry(label: string, data: Record<string, unknown>): boolean {
-	try {
-		if (!extensionApi) return false;
-		extensionApi.appendEntry(INTEGRITY_CUSTOM_TYPE, { label, at: new Date().toISOString(), ...data });
-		return true;
-	} catch (error) {
-		debug("appendIntegrityEntry failed:", error);
-		return false;
-	}
-}
-
-function compactToolNameSummary(names: readonly { name: string; count: number }[], limit = 12): string[] {
-	const shown = names.slice(0, limit).map(({ name, count }) => count > 1 ? `${name}×${count}` : name);
-	if (names.length > limit) shown.push(`+${names.length - limit} more`);
-	return shown;
-}
 
 // A repair report samples the first missing results; a long list adds nothing a sample does not show.
 const MAX_SAMPLED_MISSING = 50;
@@ -321,6 +181,51 @@ export function reportToolResultMismatch(
 	}
 }
 
+/** Force the next syncSharedSession down the REBUILD path (no-op without a
+ *  session). `reason` is shown to the user when the rebuild happens.
+ *  `forceRotate` additionally rotates the session UUID; set it only when a
+ *  killed CC child may still be writing its JSONL (see the field docs on
+ *  SessionState). */
+export function markSessionForRebuild(reason: string, options: { forceRotate?: boolean } = {}): void {
+	const sharedSession = getSharedSession();
+	if (!sharedSession) return;
+	setSharedSession({ ...sharedSession, needsRebuild: true, rebuildReason: reason, ...(options.forceRotate ? { forceRotate: true } : {}) });
+}
+
+export function safeNotify(message: string, level: "info" | "warning" | "error" = "warning"): void {
+	try { piUI?.notify(message, level); }
+	catch (error) { debug("notify failed:", error); }
+}
+
+/**
+ * Persist a bridge integrity event into the pi session transcript.
+ *
+ * The diag log and a piUI toast both die with the machine or render cycle, so
+ * they cannot support analysis from the session alone. A `CustomEntry` persists
+ * the record without adding it to built context or dispatching it through
+ * pi's agent loop. Payloads must stay compact metadata (ids,
+ * counts, tool names), never tool output.
+ *
+ * Never throws; returns whether the entry was appended (false outside a pi
+ * session — tests, embedded hosts without extensionApi).
+ */
+export function appendIntegrityEntry(label: string, data: Record<string, unknown>): boolean {
+	try {
+		if (!extensionApi) return false;
+		extensionApi.appendEntry(INTEGRITY_CUSTOM_TYPE, { label, at: new Date().toISOString(), ...data });
+		return true;
+	} catch (error) {
+		debug("appendIntegrityEntry failed:", error);
+		return false;
+	}
+}
+
+function compactToolNameSummary(names: readonly { name: string; count: number }[], limit = 12): string[] {
+	const shown = names.slice(0, limit).map(({ name, count }) => count > 1 ? `${name}×${count}` : name);
+	if (names.length > limit) shown.push(`+${names.length - limit} more`);
+	return shown;
+}
+
 export function __testSetBridgeIntegrityState(state: { ui?: ExtensionUIContext; sharedSession?: SessionState }): void {
 	if ("ui" in state) piUI = state.ui;
 	if ("sharedSession" in state) {
@@ -332,10 +237,105 @@ export function __testSetBridgeIntegrityState(state: { ui?: ExtensionUIContext; 
 	}
 }
 
+export function setSharedSession(next: SessionState | undefined): void {
+	const store = sharedSessionLaneStore();
+	const sessionId = currentRequestLaneId();
+	if (sessionId === undefined) store.defaultSession = next;
+	else store.sessions.set(sessionId, next);
+}
+
+export function clearSharedSessionLanes(): void {
+	const store = sharedSessionLaneStore();
+	store.sessions.clear();
+	store.defaultSession = undefined;
+}
+
 export function __testGetBridgeIntegrityState(): { sharedSession: SessionState | undefined } {
 	return { sharedSession: getSharedSession() };
 }
 
+export function getSharedSession(): SessionState | undefined {
+	const store = sharedSessionLaneStore();
+	const sessionId = currentRequestLaneId();
+	return sessionId === undefined
+		? store.defaultSession
+		: store.sessions.get(sessionId);
+}
+
 export function __testSharedSessionLaneCount(): number {
 	return sharedSessionLaneStore().sessions.size;
+}
+
+// The store is shared by every copy of this module in the process; only this function writes it.
+function sharedSessionLaneStore(): SharedSessionLaneStoreV1 {
+	return processGlobal(SHARED_SESSION_LANES_SYMBOL, (): SharedSessionLaneStoreV1 => ({ defaultSession: undefined, sessions: new Map() }));
+}
+
+// Claude session state is scoped to Pi's provider `sessionId`. Parent and child
+// agents can load separate copies of the extension module while sharing the
+// primary provider closure, so the lane registry must live on globalThis rather
+// than in one module instance. The versioned symbol prevents an incompatible
+// future store shape from being mistaken for this one.
+interface SharedSessionLaneStoreV1 {
+	defaultSession: SessionState | undefined;
+	sessions: Map<string, SessionState | undefined>;
+}
+
+export interface SessionState {
+	sessionId: string;
+	cursor: number;
+	cwd: string;
+	// Identity anchor of the pi conversation this record belongs to, encoded
+	// component-wise as `u:<12hex>` or `u:<12hex>|a:<12hex>` (see
+	// conversationFingerprint in session-persistence.ts): a short sha256 of the
+	// FIRST user message's normalized text, plus — once the conversation has
+	// one — of the FIRST assistant message's normalized text. Pi histories
+	// never rewrite those opening messages — compact/tree-nav mutations set
+	// needsRebuild instead — so a component mismatch marks a FOREIGN
+	// conversation (a subagent-shaped query arriving while the parent is idle,
+	//) that must run as a clean one-shot without touching this
+	// record. The user component must always match; the assistant component is
+	// compared only when BOTH sides carry one, so a record stamped on turn 1
+	// (no assistant yet) still matches its own grown conversation and upgrades
+	// to the two-component form on the next REUSE. Absent on records restored
+	// from pre-3.1.1 markers → identity unknown, pre-fingerprint behavior.
+	conversationFingerprint?: string;
+	// Force the next syncSharedSession call down the REBUILD path. Set when
+	// pi has mutated its messages array out from under us (compact, tree
+	// navigation), or when an abort interrupted a tool call, dropped queued
+	// user input, or ended before the killed child exited. An abort that did
+	// none of those keeps the record untouched and the next turn resumes.
+	// REBUILD wipes and rewrites the file to match pi's current history.
+	needsRebuild?: boolean;
+	// Set when a killed CC subprocess may still be flushing to its session
+	// JSONL: an abort whose child had not exited within the grace in
+	// child-exit.ts, or a history replacement (compact, tree navigation) that
+	// stops an ACTIVE query to restart it on pi's new context. Reusing the
+	// same sessionId/path would race that orphan write into our fresh file and
+	// break CC's parent-uuid chain on the next resume. When this flag is set,
+	// REBUILD takes a fresh UUID and skips deleteSession so the orphan writes
+	// land on a dead inode. A compact or tree event with no active query kills
+	// nothing, so it leaves this unset and rebuilds in place (preserve UUID,
+	// deleteSession + createSession).
+	forceRotate?: boolean;
+	// Why needsRebuild was set, in words the "session replaced" notification can
+	// show when the rebuild happens ("abort with a tool call in flight", "pi
+	// replaced the history (session_compact)", ...). Lives and dies with
+	// needsRebuild: a REBUILD and a completed query both write a fresh record.
+	rebuildReason?: string;
+	// Tool-call ids whose results the Claude transcript already holds although
+	// Pi delivered them after the record was written: an abort that interrupted
+	// the query made Claude Code record a rejected result for every pending call,
+	// while Pi appended its own "Operation aborted" results afterwards. The REUSE
+	// plan skips Pi's trailing toolResult messages with these ids. Consumed by the
+	// next REUSE; a completed query writes a fresh record without it.
+	interruptedToolCallIds?: string[];
+	// Record uuid at which the next query resumes `sessionId` with the SDK's
+	// resumeSessionAt + forkSession options, set by the tree-resume path when a
+	// /tree navigation landed inside a Claude transcript the bridge produced
+	// (src/tree-resume.ts). The fork continues under a new session id, which the
+	// completed query persists in a fresh record, so the field never survives a
+	// completed query. Absent when the navigation target is the transcript's
+	// tail: a plain resume is enough there.
+	forkAt?: string;
 }

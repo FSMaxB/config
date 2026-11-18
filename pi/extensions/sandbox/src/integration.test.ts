@@ -447,6 +447,10 @@ test("an initialized sandbox keeps the process alive", { skip: !enabled }, async
   assert.deepEqual(outcome, { kind: "alive" });
 });
 
+function vcsEnvironment(): string {
+  return Object.entries(vcsEnvironmentVariables()).map(([name, value]) => `export ${name}='${value}'`).join("\n");
+}
+
 function vcsEnvironmentVariables(): Record<string, string> {
   return {
     HOME: join(root, "vcs-home"),
@@ -461,10 +465,6 @@ function vcsEnvironmentVariables(): Record<string, string> {
     JJ_USER: "Test",
     JJ_EMAIL: "test@example.com",
   };
-}
-
-function vcsEnvironment(): string {
-  return Object.entries(vcsEnvironmentVariables()).map(([name, value]) => `export ${name}='${value}'`).join("\n");
 }
 
 async function runInRepository(repository: string, command: string): ReturnType<typeof runSandboxed> {
@@ -489,14 +489,6 @@ async function collectViolations(commandId: string): Promise<CollectedViolation[
   return violations;
 }
 
-function policyFilesystem(extraReadAllow: PathSelector[] = [], extraWriteAllow: PathSelector[] = []): ReturnType<typeof filesystemConfig> {
-  const policy = {
-    read: { allow: [tree(workDirectory), ...extraReadAllow], deny: [], protected: [] },
-    write: { allow: [tree(workDirectory), ...extraWriteAllow], deny: [], protected: [] },
-  };
-  return filesystemConfig(policy, { platform: testPlatform(), homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [], vcs: undefined });
-}
-
 async function runSandboxed(command: string, filesystem = policyFilesystem(), cwd = workDirectory, shell?: string): Promise<{ exitCode: number | null; output: string; commandId: string }> {
   const commandId = `${Date.now()}-${Math.random()}`;
   collector.track(commandId);
@@ -515,10 +507,16 @@ async function runSandboxed(command: string, filesystem = policyFilesystem(), cw
   }
 }
 
+function policyFilesystem(extraReadAllow: PathSelector[] = [], extraWriteAllow: PathSelector[] = []): ReturnType<typeof filesystemConfig> {
+  const policy = {
+    read: { allow: [tree(workDirectory), ...extraReadAllow], deny: [], protected: [] },
+    write: { allow: [tree(workDirectory), ...extraWriteAllow], deny: [], protected: [] },
+  };
+  return filesystemConfig(policy, { platform: testPlatform(), homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [], vcs: undefined });
+}
+
 // Long enough for initialize() and reset() on a slow CI runner, short enough to keep the suite fast.
 const TEARDOWN_EXIT_TIMEOUT_MILLISECONDS = 15_000;
-
-type TeardownOutcome = { kind: "exited"; code: number | null } | { kind: "alive" };
 
 function runTeardownFixture(teardown: "reset" | "keep"): { outcome: Promise<TeardownOutcome> } {
   const fixture = fileURLToPath(new URL("./teardown-fixture.ts", import.meta.url));
@@ -535,6 +533,8 @@ function runTeardownFixture(teardown: "reset" | "keep"): { outcome: Promise<Tear
   });
   return { outcome };
 }
+
+type TeardownOutcome = { kind: "exited"; code: number | null } | { kind: "alive" };
 
 function testPlatform(): Platform {
   const platform = supportedPlatform();

@@ -5,11 +5,6 @@ import { contains, resolveThroughSymlinks } from "../../lib/repo.ts";
 import type { Platform } from "./platform.ts";
 import { hasGlobCharacters } from "./glob-characters.ts";
 
-export interface PathViolation {
-  mode: AccessMode;
-  path: string;
-}
-
 // macOS: `Sandbox: bash(1234) deny(1) file-write-create /Users/max/x`
 // Linux: `deny openat /home/max/x`
 const VIOLATION = /deny(?:\(\d+\))?\s+(\S+)\s+(\/.+?)\s*$/;
@@ -55,15 +50,15 @@ export function isHereDocumentTemporaryFile(line: string): boolean {
   return violation?.mode === "write" && /^sh-thd[-.][A-Za-z0-9]+$/.test(basename(violation.path));
 }
 
-export function isSecretPath(path: string, secrets: readonly string[]): boolean {
-  return secrets.some((secret) => contains(secret, path));
-}
-
 // A violation path may travel through a symlink into a secret tree; resolve first so the report
 // names the real secret path. The existing parent is resolved for missing paths, so write-create
 // violations are covered too.
 export async function isSecretPathThroughSymlinks(path: string, secrets: readonly string[]): Promise<boolean> {
   return isSecretPath(await resolveThroughSymlinks(path), secrets);
+}
+
+export function isSecretPath(path: string, secrets: readonly string[]): boolean {
+  return secrets.some((secret) => contains(secret, path));
 }
 
 function parseViolation(line: string): PathViolation | undefined {
@@ -77,4 +72,9 @@ function parseViolation(line: string): PathViolation | undefined {
   }
   // The Linux observer only sees write-side syscalls.
   return { mode: "write", path };
+}
+
+export interface PathViolation {
+  mode: AccessMode;
+  path: string;
 }

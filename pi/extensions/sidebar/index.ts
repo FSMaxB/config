@@ -14,8 +14,6 @@ const measure: TextMeasure = {
   truncate: (text, maxWidth, ellipsis) => truncateToWidth(text, maxWidth, ellipsis),
 };
 
-interface Overlay { handle?: OverlayHandle; requestRender(): void }
-
 export default function sidebarExtension(pi: ExtensionAPI): void {
   let visibility: Visibility = Visibility.On;
   let overlay: Overlay | undefined;
@@ -115,3 +113,5 @@ export default function sidebarExtension(pi: ExtensionAPI): void {
     return state;
   }
 }
+
+interface Overlay { handle?: OverlayHandle; requestRender(): void }

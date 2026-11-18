@@ -400,13 +400,6 @@ export default function (pi: ExtensionAPI): void {
 
 const PLANNING_NAMESPACE = { name: "planning", description: "Create plan paths and submit plans for human approval." };
 
-interface PlanHandoff {
-  planPath: string;
-  provider: string;
-  modelId: string;
-  thinkingLevel: ModelThinkingLevel;
-}
-
 // A fresh implementation session is seeded with this entry before session_start fires,
 // so the new plan-mode instance knows which model to activate and which plan to kick off.
 function latestPlanHandoff(
@@ -419,6 +412,13 @@ function latestPlanHandoff(
     return undefined;
   }
   return { planPath, provider, modelId, thinkingLevel: level };
+}
+
+interface PlanHandoff {
+  planPath: string;
+  provider: string;
+  modelId: string;
+  thinkingLevel: ModelThinkingLevel;
 }
 
 const OUTCOME_LABELS: Partial<Record<string, string>> = {

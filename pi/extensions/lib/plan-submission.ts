@@ -66,11 +66,11 @@ export interface PlanSubmissionParameters {
   path: string;
 }
 
+export type PlanSubmissionResult = AgentToolResult<{ path: string | undefined; outcome: PlanSubmissionOutcome }>;
+
 export type PlanSubmissionOutcome =
   | "unavailable"
   | "missing"
   | "outside-plans-directory"
   | "saved"
   | "handed-off";
-
-export type PlanSubmissionResult = AgentToolResult<{ path: string | undefined; outcome: PlanSubmissionOutcome }>;

@@ -53,25 +53,6 @@ import { planToolPermission, toolDecisionGrants, trustedReadOnlyToolNames } from
 import type { ToolPermission } from "./tool-permission-policy.ts";
 import { isRecord, stringProperty } from "./untyped.ts";
 
-export interface ModeDefinition {
-  identity: ModeIdentity;
-  // Whether the mode's startup flag counts on this session_start; plan mode ignores its flag
-  // in a fresh handoff session.
-  requestedAtStartup(event: { reason: string }, context: ExtensionContext): boolean;
-  // Whether the settings start this mode in a session whose branch records no mode yet.
-  defaultAtStartup?(event: { reason: string }, context: ExtensionContext): boolean;
-}
-
-export interface RestrictedModeHandle {
-  isActive(): boolean;
-  flushPendingToggle(context: ExtensionContext): void;
-  leave(context: ExtensionContext): void;
-  blockedReason(toolName: string): string | undefined;
-  // Handles "" (toggle), "grants", "allow <glob>" and "deny <glob>"; false for anything else.
-  handleCommand(argument: string, context: ExtensionCommandContext): Promise<boolean>;
-  completions: (prefix: string) => AutocompleteItem[] | null;
-}
-
 // Plan mode and explore mode share one engine per runtime: the mode is a single state, the tool
 // gate and the snapshot messages exist once, and each extension only names its mode. The engine
 // is found through the runtime's event bus because the extensions load in any order and cannot
@@ -91,6 +72,16 @@ export function registerRestrictedMode(pi: ExtensionAPI, definition: ModeDefinit
     handleCommand: (argument, context) => engine.handleCommand(definition, argument, context),
     completions: (prefix) => completionItems(RULE_SUBCOMMANDS, prefix),
   };
+}
+
+export interface RestrictedModeHandle {
+  isActive(): boolean;
+  flushPendingToggle(context: ExtensionContext): void;
+  leave(context: ExtensionContext): void;
+  blockedReason(toolName: string): string | undefined;
+  // Handles "" (toggle), "grants", "allow <glob>" and "deny <glob>"; false for anything else.
+  handleCommand(argument: string, context: ExtensionCommandContext): Promise<boolean>;
+  completions: (prefix: string) => AutocompleteItem[] | null;
 }
 
 const DISCOVERY_CHANNEL = "config:restricted-mode:discover";
@@ -117,32 +108,18 @@ const MODE_UNGATED_TOOLS: Record<RestrictedMode, ReadonlySet<string>> = {
   [AgentMode.Exploring]: new Set([...UNGATED_TOOLS, "tuicr_open", "tuicr_wait", "tuicr_comment"]),
 };
 
-type Decision = "allow-session" | "allow-always" | "deny-session" | "deny-always";
-
 // Once-answers are never recorded, so only the lasting durations map to a stored decision.
 const ALLOW_DECISIONS = { session: "allow-session", always: "allow-always" } as const satisfies Record<LastingDuration, Decision>;
 const DENY_DECISIONS = { session: "deny-session", always: "deny-always" } as const satisfies Record<LastingDuration, Decision>;
-
-// A toggle while the agent runs waits for the next tool call or the end of the run.
-type AgentActivity = { kind: "idle" } | { kind: "running"; pendingMode: AgentMode | undefined };
-
-interface DecisionStores {
-  sessionGrants: Set<string>;
-  alwaysGrants: Set<string>;
-  // Denials carry the note the user left, so a repeat block can keep repeating the guidance
-  // instead of only saying no.
-  sessionDenials: Map<string, string | undefined>;
-  alwaysDenials: Map<string, string | undefined>;
-}
-
-interface DiscoveryRequest {
-  engine?: Engine;
-}
 
 function discoverEngine(pi: ExtensionAPI): Engine | undefined {
   const request: DiscoveryRequest = {};
   pi.events.emit(DISCOVERY_CHANNEL, request);
   return request.engine;
+}
+
+interface DiscoveryRequest {
+  engine?: Engine;
 }
 
 function createEngine(pi: ExtensionAPI): Engine {
@@ -457,6 +434,20 @@ class Engine {
   }
 }
 
+export interface ModeDefinition {
+  identity: ModeIdentity;
+  // Whether the mode's startup flag counts on this session_start; plan mode ignores its flag
+  // in a fresh handoff session.
+  requestedAtStartup(event: { reason: string }, context: ExtensionContext): boolean;
+  // Whether the settings start this mode in a session whose branch records no mode yet.
+  defaultAtStartup?(event: { reason: string }, context: ExtensionContext): boolean;
+}
+
+type Decision = "allow-session" | "allow-always" | "deny-session" | "deny-always";
+
+// A toggle while the agent runs waits for the next tool call or the end of the run.
+type AgentActivity = { kind: "idle" } | { kind: "running"; pendingMode: AgentMode | undefined };
+
 function emptyStores(): DecisionStores {
   return { sessionGrants: new Set(), alwaysGrants: new Set(), sessionDenials: new Map(), alwaysDenials: new Map() };
 }
@@ -511,6 +502,15 @@ function listDecisions(stores: DecisionStores, pathRules: readonly PathRule[], p
     ),
     ...pathRuleEntries(pathRules, pathRuleStore),
   ];
+}
+
+interface DecisionStores {
+  sessionGrants: Set<string>;
+  alwaysGrants: Set<string>;
+  // Denials carry the note the user left, so a repeat block can keep repeating the guidance
+  // instead of only saying no.
+  sessionDenials: Map<string, string | undefined>;
+  alwaysDenials: Map<string, string | undefined>;
 }
 
 function summarizeInput(input: object): string {

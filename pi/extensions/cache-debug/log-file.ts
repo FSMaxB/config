@@ -21,10 +21,6 @@ const MAXIMUM_LOG_AGE_MILLISECONDS = MAXIMUM_LOG_AGE_DAYS * MILLISECONDS_PER_DAY
 const OWNER_ONLY_DIRECTORY_MODE = 0o700;
 const OWNER_ONLY_FILE_MODE = 0o600;
 
-export function logFilePath(directory: string, sessionId: string): string {
-  return join(directory, `${sessionId.replace(/[^A-Za-z0-9_-]/g, "_")}.jsonl`);
-}
-
 export class LogWriter {
   lastError: string | undefined;
   #queue: Promise<void> = Promise.resolve();
@@ -113,6 +109,10 @@ export async function resolveLogPath(directory: string, target: string | undefin
   if (target === undefined) return newestLog(directory);
   if (target.endsWith(".jsonl") || target.includes("/")) return target;
   return logFilePath(directory, target);
+}
+
+export function logFilePath(directory: string, sessionId: string): string {
+  return join(directory, `${sessionId.replace(/[^A-Za-z0-9_-]/g, "_")}.jsonl`);
 }
 
 function parseRecord(line: string): LogRecord | undefined {

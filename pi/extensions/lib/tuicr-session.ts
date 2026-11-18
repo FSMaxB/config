@@ -1,22 +1,5 @@
 import { isRecord } from "./untyped.ts";
 
-export interface SessionEntry {
-  slug: string;
-  updated_at: string;
-  active: boolean;
-}
-
-// tuicr's JSON field names. comment_type stays open: tuicr may add types this extension
-// does not know yet, and they are shown as they are.
-export interface TuicrComment {
-  id: string;
-  location: string;
-  path: string | undefined;
-  side: "old" | "new" | undefined;
-  comment_type: string;
-  content: string;
-}
-
 export function parseSessionEntries(value: unknown): SessionEntry[] {
   if (!Array.isArray(value)) throw new Error("tuicr listed its sessions in an unexpected format.");
   return value.map((item: unknown) => {
@@ -60,16 +43,17 @@ export function activeSlugs(entries: readonly SessionEntry[]): Set<string> {
   return new Set(entries.filter((entry) => entry.active).map((entry) => entry.slug));
 }
 
+export interface SessionEntry {
+  slug: string;
+  updated_at: string;
+  active: boolean;
+}
+
 export function unseenComments(
   comments: readonly TuicrComment[],
   seen: ReadonlySet<string>,
 ): TuicrComment[] {
   return comments.filter((comment) => !seen.has(comment.id));
-}
-
-export interface QuietState {
-  count: number;
-  since: number;
 }
 
 // Tracks when the set of unseen comments last grew. The wait tool returns once
@@ -92,6 +76,11 @@ export function quietElapsed(
   return state !== undefined && now - state.since >= quietMs;
 }
 
+export interface QuietState {
+  count: number;
+  since: number;
+}
+
 export function formatComments(comments: readonly TuicrComment[]): string {
   if (comments.length === 0) return "No comments.";
   return comments.map(formatComment).join("\n\n");
@@ -104,4 +93,15 @@ function formatComment(comment: TuicrComment): string {
   const where = path ? `${location}${side === "old" ? " (old side)" : ""}` : "review-level";
   const type = comment_type === "none" ? "" : `[${comment_type}] `;
   return `- ${type}${where}\n  ${content.replace(/\n/g, "\n  ")}`;
+}
+
+// tuicr's JSON field names. comment_type stays open: tuicr may add types this extension
+// does not know yet, and they are shown as they are.
+export interface TuicrComment {
+  id: string;
+  location: string;
+  path: string | undefined;
+  side: "old" | "new" | undefined;
+  comment_type: string;
+  content: string;
 }

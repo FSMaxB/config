@@ -8,12 +8,6 @@ export const ThinkingMode = {
   Text: "text",
   Keep: "keep",
 } as const;
-export type ThinkingMode = (typeof ThinkingMode)[keyof typeof ThinkingMode];
-
-export interface ThinkingRule { from?: string; to?: string; mode: ThinkingMode }
-export interface ThinkingConfig { fallback: ThinkingMode; rules: ThinkingRule[] }
-export interface ParsedConfig { config: ThinkingConfig; problems: string[] }
-export interface TargetModel { provider: string; api: string; id: string }
 
 const BRIDGE_PROVIDER = "pi-claude";
 const BRIDGE_API = "claude-bridge";
@@ -35,6 +29,7 @@ export function parseConfig(settings: object): ParsedConfig {
     problems,
   };
 }
+export interface ParsedConfig { config: ThinkingConfig; problems: string[] }
 
 /**
  * The bridge is never a target: it converts thinking itself, and rewriting its
@@ -53,10 +48,6 @@ export function rewriteForeignThinking(
     if (!message.content.some((block) => block.type === "thinking")) return message;
     return rewriteMessage(message, target, override ?? resolveMode(config, message, target));
   });
-}
-
-export function isThinkingMode(value: unknown): value is ThinkingMode {
-  return Object.values(ThinkingMode).some((mode) => mode === value);
 }
 
 const MODE_LIST = Object.values(ThinkingMode).join(", ");
@@ -107,6 +98,10 @@ function parseRule(entry: unknown): { ok: true; rule: ThinkingRule } | { ok: fal
   return { ok: true, rule: { ...(from === undefined ? {} : { from }), ...(to === undefined ? {} : { to }), mode } };
 }
 
+export function isThinkingMode(value: unknown): value is ThinkingMode {
+  return Object.values(ThinkingMode).some((mode) => mode === value);
+}
+
 function isSameModel(message: AssistantMessage, target: TargetModel): boolean {
   return message.provider === target.provider && message.api === target.api && message.model === target.id;
 }
@@ -117,6 +112,9 @@ function resolveMode(config: ThinkingConfig, message: AssistantMessage, target: 
   const rule = config.rules.find((rule) => matches(rule.from, source) && matches(rule.to, destination));
   return rule?.mode ?? config.fallback;
 }
+export interface ThinkingConfig { fallback: ThinkingMode; rules: ThinkingRule[] }
+
+export interface ThinkingRule { from?: string; to?: string; mode: ThinkingMode }
 
 function rewriteMessage(message: AssistantMessage, target: TargetModel, mode: ThinkingMode): AssistantMessage {
   switch (mode) {
@@ -143,6 +141,8 @@ function keepThinking(message: AssistantMessage, target: TargetModel): Assistant
     content: message.content.filter((block) => block.type !== "thinking" || isReadable(block)),
   };
 }
+export type ThinkingMode = (typeof ThinkingMode)[keyof typeof ThinkingMode];
+export interface TargetModel { provider: string; api: string; id: string }
 
 function thinkingAsText(block: ThinkingContent, message: AssistantMessage): TextContent[] {
   if (!isReadable(block)) return [];

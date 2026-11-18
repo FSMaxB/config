@@ -1,20 +1,3 @@
-export interface LogStreamState {
-  partialLine: string;
-  pendingLine: string | undefined;
-}
-
-export interface LogStreamEntry {
-  line: string;
-  // The first capture group of the format's tag pattern.
-  tag: string;
-}
-
-// Which kernel lines to keep and how to read the tag that follows them: srt tags its denials, the recorder tags its allows.
-export interface LogStreamFormat {
-  action: "deny" | "allow";
-  tag: RegExp;
-}
-
 export const SRT_VIOLATIONS: LogStreamFormat = { action: "deny", tag: /^CMD64_(.+?)_END/ };
 
 export const INITIAL_LOG_STREAM_STATE: LogStreamState = { partialLine: "", pendingLine: undefined };
@@ -39,6 +22,23 @@ export function parseLogStreamChunk(state: LogStreamState, chunk: string, format
     pendingLine = undefined;
   }
   return { state: { partialLine, pendingLine }, entries };
+}
+
+export interface LogStreamState {
+  partialLine: string;
+  pendingLine: string | undefined;
+}
+
+export interface LogStreamEntry {
+  line: string;
+  // The first capture group of the format's tag pattern.
+  tag: string;
+}
+
+// Which kernel lines to keep and how to read the tag that follows them: srt tags its denials, the recorder tags its allows.
+export interface LogStreamFormat {
+  action: "deny" | "allow";
+  tag: RegExp;
 }
 
 const SANDBOX_MESSAGE = /Sandbox:\s+(.+)$/;

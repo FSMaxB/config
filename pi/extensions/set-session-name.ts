@@ -8,9 +8,6 @@ import { isRecord, stringProperty } from "./lib/untyped.ts";
 // Fits a terminal title and the session selector without truncation.
 const MAX_LENGTH = 80;
 
-// The sanitized name, or no name when nothing survived sanitization.
-type SessionNameDetails = { requested: string; kind: "set"; name: string } | { requested: string; kind: "empty" };
-
 export default function (pi: ExtensionAPI): void {
   registerToolWithGuidelines(pi, {
     name: "set_session_name",
@@ -77,3 +74,6 @@ export default function (pi: ExtensionAPI): void {
     },
   });
 }
+
+// The sanitized name, or no name when nothing survived sanitization.
+type SessionNameDetails = { requested: string; kind: "set"; name: string } | { requested: string; kind: "empty" };

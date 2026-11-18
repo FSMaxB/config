@@ -469,56 +469,6 @@ const SubagentParameters = Type.Object({
   cwd: Type.Optional(Type.String({ description: "Working directory for the agent process (single mode)" })),
 });
 
-interface UsageStats {
-  input: number;
-  output: number;
-  cacheRead: number;
-  cacheWrite: number;
-  cost: number;
-  contextTokens: number;
-  turns: number;
-}
-
-interface SingleResult {
-  agent: string;
-  task: string;
-  exitCode: number;
-  messages: Message[];
-  stderr: string;
-  usage: UsageStats;
-  nativeUsage: Usage;
-  model?: string;
-  thinkingLevel?: ModelThinkingLevel;
-  stopReason?: string;
-  errorMessage?: string;
-  // Set when the child did not exit on its own after finishing and the watchdog terminated it.
-  terminationNote?: string;
-}
-
-interface SubagentDetails {
-  mode: "single" | "parallel";
-  results: SingleResult[];
-}
-
-type DisplayItem = { type: "text"; text: string } | { type: "toolCall"; name: string; args: Record<string, unknown> };
-
-type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
-
-interface DispatchContext {
-  mainModel: Model<Api> | undefined;
-  thinkingLevel?: ThinkingLevel;
-  availableModels: Model<Api>[];
-  policyConfig: SubagentModelConfig;
-  restriction: { mode: RestrictedMode; allowedTools: Set<string> } | undefined;
-  pathPolicy: ChildPathPolicy;
-  temporaryDirectory: string;
-}
-
-interface TaskOverrides {
-  model?: string;
-  thinkingLevel?: ModelThinkingLevel;
-}
-
 async function runSingleAgent(
   defaultCwd: string,
   dispatch: DispatchContext,
@@ -714,6 +664,13 @@ async function runSingleAgent(
   }
 }
 
+type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
+
+interface SubagentDetails {
+  mode: "single" | "parallel";
+  results: SingleResult[];
+}
+
 function resolveTaskConfig(
   agent: AgentConfig,
   overrides: TaskOverrides,
@@ -766,6 +723,11 @@ function resolveTaskConfig(
   };
 }
 
+interface TaskOverrides {
+  model?: string;
+  thinkingLevel?: ModelThinkingLevel;
+}
+
 // Reused for every dispatch-side policy rejection so failures render with the
 // same resolved configuration metadata as successful tasks.
 function policyFailure(
@@ -805,6 +767,16 @@ function childEnvironment(dispatch: DispatchContext): NodeJS.ProcessEnv {
   return environment;
 }
 
+interface DispatchContext {
+  mainModel: Model<Api> | undefined;
+  thinkingLevel?: ThinkingLevel;
+  availableModels: Model<Api>[];
+  policyConfig: SubagentModelConfig;
+  restriction: { mode: RestrictedMode; allowedTools: Set<string> } | undefined;
+  pathPolicy: ChildPathPolicy;
+  temporaryDirectory: string;
+}
+
 function getPiInvocation(childArguments: readonly string[]): { command: string; args: readonly string[] } {
   const currentScript = process.argv.at(1);
   const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/");
@@ -827,18 +799,6 @@ async function writePromptToTemporaryFile(agentName: string, prompt: string): Pr
   const filePath = join(temporaryDirectory, `prompt-${safeName}.md`);
   await writeFile(filePath, prompt, { encoding: "utf-8", mode: 0o600 });
   return filePath;
-}
-
-function getFinalOutput(messages: readonly Message[]): string {
-  for (let index = messages.length - 1; index >= 0; index--) {
-    const message = messages[index];
-    if (message.role === "assistant") {
-      for (const part of message.content) {
-        if (part.type === "text") return part.text;
-      }
-    }
-  }
-  return "";
 }
 
 function getResultOutput(result: SingleResult): string {
@@ -871,6 +831,76 @@ async function mapWithConcurrencyLimit<TIn, TOut>(
   return results;
 }
 
+function renderCollapsedItems(
+  items: readonly DisplayItem[],
+  limit: number,
+  detail: "collapsed" | "expanded",
+  theme: Pick<Theme, "fg">,
+): string {
+  const toShow = items.slice(-limit);
+  const skipped = Math.max(0, items.length - limit);
+  let text = "";
+  if (skipped > 0) text += theme.fg("muted", `... ${skipped} earlier items\n`);
+  for (const item of toShow) {
+    if (item.type === "text") {
+      const preview = detail === "expanded" ? item.text : item.text.split("\n").slice(0, COLLAPSED_TEXT_LINES).join("\n");
+      text += `${theme.fg("toolOutput", preview)}\n`;
+    } else {
+      text += `${theme.fg("muted", "→ ") + formatToolCall(item.name, item.args, theme.fg.bind(theme))}\n`;
+    }
+  }
+  return text.trimEnd();
+}
+
+// One task in an expanded view: a caller-formatted header, the task text, any tool calls, the
+// final markdown output, and usage stats.
+function renderTaskSection(
+  container: Container,
+  header: string,
+  item: SingleResult,
+  theme: Pick<Theme, "fg">,
+  markdownTheme: ReturnType<typeof getMarkdownTheme>,
+  durationMs?: number,
+): void {
+  const displayItems = getDisplayItems(item.messages);
+  const finalOutput = getFinalOutput(item.messages);
+
+  container.addChild(new Text(header, 0, 0));
+  container.addChild(new Text(theme.fg("muted", "Task: ") + theme.fg("dim", item.task), 0, 0));
+
+  for (const displayItem of displayItems) {
+    if (displayItem.type === "toolCall") {
+      container.addChild(
+        new Text(
+          theme.fg("muted", "→ ") + formatToolCall(displayItem.name, displayItem.args, theme.fg.bind(theme)),
+          0,
+          0,
+        ),
+      );
+    }
+  }
+
+  if (finalOutput) {
+    container.addChild(new Spacer(1));
+    container.addChild(new Markdown(finalOutput.trim(), 0, 0, markdownTheme));
+  }
+
+  const footer = formatRunFooter(formatUsageStats(item.usage), durationMs);
+  if (footer) container.addChild(new Text(theme.fg("dim", footer), 0, 0));
+}
+
+function getFinalOutput(messages: readonly Message[]): string {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message.role === "assistant") {
+      for (const part of message.content) {
+        if (part.type === "text") return part.text;
+      }
+    }
+  }
+  return "";
+}
+
 function getDisplayItems(messages: readonly Message[]): DisplayItem[] {
   const items: DisplayItem[] = [];
   for (const message of messages) {
@@ -883,6 +913,8 @@ function getDisplayItems(messages: readonly Message[]): DisplayItem[] {
   }
   return items;
 }
+
+type DisplayItem = { type: "text"; text: string } | { type: "toolCall"; name: string; args: Record<string, unknown> };
 
 function formatToolCall(
   toolName: string,
@@ -950,64 +982,6 @@ function formatToolCall(
   }
 }
 
-function renderCollapsedItems(
-  items: readonly DisplayItem[],
-  limit: number,
-  detail: "collapsed" | "expanded",
-  theme: Pick<Theme, "fg">,
-): string {
-  const toShow = items.slice(-limit);
-  const skipped = Math.max(0, items.length - limit);
-  let text = "";
-  if (skipped > 0) text += theme.fg("muted", `... ${skipped} earlier items\n`);
-  for (const item of toShow) {
-    if (item.type === "text") {
-      const preview = detail === "expanded" ? item.text : item.text.split("\n").slice(0, COLLAPSED_TEXT_LINES).join("\n");
-      text += `${theme.fg("toolOutput", preview)}\n`;
-    } else {
-      text += `${theme.fg("muted", "→ ") + formatToolCall(item.name, item.args, theme.fg.bind(theme))}\n`;
-    }
-  }
-  return text.trimEnd();
-}
-
-// One task in an expanded view: a caller-formatted header, the task text, any tool calls, the
-// final markdown output, and usage stats.
-function renderTaskSection(
-  container: Container,
-  header: string,
-  item: SingleResult,
-  theme: Pick<Theme, "fg">,
-  markdownTheme: ReturnType<typeof getMarkdownTheme>,
-  durationMs?: number,
-): void {
-  const displayItems = getDisplayItems(item.messages);
-  const finalOutput = getFinalOutput(item.messages);
-
-  container.addChild(new Text(header, 0, 0));
-  container.addChild(new Text(theme.fg("muted", "Task: ") + theme.fg("dim", item.task), 0, 0));
-
-  for (const displayItem of displayItems) {
-    if (displayItem.type === "toolCall") {
-      container.addChild(
-        new Text(
-          theme.fg("muted", "→ ") + formatToolCall(displayItem.name, displayItem.args, theme.fg.bind(theme)),
-          0,
-          0,
-        ),
-      );
-    }
-  }
-
-  if (finalOutput) {
-    container.addChild(new Spacer(1));
-    container.addChild(new Markdown(finalOutput.trim(), 0, 0, markdownTheme));
-  }
-
-  const footer = formatRunFooter(formatUsageStats(item.usage), durationMs);
-  if (footer) container.addChild(new Text(theme.fg("dim", footer), 0, 0));
-}
-
 function aggregateUsage(results: readonly SingleResult[]): Omit<UsageStats, "contextTokens"> {
   const total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 0 };
   for (const result of results) {
@@ -1019,6 +993,32 @@ function aggregateUsage(results: readonly SingleResult[]): Omit<UsageStats, "con
     total.turns += result.usage.turns;
   }
   return total;
+}
+
+interface SingleResult {
+  agent: string;
+  task: string;
+  exitCode: number;
+  messages: Message[];
+  stderr: string;
+  usage: UsageStats;
+  nativeUsage: Usage;
+  model?: string;
+  thinkingLevel?: ModelThinkingLevel;
+  stopReason?: string;
+  errorMessage?: string;
+  // Set when the child did not exit on its own after finishing and the watchdog terminated it.
+  terminationNote?: string;
+}
+
+interface UsageStats {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cost: number;
+  contextTokens: number;
+  turns: number;
 }
 
 function formatAgentConfig(
@@ -1105,12 +1105,6 @@ async function persistedModeDecisions(mode: RestrictedMode): Promise<PersistedMo
   return { alwaysAllowed, alwaysDenied: alwaysDenied.map((denial) => denial.name) };
 }
 
-interface ChildEvent {
-  type: string | undefined;
-  willRetry: unknown;
-  message: unknown;
-}
-
 function parseChildEvent(line: string): ChildEvent | undefined {
   let parsed: unknown;
   try {
@@ -1120,6 +1114,12 @@ function parseChildEvent(line: string): ChildEvent | undefined {
   }
   if (!isRecord(parsed)) return undefined;
   return { type: typeof parsed.type === "string" ? parsed.type : undefined, willRetry: parsed.willRetry, message: parsed.message };
+}
+
+interface ChildEvent {
+  type: string | undefined;
+  willRetry: unknown;
+  message: unknown;
 }
 
 function stringArgument(toolArguments: Record<string, unknown>, name: string): string | undefined {

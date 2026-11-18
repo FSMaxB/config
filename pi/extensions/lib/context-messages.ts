@@ -23,12 +23,6 @@ export function splitContextMessages<Message extends { role: string }>(
   };
 }
 
-export interface TranscriptSystemSize {
-  instructionCharacters: number;
-  toolCharacters: number;
-  toolDeclarations: number;
-}
-
 export function measureTranscriptSystem(messages: readonly TranscriptSystemMessage[]): TranscriptSystemSize {
   let instructionCharacters = 0;
   let toolCharacters = 0;
@@ -53,6 +47,12 @@ export function measureTranscriptSystem(messages: readonly TranscriptSystemMessa
     }
   }
   return { instructionCharacters, toolCharacters, toolDeclarations };
+}
+
+export interface TranscriptSystemSize {
+  instructionCharacters: number;
+  toolCharacters: number;
+  toolDeclarations: number;
 }
 
 interface TranscriptSystemMessage {

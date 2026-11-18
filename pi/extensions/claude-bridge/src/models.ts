@@ -41,11 +41,6 @@ export const MODEL_IDS_IN_ORDER = [
 	HAIKU_4_5_MODEL_ID,
 ];
 
-type BridgeModelMetadata = Pick<Model<Api>, "id" | "name" | "reasoning" | "thinkingLevelMap" | "input" | "contextWindow" | "maxTokens">;
-
-// The bridge's own models are free: Claude Code bills through the user's own login or key.
-export type BridgeModel = BridgeModelMetadata & { cost: Model<Api>["cost"] };
-
 const FALLBACK_MODELS: Partial<Record<string, BridgeModelMetadata>> = {
 	[FABLE_5_2_MODEL_ID]: {
 		id: FABLE_5_2_MODEL_ID,
@@ -115,17 +110,17 @@ const FALLBACK_ONLY_DISPLAY_NAMES: Partial<Record<string, string>> = {
 	[OPUS_5_MODEL_ID]: "Claude Opus 5",
 };
 
-// Human label for the safety-fallback notice. Selectable models and the fallback-only ids above
-// have a label; the raw id is the last resort so an unknown reroute target still reads sensibly.
-export function modelDisplayName(modelId: string): string {
-	return FALLBACK_MODELS[modelId]?.name ?? FALLBACK_ONLY_DISPLAY_NAMES[modelId] ?? modelId;
-}
-
 // Claude Code picks the fallback per refusal category, so every reroute is announced, not only
 // the configured pairing.
 export function refusalFallbackNotice(originalModel: unknown, fallbackModel: unknown): string | undefined {
 	if (typeof originalModel !== "string" || typeof fallbackModel !== "string") return undefined;
 	return `Pi Claude switched ${modelDisplayName(originalModel)} to ${modelDisplayName(fallbackModel)} after Claude Code safety fallback.`;
+}
+
+// Human label for the safety-fallback notice. Selectable models and the fallback-only ids above
+// have a label; the raw id is the last resort so an unknown reroute target still reads sensibly.
+export function modelDisplayName(modelId: string): string {
+	return FALLBACK_MODELS[modelId]?.name ?? FALLBACK_ONLY_DISPLAY_NAMES[modelId] ?? modelId;
 }
 
 // Project pi-ai's model entries down to the fields pi's registerProvider expects,
@@ -142,3 +137,8 @@ export function buildModels(piAiModels: readonly BridgeModelMetadata[]): BridgeM
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		}));
 }
+
+// The bridge's own models are free: Claude Code bills through the user's own login or key.
+export type BridgeModel = BridgeModelMetadata & { cost: Model<Api>["cost"] };
+
+type BridgeModelMetadata = Pick<Model<Api>, "id" | "name" | "reasoning" | "thinkingLevelMap" | "input" | "contextWindow" | "maxTokens">;

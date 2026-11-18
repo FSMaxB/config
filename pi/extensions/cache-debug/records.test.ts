@@ -7,11 +7,6 @@ import type { LogRecord } from "./records.ts";
 const identity = { sessionId: "s", provider: "mistral", model: "large", api: "mistral-conversations" };
 const usage = { input: 10, output: 5, cacheRead: 100, cacheWrite: 0, cost: { total: 1 }, totalTokens: 115 };
 
-function arrange(): { records: LogRecord[]; tracker: RequestTracker } {
-  const records: LogRecord[] = [];
-  return { records, tracker: new RequestTracker((record) => records.push(record)) };
-}
-
 test("a request, its response and its message emit one completed record", () => {
   // arrange
   const { records, tracker } = arrange();
@@ -152,3 +147,8 @@ test("a warm decision labels only the first request after it", () => {
   // assert
   assert.equal(records[1]?.kind === "request" ? records[1].purpose : undefined, "turn");
 });
+
+function arrange(): { records: LogRecord[]; tracker: RequestTracker } {
+  const records: LogRecord[] = [];
+  return { records, tracker: new RequestTracker((record) => records.push(record)) };
+}

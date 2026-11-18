@@ -21,61 +21,6 @@ const REASONING_TO_EFFORT: Record<ThinkingLevel, EffortLevel> = {
 	minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "max", max: "max",
 };
 
-function normalizeEffortOverrideModelKey(value: string): string {
-	const key = value.trim().toLowerCase();
-	return key.startsWith(`${PROVIDER_ID}/`) ? key.slice(PROVIDER_ID.length + 1) : key;
-}
-
-export function resolveConfiguredEffort(
-	modelId: string,
-	reasoningEffort: EffortLevel | undefined,
-	providerConfig?: Config["provider"],
-): EffortLevel | undefined {
-	const target = normalizeEffortOverrideModelKey(modelId);
-	for (const [key, rawEffort] of Object.entries(providerConfig?.modelEffortOverrides ?? {})) {
-		const normalizedKey = normalizeEffortOverrideModelKey(key);
-		if (normalizedKey !== "*" && normalizedKey !== target) continue;
-		const effort = normalizeEffortLevel(rawEffort);
-		if (effort) return effort;
-	}
-	return normalizeEffortLevel(providerConfig?.forceEffort) ?? reasoningEffort;
-}
-
-export interface BuildClaudeQueryOptionsInput {
-	cwd: string;
-	/** The model Pi requested. */
-	requestedModel: Model<Api>;
-	bridgeConfig: Config;
-	systemPrompt?: string;
-	/** Tools the transcript currently offers; decides the system prompt mode. */
-	tools: readonly Tool[];
-	/** Pi reasoning level from the stream options, if any. */
-	reasoning?: ThinkingLevel;
-	resumeSessionId: string | undefined;
-	/** Record uuid to truncate the resumed session at; the query then forks into a new session id. Ignored without `resumeSessionId`. */
-	forkAt?: string;
-	mcpServers?: Record<string, McpSdkServerConfigWithInstance>;
-	claudeExecutable?: string;
-	/** Replaces the default spawn so the caller can observe the child; defaults to spawnClaudeCodeWithDiagnostics. */
-	spawnClaudeCodeProcess?: (options: SpawnOptions) => SpawnedProcess;
-}
-
-/** How the caller's system prompt reaches Claude Code. Pi's agent loop always
- *  offers tools, so a request without any is a one-shot from another extension
- *  (memory extraction, compaction summaries) whose own system prompt is the
- *  whole instruction; the Claude Code preset would replace it. */
-export type SystemPromptMode = "claude-code-preset" | "verbatim";
-
-export interface BuiltClaudeQueryOptions {
-	queryOptions: NonNullable<Parameters<typeof query>[0]["options"]>;
-	// Diagnostics-ish bits the caller's debug line reports.
-	systemPromptMode: SystemPromptMode;
-	appendSystemPrompt: boolean;
-	promptContextLabels: string[];
-	effort?: EffortLevel;
-	fallbackModel?: string;
-}
-
 export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): BuiltClaudeQueryOptions {
 	const { cwd, requestedModel, bridgeConfig, systemPrompt, tools, reasoning, resumeSessionId, forkAt, mcpServers, claudeExecutable, spawnClaudeCodeProcess } = input;
 	const providerSettings = bridgeConfig.provider ?? {};
@@ -158,9 +103,64 @@ export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): Bu
 	};
 }
 
+export function resolveConfiguredEffort(
+	modelId: string,
+	reasoningEffort: EffortLevel | undefined,
+	providerConfig?: Config["provider"],
+): EffortLevel | undefined {
+	const target = normalizeEffortOverrideModelKey(modelId);
+	for (const [key, rawEffort] of Object.entries(providerConfig?.modelEffortOverrides ?? {})) {
+		const normalizedKey = normalizeEffortOverrideModelKey(key);
+		if (normalizedKey !== "*" && normalizedKey !== target) continue;
+		const effort = normalizeEffortLevel(rawEffort);
+		if (effort) return effort;
+	}
+	return normalizeEffortLevel(providerConfig?.forceEffort) ?? reasoningEffort;
+}
+
+function normalizeEffortOverrideModelKey(value: string): string {
+	const key = value.trim().toLowerCase();
+	return key.startsWith(`${PROVIDER_ID}/`) ? key.slice(PROVIDER_ID.length + 1) : key;
+}
+
+export interface BuildClaudeQueryOptionsInput {
+	cwd: string;
+	/** The model Pi requested. */
+	requestedModel: Model<Api>;
+	bridgeConfig: Config;
+	systemPrompt?: string;
+	/** Tools the transcript currently offers; decides the system prompt mode. */
+	tools: readonly Tool[];
+	/** Pi reasoning level from the stream options, if any. */
+	reasoning?: ThinkingLevel;
+	resumeSessionId: string | undefined;
+	/** Record uuid to truncate the resumed session at; the query then forks into a new session id. Ignored without `resumeSessionId`. */
+	forkAt?: string;
+	mcpServers?: Record<string, McpSdkServerConfigWithInstance>;
+	claudeExecutable?: string;
+	/** Replaces the default spawn so the caller can observe the child; defaults to spawnClaudeCodeWithDiagnostics. */
+	spawnClaudeCodeProcess?: (options: SpawnOptions) => SpawnedProcess;
+}
+
+export interface BuiltClaudeQueryOptions {
+	queryOptions: NonNullable<Parameters<typeof query>[0]["options"]>;
+	// Diagnostics-ish bits the caller's debug line reports.
+	systemPromptMode: SystemPromptMode;
+	appendSystemPrompt: boolean;
+	promptContextLabels: string[];
+	effort?: EffortLevel;
+	fallbackModel?: string;
+}
+
 export function systemPromptModeForQuery(tools: readonly Tool[], systemPrompt: string | undefined): SystemPromptMode {
 	return tools.length === 0 && systemPrompt ? "verbatim" : "claude-code-preset";
 }
+
+/** How the caller's system prompt reaches Claude Code. Pi's agent loop always
+ *  offers tools, so a request without any is a one-shot from another extension
+ *  (memory extraction, compaction summaries) whose own system prompt is the
+ *  whole instruction; the Claude Code preset would replace it. */
+export type SystemPromptMode = "claude-code-preset" | "verbatim";
 
 export function settingSourcesForQuery(promptAppend: "append" | "omit", configured?: readonly SettingSource[]): SettingSource[] | undefined {
 	return promptAppend === "append" ? undefined : configured === undefined ? ["user", "project"] : [...configured];
