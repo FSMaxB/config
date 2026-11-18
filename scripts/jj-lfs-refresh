@@ -1,0 +1,72 @@
+#!/bin/sh
+# Replaces the LFS commit of a jj megamerge stack (see the jj-megamerge skill)
+# with a fresh one that holds the real content of every git-lfs file.
+set -eu
+
+# jj prints this warning, and still exits 0, when snapshot.max-new-file-size
+# keeps files out of the working-copy commit.
+REFUSED_SNAPSHOT_WARNING='Refused to snapshot'
+LFS_COMMIT='exactly(subject(exact:"LFS") & ::merge, 1)'
+
+main() {
+    operation=$(jj op log -n 1 --no-graph -T 'id.short()')
+    trap report_failure EXIT
+
+    snapshot
+    start=$(jj log --no-graph -r @ -T 'change_id')
+    start_parents=$(jj log --no-graph -r @- -T 'change_id ++ " "')
+    lfs=$(jj log --no-graph -r "$LFS_COMMIT" -T 'change_id')
+    # The new commit sits between the old LFS commit and its parent, so
+    # git lfs pull fills it from the LFS pointers of that parent.
+    jj new -B "$lfs" -m LFS
+    fresh=$(jj log --no-graph -r @ -T 'change_id')
+    git lfs pull
+    snapshot
+    # Abandoning rebases the rest of the lane onto the fresh commit, which
+    # drops the old commit's conflicts.
+    jj abandon -r "$lfs"
+    return_to_start
+    trap - EXIT
+
+    jj log -r 'conflicts() & mutable()'
+}
+
+report_failure() {
+    echo "jj-lfs-refresh failed. Undo everything with: jj op restore $operation" >&2
+}
+
+snapshot() {
+    output=$(jj util snapshot 2>&1)
+    printf '%s\n' "$output" >&2
+    case $output in
+        *"$REFUSED_SNAPSHOT_WARNING"*) return 1 ;;
+    esac
+}
+
+return_to_start() {
+    target=$(replace_lfs "$start")
+    if [ -n "$(jj log --no-graph -r "present($target)" -T 'change_id')" ]; then
+        jj edit "$target"
+        return
+    fi
+    # jj abandons an empty, undescribed working-copy commit once the script
+    # moves away from it, so recreate it on the same parents.
+    parents=''
+    for parent in $start_parents; do
+        parents="$parents $(replace_lfs "$parent")"
+    done
+    # shellcheck disable=SC2086 # one argument per parent
+    jj new $parents
+}
+
+# The abandoned LFS commit's change ID no longer resolves; the fresh commit
+# takes its place.
+replace_lfs() {
+    if [ "$1" = "$lfs" ]; then
+        printf '%s\n' "$fresh"
+        return
+    fi
+    printf '%s\n' "$1"
+}
+
+main "$@"

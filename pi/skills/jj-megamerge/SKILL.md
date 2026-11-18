@@ -103,20 +103,19 @@ jj simplify-parents -r merge
 Run it when the LFS commit is conflicted after a sync, or when the user asks.
 
 ```sh
-jj log -r 'subject(exact:"LFS") & ::merge'   # exactly one commit: <lfs>
-jj new -B <lfs> -m LFS                        # @ = new empty LFS commit below the old one
-git lfs pull                                  # writes every LFS file's content into the working copy
-jj abandon -r <lfs>
-jj new 'exactly(heads(merge::), 1)'           # back to the top; errors if there are several heads, then ask the user
-jj log -r 'conflicts() & mutable()'
+jj-lfs-refresh
 ```
 
-`jj new -B` puts the new commit between the old LFS commit and its parent, and `git lfs pull` fills it from the LFS-tracked files of that parent. Abandoning the old commit rebases the rest of the lane onto the fresh one, which drops the old conflicts.
+The script lives in `~/config/scripts`, which is on `PATH`. It records the current operation itself, so skip that step of the rules. It:
 
-- `git lfs pull` needs network access to GitHub's LFS storage. If a sandbox blocks it, ask to rerun it unsandboxed.
-- If snapshotting refuses files because of `snapshot.max-new-file-size`, stop and report the file names.
-- Leaving the empty, undescribed `@` makes jj abandon it automatically. That is expected.
-- Plain `jj new 'heads(merge::)'` would silently create a merge commit when there are several heads; `exactly(..., 1)` makes it refuse instead.
+1. Stops before changing anything if the stack has no single LFS commit, or if jj refuses to snapshot files.
+2. Puts a new empty `LFS` commit between the old one and its parent (`jj new -B`), and fills it with `git lfs pull`.
+3. Abandons the old LFS commit. The rest of the lane is rebased onto the fresh one, which drops the old conflicts.
+4. Returns to the commit `@` was on, recreating it if jj abandoned it because it was empty, and lists the remaining conflicts.
+
+- On failure it prints `jj op restore <id>`. Stop, report the output and give the user that command. Don't repair it yourself.
+- `git lfs pull` needs network access to GitHub's LFS storage. If a sandbox blocks it, ask to rerun the script unsandboxed.
+- If it stops with `Refused to snapshot some files`, report the file names.
 
 ### Promote work into a new lane
 

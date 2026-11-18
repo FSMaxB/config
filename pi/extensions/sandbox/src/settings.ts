@@ -28,6 +28,8 @@ const DEFAULT_TOOLCHAIN_READ = [
   "~/.cargo", "~/.rustup", "~/.npm", "~/.nvm", "~/.cache", "~/.local/share/pnpm", "~/.bun", "~/.deno", "~/.pyenv", "~/.nix-profile",
   "~/.gitconfig", "~/.gitignore_global", "~/.config/git", "~/.config/jj",
   "~/Library/Preferences/.GlobalPreferences*", "~/Library/Preferences/ByHost/.GlobalPreferences*",
+  // .shellrc-common puts these on PATH, and they run from any repository.
+  "~/config/scripts",
 ];
 
 // A missing file means defaults; a present but invalid one throws so the sandbox fails closed.

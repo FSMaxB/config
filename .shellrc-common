@@ -4,6 +4,8 @@ source ~/.ansi-colors
 
 # Custom binaries
 PATH="${PATH}:$HOME/config/binaries/$(uname -s)/$(uname -m)/"
+# Custom scripts
+PATH="${PATH}:$HOME/config/scripts"
 
 #check if $1 exists
 function command_exists() {
