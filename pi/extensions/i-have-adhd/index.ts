@@ -64,6 +64,7 @@ function loadRules(): string {
     const reason = errorMessage(error);
     throw new Error(
       `Unable to load i-have-adhd rules from ${SKILL_PATH}: ${reason}`,
+      { cause: error },
     );
   }
 

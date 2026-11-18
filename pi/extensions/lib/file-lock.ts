@@ -23,7 +23,7 @@ export async function withFileLock<T>(filePath: string, description: string, ope
       break;
     } catch (error) {
       if (errorCode(error) !== "EEXIST" || now() >= deadline) {
-        throw new Error(`Could not acquire ${description} lock ${lockPath}; remove it manually if no process owns it.`);
+        throw new Error(`Could not acquire ${description} lock ${lockPath}; remove it manually if no process owns it.`, { cause: error });
       }
       await new Promise((resolve) => setTimeout(resolve, RETRY_BASE_MILLISECONDS + Math.random() * RETRY_JITTER_MILLISECONDS));
     }

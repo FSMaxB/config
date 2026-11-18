@@ -664,9 +664,6 @@
     "no-restricted-syntax": {
       "count": 1
     },
-    "preserve-caught-error": {
-      "count": 1
-    },
     "unicorn/name-replacements": {
       "count": 2
     }
@@ -722,9 +719,6 @@
   },
   "extensions/lib/file-lock.ts": {
     "@typescript-eslint/no-unnecessary-condition": {
-      "count": 1
-    },
-    "preserve-caught-error": {
       "count": 1
     }
   },
@@ -1321,9 +1315,6 @@
   "extensions/sandbox/src/profiles.ts": {
     "local/step-down": {
       "count": 9
-    },
-    "preserve-caught-error": {
-      "count": 1
     }
   },
   "extensions/sandbox/src/recorder.ts": {
@@ -1374,9 +1365,6 @@
   "extensions/sandbox/src/settings.ts": {
     "local/step-down": {
       "count": 4
-    },
-    "preserve-caught-error": {
-      "count": 2
     }
   },
   "extensions/sandbox/src/shell.ts": {

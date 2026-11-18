@@ -189,7 +189,7 @@ function patternArray(value: unknown, name: string): string[] {
     try {
       new RegExp(pattern);
     } catch (error) {
-      throw new Error(`${name}[${index}] is not a valid regular expression: ${errorMessage(error)}`);
+      throw new Error(`${name}[${index}] is not a valid regular expression: ${errorMessage(error)}`, { cause: error });
     }
   }
   return patterns;
