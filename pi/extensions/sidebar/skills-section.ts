@@ -1,23 +1,16 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SectionChanged, SidebarSection } from "./section.ts";
+import { buildSkillIndex, skillLoadForReadPath } from "../lib/skill-index.ts";
+import type { SkillIndex, SkillLevel, SkillLoad } from "../lib/skill-index.ts";
 import {
   applySkillLoad,
-  buildSkillIndex,
   LOADED_SKILL_ENTRY,
   LOADED_SKILL_REFERENCE_ENTRY,
   skillItems,
-  skillLoadForReadPath,
   skillLoadFromUserContent,
   skillsOnBranch,
 } from "./skills.ts";
-import type {
-  LoadedSkillData,
-  LoadedSkillReferenceData,
-  SkillIndex,
-  SkillLevel,
-  SkillLoad,
-  SkillOnBranch,
-} from "./skills.ts";
+import type { LoadedSkillData, LoadedSkillReferenceData, SkillOnBranch } from "./skills.ts";
 
 const TITLES: Record<SkillLevel, string> = { repo: "Repo skills", user: "User skills" };
 
