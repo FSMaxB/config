@@ -138,6 +138,7 @@ export function profileSessionGrants({ allowed, denied }: ProfileSessionState): 
 }
 
 export function serializeProfileState({ allowed, denied }: ProfileSessionState): { allowed: string[]; denied: Record<string, string | null> } {
+  // eslint-disable-next-line unicorn/no-null -- sandbox.json stores a denial without a note as null
   return { allowed: [...allowed], denied: Object.fromEntries([...denied].map(([name, note]) => [name, note ?? null])) };
 }
 

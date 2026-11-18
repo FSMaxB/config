@@ -84,6 +84,7 @@ test("items are labelled by role, tool name or type", () => {
 
 test("a payload that is not an object has no fingerprint", () => {
   // arrange
+  // eslint-disable-next-line unicorn/no-null -- a JSON payload can hold null
   const payloads = ["x", null, []];
 
   // act

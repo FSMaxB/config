@@ -73,4 +73,4 @@ export type PlanSubmissionOutcome =
   | "saved"
   | "handed-off";
 
-export type PlanSubmissionResult = AgentToolResult<{ path: string | null; outcome: PlanSubmissionOutcome }>;
+export type PlanSubmissionResult = AgentToolResult<{ path: string | undefined; outcome: PlanSubmissionOutcome }>;

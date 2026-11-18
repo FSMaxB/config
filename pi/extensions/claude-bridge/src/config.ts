@@ -66,7 +66,7 @@ function rootAnchored(path: string, platform: "windows" | "posix"): boolean { re
  * those paths too.
  */
 export function piUserDirectory(): string {
-	const override = expandHome(process.env.PI_CODING_AGENT_DIR?.trim() || "");
+	const override = expandHome(process.env.PI_CODING_AGENT_DIR?.trim() ?? "");
 	return resolve(rootAnchored(override, process.platform === "win32" ? "windows" : "posix") ? override : expandHome("~/.pi/agent"));
 }
 

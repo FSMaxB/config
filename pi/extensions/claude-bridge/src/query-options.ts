@@ -13,6 +13,7 @@ import { makeCliDebugOptions } from "./debug.js";
 import { fallbackModelForPrimaryModel } from "./models.js";
 import { buildPromptContextAppend } from "./prompt-context.js";
 import { extractSkillsBlock, MCP_SERVER_NAME } from "./skills.js";
+import { nonEmpty } from "../../lib/untyped.ts";
 
 // Pi reasoning levels → CC SDK effort levels
 
@@ -132,7 +133,7 @@ export function buildClaudeQueryOptions(input: BuildClaudeQueryOptionsInput): Bu
 		...(providerSettings.fastMode ? { settings: { fastMode: true } } : {}),
 		systemPrompt: systemPromptMode === "verbatim" && systemPrompt
 			? systemPrompt
-			: { type: "preset", preset: "claude_code", append: systemPromptAppend ? systemPromptAppend : undefined },
+			: { type: "preset", preset: "claude_code", append: nonEmpty(systemPromptAppend) },
 		extraArgs: extraArguments,
 		...(effort ? { effort } : {}),
 		...(settingSources ? { settingSources } : {}),

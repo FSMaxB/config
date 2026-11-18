@@ -291,7 +291,7 @@ export function reportToolResultMismatch(
 				cursor: sharedSession.cursor,
 				needsRebuild: sharedSession.needsRebuild === true,
 				forceRotate: sharedSession.forceRotate === true,
-			} : null,
+			} : undefined,
 		});
 		appendIntegrityEntry("tool_result_delivery_mismatch", {
 			reason,

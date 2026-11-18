@@ -58,12 +58,12 @@ export default function (pi: ExtensionAPI): void {
       }),
     }),
 
-    async execute(_toolCallId, parameters, _signal, _onUpdate, context): Promise<AgentToolResult<{ path: string | null }>> {
+    async execute(_toolCallId, parameters, _signal, _onUpdate, context): Promise<AgentToolResult<{ path: string | undefined }>> {
       plan.flushPendingToggle(context);
       if (!plan.isActive()) {
         return {
           content: [{ type: "text", text: "plan_path is only available in plan mode, which is off. Only the user can enable it." }],
-          details: { path: null },
+          details: { path: undefined },
         };
       }
       const path = newPlanPath(parameters.slug);
@@ -185,7 +185,7 @@ export default function (pi: ExtensionAPI): void {
       const error = "submit_plan is only available in plan mode, which is off. Only the user can enable it.";
       return {
         content: [{ type: "text", text: error }],
-        details: { path: null, outcome: "unavailable" },
+        details: { path: undefined, outcome: "unavailable" },
       };
     }
 
@@ -196,7 +196,7 @@ export default function (pi: ExtensionAPI): void {
     if (!isInPlansDirectory(path)) {
       return {
         content: [{ type: "text", text: `${path} is outside the plans directory (${plansDirectory()}). Call plan_path for a plan file path, write the plan there, then call submit_plan with that path.` }],
-        details: { path: null, outcome: "outside-plans-directory" },
+        details: { path: undefined, outcome: "outside-plans-directory" },
       };
     }
     const planFile = await stat(path).catch(() => undefined);
@@ -204,7 +204,7 @@ export default function (pi: ExtensionAPI): void {
     if (!planFile?.isFile()) {
       return {
         content: [{ type: "text", text: `No plan file exists at ${path}. Write it first, then call submit_plan with its path.` }],
-        details: { path: null, outcome: "missing" },
+        details: { path: undefined, outcome: "missing" },
       };
     }
 

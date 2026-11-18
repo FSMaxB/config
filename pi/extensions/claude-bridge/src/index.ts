@@ -219,6 +219,7 @@ async function* wrapPromptStream(blocks: readonly ContentBlockParam[]): AsyncIte
 	yield {
 		type: "user",
 		message: { role: "user", content: [...blocks] },
+		// eslint-disable-next-line unicorn/no-null -- the Agent SDK's user message requires parent_tool_use_id: null
 		parent_tool_use_id: null,
 	};
 }
@@ -368,7 +369,7 @@ function buildMcpServers(tools: readonly Tool[], queryContext: QueryContext): Re
 // never become primary and steal registration ownership.
 function claimPrimaryInstance(): boolean {
 	const g = processGlobals();
-	if (!g[PRIMARY_INSTANCE_KEY]) g[PRIMARY_INSTANCE_KEY] = streamClaudeAgentSdk;
+	g[PRIMARY_INSTANCE_KEY] ??= streamClaudeAgentSdk;
 	return g[PRIMARY_INSTANCE_KEY] === streamClaudeAgentSdk;
 }
 
@@ -897,7 +898,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 	const claudeExecutable = resolveClaudeExecutable(providerSettings.pathToClaudeCodeExecutable);
 	const claudeExecutablePreflight = claudeExecutable ? preflightClaudeExecutable(claudeExecutable, cwd) : undefined;
 
-	const cursorBeforeSync = getSharedSession()?.cursor ?? null;
+	const cursorBeforeSync = getSharedSession()?.cursor;
 	// A REENTRANT (subagent) query never touches the module-level shared
 	// session: syncSharedSession's REBUILD path is destructive to the PARENT's
 	// session file, and any resume id borrowed from the parent would splice the
@@ -944,7 +945,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 			promptRoles: promptMessages.map((m) => m.role).join(" "),
 			sharedSession: (() => {
 				const activeSession = getSharedSession();
-				return activeSession ? { sessionId: shortId(activeSession.sessionId), cursor: activeSession.cursor } : null;
+				return activeSession ? { sessionId: shortId(activeSession.sessionId), cursor: activeSession.cursor } : undefined;
 			})(),
 			messageRoles: context.messages.map((m, index) => `[${index}]${m.role}`).join(" "),
 		});

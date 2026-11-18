@@ -52,7 +52,7 @@ function summarizeJsonl(path: string): JsonlSummary {
 	forEachJsonlLine(path, (line) => {
 		if (!line.trim()) return;
 		summary.count += 1;
-		if (summary.firstLine === undefined) summary.firstLine = line;
+		summary.firstLine ??= line;
 		summary.lastLine = line;
 	});
 	return summary;

@@ -40,6 +40,7 @@ export function profileCompletions(prefix: string, profileNames: readonly string
   const candidates = second === undefined
     ? SUBCOMMANDS.filter((subcommand) => subcommand.startsWith(first)).map((subcommand) => ({ value: subcommand, label: subcommand }))
     : profileNames.filter((name) => name.startsWith(second)).map((name) => ({ value: `${first} ${name}`, label: name }));
+  // eslint-disable-next-line unicorn/no-null -- pi's argument completion treats null as "no completions"
   return candidates.length > 0 ? candidates : null;
 }
 

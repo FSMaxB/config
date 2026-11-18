@@ -74,7 +74,7 @@ function buildReport(
     );
   }
   lines.push(
-    usage?.tokens != null
+    usage !== undefined && usage.tokens !== null
       ? `Total is provider-reported (last response + trailing estimate); ` +
           `component breakdown uses the chars/4 heuristic and sums to ${formatTokens(estimatedTotal)}.`
       : "No provider-reported usage yet; everything shown uses the chars/4 heuristic.",

@@ -6,5 +6,6 @@ export const RULE_SUBCOMMANDS = ["grants", "allow", "deny"] as const;
 // pi's argument completion treats null as "no completions".
 export function completionItems(values: readonly string[], prefix: string): AutocompleteItem[] | null {
   const items = values.filter((value) => value.startsWith(prefix)).map((value) => ({ value, label: value }));
+  // eslint-disable-next-line unicorn/no-null -- pi's argument completion treats null as "no completions"
   return items.length > 0 ? items : null;
 }

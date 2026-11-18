@@ -113,6 +113,7 @@ function normalizedAssistantIdentity(content: unknown): string {
 			const { type, arguments: toolArguments } = block;
 			if (type === "text") return stringProperty(block, "text") ?? "";
 			// JSON's null keeps the anchors of calls without arguments as they were recorded.
+			// eslint-disable-next-line unicorn/no-null -- JSON text, where a missing argument object renders as null
 			if (type === "toolCall") return `${stringProperty(block, "name") ?? ""}(${JSON.stringify(toolArguments ?? null)})`;
 			return "";
 		})
@@ -532,7 +533,7 @@ export function verifyWrittenSession(
 			(DEBUG ? ` and attach ${DEBUG_LOG_PATH}` : ` (rerun with CLAUDE_BRIDGE_DEBUG=1 to capture a debug log)`),
 			"warning",
 		);
-		diagDump("session_verify_fail", { msg: message, jsonlPath, cwd, realpath: safeRealpath(cwd), claudeConfigDir: claudeDirectory ?? null });
+		diagDump("session_verify_fail", { msg: message, jsonlPath, cwd, realpath: safeRealpath(cwd), claudeConfigDir: claudeDirectory });
 	}
 }
 

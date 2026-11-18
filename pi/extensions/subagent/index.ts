@@ -18,7 +18,7 @@ import { formatDuration, shortenPath } from "../lib/format.ts";
 import { createLineSplitter } from "../lib/lines.ts";
 import { AgentMode, MODE_IDENTITIES, READ_ONLY_JJ_NOTE } from "../lib/agent-mode.ts";
 import type { RestrictedMode } from "../lib/agent-mode.ts";
-import { isRecord } from "../lib/untyped.ts";
+import { isRecord, nonEmpty } from "../lib/untyped.ts";
 import { BYTES_PER_KIBIBYTE, MILLISECONDS_PER_SECOND } from "../lib/units.ts";
 import { readPersistedDecisions } from "../lib/mode-decisions.ts";
 import { activeRestrictedMode } from "../lib/mode-entry.ts";
@@ -289,7 +289,7 @@ export default function (pi: ExtensionAPI): void {
       if (isFailedResult(result)) {
         const errorMessage = truncateTaskOutput(getResultOutput(result), PER_TASK_OUTPUT_CAP);
         return {
-          content: [{ type: "text", text: `Agent ${result.stopReason || "failed"}: ${errorMessage}` }],
+          content: [{ type: "text", text: `Agent ${result.stopReason ?? "failed"}: ${errorMessage}` }],
           details: { mode: "single", results: [result] },
           ...subagentOutcome([result]),
         };
@@ -316,7 +316,7 @@ export default function (pi: ExtensionAPI): void {
         if (toolArguments.tasks.length > MAX_PREVIEWED_TASKS) text += `\n  ${theme.fg("muted", `... +${toolArguments.tasks.length - MAX_PREVIEWED_TASKS} more`)}`;
         return new Text(text, 0, 0);
       }
-      const agentName = toolArguments.agent || "...";
+      const agentName = nonEmpty(toolArguments.agent) ?? "...";
       const preview = toolArguments.task ? (toolArguments.task.length > TASK_PREVIEW_CHARACTERS ? `${toolArguments.task.slice(0, TASK_PREVIEW_CHARACTERS)}...` : toolArguments.task) : "...";
       let text =
         theme.fg("toolTitle", theme.bold("subagent ")) +
@@ -891,12 +891,12 @@ function formatToolCall(
 ): string {
   switch (toolName) {
     case "bash": {
-      const command = stringArgument(toolArguments, "command") || "...";
+      const command = stringArgument(toolArguments, "command") ?? "...";
       const preview = command.length > TASK_PREVIEW_CHARACTERS ? `${command.slice(0, TASK_PREVIEW_CHARACTERS)}...` : command;
       return themeFg("muted", "$ ") + themeFg("toolOutput", preview);
     }
     case "read": {
-      const rawPath = stringArgument(toolArguments, "file_path") || stringArgument(toolArguments, "path") || "...";
+      const rawPath = stringArgument(toolArguments, "file_path") ?? stringArgument(toolArguments, "path") ?? "...";
       const filePath = shortenPath(rawPath);
       const offset = numberArgument(toolArguments, "offset");
       const limit = numberArgument(toolArguments, "limit");
@@ -909,7 +909,7 @@ function formatToolCall(
       return themeFg("muted", `${toolName} `) + text;
     }
     case "write": {
-      const rawPath = stringArgument(toolArguments, "file_path") || stringArgument(toolArguments, "path") || "...";
+      const rawPath = stringArgument(toolArguments, "file_path") ?? stringArgument(toolArguments, "path") ?? "...";
       const filePath = shortenPath(rawPath);
       const content = stringArgument(toolArguments, "content") ?? "";
       const lines = content.split("\n").length;
@@ -918,24 +918,24 @@ function formatToolCall(
       return text;
     }
     case "edit": {
-      const rawPath = stringArgument(toolArguments, "file_path") || stringArgument(toolArguments, "path") || "...";
+      const rawPath = stringArgument(toolArguments, "file_path") ?? stringArgument(toolArguments, "path") ?? "...";
       return themeFg("muted", `${toolName} `) + themeFg("accent", shortenPath(rawPath));
     }
     case "ls":
     case "delete": {
-      const rawPath = stringArgument(toolArguments, "path") || ".";
+      const rawPath = stringArgument(toolArguments, "path") ?? ".";
       return themeFg("muted", `${toolName} `) + themeFg("accent", shortenPath(rawPath));
     }
     case "find": {
-      const pattern = stringArgument(toolArguments, "pattern") || "*";
-      const rawPath = stringArgument(toolArguments, "path") || ".";
+      const pattern = stringArgument(toolArguments, "pattern") ?? "*";
+      const rawPath = stringArgument(toolArguments, "path") ?? ".";
       return (
         themeFg("muted", `${toolName} `) + themeFg("accent", pattern) + themeFg("dim", ` in ${shortenPath(rawPath)}`)
       );
     }
     case "grep": {
       const pattern = stringArgument(toolArguments, "pattern") ?? "";
-      const rawPath = stringArgument(toolArguments, "path") || ".";
+      const rawPath = stringArgument(toolArguments, "path") ?? ".";
       return (
         themeFg("muted", `${toolName} `) +
         themeFg("accent", `/${pattern}/`) +
@@ -1124,7 +1124,7 @@ function parseChildEvent(line: string): ChildEvent | undefined {
 
 function stringArgument(toolArguments: Record<string, unknown>, name: string): string | undefined {
   const value = toolArguments[name];
-  return typeof value === "string" ? value : undefined;
+  return typeof value === "string" ? nonEmpty(value) : undefined;
 }
 
 function numberArgument(toolArguments: Record<string, unknown>, name: string): number | undefined {

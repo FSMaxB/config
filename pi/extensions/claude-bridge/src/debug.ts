@@ -2,15 +2,16 @@ import { randomUUID } from "node:crypto";
 import { appendFileSync, chmodSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { piUserDirectory } from "./config.js";
+import { nonEmpty } from "../../lib/untyped.ts";
 
 // CLAUDE_BRIDGE_DEBUG=1 enables debug logging to <piUserDirectory>/claude-bridge.log
 // (~/.pi/agent/claude-bridge.log unless PI_CODING_AGENT_DIR points elsewhere).
 
 export const DEBUG = process.env.CLAUDE_BRIDGE_DEBUG === "1";
-export const DEBUG_LOG_PATH = process.env.CLAUDE_BRIDGE_DEBUG_PATH || join(piUserDirectory(), "claude-bridge.log");
+export const DEBUG_LOG_PATH = nonEmpty(process.env.CLAUDE_BRIDGE_DEBUG_PATH) ?? join(piUserDirectory(), "claude-bridge.log");
 
 export function diagLogPath(): string {
-	return process.env.CLAUDE_BRIDGE_DIAG_PATH || join(piUserDirectory(), "claude-bridge-diag.log");
+	return nonEmpty(process.env.CLAUDE_BRIDGE_DIAG_PATH) ?? join(piUserDirectory(), "claude-bridge-diag.log");
 }
 
 /** Trailing clause for user-facing integrity notifications. With DEBUG on the

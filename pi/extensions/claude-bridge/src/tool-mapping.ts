@@ -78,7 +78,7 @@ export function mapToolArguments(
 		const piKey = renames?.[key] ?? key;
 		if (!(piKey in result)) result[piKey] = value; // first alias wins
 	}
-	if (toolName.toLowerCase() === "bash" && result.timeout == null) {
+	if (toolName.toLowerCase() === "bash" && !Object.hasOwn(result, "timeout") || result.timeout === null) {
 		result.timeout = DEFAULT_BASH_TIMEOUT_SECONDS;
 	}
 	return result;

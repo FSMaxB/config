@@ -12,9 +12,6 @@
   "extensions/cache-debug/fingerprint.test.ts": {
     "local/step-down": {
       "count": 1
-    },
-    "unicorn/no-null": {
-      "count": 1
     }
   },
   "extensions/cache-debug/fingerprint.ts": {
@@ -70,9 +67,6 @@
   "extensions/claude-bridge/src/bridge-state.ts": {
     "local/step-down": {
       "count": 12
-    },
-    "unicorn/no-null": {
-      "count": 1
     }
   },
   "extensions/claude-bridge/src/child-exit.ts": {
@@ -81,9 +75,6 @@
     }
   },
   "extensions/claude-bridge/src/claude-executable.ts": {
-    "@typescript-eslint/prefer-nullish-coalescing": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 13
     }
@@ -94,17 +85,11 @@
     }
   },
   "extensions/claude-bridge/src/config.ts": {
-    "@typescript-eslint/prefer-nullish-coalescing": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 20
     }
   },
   "extensions/claude-bridge/src/consume-query.ts": {
-    "@typescript-eslint/prefer-nullish-coalescing": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 4
     }
@@ -115,9 +100,6 @@
     }
   },
   "extensions/claude-bridge/src/debug.ts": {
-    "@typescript-eslint/prefer-nullish-coalescing": {
-      "count": 2
-    },
     "local/step-down": {
       "count": 2
     }
@@ -133,14 +115,8 @@
     }
   },
   "extensions/claude-bridge/src/index.ts": {
-    "@typescript-eslint/prefer-nullish-coalescing": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 14
-    },
-    "unicorn/no-null": {
-      "count": 3
     }
   },
   "extensions/claude-bridge/src/json-value.ts": {
@@ -169,9 +145,6 @@
     }
   },
   "extensions/claude-bridge/src/query-options.ts": {
-    "@typescript-eslint/prefer-nullish-coalescing": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 5
     }
@@ -204,15 +177,9 @@
   "extensions/claude-bridge/src/session-persistence.ts": {
     "local/step-down": {
       "count": 23
-    },
-    "unicorn/no-null": {
-      "count": 2
     }
   },
   "extensions/claude-bridge/src/session-verify.ts": {
-    "@typescript-eslint/prefer-nullish-coalescing": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 3
     }
@@ -230,9 +197,6 @@
   "extensions/claude-bridge/src/tool-mapping.ts": {
     "local/step-down": {
       "count": 2
-    },
-    "unicorn/no-null": {
-      "count": 1
     }
   },
   "extensions/claude-bridge/src/tool-pairing-audit.ts": {
@@ -253,9 +217,6 @@
   "extensions/context.ts": {
     "local/step-down": {
       "count": 1
-    },
-    "unicorn/no-null": {
-      "count": 1
     }
   },
   "extensions/crit.ts": {
@@ -274,14 +235,8 @@
     }
   },
   "extensions/fuzzy-files.ts": {
-    "@typescript-eslint/prefer-nullish-coalescing": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 1
-    },
-    "unicorn/no-null": {
-      "count": 2
     }
   },
   "extensions/i-have-adhd/context-compat.ts": {
@@ -302,16 +257,6 @@
   "extensions/lib/agent-mode.ts": {
     "local/step-down": {
       "count": 4
-    }
-  },
-  "extensions/lib/completions.ts": {
-    "unicorn/no-null": {
-      "count": 1
-    }
-  },
-  "extensions/lib/context-messages.test.ts": {
-    "unicorn/no-null": {
-      "count": 1
     }
   },
   "extensions/lib/context-messages.ts": {
@@ -434,11 +379,6 @@
       "count": 2
     }
   },
-  "extensions/lib/plan-submission.test.ts": {
-    "unicorn/no-null": {
-      "count": 2
-    }
-  },
   "extensions/lib/plan-submission.ts": {
     "local/step-down": {
       "count": 1
@@ -512,15 +452,9 @@
   "extensions/plan-mode.ts": {
     "local/step-down": {
       "count": 1
-    },
-    "unicorn/no-null": {
-      "count": 4
     }
   },
   "extensions/question.ts": {
-    "@typescript-eslint/prefer-nullish-coalescing": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 4
     }
@@ -583,17 +517,11 @@
   "extensions/sandbox/src/profile-activation.ts": {
     "local/step-down": {
       "count": 7
-    },
-    "unicorn/no-null": {
-      "count": 1
     }
   },
   "extensions/sandbox/src/profile-command.ts": {
     "local/step-down": {
       "count": 2
-    },
-    "unicorn/no-null": {
-      "count": 1
     }
   },
   "extensions/sandbox/src/profile-grants.ts": {
@@ -701,11 +629,6 @@
       "count": 2
     }
   },
-  "extensions/sidebar/visibility.test.ts": {
-    "unicorn/no-null": {
-      "count": 1
-    }
-  },
   "extensions/sidebar/visibility.ts": {
     "local/step-down": {
       "count": 1
@@ -722,9 +645,6 @@
     }
   },
   "extensions/subagent/index.ts": {
-    "@typescript-eslint/prefer-nullish-coalescing": {
-      "count": 13
-    },
     "local/step-down": {
       "count": 11
     }

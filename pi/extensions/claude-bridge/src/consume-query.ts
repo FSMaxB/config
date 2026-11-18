@@ -14,7 +14,7 @@ import { refusalFallbackNotice } from "./models.js";
 import type { QueryContext } from "./query-state.js";
 import { RATE_LIMIT_AUTO_RESUME_EVENT, RATE_LIMIT_TOKEN, formatAllowedRateLimitWarning, formatResetTimestamp, isUsageLimitMessage, uniqueNonEmptyLines } from "./rate-limit.js";
 import { activeStreamIdleWatchdogs } from "./stream-idle-watchdog.js";
-import { isRecord, stringProperty } from "../../lib/untyped.ts";
+import { isRecord, nonEmpty, stringProperty } from "../../lib/untyped.ts";
 
 export function emitRateLimitEvent(payload: Record<string, unknown>): void {
 	try {
@@ -143,7 +143,7 @@ export async function consumeQuery(
 				} else if (message.subtype !== "success") {
 					const errorLines = Array.isArray(message.errors) ? uniqueNonEmptyLines(message.errors) : [];
 					// Some CLI versions put the error text in `result`, which the SDK's error type leaves out.
-					const errors = errorLines.length > 0 ? errorLines.join("\n") : stringProperty(message, "result") || message.subtype || "Claude Code request failed";
+					const errors = errorLines.length > 0 ? errorLines.join("\n") : nonEmpty(stringProperty(message, "result")) ?? message.subtype;
 					const usageLimit = isUsageLimitMessage(message);
 					holdFailure({ kind: usageLimit ? "rate-limit" : classifyClaudeFailure(errors), message: errors });
 					if (usageLimit) {

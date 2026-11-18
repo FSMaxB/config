@@ -7,7 +7,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 import { selectWithDefault } from "./lib/select-with-default.ts";
-import { isRecord, stringProperty } from "./lib/untyped.ts";
+import { isRecord, nonEmpty, stringProperty } from "./lib/untyped.ts";
 
 const FREEFORM_SENTINEL = "✏️  Type custom response...";
 
@@ -74,7 +74,7 @@ export default function (pi: ExtensionAPI): void {
         allowFreeform = true,
         allowMultiple = false,
       } = parameters;
-      const normalizedContext = contextText?.trim() || undefined;
+      const normalizedContext = nonEmpty(contextText?.trim());
       const options = rawOptions
         .map(coerceOption)
         .filter((option) => option !== undefined);

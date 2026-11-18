@@ -2,13 +2,14 @@ import type { SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sd
 import { spawn as spawnProcess } from "node:child_process";
 import { accessSync, constants as fsConstants, readFileSync, realpathSync, statSync } from "node:fs";
 import { DEBUG, debug } from "./debug.js";
+import { nonEmpty } from "../../lib/untyped.ts";
 
 // Without a configured path the SDK runs the Claude Code binary it bundles, which
 // matches the SDK version. A `claude` on PATH can be older and not know newer
 // models, and Claude Code gives an unknown model a 200k window instead of its real one.
 export function resolveClaudeExecutable(configured?: string): string | undefined {
 	const trimmed = configured?.trim();
-	return trimmed ? trimmed : undefined;
+	return nonEmpty(trimmed);
 }
 
 export type ClaudeExecutableFileType = "elf" | "mach-o" | "pe" | "shebang-script" | "empty" | "unknown";
