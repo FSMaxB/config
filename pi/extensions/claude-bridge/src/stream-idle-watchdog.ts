@@ -1,5 +1,6 @@
 import type { AssistantMessage, AssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { QueryContext } from "./query-state.js";
+import { MILLISECONDS_PER_MINUTE, MILLISECONDS_PER_SECOND } from "../../lib/units.ts";
 
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 90_000;
 export const STREAM_IDLE_BACKOFF_HINT_MS = 60_000;
@@ -37,13 +38,13 @@ function parseDurationLiteralMs(value: string, defaultUnit: "ms" | "s" = "s"): n
 	if (!match) return undefined;
 	const amount = Number(match[1]);
 	if (!Number.isFinite(amount) || amount < 0) return undefined;
-	const unit = (match[2] ?? defaultUnit).toLowerCase();
+	const unit = (match.at(2) ?? defaultUnit).toLowerCase();
 	const multiplier = ["ms", "msec", "msecs", "millisecond", "milliseconds"].includes(unit)
 		? 1
 		: ["s", "sec", "secs", "second", "seconds"].includes(unit)
-			? 1000
+			? MILLISECONDS_PER_SECOND
 			: ["m", "min", "mins", "minute", "minutes"].includes(unit)
-				? 60_000
+				? MILLISECONDS_PER_MINUTE
 				: undefined;
 	if (multiplier === undefined) return undefined;
 	const ms = Math.round(amount * multiplier);
@@ -56,10 +57,14 @@ export function streamIdleTimeoutMsFromEnvironment(environment: NodeJS.ProcessEn
 	return parseDurationLiteralMs(raw, "s") ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS;
 }
 
+// Below three minutes, whole seconds read better than minutes.
+const SECONDS_DISPLAY_LIMIT_MINUTES = 3;
+const SECONDS_DISPLAY_LIMIT_MILLISECONDS = SECONDS_DISPLAY_LIMIT_MINUTES * MILLISECONDS_PER_MINUTE;
+
 export function formatDurationShort(ms: number): string {
-	if (ms < 180_000 && ms % 1000 === 0) return `${ms / 1000}s`;
-	if (ms % 60_000 === 0) return `${ms / 60_000}m`;
-	if (ms % 1000 === 0) return `${ms / 1000}s`;
+	if (ms < SECONDS_DISPLAY_LIMIT_MILLISECONDS && ms % MILLISECONDS_PER_SECOND === 0) return `${ms / MILLISECONDS_PER_SECOND}s`;
+	if (ms % MILLISECONDS_PER_MINUTE === 0) return `${ms / MILLISECONDS_PER_MINUTE}m`;
+	if (ms % MILLISECONDS_PER_SECOND === 0) return `${ms / MILLISECONDS_PER_SECOND}s`;
 	return `${ms}ms`;
 }
 

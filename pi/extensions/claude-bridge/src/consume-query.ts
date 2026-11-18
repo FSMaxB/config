@@ -9,7 +9,7 @@ import type { ClaudeFailureKind } from "./claude-failure.js";
 import { ensureTurnStarted, processAssistantMessage, processStreamEvent, updateTurnOutputModel } from "./assistant-stream.js";
 import { getExtensionApi, safeNotify } from "./bridge-state.js";
 import type { Config } from "./config.js";
-import { debug } from "./debug.js";
+import { debug, shortIdOrNone } from "./debug.js";
 import { refusalFallbackNotice } from "./models.js";
 import type { QueryContext } from "./query-state.js";
 import { RATE_LIMIT_AUTO_RESUME_EVENT, RATE_LIMIT_TOKEN, formatAllowedRateLimitWarning, formatResetTimestamp, isUsageLimitMessage, uniqueNonEmptyLines } from "./rate-limit.js";
@@ -67,6 +67,9 @@ export interface ConsumeQueryResult {
 	capturedSessionId?: string;
 	failure?: ClaudeAttemptFailure;
 }
+
+// A rate-limit event is logged in part: the leading fields identify it.
+const RATE_LIMIT_PREVIEW_CHARACTERS = 300;
 
 export async function consumeQuery(
 	sdkQuery: ReturnType<typeof query>,
@@ -191,7 +194,7 @@ export async function consumeQuery(
 			case "rate_limit_event": {
 				if (!streamLive) break;
 				const info: SDKRateLimitInfo | undefined = message.rate_limit_info;
-				debug("consumeQuery: rate_limit_event", JSON.stringify(info).slice(0, 300));
+				debug("consumeQuery: rate_limit_event", JSON.stringify(info).slice(0, RATE_LIMIT_PREVIEW_CHARACTERS));
 				if (info?.status === "rejected") {
 					const rateLimitType = rateLimitTypeFromInfo(info);
 					const resetAt = rateLimitResetFromInfo(info);
@@ -209,7 +212,7 @@ export async function consumeQuery(
 				} else if (info?.status === "allowed_warning") {
 					const warning = formatAllowedRateLimitWarning(info);
 					if (warning) safeNotify(warning, "warning");
-					else debug("consumeQuery: suppressed low/ambiguous allowed_warning rate_limit_event", JSON.stringify(info).slice(0, 300));
+					else debug("consumeQuery: suppressed low/ambiguous allowed_warning rate_limit_event", JSON.stringify(info).slice(0, RATE_LIMIT_PREVIEW_CHARACTERS));
 				}
 				break;
 			}
@@ -223,6 +226,6 @@ export async function consumeQuery(
 		}
 	}
 
-	debug(`consumeQuery: for-await loop exited, wasAborted=${wasAborted()}, capturedSessionId=${capturedSessionId?.slice(0, 8) ?? "none"}, failure=${failure?.kind ?? "none"}`);
+	debug(`consumeQuery: for-await loop exited, wasAborted=${wasAborted()}, capturedSessionId=${shortIdOrNone(capturedSessionId)}, failure=${failure?.kind ?? "none"}`);
 	return { capturedSessionId, failure };
 }

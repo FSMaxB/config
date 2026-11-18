@@ -33,15 +33,15 @@ export function classifyClaudeFailure(value: unknown): ClaudeFailureKind | undef
 	const statusKind = numericStatus !== undefined ? classifyStatusCode(numericStatus) : undefined;
 	if (statusKind) return statusKind;
 	if (/authentication (?:failed|error)|permission error|oauth org not allowed|oauth token.*expired|token.*expired|unauthorized|invalid token|login required|please run .*login|not logged in/.test(normalized)
-		|| httpStatusInText(normalized) === 401 || httpStatusInText(normalized) === 403) return "auth";
+		|| httpStatusInText(normalized) === HttpStatus.Unauthorized || httpStatusInText(normalized) === HttpStatus.Forbidden) return "auth";
 	if (/extra usage|overage/.test(normalized)) return "rate-limit";
 	if (/billing error|payment|required.*billing|credit balance.*(?:low|insufficient|empty)|insufficient credits/.test(normalized)) return "billing";
 	const quotaInUsageContext = /\bquota\b/.test(normalized) && /\b(?:rate|usage|limits?|requests?|tokens?|messages?|api)\b/.test(normalized);
 	if (/\brate limit|usage limit|session limit|weekly limit|monthly limit|limit reached|you(?:'|’)ve hit your .* limit|too many requests|resets? (?:at )?\d/.test(normalized)
-		|| quotaInUsageContext || httpStatusInText(normalized) === 429) return "rate-limit";
-	if (/overloaded|capacity/.test(normalized) || httpStatusInText(normalized) === 529) return "overloaded";
+		|| quotaInUsageContext || httpStatusInText(normalized) === HttpStatus.TooManyRequests) return "rate-limit";
+	if (/overloaded|capacity/.test(normalized) || httpStatusInText(normalized) === HttpStatus.Overloaded) return "overloaded";
 	const statusInText = httpStatusInText(normalized);
-	if (/server error|internal server/.test(normalized) || (statusInText !== undefined && statusInText >= 500)) return "server";
+	if (/server error|internal server/.test(normalized) || (statusInText !== undefined && statusInText >= ServerErrorStatus.First)) return "server";
 	if (/network|timeout|timed out|socket|econn|connection closed|fetch failed|unexpected end|\beof\b/.test(normalized)) return "network";
 	return undefined;
 }
@@ -52,10 +52,14 @@ function httpStatusInText(normalized: string): number | undefined {
 }
 
 function classifyStatusCode(status: number): ClaudeFailureKind | undefined {
-	if (status === 401 || status === 403) return "auth";
-	if (status === 402) return "billing";
-	if (status === 429) return "rate-limit";
-	if (status === 529) return "overloaded";
-	if (status >= 500 && status <= 599) return "server";
+	if (status === HttpStatus.Unauthorized || status === HttpStatus.Forbidden) return "auth";
+	if (status === HttpStatus.PaymentRequired) return "billing";
+	if (status === HttpStatus.TooManyRequests) return "rate-limit";
+	if (status === HttpStatus.Overloaded) return "overloaded";
+	if (status >= ServerErrorStatus.First && status <= ServerErrorStatus.Last) return "server";
 	return undefined;
 }
+
+// 529 is Anthropic's "overloaded" status, outside the standard HTTP set.
+const HttpStatus = { Unauthorized: 401, PaymentRequired: 402, Forbidden: 403, TooManyRequests: 429, Overloaded: 529 } as const;
+const ServerErrorStatus = { First: 500, Last: 599 } as const;

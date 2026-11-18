@@ -15,6 +15,7 @@ import { isInPlansDirectory } from "./lib/plan-file.ts";
 import { canSubmitReviewedPlan, submitReviewedPlan } from "./lib/plan-submission.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 import { sessionTemporaryDirectory } from "./lib/session-temporary-directory.ts";
+import { MILLISECONDS_PER_SECOND } from "./lib/units.ts";
 
 // Bounds crit's own commands; a review itself waits for the user without a timeout.
 const TIMEOUT = 60_000;
@@ -444,7 +445,7 @@ async function ingestStory(
     const commandArguments = ["story", "--story-file", file, "--refresh", ...scopeArguments];
     const { stdout, stderr, code, killed, truncated } = await pi.exec("crit", commandArguments, { signal, timeout: TIMEOUT });
     if (truncated) throw new Error(`crit ${commandArguments.join(" ")} was killed: its output exceeded pi.exec's buffer limit.`);
-    if (killed) throw new Error(`crit ${commandArguments.join(" ")} timed out after ${TIMEOUT / 1000}s.`);
+    if (killed) throw new Error(`crit ${commandArguments.join(" ")} timed out after ${TIMEOUT / MILLISECONDS_PER_SECOND}s.`);
     if (code !== 0) {
       throw new Error(
         `crit rejected the story (exit ${code}):\n${stdout.trim()}\n${stderr.trim()}\n` +

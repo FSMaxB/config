@@ -84,22 +84,32 @@ function makeClaudePreflightError(
 
 export function classifyClaudeExecutableBytes(bytes: Uint8Array): ClaudeExecutableFileType {
 	if (bytes.length === 0) return "empty";
-	if (bytes.length >= 2 && bytes[0] === 0x23 && bytes[1] === 0x21) return "shebang-script";
-	if (bytes.length >= 4 && bytes[0] === 0x7f && bytes[1] === 0x45 && bytes[2] === 0x4c && bytes[3] === 0x46) return "elf";
-	if (bytes.length >= 2 && bytes[0] === 0x4d && bytes[1] === 0x5a) return "pe";
-	if (bytes.length >= 4) {
-		const magic = bytes[0] * 0x1000000 + bytes[1] * 0x10000 + bytes[2] * 0x100 + bytes[3];
-		if (
-			magic === 0xfeedface ||
-			magic === 0xfeedfacf ||
-			magic === 0xcefaedfe ||
-			magic === 0xcffaedfe ||
-			magic === 0xcafebabe ||
-			magic === 0xbebafeca
-		) return "mach-o";
-	}
+	const header = Buffer.from(bytes);
+	const text = header.toString("latin1");
+	if (text.startsWith(SHEBANG)) return "shebang-script";
+	if (text.startsWith(ELF_MAGIC)) return "elf";
+	if (text.startsWith(PE_MAGIC)) return "pe";
+	if (header.length >= MACH_O_MAGIC_BYTES && MACH_O_MAGICS.has(header.readUInt32BE(0))) return "mach-o";
 	return "unknown";
 }
+
+// File signatures as latin1 text, where every byte is one character.
+const SHEBANG = "#!";
+const ELF_MAGIC = "\x7fELF";
+const PE_MAGIC = "MZ";
+// Mach-O thin (32- and 64-bit, both byte orders) and fat binaries, read as a big-endian word.
+const MachOMagic = {
+	Thin32: 0xfeedface,
+	Thin64: 0xfeedfacf,
+	Thin32Swapped: 0xcefaedfe,
+	Thin64Swapped: 0xcffaedfe,
+	Fat: 0xcafebabe,
+	FatSwapped: 0xbebafeca,
+} as const;
+const MACH_O_MAGICS: ReadonlySet<number> = new Set(Object.values(MachOMagic));
+const MACH_O_MAGIC_BYTES = 4;
+// 16 bytes cover every signature above.
+const HEADER_BYTES = 16;
 
 export function preflightClaudeExecutable(path: string, cwd: string): ClaudeExecutablePreflightResult {
 	let realCwd: string;
@@ -154,7 +164,7 @@ export function preflightClaudeExecutable(path: string, cwd: string): ClaudeExec
 
 	let fileType: ClaudeExecutableFileType;
 	try {
-		fileType = classifyClaudeExecutableBytes(readFileSync(realPath).subarray(0, 16));
+		fileType = classifyClaudeExecutableBytes(readFileSync(realPath).subarray(0, HEADER_BYTES));
 	} catch (error) {
 		throw makeClaudePreflightError("Claude Code executable preflight failed: cannot read executable header before spawning Claude Code.", {
 			code: codeValue(error, "EACCES"),

@@ -54,8 +54,7 @@ function buildReport(
     "",
   ];
   if (contextWindow) {
-    const percent = (contextTokens / contextWindow) * 100;
-    lines.push(usageBar(percent));
+    lines.push(usageBar(contextTokens, contextWindow));
     lines.push(
       `${formatTokens(contextTokens)} of ${formatTokens(contextWindow)} tokens · ` +
         `${formatTokens(Math.max(0, contextWindow - contextTokens))} free`,
@@ -345,7 +344,7 @@ function renderRows(rows: readonly Row[], contextWindow: number | undefined): st
       "  " +
       formatTokens(row.tokens).padStart(tokenWidth);
     if (row.indent === 0 && contextWindow) {
-      line += `  ${((row.tokens / contextWindow) * 100).toFixed(1).padStart(5)}%`;
+      line += `  ${percentOf(row.tokens, contextWindow).toFixed(1).padStart(PERCENT_COLUMN_WIDTH)}%`;
     }
     if (row.note) {
       line += `  (${row.note})`;
@@ -354,12 +353,20 @@ function renderRows(rows: readonly Row[], contextWindow: number | undefined): st
   });
 }
 
+// Wide enough for "100.0" with one decimal.
+const PERCENT_COLUMN_WIDTH = 5;
+
 // Half of an 80-column terminal, leaving room for the percentage.
 const USAGE_BAR_WIDTH = 40;
 
-function usageBar(percent: number): string {
-  const filled = Math.min(USAGE_BAR_WIDTH, Math.round((percent / 100) * USAGE_BAR_WIDTH));
-  return `[${"█".repeat(filled)}${"░".repeat(USAGE_BAR_WIDTH - filled)}] ${percent.toFixed(1)}%`;
+function usageBar(used: number, total: number): string {
+  const filled = Math.min(USAGE_BAR_WIDTH, Math.round((used / total) * USAGE_BAR_WIDTH));
+  return `[${"█".repeat(filled)}${"░".repeat(USAGE_BAR_WIDTH - filled)}] ${percentOf(used, total).toFixed(1)}%`;
+}
+
+function percentOf(part: number, whole: number): number {
+  // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- the conversion to percent is the point of this helper
+  return (part / whole) * 100;
 }
 
 interface Row {

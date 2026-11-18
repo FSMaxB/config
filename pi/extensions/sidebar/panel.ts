@@ -1,8 +1,10 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 
+// The box takes at most one third of the terminal width.
+const MAX_TERMINAL_SHARE_DENOMINATOR = 3;
 /** The box never takes more than this share of the terminal width. */
-export const MAX_TERMINAL_SHARE = 1 / 3;
+export const MAX_TERMINAL_SHARE = 1 / MAX_TERMINAL_SHARE_DENOMINATOR;
 // Below this a third of the width is too narrow for a path, and the box would cover the transcript.
 export const MIN_TERMINAL_WIDTH = 100;
 // Two border columns plus one space of padding on each side.

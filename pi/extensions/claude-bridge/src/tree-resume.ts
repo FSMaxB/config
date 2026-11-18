@@ -2,6 +2,7 @@ import type { SessionProjection } from "@earendil-works/pi-coding-agent";
 import { openSession } from "cc-session-io";
 import { statSync } from "node:fs";
 import { PROVIDER_ID } from "./convert.js";
+import { shortId } from "./debug.js";
 import type { ClaudeTranscriptAnchor } from "./query-state.js";
 import { conversationMessages } from "./transcript.js";
 import type { PiSessionMessage } from "./transcript.js";
@@ -49,10 +50,10 @@ export function resolveForkPoint(target: ClaudeTranscriptAnchor, cwd: string, cl
 		session = openSession({ sessionId: target.sessionId, projectPath: cwd, claudeDir: claudeDirectory });
 		statSync(session.jsonlPath);
 	} catch (error) {
-		return `Claude session ${target.sessionId.slice(0, 8)} cannot be read: ${error instanceof Error ? error.message : String(error)}`;
+		return `Claude session ${shortId(target.sessionId)} cannot be read: ${error instanceof Error ? error.message : String(error)}`;
 	}
 	const record = session.messages.filter((candidate) => candidate.type === "assistant" && candidate.message?.id === target.messageId).at(-1);
-	if (!record) return `message ${target.messageId} is not in Claude session ${target.sessionId.slice(0, 8)}`;
+	if (!record) return `message ${target.messageId} is not in Claude session ${shortId(target.sessionId)}`;
 	return { uuid: record.uuid, isTail: session.messages.at(-1)?.uuid === record.uuid };
 }
 

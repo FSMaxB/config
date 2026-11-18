@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { appendFileSync, chmodSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { piUserDirectory } from "./config.js";
@@ -41,8 +42,19 @@ if (DEBUG) {
 	}
 }
 
+// Eight characters tell sessions and tool calls apart in a log without the full UUID.
+const SHORT_ID_LENGTH = 8;
+
 // Unique per module evaluation — confirms whether subagents share module state
-export const moduleInstanceId = Math.random().toString(36).slice(2, 8);
+export const moduleInstanceId = shortId(randomUUID());
+
+export function shortIdOrNone(id: string | undefined): string {
+	return id === undefined ? "none" : shortId(id);
+}
+
+export function shortId(id: string): string {
+	return id.slice(0, SHORT_ID_LENGTH);
+}
 
 export function debug(...values: readonly unknown[]): void {
 	if (!DEBUG) return;

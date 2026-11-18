@@ -8,6 +8,7 @@ import type { ClaudeTranscriptAnchor, QueryContext, StreamingToolCall, TurnBlock
 import { jsonObjectFrom, parseJsonObject } from "./json-value.js";
 import type { BetaMessage } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import { isPiDispatchable, mapToolArguments, mapToolName } from "./tool-mapping.js";
+import { PERCENT } from "../../lib/units.ts";
 
 
 // The usage fields of the Anthropic API's message, message_start and message_delta payloads, which
@@ -40,7 +41,7 @@ function updateUsage(output: AssistantMessage, usage: ReportedUsage, model: Mode
 	output.usage.totalTokens = output.usage.input + output.usage.output + output.usage.cacheRead + output.usage.cacheWrite;
 	calculateCost(model, output.usage);
 	const promptTokens = output.usage.input + output.usage.cacheRead + output.usage.cacheWrite;
-	const cachePct = promptTokens > 0 ? Math.round(output.usage.cacheRead / promptTokens * 100) : 0;
+	const cachePct = promptTokens > 0 ? Math.round(output.usage.cacheRead / promptTokens * PERCENT) : 0;
 	debug(`usage: in=${output.usage.input} out=${output.usage.output} cacheRead=${output.usage.cacheRead} cacheWrite=${output.usage.cacheWrite} total=${output.usage.totalTokens} cachePct=${cachePct}% model=${model.id}`);
 }
 
@@ -167,6 +168,9 @@ export function scheduleToolUseTurnEnd(queryContext: QueryContext, action: () =>
  * belongs to a call the SDK abandoned client-side (permission denial), which
  * is exactly what the notice describes.
  */
+// A parked-results notice names the first few tools; the rest only lengthen the message.
+const MAX_LISTED_TOOL_NAMES = 6;
+
 export function reapStaleQueuedResults(queryContext: QueryContext): void {
 	const stale = queryContext.takeStaleQueuedResults();
 	if (stale.length === 0) return;
@@ -176,7 +180,7 @@ export function reapStaleQueuedResults(queryContext: QueryContext): void {
 	appendIntegrityEntry("stale_queued_tool_results_parked", { count: stale.length, stale });
 	safeNotify(
 		`queued-results-parked=${JSON.stringify({ count: stale.length, tools: names })}\n` +
-		`Claude bridge: parked ${stale.length} early tool result(s) whose handler has not arrived (${names.slice(0, 6).join(", ")}${names.length > 6 ? ", …" : ""}). ` +
+		`Claude bridge: parked ${stale.length} early tool result(s) whose handler has not arrived (${names.slice(0, MAX_LISTED_TOOL_NAMES).join(", ")}${names.length > MAX_LISTED_TOOL_NAMES ? ", …" : ""}). ` +
 		`A late handler can still consume them.`,
 		"warning",
 	);

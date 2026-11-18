@@ -8,7 +8,7 @@ import { getExtensionApi, getSharedSession, reportSyntheticToolResultRepair, saf
 import type { SessionState } from "./bridge-state.js";
 import { displayPath } from "./config.js";
 import { convertPiMessages } from "./convert.js";
-import { DEBUG, DEBUG_LOG_PATH, debug, diagDump } from "./debug.js";
+import { DEBUG, DEBUG_LOG_PATH, debug, diagDump, shortId } from "./debug.js";
 import { verifyWrittenSession as _verifyWrittenSession } from "./session-verify.js";
 import { conversationMessages } from "./transcript.js";
 import type { PiSessionMessage } from "./transcript.js";
@@ -50,8 +50,11 @@ function normalizedMessageText(content: unknown): string {
 	return text.trim();
 }
 
+// Twelve hex digits (48 bits) keep the fingerprints short in the saved session while collisions stay implausible for one user's sessions.
+const FINGERPRINT_HEX_LENGTH = 12;
+
 function shortHash(text: string): string {
-	return createHash("sha256").update(text).digest("hex").slice(0, 12);
+	return createHash("sha256").update(text).digest("hex").slice(0, FINGERPRINT_HEX_LENGTH);
 }
 
 /** Identity anchor for a pi conversation, encoded component-wise as
@@ -219,7 +222,7 @@ export function claudeSessionPairsToolCalls(sessionId: string, cwd: string, clau
 		const messages = session.messages.map(({ message: { role, content } }) => ({ role, content }));
 		return findUnpairedToolUses(messages).length === 0;
 	} catch (error) {
-		debug(`claudeSessionPairsToolCalls: cannot read session ${sessionId.slice(0, 8)}:`, error);
+		debug(`claudeSessionPairsToolCalls: cannot read session ${shortId(sessionId)}:`, error);
 		return false;
 	}
 }
@@ -276,11 +279,11 @@ export function restoreSharedSessionFromPi(context: { sessionManager?: SessionMa
 	const cursor = Math.max(0, Math.min(persisted.cursor, built.messages.length));
 	const fingerprint = fingerprintMessages(built.messages.slice(0, cursor));
 	if (fingerprint !== persisted.fingerprint) {
-		debug(`restoreSharedSession: fingerprint mismatch for ${persisted.sessionId.slice(0, 8)}`);
+		debug(`restoreSharedSession: fingerprint mismatch for ${shortId(persisted.sessionId)}`);
 		return;
 	}
 	if (!claudeSessionExists(persisted.sessionId, persisted.cwd, process.env.CLAUDE_CONFIG_DIR)) {
-		debug(`restoreSharedSession: Claude session missing for ${persisted.sessionId.slice(0, 8)}`);
+		debug(`restoreSharedSession: Claude session missing for ${shortId(persisted.sessionId)}`);
 		return;
 	}
 	setSharedSession({
@@ -295,7 +298,7 @@ export function restoreSharedSessionFromPi(context: { sessionManager?: SessionMa
 			: {}),
 		...(typeof persisted.forkAt === "string" ? { forkAt: persisted.forkAt } : {}),
 	});
-	debug(`restoreSharedSession: restored ${persisted.sessionId.slice(0, 8)}, cursor=${cursor}`);
+	debug(`restoreSharedSession: restored ${shortId(persisted.sessionId)}, cursor=${cursor}`);
 }
 
 // One pending persist per SessionManager: cancelling a shutting-down session's
@@ -360,14 +363,14 @@ export function schedulePersistSharedSession(contextLike?: { sessionManager?: Se
 				updatedAt: new Date().toISOString(),
 			};
 			getExtensionApi()?.appendEntry(BRIDGE_SESSION_CUSTOM_TYPE, data);
-			debug(`persistSharedSession: saved ${data.sessionId.slice(0, 8)}, cursor=${data.cursor}`);
+			debug(`persistSharedSession: saved ${shortId(data.sessionId)}, cursor=${data.cursor}`);
 		} catch (error) {
 			// A failed persist means the next startup restores a stale (or no)
 			// bridge marker and silently rebuilds — worth a diagnostic entry.
 			// Like all diagDump output this lands only under CLAUDE_BRIDGE_DEBUG=1
 			// and the failure itself stays non-fatal either way.
 			diagDump("persist_shared_session_failed", {
-				sessionId: snapshot.sessionId.slice(0, 8),
+				sessionId: shortId(snapshot.sessionId),
 				cursor: snapshot.cursor,
 				error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
 			});
@@ -638,7 +641,7 @@ export function syncSharedSession(
 		priorMessages.length <= sharedSession.cursor
 	) {
 		debug(
-			`Case 6 foreign-conversation: fingerprint ${incomingFingerprint.slice(0, 8)} != record ${sharedSession.conversationFingerprint.slice(0, 8)} ` +
+			`Case 6 foreign-conversation: fingerprint ${shortId(incomingFingerprint)} != record ${shortId(sharedSession.conversationFingerprint)} ` +
 			`(cursor=${sharedSession.cursor}, priors=${priorMessages.length}) — clean one-shot, record untouched`,
 		);
 		debug(`syncResult: path=foreign-one-shot`);
@@ -669,7 +672,7 @@ export function syncSharedSession(
 			const batching = batch.userMessageCount > 1
 				? `batched ${batch.userMessageCount} consecutive user messages, `
 				: batch.promptStart > cursorBeforeUpdate ? "advanced cursor past trailing assistant, " : "";
-			debug(`Case 3: ${batching}resuming session ${sharedSession.sessionId.slice(0, 8)}, cursor=${batch.promptStart}`);
+			debug(`Case 3: ${batching}resuming session ${shortId(sharedSession.sessionId)}, cursor=${batch.promptStart}`);
 			debug(`syncResult: path=reuse sessionId=${sharedSession.sessionId} cursor=${batch.promptStart} promptUsers=${batch.userMessageCount}`);
 			return {
 				sessionId: sharedSession.sessionId,
@@ -722,22 +725,22 @@ export function syncSharedSession(
 			?? `${priorMessages.length - previousCursor} message(s) Claude Code has not seen`;
 		const replacement = preserveId
 			? "rewritten from Pi history"
-			: `replaced by ${session.sessionId.slice(0, 8)}; the killed Claude Code process may still be writing the old transcript`;
+			: `replaced by ${shortId(session.sessionId)}; the killed Claude Code process may still be writing the old transcript`;
 		safeNotify(
-			`Claude bridge: Claude session ${replacedSessionId.slice(0, 8)} ${replacement} (${reason}). ` +
+			`Claude bridge: Claude session ${shortId(replacedSessionId)} ${replacement} (${reason}). ` +
 			"The prompt cache for this conversation is cold for the next request.",
 			"warning",
 		);
 	}
 	if (replacedSessionId === undefined) {
-		debug(`Case 2: first turn with ${priorMessages.length} prior messages → session ${session.sessionId.slice(0, 8)}, ${session.messages.length} records`);
+		debug(`Case 2: first turn with ${priorMessages.length} prior messages → session ${shortId(session.sessionId)}, ${session.messages.length} records`);
 	} else if (preserveId) {
 		const missedCount = priorMessages.length - previousCursor;
-		debug(`Case 4: ${missedCount} missed messages, ${priorMessages.length} total → rewrote session ${session.sessionId.slice(0, 8)} (same id), ${session.messages.length} records`);
+		debug(`Case 4: ${missedCount} missed messages, ${priorMessages.length} total → rewrote session ${shortId(session.sessionId)} (same id), ${session.messages.length} records`);
 	} else {
-		debug(`Case 4 rotated: ${priorMessages.length} total → new session ${session.sessionId.slice(0, 8)} (was ${replacedSessionId.slice(0, 8)}, rotated to avoid race with orphan writer), ${session.messages.length} records`);
+		debug(`Case 4 rotated: ${priorMessages.length} total → new session ${shortId(session.sessionId)} (was ${shortId(replacedSessionId)}, rotated to avoid race with orphan writer), ${session.messages.length} records`);
 	}
-	debugSessionPaths(session.sessionId.slice(0, 8), cwd, session.jsonlPath, claudeDirectory);
+	debugSessionPaths(shortId(session.sessionId), cwd, session.jsonlPath, claudeDirectory);
 	debug(`syncResult: path=rebuild sessionId=${session.sessionId} priors=${priorMessages.length} ${replacedSessionId === undefined ? "first" : preserveId ? "preserved" : "rotated"}`);
 	return { sessionId: session.sessionId, promptStart: messages.length - 1 };
 }

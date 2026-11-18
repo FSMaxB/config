@@ -1,4 +1,5 @@
 import { claudeAgentSdk } from "./sdk-query.js";
+import { MILLISECONDS_PER_SECOND, PERCENT } from "../../lib/units.ts";
 
 export const RATE_LIMIT_AUTO_RESUME_EVENT = "kendex:rate-limit";
 export const RATE_LIMIT_TOKEN = "\x1b[31m[rate-limit]\x1b[39m";
@@ -51,13 +52,16 @@ function lineText(value: unknown): string {
  *  1e12 until the year 33658, epoch ms passed 1e12 in 2001. A numeric STRING
  *  gets the same magnitude treatment (rate_limit_event payloads have carried
  *  both), and anything else falls back to Date.parse for ISO strings. */
+// Epoch values below this are seconds: 1e12 ms is in 2001, 1e12 s is far beyond any reset time.
+const SECONDS_EPOCH_LIMIT = 1e12;
+
 export function resetTimestampMs(value: unknown): number | undefined {
 	if (typeof value === "number" && Number.isFinite(value)) {
-		return Math.abs(value) < 1e12 ? value * 1000 : value;
+		return Math.abs(value) < SECONDS_EPOCH_LIMIT ? value * MILLISECONDS_PER_SECOND : value;
 	}
 	if (typeof value !== "string" || !value.trim()) return undefined;
 	const numeric = Number(value);
-	if (Number.isFinite(numeric)) return Math.abs(numeric) < 1e12 ? numeric * 1000 : numeric;
+	if (Number.isFinite(numeric)) return Math.abs(numeric) < SECONDS_EPOCH_LIMIT ? numeric * MILLISECONDS_PER_SECOND : numeric;
 	const parsed = Date.parse(value);
 	return Number.isFinite(parsed) ? parsed : undefined;
 }
@@ -87,8 +91,8 @@ export function normalizeRateLimitUtilization(value: unknown): number | undefine
 	// convention 1 is the fully-consumed case the warning exists to surface,
 	// while under the percent convention 1% sits below the threshold anyway,
 	// so nothing is lost by warning.
-	if (value > 0 && value <= 1) return value * 100;
-	if (value > 1 && value <= 100) return value;
+	if (value > 0 && value <= 1) return value * PERCENT;
+	if (value > 1 && value <= PERCENT) return value;
 	return undefined;
 }
 

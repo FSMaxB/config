@@ -7,6 +7,7 @@ import { execChecked } from "./lib/exec.ts";
 import { detectMultiplexer, openPane } from "./lib/panes.ts";
 import { registerToolWithGuidelines } from "./lib/register-tool.ts";
 import { findRepositoryRoot } from "./lib/repo.ts";
+import { MILLISECONDS_PER_SECOND, SECONDS_PER_MINUTE } from "./lib/units.ts";
 import {
   activeSlugs,
   advanceQuiet,
@@ -33,7 +34,8 @@ const SESSION_APPEAR_TIMEOUT = 30_000;
 // Long enough for the user to write the next comment before the wait returns the batch.
 const DEFAULT_QUIET_SECONDS = 10;
 // A review rarely takes longer; the agent can wait again.
-const DEFAULT_WAIT_TIMEOUT_SECONDS = 30 * 60;
+const DEFAULT_WAIT_TIMEOUT_MINUTES = 30;
+const DEFAULT_WAIT_TIMEOUT_SECONDS = DEFAULT_WAIT_TIMEOUT_MINUTES * SECONDS_PER_MINUTE;
 
 interface Session {
   repo: string;
@@ -161,7 +163,7 @@ export default function (pi: ExtensionAPI): void {
     }),
 
     async execute(_toolCallId, parameters, signal, onUpdate) {
-      const deadline = Date.now() + (parameters.timeoutSeconds ?? DEFAULT_WAIT_TIMEOUT_SECONDS) * 1000;
+      const deadline = Date.now() + (parameters.timeoutSeconds ?? DEFAULT_WAIT_TIMEOUT_SECONDS) * MILLISECONDS_PER_SECOND;
       let step = await waitStep(pi, parameters, deadline, signal, undefined);
       while (step.kind === "waiting") {
         onUpdate?.({ content: [{ type: "text", text: step.progress }], details: {} });
@@ -286,7 +288,7 @@ async function waitStep(
 
   const now = Date.now();
   const quiet = advanceQuiet(previousQuiet, unseen.length, now);
-  if (quietElapsed(quiet, now, quietSeconds * 1000)) {
+  if (quietElapsed(quiet, now, quietSeconds * MILLISECONDS_PER_SECOND)) {
     markSeen(session, unseen);
     return {
       kind: "done",
@@ -300,7 +302,7 @@ async function waitStep(
     return {
       kind: "done",
       result: text(
-        `No new comments after ${Math.round(timeoutSeconds / 60)} minutes; tuicr is still open. Call tuicr_wait again to keep waiting.`,
+        `No new comments after ${Math.round(timeoutSeconds / SECONDS_PER_MINUTE)} minutes; tuicr is still open. Call tuicr_wait again to keep waiting.`,
         { comments: [], exited: false },
       ),
     };

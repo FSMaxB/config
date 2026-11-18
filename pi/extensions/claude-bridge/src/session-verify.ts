@@ -6,6 +6,7 @@ import { closeSync, openSync, readSync, statSync } from "node:fs";
 import { StringDecoder } from "node:string_decoder";
 import { errorMessage } from "../../lib/errors.ts";
 import { isRecord, stringProperty } from "../../lib/untyped.ts";
+import { BYTES_PER_KIBIBYTE } from "../../lib/units.ts";
 
 interface JsonlSummary {
 	count: number;
@@ -14,7 +15,8 @@ interface JsonlSummary {
 }
 
 // One buffer per read; the size only trades read calls against memory.
-const READ_CHUNK_BYTES = 64 * 1024;
+const READ_CHUNK_KIBIBYTES = 64;
+const READ_CHUNK_BYTES = READ_CHUNK_KIBIBYTES * BYTES_PER_KIBIBYTE;
 
 function forEachJsonlLine(path: string, onLine: (line: string) => void): void {
 	const fd = openSync(path, "r");

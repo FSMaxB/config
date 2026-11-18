@@ -1,4 +1,5 @@
 import type { PayloadFingerprint } from "./fingerprint.ts";
+import { MILLISECONDS_PER_MINUTE, MILLISECONDS_PER_SECOND } from "../lib/units.ts";
 import { SectionKind } from "./fingerprint.ts";
 import { MarkerEvent, RequestPurpose } from "./records.ts";
 import type { LogRecord, RequestRecord, Usage } from "./records.ts";
@@ -53,7 +54,7 @@ const NOISE_FLOOR_TOKENS = 1024;
 const PROBLEM_VERDICTS: readonly Verdict[] = [Verdict.PrefixChanged, Verdict.ProviderMiss, Verdict.NoPayload];
 // Anthropic's default prompt-cache TTL; an idle gap longer than that explains a provider-side miss.
 const TTL_HINT_MINUTES = 5;
-const TTL_HINT_MS = TTL_HINT_MINUTES * 60 * 1000;
+const TTL_HINT_MS = TTL_HINT_MINUTES * MILLISECONDS_PER_MINUTE;
 
 export function analyze(records: readonly LogRecord[]): Finding[] {
   const findings: Finding[] = [];
@@ -206,7 +207,7 @@ function renderChange({ key, index, label }: Change): string {
 }
 
 function renderIdle(idleMs: number): string {
-  return `idle ${Math.round(idleMs / 1000)}s${idleMs > TTL_HINT_MS ? ` (> ${TTL_HINT_MINUTES} min, TTL?)` : ""}`;
+  return `idle ${Math.round(idleMs / MILLISECONDS_PER_SECOND)}s${idleMs > TTL_HINT_MS ? ` (> ${TTL_HINT_MINUTES} min, TTL?)` : ""}`;
 }
 
 function formatTime(iso: string): string {

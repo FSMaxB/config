@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import { DEBUG, debug, diagDump, diagGuidance, diagLogPath } from "./debug.js";
+import { DEBUG, debug, diagDump, diagGuidance, diagLogPath, shortId } from "./debug.js";
 import type { QueryContext } from "./query-state.js";
 import { currentRequestLaneId } from "./request-lane.js";
 import { summarizeMissingToolNames } from "./tool-pairing-audit.js";
@@ -223,23 +223,27 @@ function compactToolNameSummary(names: readonly { name: string; count: number }[
 	return shown;
 }
 
+// A repair report samples the first missing results; a long list adds nothing a sample does not show.
+const MAX_SAMPLED_MISSING = 50;
+const MAX_LOGGED_TOOL_CALL_IDS = 12;
+
 export function reportSyntheticToolResultRepair(missing: readonly MissingToolResult[], context: Record<string, unknown>): void {
 	try {
 		if (missing.length === 0) return;
 		const toolNames = summarizeMissingToolNames(missing);
 		const toolNameSummary = compactToolNameSummary(toolNames);
-		const sampledToolCallIds = missing.slice(0, 50).map((item) => item.id);
+		const sampledToolCallIds = missing.slice(0, MAX_SAMPLED_MISSING).map((item) => item.id);
 		diagDump("repair_tool_pairing_synthetic_results", {
 			count: missing.length,
 			toolNames,
 			sampledToolCallIds,
-			missing: missing.slice(0, 50),
+			missing: missing.slice(0, MAX_SAMPLED_MISSING),
 			...context,
 		});
 		appendIntegrityEntry("repair_tool_pairing_synthetic_results", {
 			count: missing.length,
 			toolNames,
-			sampledToolCallIds: sampledToolCallIds.slice(0, 12),
+			sampledToolCallIds: sampledToolCallIds.slice(0, MAX_LOGGED_TOOL_CALL_IDS),
 		});
 		safeNotify(
 			`Claude bridge: ${missing.length} missing tool result(s) repaired with an explicit error placeholder` +
@@ -294,7 +298,7 @@ export function reportToolResultMismatch(
 			activeQueryExists: queryContext.activeQuery !== undefined,
 			detachedFromSharedSession: queryContext.detachedFromSharedSession,
 			sharedSession: sharedSession ? {
-				sessionId: sharedSession.sessionId.slice(0, 8),
+				sessionId: shortId(sharedSession.sessionId),
 				cursor: sharedSession.cursor,
 				needsRebuild: sharedSession.needsRebuild === true,
 				forceRotate: sharedSession.forceRotate === true,

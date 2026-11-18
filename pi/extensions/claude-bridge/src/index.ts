@@ -22,7 +22,7 @@ import type { BridgedTool } from "./tool-server.js";
 import { modelFacingTool } from "./flat-edit.js";
 import { resolveGetModels } from "./pi-ai-compat.js";
 import { conversationMessages } from "./transcript.js";
-import { debug, diagDump, makeCliDebugOptions, moduleInstanceId } from "./debug.js";
+import { debug, diagDump, makeCliDebugOptions, moduleInstanceId, shortId, shortIdOrNone } from "./debug.js";
 import { preflightClaudeExecutable, resolveClaudeExecutable } from "./claude-executable.js";
 import { appendIntegrityEntry, argumentKeys, deleteSharedSessionLane, getExtensionApi, getSharedSession, markSessionForRebuild, recordStartedLane, reportToolResultMismatch, safeNotify, safeToolCallSummary, setExtensionApi, setPiUI, setSharedSession, takeStartedLane } from "./bridge-state.js";
 import type { SessionState } from "./bridge-state.js";
@@ -88,6 +88,13 @@ const newAssistantMessageEventStream: () => AssistantMessageEventStream = piAi.c
 // Both are released on session_shutdown (incl. /reload) by releaseProviderTokens
 // so the next module load starts clean. See applyProviderRegistration for the
 // native (pi >=0.81) upsert flow.
+// Character budgets for log lines: enough to recognise a tool result or prompt without flooding the log.
+const RESULT_LOG_PREVIEW_CHARACTERS = 150;
+const DELIVERED_RESULT_LOG_PREVIEW_CHARACTERS = 200;
+const PROMPT_LOG_PREVIEW_CHARACTERS = 60;
+// A mismatch error names the first few unmatched ids; the rest only inflate the message.
+const MAX_LISTED_UNMATCHED_IDS = 8;
+
 const PRIMARY_INSTANCE_KEY = Symbol.for("claude-bridge:primaryInstance");
 const ACTIVE_STREAM_SIMPLE_KEY = Symbol.for("claude-bridge:activeStreamSimple");
 // MODELS is buildModels(getModels("anthropic")) — projection kept in models.js.
@@ -103,7 +110,7 @@ function extractAllToolResults(messages: readonly Message[]): McpResult[] {
 	debug(`extractAllToolResults: ${results.length} results from ${messages.length} msgs, stopped at index ${stopIndex}`);
 	debug(`extractAllToolResults: all msg roles:`, messages.map((m, index) => `[${index}]${m.role}`).join(" "));
 	for (let r = 0; r < results.length; r++) {
-		debug(`extractAllToolResults: result[${r}] id=${results[r].toolCallId}${results[r].isError ? " ERROR" : ""} preview:`, JSON.stringify(results[r].content).slice(0, 150));
+		debug(`extractAllToolResults: result[${r}] id=${results[r].toolCallId}${results[r].isError ? " ERROR" : ""} preview:`, JSON.stringify(results[r].content).slice(0, RESULT_LOG_PREVIEW_CHARACTERS));
 	}
 	return results;
 }
@@ -508,7 +515,7 @@ export function onPiHistoryReplaced(event: string): void {
 		reportToolResultMismatch(queryContext, event, activeSession?.cwd ?? process.cwd(), { expectedInterruption: restarts });
 	}
 	if (!activeSession) return;
-	debug(`${event}: marking needsRebuild on session ${activeSession.sessionId.slice(0, 8)}`);
+	debug(`${event}: marking needsRebuild on session ${shortId(activeSession.sessionId)}`);
 	// A restart kills the child, which goes on flushing its jsonl: rebuilding
 	// in place would race that writer, so the replacement takes a new session
 	// id and leaves the old transcript alone. A compaction that kills nothing
@@ -544,7 +551,7 @@ export function adoptTreeResumeTarget(sessionManager: { buildSessionProjection()
 		...(fingerprint ? { conversationFingerprint: fingerprint } : {}),
 		...(forkPoint.isTail ? {} : { forkAt: forkPoint.uuid }),
 	});
-	debug(`tree-resume: session ${target.sessionId.slice(0, 8)} ${forkPoint.isTail ? "resumes at its tail" : `forks at ${forkPoint.uuid.slice(0, 8)}`}, cursor=${target.conversation.length}`);
+	debug(`tree-resume: session ${shortId(target.sessionId)} ${forkPoint.isTail ? "resumes at its tail" : `forks at ${shortId(forkPoint.uuid)}`}, cursor=${target.conversation.length}`);
 }
 
 /** Provider entry point. Pi calls this for each prompt and each tool result.
@@ -688,7 +695,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 			const pending = id ? queryContext.pendingToolCalls.get(id) : undefined;
 			if (id && pending) {
 				queryContext.pendingToolCalls.delete(id);
-				debug(`provider: resolving ${pending.toolName} [${id}]${result.isError ? " (error)" : ""}`, JSON.stringify(result.content).slice(0, 200));
+				debug(`provider: resolving ${pending.toolName} [${id}]${result.isError ? " (error)" : ""}`, JSON.stringify(result.content).slice(0, DELIVERED_RESULT_LOG_PREVIEW_CHARACTERS));
 				pending.resolve(result);
 			} else if (id) {
 				queryContext.pendingResults.set(id, result);
@@ -704,7 +711,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 		}
 		if (unmatchedResultIds.length > 0) {
 			const errorResult: McpResult = {
-				content: [{ type: "text", text: `Claude bridge internal error: ${unmatchedResultIds.length} tool result(s) did not match any registered tool_call id. The turn was stopped to avoid delivering tool output to the wrong call. Unmatched ids: ${unmatchedResultIds.slice(0, 8).join(", ")}${unmatchedResultIds.length > 8 ? ", ..." : ""}` }],
+				content: [{ type: "text", text: `Claude bridge internal error: ${unmatchedResultIds.length} tool result(s) did not match any registered tool_call id. The turn was stopped to avoid delivering tool output to the wrong call. Unmatched ids: ${unmatchedResultIds.slice(0, MAX_LISTED_UNMATCHED_IDS).join(", ")}${unmatchedResultIds.length > MAX_LISTED_UNMATCHED_IDS ? ", ..." : ""}` }],
 				isError: true,
 			};
 			for (const [pendingId, pending] of queryContext.pendingToolCalls) {
@@ -763,7 +770,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 			// whenever EITHER form has content.
 			if (replay.prompt || replay.blocks) {
 				currentQueryContext().deferredUserMessages.push({ text: replay.prompt ?? "", blocks: replay.blocks ?? undefined });
-				debug(`provider: deferred ${replay.userMessageCount} user message(s) for replay after query${replay.blocks ? ` (${replay.blocks.length} blocks incl. images)` : ""}: ${(replay.prompt ?? "[image-only]").slice(0, 60)}`);
+				debug(`provider: deferred ${replay.userMessageCount} user message(s) for replay after query${replay.blocks ? ` (${replay.blocks.length} blocks incl. images)` : ""}: ${(replay.prompt ?? "[image-only]").slice(0, PROMPT_LOG_PREVIEW_CHARACTERS)}`);
 			} else {
 				capturedThrough = replay.runStart;
 				diagDump("deferred_user_replay_skipped", {
@@ -937,7 +944,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 			promptRoles: promptMessages.map((m) => m.role).join(" "),
 			sharedSession: (() => {
 				const activeSession = getSharedSession();
-				return activeSession ? { sessionId: activeSession.sessionId.slice(0, 8), cursor: activeSession.cursor } : null;
+				return activeSession ? { sessionId: shortId(activeSession.sessionId), cursor: activeSession.cursor } : null;
 			})(),
 			messageRoles: context.messages.map((m, index) => `[${index}]${m.role}`).join(" "),
 		});
@@ -969,11 +976,11 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 
 	debug("provider: fresh query",
 		`model=${model.id} msgs=${conversation.length} tools=${mcpTools.length}`,
-		`resume=${resumeSessionId?.slice(0, 8) ?? "none"} fork=${forkAt?.slice(0, 8) ?? "none"} effort=${built.effort ?? "default"}`,
+		`resume=${shortIdOrNone(resumeSessionId)} fork=${shortIdOrNone(forkAt)} effort=${built.effort ?? "default"}`,
 		`fallback=${built.fallbackModel ?? "none"}`,
 		`sysPrompt=${built.systemPromptMode} appendSys=${built.appendSystemPrompt} promptCtx=${built.promptContextLabels.join(",") || "none"} strictMcp=true fastMode=${providerSettings.fastMode === true}`,
 		`claudeExec=${claudeExecutablePreflight ? `${claudeExecutablePreflight.fileType}:${claudeExecutablePreflight.path}` : "sdk-default"}`,
-		`prompt=${promptText.slice(0, 60)}${promptBlocks ? " [+images]" : ""}`);
+		`prompt=${promptText.slice(0, PROMPT_LOG_PREVIEW_CHARACTERS)}${promptBlocks ? " [+images]" : ""}`);
 
 	// 3. Start SDK query and claim it for this context
 	let wasAborted = false;
@@ -1165,7 +1172,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 		// transcript: delivered normally, or recorded as rejected by the interrupt.
 		// The next turn's REUSE plan skips Pi's own results for these ids.
 		const interruptedToolCallIds = [...abortContext.forwardedToolCallIds];
-		debug(`provider: abort settled cleanly, keeping session=${sessionId.slice(0, 8)} for resume, cursor=${cursor}, interruptedToolCalls=${interruptedToolCallIds.length}`);
+		debug(`provider: abort settled cleanly, keeping session=${shortId(sessionId)} for resume, cursor=${cursor}, interruptedToolCalls=${interruptedToolCallIds.length}`);
 		persistSession({ sessionId, cursor, cwd, ...(interruptedToolCallIds.length > 0 ? { interruptedToolCallIds } : {}) });
 	};
 
@@ -1214,7 +1221,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 				const failedSessionId = capturedSessionId ?? activeSession?.sessionId;
 				if (failedSessionId) {
 					const cursor = Math.max(conversation.length, abortContext.latestCursor, activeSession?.cursor ?? 0);
-					debug(`provider: terminal failure, persisting session=${failedSessionId.slice(0, 8)}, cursor=${cursor}, droppedSteers=${droppedSteers.length}`);
+					debug(`provider: terminal failure, persisting session=${shortId(failedSessionId)}, cursor=${cursor}, droppedSteers=${droppedSteers.length}`);
 					persistSession({
 						sessionId: failedSessionId,
 						cursor,
@@ -1230,7 +1237,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 			const sessionId = capturedSessionId ?? activeSession?.sessionId;
 			if (sessionId) {
 				const cursor = Math.max(conversation.length, abortContext.latestCursor, activeSession?.cursor ?? 0);
-				debug(`provider: query done, session=${sessionId.slice(0, 8)}, cursor=${cursor}`);
+				debug(`provider: query done, session=${shortId(sessionId)}, cursor=${cursor}`);
 				// Fresh record on purpose: a transient mid-turn needsRebuild/forceRotate
 				// must not survive a completed query and force a rebuild next turn.
 				// persistSession re-adds what a pi history replacement requires.
@@ -1248,7 +1255,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 				while (!isReentrant && !wasAborted) {
 					const steer = abortContext.deferredUserMessages.shift();
 					if (steer === undefined) break;
-					const steerPreview = (steer.text || "[image-only]").slice(0, 60);
+					const steerPreview = (steer.text || "[image-only]").slice(0, PROMPT_LOG_PREVIEW_CHARACTERS);
 					debug(`provider: replaying deferred user message: ${steerPreview}`);
 					abortContext.resetTurnState(model);
 					abortContext.resetToolTracking();
@@ -1271,7 +1278,7 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 					const contQuery = sdkQueryFactory({ prompt: steer.blocks ? wrapPromptStream(steer.blocks) : steer.text, options: contOptions });
 					abortContext.activeQuery = contQuery;
 
-					debug(`provider: continuation query, model=${model.id}, resume=${resumeId.slice(0, 8)}, prompt=${steerPreview}`);
+					debug(`provider: continuation query, model=${model.id}, resume=${shortId(resumeId)}, prompt=${steerPreview}`);
 
 					try {
 						const continuation = await consumeQuery(contQuery, abortContext, customToolNameToPi, model, bridgeConfig, () => wasAborted, recordBillingIdentity);
@@ -1467,7 +1474,7 @@ export default function (pi: ExtensionAPI): void {
 	// a mid-session credential flip is handled while token ownership is intact.
 	const clearSession = (event: string) => {
 		const activeSession = getSharedSession();
-		debug(`${event}: clearing session ${activeSession?.sessionId?.slice(0, 8) ?? "none"}`);
+		debug(`${event}: clearing session ${shortIdOrNone(activeSession?.sessionId)}`);
 		setSharedSession(undefined);
 	};
 

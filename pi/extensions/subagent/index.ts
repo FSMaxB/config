@@ -19,6 +19,7 @@ import { createLineSplitter } from "../lib/lines.ts";
 import { AgentMode, MODE_IDENTITIES, READ_ONLY_JJ_NOTE } from "../lib/agent-mode.ts";
 import type { RestrictedMode } from "../lib/agent-mode.ts";
 import { isRecord } from "../lib/untyped.ts";
+import { BYTES_PER_KIBIBYTE, MILLISECONDS_PER_SECOND } from "../lib/units.ts";
 import { readPersistedDecisions } from "../lib/mode-decisions.ts";
 import { activeRestrictedMode } from "../lib/mode-entry.ts";
 import { captureChildPathPolicy } from "../lib/path-permissions.ts";
@@ -65,7 +66,17 @@ const PARALLEL_COLLAPSED_ITEM_COUNT = 5;
 // The latest items of a running subagent, enough to follow it without flooding the transcript.
 const COLLAPSED_ITEM_COUNT = 10;
 // Keeps one chatty task from filling the parent's context; the full output stays in the session.
-const PER_TASK_OUTPUT_CAP = 50 * 1024;
+const PER_TASK_OUTPUT_CAP_KIBIBYTES = 50;
+const PER_TASK_OUTPUT_CAP = PER_TASK_OUTPUT_CAP_KIBIBYTES * BYTES_PER_KIBIBYTE;
+// A parallel call lists its first tasks only, so the header stays short.
+const MAX_PREVIEWED_TASKS = 3;
+// Each task of a parallel call gets a shorter preview line, so several fit under the header.
+const PARALLEL_TASK_PREVIEW_CHARACTERS = 40;
+const COST_DECIMALS = 4;
+const THOUSAND = 1000;
+const MILLION = 1_000_000;
+// Below this, "1.2k" adds information; above it, "12k" is enough.
+const ONE_DECIMAL_LIMIT = 10_000;
 
 export default function (pi: ExtensionAPI): void {
   // In spawned children this extension only enforces restrictions; not registering
@@ -294,18 +305,18 @@ export default function (pi: ExtensionAPI): void {
         let text =
           theme.fg("toolTitle", theme.bold("subagent ")) +
           theme.fg("accent", `parallel (${toolArguments.tasks.length} tasks)`);
-        for (const taskItem of toolArguments.tasks.slice(0, 3)) {
-          const preview = taskItem.task.length > 40 ? `${taskItem.task.slice(0, 40)}...` : taskItem.task;
+        for (const taskItem of toolArguments.tasks.slice(0, MAX_PREVIEWED_TASKS)) {
+          const preview = taskItem.task.length > PARALLEL_TASK_PREVIEW_CHARACTERS ? `${taskItem.task.slice(0, PARALLEL_TASK_PREVIEW_CHARACTERS)}...` : taskItem.task;
           text +=
             `\n  ${theme.fg("accent", taskItem.agent)}` +
             formatAgentConfig(taskItem.model, taskItem.thinkingLevel, "inherit", theme) +
             theme.fg("dim", ` ${preview}`);
         }
-        if (toolArguments.tasks.length > 3) text += `\n  ${theme.fg("muted", `... +${toolArguments.tasks.length - 3} more`)}`;
+        if (toolArguments.tasks.length > MAX_PREVIEWED_TASKS) text += `\n  ${theme.fg("muted", `... +${toolArguments.tasks.length - MAX_PREVIEWED_TASKS} more`)}`;
         return new Text(text, 0, 0);
       }
       const agentName = toolArguments.agent || "...";
-      const preview = toolArguments.task ? (toolArguments.task.length > 60 ? `${toolArguments.task.slice(0, 60)}...` : toolArguments.task) : "...";
+      const preview = toolArguments.task ? (toolArguments.task.length > TASK_PREVIEW_CHARACTERS ? `${toolArguments.task.slice(0, TASK_PREVIEW_CHARACTERS)}...` : toolArguments.task) : "...";
       let text =
         theme.fg("toolTitle", theme.bold("subagent ")) +
         theme.fg("accent", agentName) +
@@ -644,7 +655,7 @@ async function runSingleAgent(
 
       const terminateLingeringChild = (): void => {
         currentResult.terminationNote =
-          `The subagent finished but its process did not exit within ${EXIT_GRACE_MILLISECONDS / 1000} s, so it was terminated. Its output is complete; the lingering process points to a handle leak in an extension.`;
+          `The subagent finished but its process did not exit within ${EXIT_GRACE_MILLISECONDS / MILLISECONDS_PER_SECOND} s, so it was terminated. Its output is complete; the lingering process points to a handle leak in an extension.`;
         terminateChild();
       };
 
@@ -1032,7 +1043,7 @@ function formatUsageStats(usage: {
   if (usage.output) parts.push(`↓${formatTokens(usage.output)}`);
   if (usage.cacheRead) parts.push(`R${formatTokens(usage.cacheRead)}`);
   if (usage.cacheWrite) parts.push(`W${formatTokens(usage.cacheWrite)}`);
-  if (usage.cost) parts.push(`$${usage.cost.toFixed(4)}`);
+  if (usage.cost) parts.push(`$${usage.cost.toFixed(COST_DECIMALS)}`);
   if (usage.contextTokens && usage.contextTokens > 0) {
     parts.push(`ctx:${formatTokens(usage.contextTokens)}`);
   }
@@ -1046,10 +1057,10 @@ function formatRunFooter(usageText: string, durationMs: number | undefined): str
 }
 
 function formatTokens(count: number): string {
-  if (count < 1000) return count.toString();
-  if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
-  if (count < 1000000) return `${Math.round(count / 1000)}k`;
-  return `${(count / 1000000).toFixed(1)}M`;
+  if (count < THOUSAND) return count.toString();
+  if (count < ONE_DECIMAL_LIMIT) return `${(count / THOUSAND).toFixed(1)}k`;
+  if (count < MILLION) return `${Math.round(count / THOUSAND)}k`;
+  return `${(count / MILLION).toFixed(1)}M`;
 }
 
 function registerChildRestrictions(pi: ExtensionAPI): void {

@@ -5,13 +5,15 @@ import type { AgentMode, PathRuleStore } from "./agent-mode.ts";
 import { emptyRules, parseRules, selectorFromKey, selectorKey, serializeRules } from "./path-permission-rules.ts";
 import type { PathSelector, RuleSets, SerializedRules } from "./path-permission-rules.ts";
 import { isRecord } from "./untyped.ts";
+import { BYTES_PER_KIBIBYTE } from "./units.ts";
 
 // ruleStore and agentMode describe the parent; without them the child uses its own.
 export interface ChildPathPolicy { version: 1; session: SerializedRules; readDefaults: PathSelector[]; writeDefaults: PathSelector[]; ruleStore?: PathRuleStore; agentMode?: AgentMode }
 export const CHILD_POLICY_ENV = "PI_SUBAGENT_PATH_POLICY";
 // The policy travels in an environment variable, and an exec fails with E2BIG once the
 // environment outgrows the system limit (256 KiB on macOS, shared with the arguments).
-const MAX_BYTES = 32 * 1024;
+const MAX_KIBIBYTES = 32;
+const MAX_BYTES = MAX_KIBIBYTES * BYTES_PER_KIBIBYTE;
 
 // A child process without the variable is not a subagent; one with an invalid variable must not
 // fall back to its own rules, so it disables the path tools instead.
@@ -21,7 +23,7 @@ const INVALID: InheritedPolicy = { kind: "invalid" };
 
 export function serializeChildPathPolicy(policy: ChildPathPolicy): string {
   const encoded = JSON.stringify(policy);
-  if (Buffer.byteLength(encoded, "utf8") > MAX_BYTES) throw new Error(`Inherited path policy exceeds the ${MAX_BYTES / 1024} KiB limit.`);
+  if (Buffer.byteLength(encoded, "utf8") > MAX_BYTES) throw new Error(`Inherited path policy exceeds the ${MAX_KIBIBYTES} KiB limit.`);
   return encoded;
 }
 

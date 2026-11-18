@@ -8,9 +8,6 @@
     }
   },
   "extensions/cache-debug/analysis.ts": {
-    "@typescript-eslint/no-magic-numbers": {
-      "count": 3
-    },
     "local/step-down": {
       "count": 9
     }
@@ -43,9 +40,6 @@
     "@typescript-eslint/consistent-type-assertions": {
       "count": 1
     },
-    "@typescript-eslint/no-magic-numbers": {
-      "count": 8
-    },
     "local/step-down": {
       "count": 1
     }
@@ -69,9 +63,6 @@
     }
   },
   "extensions/claude-bridge/src/assistant-stream.ts": {
-    "@typescript-eslint/no-magic-numbers": {
-      "count": 3
-    },
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 34
     },
@@ -104,9 +95,6 @@
     "@typescript-eslint/consistent-type-assertions": {
       "count": 4
     },
-    "@typescript-eslint/no-magic-numbers": {
-      "count": 4
-    },
     "local/step-down": {
       "count": 12
     },
@@ -120,9 +108,6 @@
     }
   },
   "extensions/claude-bridge/src/claude-executable.ts": {
-    "@typescript-eslint/no-magic-numbers": {
-      "count": 20
-    },
     "@typescript-eslint/prefer-nullish-coalescing": {
       "count": 1
     },
@@ -131,9 +116,6 @@
     }
   },
   "extensions/claude-bridge/src/claude-failure.ts": {
-    "@typescript-eslint/no-magic-numbers": {
-      "count": 12
-    },
     "local/step-down": {
       "count": 1
     }
@@ -150,9 +132,6 @@
     }
   },
   "extensions/claude-bridge/src/consume-query.ts": {
-    "@typescript-eslint/no-magic-numbers": {
-      "count": 3
-    },
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 4
     },
@@ -172,9 +151,6 @@
     }
   },
   "extensions/claude-bridge/src/debug.ts": {
-    "@typescript-eslint/no-magic-numbers": {
-      "count": 2
-    },
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 1
     },
@@ -196,11 +172,8 @@
     }
   },
   "extensions/claude-bridge/src/index.ts": {
-    "@typescript-eslint/no-magic-numbers": {
-      "count": 18
-    },
     "@typescript-eslint/no-unnecessary-condition": {
-      "count": 8
+      "count": 7
     },
     "@typescript-eslint/prefer-nullish-coalescing": {
       "count": 1
@@ -265,9 +238,6 @@
     }
   },
   "extensions/claude-bridge/src/rate-limit.ts": {
-    "@typescript-eslint/no-magic-numbers": {
-      "count": 6
-    },
     "local/step-down": {
       "count": 4
     }
@@ -292,9 +262,6 @@
     "@typescript-eslint/consistent-type-assertions": {
       "count": 3
     },
-    "@typescript-eslint/no-magic-numbers": {
-      "count": 17
-    },
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 1
     },
@@ -306,9 +273,6 @@
     }
   },
   "extensions/claude-bridge/src/session-verify.ts": {
-    "@typescript-eslint/no-magic-numbers": {
-      "count": 2
-    },
     "@typescript-eslint/prefer-nullish-coalescing": {
       "count": 1
     },
@@ -317,11 +281,8 @@
     }
   },
   "extensions/claude-bridge/src/stream-idle-watchdog.ts": {
-    "@typescript-eslint/no-magic-numbers": {
-      "count": 9
-    },
     "@typescript-eslint/no-unnecessary-condition": {
-      "count": 2
+      "count": 1
     },
     "local/step-down": {
       "count": 6
@@ -366,9 +327,6 @@
     }
   },
   "extensions/claude-bridge/src/tree-resume.ts": {
-    "@typescript-eslint/no-magic-numbers": {
-      "count": 2
-    },
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 1
     },
@@ -377,9 +335,6 @@
     }
   },
   "extensions/context.ts": {
-    "@typescript-eslint/no-magic-numbers": {
-      "count": 4
-    },
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 1
     },
@@ -391,9 +346,6 @@
     }
   },
   "extensions/crit.ts": {
-    "@typescript-eslint/no-magic-numbers": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 3
     }
@@ -468,16 +420,8 @@
     }
   },
   "extensions/lib/exec.ts": {
-    "@typescript-eslint/no-magic-numbers": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 1
-    }
-  },
-  "extensions/lib/format.ts": {
-    "@typescript-eslint/no-magic-numbers": {
-      "count": 7
     }
   },
   "extensions/lib/grep-collector.test.ts": {
@@ -529,17 +473,11 @@
     "@typescript-eslint/consistent-type-assertions": {
       "count": 1
     },
-    "@typescript-eslint/no-magic-numbers": {
-      "count": 2
-    },
     "local/step-down": {
       "count": 27
     }
   },
   "extensions/lib/path-permission-snapshot.ts": {
-    "@typescript-eslint/no-magic-numbers": {
-      "count": 3
-    },
     "local/step-down": {
       "count": 2
     }
@@ -929,9 +867,6 @@
     }
   },
   "extensions/sidebar/panel.ts": {
-    "@typescript-eslint/no-magic-numbers": {
-      "count": 1
-    },
     "local/step-down": {
       "count": 5
     }
@@ -965,9 +900,6 @@
     "@typescript-eslint/consistent-type-assertions": {
       "count": 2
     },
-    "@typescript-eslint/no-magic-numbers": {
-      "count": 17
-    },
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 10
     },
@@ -997,9 +929,6 @@
     }
   },
   "extensions/tuicr.ts": {
-    "@typescript-eslint/no-magic-numbers": {
-      "count": 5
-    },
     "local/step-down": {
       "count": 2
     }

@@ -51,8 +51,11 @@ export interface SerializedRules extends SerializedRuleSets { version: 2 }
 
 export type StoredRules = Record<PathRuleStore, RuleSets>;
 
+// Version 3 split the rules by mode (execution, plan, explore); older entries and files are not read.
+const RULES_VERSION = 3;
+
 // Every mode's rules, as the rules file and the session entry hold them.
-export type SerializedStoredRules = { version: 3 } & Record<PathRuleStore, SerializedRuleSets>;
+export type SerializedStoredRules = { version: typeof RULES_VERSION } & Record<PathRuleStore, SerializedRuleSets>;
 
 export interface DefaultAllowedOptions {
   agentMode: AgentMode;
@@ -86,7 +89,7 @@ export function selectorLabel(selector: PathSelector): string {
 
 export function serializeStoredRules(rules: StoredRules): SerializedStoredRules {
   return {
-    version: 3,
+    version: RULES_VERSION,
     [PathRuleStore.Execution]: serializeRuleSets(rules[PathRuleStore.Execution]),
     [PathRuleStore.Plan]: serializeRuleSets(rules[PathRuleStore.Plan]),
     [PathRuleStore.Explore]: serializeRuleSets(rules[PathRuleStore.Explore]),
@@ -95,7 +98,7 @@ export function serializeStoredRules(rules: StoredRules): SerializedStoredRules 
 
 export function parseStoredRules(value: unknown): StoredRules {
   const record = asRecord(value);
-  if (record.version !== 3) throw new Error(`Unsupported path permission rules version: ${String(record.version)}`);
+  if (record.version !== RULES_VERSION) throw new Error(`Unsupported path permission rules version: ${String(record.version)}`);
   const rules = emptyStoredRules();
   for (const store of Object.values(PathRuleStore)) rules[store] = parseRuleSets(record[store]);
   return rules;

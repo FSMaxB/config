@@ -2,6 +2,7 @@ import { appendFile, mkdir, readdir, readFile, rm, stat } from "node:fs/promises
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { errorCode, errorMessage } from "../lib/errors.ts";
+import { BYTES_PER_MEBIBYTE, MILLISECONDS_PER_DAY } from "../lib/units.ts";
 import { isRecord } from "../lib/untyped.ts";
 import { MarkerEvent, RECORD_VERSION } from "./records.ts";
 import type { LogRecord, MarkerRecord } from "./records.ts";
@@ -11,9 +12,11 @@ export function cacheDebugDirectory(home: string = homedir()): string {
 }
 
 // A busy session writes a few MiB a day; the cap only stops a runaway session from filling the disk.
-const LOG_LIMIT_BYTES = 50 * 1024 * 1024;
+const LOG_LIMIT_MEBIBYTES = 50;
+const LOG_LIMIT_BYTES = LOG_LIMIT_MEBIBYTES * BYTES_PER_MEBIBYTE;
 // A month keeps the logs of every session that is still likely to be resumed.
-const MAXIMUM_LOG_AGE_MILLISECONDS = 30 * 24 * 60 * 60 * 1000;
+const MAXIMUM_LOG_AGE_DAYS = 30;
+const MAXIMUM_LOG_AGE_MILLISECONDS = MAXIMUM_LOG_AGE_DAYS * MILLISECONDS_PER_DAY;
 // The logs describe the user's sessions, so only the owner may read them.
 const OWNER_ONLY_DIRECTORY_MODE = 0o700;
 const OWNER_ONLY_FILE_MODE = 0o600;
