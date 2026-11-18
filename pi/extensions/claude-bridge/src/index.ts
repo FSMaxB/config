@@ -803,7 +803,7 @@ function streamClaudeAgentSdkInLane(model: Model<any>, context: TranscriptContex
 		const c = currentQueryContext();  // capture current context for the microtask
 		queueMicrotask(() => {
 			c.resetTurnState(model);
-			stream.push({ type: "done", reason: "stop", message: c.turnOutput });
+			stream.push({ type: "done", reason: "stop", message: c.output });
 			stream.end();
 			releaseEphemeralLane();
 		});

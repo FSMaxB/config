@@ -133,9 +133,9 @@ export async function consumeQuery(
 					ensureTurnStarted(queryContext);
 					queryContext.turnBlocks.push({ type: "text", text });
 					const index = queryContext.turnBlocks.length - 1;
-					queryContext.currentPiStream?.push({ type: "text_start", contentIndex: index, partial: queryContext.turnOutput });
-					queryContext.currentPiStream?.push({ type: "text_delta", contentIndex: index, delta: text, partial: queryContext.turnOutput });
-					queryContext.currentPiStream?.push({ type: "text_end", contentIndex: index, content: text, partial: queryContext.turnOutput });
+					queryContext.currentPiStream?.push({ type: "text_start", contentIndex: index, partial: queryContext.output });
+					queryContext.currentPiStream?.push({ type: "text_delta", contentIndex: index, delta: text, partial: queryContext.output });
+					queryContext.currentPiStream?.push({ type: "text_end", contentIndex: index, content: text, partial: queryContext.output });
 				} else if (message.subtype !== "success") {
 					const errorLines = Array.isArray((message as any).errors) ? uniqueNonEmptyLines((message as any).errors) : [];
 					const errors = errorLines.length > 0 ? errorLines.join("\n") : String((message as any).result || message.subtype || "Claude Code request failed");

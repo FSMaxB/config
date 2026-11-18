@@ -4,6 +4,7 @@
 
 import { closeSync, openSync, readSync, statSync } from "node:fs";
 import { StringDecoder } from "node:string_decoder";
+import { errorMessage } from "../../lib/errors.ts";
 
 interface JsonlSummary {
 	count: number;
@@ -60,14 +61,14 @@ export function verifyWrittenSession(jsonlPath: string, expectedSessionId: strin
 	try {
 		st = statSync(jsonlPath);
 	} catch (error) {
-		warnings.push(`session-file-missing=${jsonlPath}\nFile missing after save: ${error.message}`);
+		warnings.push(`session-file-missing=${jsonlPath}\nFile missing after save: ${errorMessage(error)}`);
 		return warnings;
 	}
 	let summary;
 	try {
 		summary = summarizeJsonl(jsonlPath);
 	} catch (error) {
-		warnings.push(`session-file-unreadable=${jsonlPath}\nFile unreadable: size=${st.size} error=${error.message}`);
+		warnings.push(`session-file-unreadable=${jsonlPath}\nFile unreadable: size=${st.size} error=${errorMessage(error)}`);
 		return warnings;
 	}
 	if (summary.count !== expectedRecordCount) {
@@ -81,7 +82,7 @@ export function verifyWrittenSession(jsonlPath: string, expectedSessionId: strin
 			warnings.push(`session-id-drift=${expectedSessionId} first=${firstRec.sessionId} last=${lastRec.sessionId}\nSession identity differs from the expected identity.`);
 		}
 	} catch (error) {
-		warnings.push(`session-json-invalid=${jsonlPath}\nMalformed JSONL: ${error.message}`);
+		warnings.push(`session-json-invalid=${jsonlPath}\nMalformed JSONL: ${errorMessage(error)}`);
 	}
 	return warnings;
 }

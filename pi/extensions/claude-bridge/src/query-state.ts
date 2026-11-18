@@ -435,6 +435,12 @@ export class QueryContext {
 		return this.turnOutput.content;
 	}
 
+	/** The in-flight turn's message, for the stream code that runs only after resetTurnState. */
+	get output(): AssistantMessage {
+		if (!this.turnOutput) throw new Error("turn-state-uninitialized=turnOutput\nturn output accessed before resetTurnState");
+		return this.turnOutput;
+	}
+
 	resetTurnState(model: Model<any>): void {
 		this.turnOutput = {
 			role: "assistant", content: [],

@@ -52,7 +52,7 @@ export function parsePartialJson(input: string, fallback: Record<string, unknown
 // they were created for — under reentrancy the live currentQueryContext() is the subagent's.
 export function ensureTurnStarted(queryContext: QueryContext = currentQueryContext()): void {
 	if (!queryContext.turnStarted && queryContext.currentPiStream && queryContext.turnOutput) {
-		queryContext.currentPiStream.push({ type: "start", partial: queryContext.turnOutput });
+		queryContext.currentPiStream.push({ type: "start", partial: queryContext.output });
 		queryContext.turnStarted = true;
 	}
 }
@@ -225,7 +225,7 @@ export function finalizeToolUseTurnFromMcpInvocation(
 			queryContext.updateToolCallArgs(block.id, block.arguments);
 			delete block.partialJson;
 			delete block.index;
-			queryContext.currentPiStream.push({ type: "toolcall_end", contentIndex: index, toolCall: block, partial: queryContext.turnOutput });
+			queryContext.currentPiStream.push({ type: "toolcall_end", contentIndex: index, toolCall: block, partial: queryContext.output });
 		}
 	} else if (queryContext.forwardedToolCallIds.has(toolCallId) || queryContext.deadToolCallIds.has(toolCallId)) {
 		// Pi already executed this call in a turn that has ended (its result
@@ -244,8 +244,8 @@ export function finalizeToolUseTurnFromMcpInvocation(
 		queryContext.turnBlocks.push({ type: "toolCall", id: toolCallId, name: toolName, arguments: mappedArgs });
 		index = queryContext.turnBlocks.length - 1;
 		const block = queryContext.turnBlocks[index] as any;
-		queryContext.currentPiStream.push({ type: "toolcall_start", contentIndex: index, partial: queryContext.turnOutput });
-		queryContext.currentPiStream.push({ type: "toolcall_end", contentIndex: index, toolCall: block, partial: queryContext.turnOutput });
+		queryContext.currentPiStream.push({ type: "toolcall_start", contentIndex: index, partial: queryContext.output });
+		queryContext.currentPiStream.push({ type: "toolcall_end", contentIndex: index, toolCall: block, partial: queryContext.output });
 	}
 	// Settle every OTHER still-partial block whose handler has fired: each
 	// waiting handler carries the authoritative args for its own call.
@@ -258,7 +258,7 @@ export function finalizeToolUseTurnFromMcpInvocation(
 		queryContext.updateToolCallArgs(sibling.id, sibling.arguments);
 		delete sibling.partialJson;
 		delete sibling.index;
-		queryContext.currentPiStream.push({ type: "toolcall_end", contentIndex: i, toolCall: sibling, partial: queryContext.turnOutput });
+		queryContext.currentPiStream.push({ type: "toolcall_end", contentIndex: i, toolCall: sibling, partial: queryContext.output });
 	}
 	// A block still partial here has NO fired handler: its complete arguments
 	// exist nowhere on this side of the boundary yet. Ending the turn now would
@@ -347,10 +347,10 @@ export function processStreamEvent(
 		}
 		if (event.content_block?.type === "text") {
 			queryContext.turnBlocks.push({ type: "text", text: "", index: event.index });
-			queryContext.currentPiStream!.push({ type: "text_start", contentIndex: queryContext.turnBlocks.length - 1, partial: queryContext.turnOutput });
+			queryContext.currentPiStream!.push({ type: "text_start", contentIndex: queryContext.turnBlocks.length - 1, partial: queryContext.output });
 		} else if (event.content_block?.type === "thinking") {
 			queryContext.turnBlocks.push({ type: "thinking", thinking: "", thinkingSignature: "", index: event.index });
-			queryContext.currentPiStream!.push({ type: "thinking_start", contentIndex: queryContext.turnBlocks.length - 1, partial: queryContext.turnOutput });
+			queryContext.currentPiStream!.push({ type: "thinking_start", contentIndex: queryContext.turnBlocks.length - 1, partial: queryContext.output });
 		} else if (event.content_block?.type === "tool_use") {
 			const streamedId: unknown = event.content_block.id;
 			if (typeof streamedId === "string" && (queryContext.forwardedToolCallIds.has(streamedId) || queryContext.deadToolCallIds.has(streamedId))) {
@@ -379,7 +379,7 @@ export function processStreamEvent(
 				arguments: (event.content_block.input as Record<string, unknown>) ?? {},
 				partialJson: "", index: event.index,
 			});
-			queryContext.currentPiStream!.push({ type: "toolcall_start", contentIndex: queryContext.turnBlocks.length - 1, partial: queryContext.turnOutput });
+			queryContext.currentPiStream!.push({ type: "toolcall_start", contentIndex: queryContext.turnBlocks.length - 1, partial: queryContext.output });
 		} else {
 			debug("processStreamEvent: unhandled content_block_start type", event.content_block?.type);
 		}
@@ -401,14 +401,14 @@ export function processStreamEvent(
 		queryContext.turnSawStreamEvent = true;
 		if (event.delta?.type === "text_delta" && block.type === "text") {
 			block.text += event.delta.text;
-			queryContext.currentPiStream!.push({ type: "text_delta", contentIndex: index, delta: event.delta.text, partial: queryContext.turnOutput });
+			queryContext.currentPiStream!.push({ type: "text_delta", contentIndex: index, delta: event.delta.text, partial: queryContext.output });
 		} else if (event.delta?.type === "thinking_delta" && block.type === "thinking") {
 			block.thinking += event.delta.thinking;
-			queryContext.currentPiStream!.push({ type: "thinking_delta", contentIndex: index, delta: event.delta.thinking, partial: queryContext.turnOutput });
+			queryContext.currentPiStream!.push({ type: "thinking_delta", contentIndex: index, delta: event.delta.thinking, partial: queryContext.output });
 		} else if (event.delta?.type === "input_json_delta" && block.type === "toolCall") {
 			block.partialJson += event.delta.partial_json;
 			block.arguments = parsePartialJson(block.partialJson, block.arguments);
-			queryContext.currentPiStream!.push({ type: "toolcall_delta", contentIndex: index, delta: event.delta.partial_json, partial: queryContext.turnOutput });
+			queryContext.currentPiStream!.push({ type: "toolcall_delta", contentIndex: index, delta: event.delta.partial_json, partial: queryContext.output });
 		} else if (event.delta?.type === "signature_delta" && block.type === "thinking") {
 			block.thinkingSignature = (block.thinkingSignature ?? "") + event.delta.signature;
 		} else {
@@ -433,9 +433,9 @@ export function processStreamEvent(
 		queryContext.turnSawStreamEvent = true;
 		delete block.index;
 		if (block.type === "text") {
-			queryContext.currentPiStream!.push({ type: "text_end", contentIndex: index, content: block.text, partial: queryContext.turnOutput });
+			queryContext.currentPiStream!.push({ type: "text_end", contentIndex: index, content: block.text, partial: queryContext.output });
 		} else if (block.type === "thinking") {
-			queryContext.currentPiStream!.push({ type: "thinking_end", contentIndex: index, content: block.thinking, partial: queryContext.turnOutput });
+			queryContext.currentPiStream!.push({ type: "thinking_end", contentIndex: index, content: block.thinking, partial: queryContext.output });
 		} else if (block.type === "toolCall") {
 			queryContext.turnSawToolCall = true;
 			block.arguments = mapToolArgs(
@@ -443,7 +443,7 @@ export function processStreamEvent(
 			);
 			queryContext.updateToolCallArgs(block.id, block.arguments);
 			delete block.partialJson;
-			queryContext.currentPiStream!.push({ type: "toolcall_end", contentIndex: index, toolCall: block, partial: queryContext.turnOutput });
+			queryContext.currentPiStream!.push({ type: "toolcall_end", contentIndex: index, toolCall: block, partial: queryContext.output });
 		}
 		return;
 	}
@@ -542,7 +542,7 @@ function appendMissingToolUsesFromAssistant(
 			if ("partialJson" in existing) {
 				delete existing.partialJson;
 				delete existing.index;
-				queryContext.currentPiStream?.push({ type: "toolcall_end", contentIndex: existingIndex, toolCall: existing, partial: queryContext.turnOutput });
+				queryContext.currentPiStream?.push({ type: "toolcall_end", contentIndex: existingIndex, toolCall: existing, partial: queryContext.output });
 			}
 			continue;
 		}
@@ -555,8 +555,8 @@ function appendMissingToolUsesFromAssistant(
 		});
 		const index = queryContext.turnBlocks.length - 1;
 		const toolBlock = queryContext.turnBlocks[index];
-		queryContext.currentPiStream?.push({ type: "toolcall_start", contentIndex: index, partial: queryContext.turnOutput });
-		queryContext.currentPiStream?.push({ type: "toolcall_end", contentIndex: index, toolCall: toolBlock as any, partial: queryContext.turnOutput });
+		queryContext.currentPiStream?.push({ type: "toolcall_start", contentIndex: index, partial: queryContext.output });
+		queryContext.currentPiStream?.push({ type: "toolcall_end", contentIndex: index, toolCall: toolBlock as any, partial: queryContext.output });
 	}
 	// Only while the stream is still live: the SDK's assistant yields carry the
 	// message_start placeholder usage, and once the done event has delivered
@@ -620,17 +620,17 @@ export function processAssistantMessage(message: SDKMessage, model: Model<any>, 
 			ensureTurnStarted(queryContext);
 			queryContext.turnBlocks.push({ type: "text", text: block.text });
 			const index = queryContext.turnBlocks.length - 1;
-			queryContext.currentPiStream?.push({ type: "text_start", contentIndex: index, partial: queryContext.turnOutput });
-			queryContext.currentPiStream?.push({ type: "text_delta", contentIndex: index, delta: block.text, partial: queryContext.turnOutput });
-			queryContext.currentPiStream?.push({ type: "text_end", contentIndex: index, content: block.text, partial: queryContext.turnOutput });
+			queryContext.currentPiStream?.push({ type: "text_start", contentIndex: index, partial: queryContext.output });
+			queryContext.currentPiStream?.push({ type: "text_delta", contentIndex: index, delta: block.text, partial: queryContext.output });
+			queryContext.currentPiStream?.push({ type: "text_end", contentIndex: index, content: block.text, partial: queryContext.output });
 		} else if (block.type === "thinking") {
 			if (alreadyRendered("thinking", block.thinking ?? "")) continue;
 			ensureTurnStarted(queryContext);
 			queryContext.turnBlocks.push({ type: "thinking", thinking: block.thinking ?? "", thinkingSignature: block.signature ?? "" });
 			const idx = queryContext.turnBlocks.length - 1;
-			queryContext.currentPiStream?.push({ type: "thinking_start", contentIndex: idx, partial: queryContext.turnOutput });
-			if (block.thinking) queryContext.currentPiStream?.push({ type: "thinking_delta", contentIndex: idx, delta: block.thinking, partial: queryContext.turnOutput });
-			queryContext.currentPiStream?.push({ type: "thinking_end", contentIndex: idx, content: block.thinking ?? "", partial: queryContext.turnOutput });
+			queryContext.currentPiStream?.push({ type: "thinking_start", contentIndex: idx, partial: queryContext.output });
+			if (block.thinking) queryContext.currentPiStream?.push({ type: "thinking_delta", contentIndex: idx, delta: block.thinking, partial: queryContext.output });
+			queryContext.currentPiStream?.push({ type: "thinking_end", contentIndex: idx, content: block.thinking ?? "", partial: queryContext.output });
 		} else if (block.type === "tool_use") {
 			if (!isPiDispatchable(block.name, customToolNameToPi)) {
 				queryContext.noteUnexpectedChildCall(block.id, block.name);
@@ -671,8 +671,8 @@ export function processAssistantMessage(message: SDKMessage, model: Model<any>, 
 			});
 			const idx = queryContext.turnBlocks.length - 1;
 			const toolBlock = queryContext.turnBlocks[idx];
-			queryContext.currentPiStream?.push({ type: "toolcall_start", contentIndex: idx, partial: queryContext.turnOutput });
-			queryContext.currentPiStream?.push({ type: "toolcall_end", contentIndex: idx, toolCall: toolBlock as any, partial: queryContext.turnOutput });
+			queryContext.currentPiStream?.push({ type: "toolcall_start", contentIndex: idx, partial: queryContext.output });
+			queryContext.currentPiStream?.push({ type: "toolcall_end", contentIndex: idx, toolCall: toolBlock as any, partial: queryContext.output });
 		} else if (block.type === "fallback") {
 			updateTurnOutputModel(block.to?.model, queryContext);
 		} else {

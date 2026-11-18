@@ -112,8 +112,8 @@ export function convertPiMessages(
 	messages: readonly PiMessage[],
 	customToolNameToSdk?: ReadonlyMap<string, string>,
 ): { anthropicMessages: SessionMessage[]; sanitizedIds: Map<string, string> } {
-	const anthropicMessages = [];
-	const sanitizedIds = new Map();
+	const anthropicMessages: SessionMessage[] = [];
+	const sanitizedIds = new Map<string, string>();
 
 	const pushToolResultGroup = (toolMessages: readonly PiMessage[]): void => {
 		if (toolMessages.length === 0) return;
@@ -137,7 +137,7 @@ export function convertPiMessages(
 			anthropicMessages.push(userMessageToAnthropic(message));
 		} else if (message.role === "assistant") {
 			const content = Array.isArray(message.content) ? message.content : [];
-			const blocks = [];
+			const blocks: ContentBlock[] = [];
 			const provenance = assistantProvenancePrefix(message);
 			if (provenance) blocks.push({ type: "text", text: provenance });
 			for (const block of content) {

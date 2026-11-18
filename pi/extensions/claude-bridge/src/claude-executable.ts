@@ -233,9 +233,12 @@ export function spawnClaudeCodeWithDiagnostics(options: SpawnOptions): SpawnedPr
 		// JSON-serializable; stack stays the spawn-time breadcrumb for operators.
 		if (originalStack) error.stack = originalStack;
 	});
+	// Both are piped above, so Node always creates them.
+	const { stdin, stdout } = child;
+	if (!stdin || !stdout) throw new Error("claude-spawn-stdio=missing\nThe Claude Code process has no stdin or stdout pipe.");
 	return {
-		stdin: child.stdin,
-		stdout: child.stdout,
+		stdin,
+		stdout,
 		get killed() { return child.killed; },
 		get exitCode() { return child.exitCode; },
 		kill: child.kill.bind(child),
