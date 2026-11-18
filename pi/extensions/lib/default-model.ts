@@ -48,6 +48,6 @@ export function fallbackWarning(
   }
 }
 
-function modelLabel(model: ModelReference): string {
+export function modelLabel(model: ModelReference): string {
   return `${model.provider}/${model.id}`;
 }

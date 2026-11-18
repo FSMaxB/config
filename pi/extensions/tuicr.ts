@@ -23,11 +23,16 @@ import type {
   TuicrComment,
 } from "./lib/tuicr-session.ts";
 
+// Bounds tuicr's own commands, which answer in milliseconds.
 const TIMEOUT = 60_000;
 const DEFAULT_AUTHOR = "pi";
+// tuicr has no change notification, so new sessions and comments are polled for.
 const POLL_INTERVAL = 3_000;
+// The pane needs a moment to start tuicr; a session that has not appeared by then never will.
 const SESSION_APPEAR_TIMEOUT = 30_000;
+// Long enough for the user to write the next comment before the wait returns the batch.
 const DEFAULT_QUIET_SECONDS = 10;
+// A review rarely takes longer; the agent can wait again.
 const DEFAULT_WAIT_TIMEOUT_SECONDS = 30 * 60;
 
 interface Session {
@@ -40,7 +45,7 @@ interface Session {
 // tools do not need repo/slug repeated on every call.
 let current: Session | undefined;
 
-export default function (pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI): void {
   // Module state outlives a session: pi reuses the loaded module for every session in the process.
   pi.on("session_start", () => { current = undefined; });
 

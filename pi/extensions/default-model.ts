@@ -14,7 +14,7 @@ import { isPlanHandoffSession } from "./lib/plan-handoff.ts";
 // pi falls back to the first available model without a word when the default model is missing
 // or has no auth at startup (findInitialModel step 4). Extension providers like pi-claude can
 // register after that choice, so retry the default before warning.
-export default function (pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI): void {
   pi.on("session_start", async (event, context) => {
     if (event.reason !== "startup" && event.reason !== "new") return;
     if (!context.hasUI) return;

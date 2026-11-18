@@ -12,6 +12,8 @@ import type {
 } from "@earendil-works/pi-tui";
 import { createLineSplitter } from "./lib/lines.ts";
 
+// Keeps a scan of a home directory bounded; a project tree stays far below it.
+const MAX_SCANNED_ENTRIES = 200_000;
 const MENTION = /(?:^|\s)@([^\s"]*)$/;
 const FD_ARGS = [
   "--type",
@@ -24,20 +26,23 @@ const FD_ARGS = [
   ".git",
   "--strip-cwd-prefix",
   "--max-results",
-  "200000",
+  String(MAX_SCANNED_ENTRIES),
 ];
+// What fits in the autocomplete popup.
 const MAX_SUGGESTIONS = 20;
+// A rescan after this long picks up new files without rescanning on every keystroke.
 const STALE_MS = 10_000;
+// Bounds a scan of a huge tree; the previous result stays in use.
 const SCAN_TIMEOUT_MS = 30_000;
 const PROBE_TIMEOUT_MS = 5_000;
 
 type Rank = (
-  paths: string[],
+  paths: readonly string[],
   query: string,
   signal: AbortSignal,
 ) => Promise<string[]>;
 
-export default function (pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, context) => {
     if (!context.hasUI) return;
 
@@ -62,7 +67,7 @@ export default function (pi: ExtensionAPI) {
 
 async function resolveBinary(
   pi: ExtensionAPI,
-  candidates: string[],
+  candidates: readonly string[],
 ): Promise<string | undefined> {
   for (const candidate of candidates) {
     if (candidate.includes("/") && !existsSync(candidate)) continue;
@@ -150,7 +155,7 @@ function createProvider(
 }
 
 function rankWithFzf(
-  paths: string[],
+  paths: readonly string[],
   query: string,
   signal: AbortSignal,
 ): Promise<string[]> {
@@ -193,10 +198,10 @@ function rankWithFzf(
 }
 
 async function rankInProcess(
-  paths: string[],
+  paths: readonly string[],
   query: string,
 ): Promise<string[]> {
-  return fuzzyFilter(paths, query, (path) => path).slice(0, MAX_SUGGESTIONS);
+  return fuzzyFilter([...paths], query, (path) => path).slice(0, MAX_SUGGESTIONS);
 }
 
 function toItem(path: string): AutocompleteItem {

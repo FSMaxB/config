@@ -1,3 +1,4 @@
+import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 export const SubmissionAction = {
   Approve: "approve",
   Stay: "stay",
@@ -23,13 +24,21 @@ export function submissionAction(choice: string | undefined): SubmissionAction {
 // Mirrors pi's own choice when switching models, so the preselected level is the one
 // the model would get without this dialog.
 // pi's own default when the settings name no level.
-const PI_DEFAULT_THINKING_LEVEL = "medium";
+const PI_DEFAULT_THINKING_LEVEL: ModelThinkingLevel = "medium";
+
+// pi-ai's MODEL_THINKING_LEVELS, which the package does not export.
+const MODEL_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const satisfies readonly ModelThinkingLevel[];
+
+export function parseThinkingLevel(value: string): ModelThinkingLevel | undefined {
+  return MODEL_THINKING_LEVELS.find((level) => level === value);
+}
 
 export function preferredThinkingLevel(
   modelLabel: string,
   settings: { modelThinkingLevels?: Record<string, string>; defaultThinkingLevel?: string },
-): string {
-  return settings.modelThinkingLevels?.[modelLabel] ?? settings.defaultThinkingLevel ?? PI_DEFAULT_THINKING_LEVEL;
+): ModelThinkingLevel {
+  const configured = settings.modelThinkingLevels?.[modelLabel] ?? settings.defaultThinkingLevel;
+  return (configured === undefined ? undefined : parseThinkingLevel(configured)) ?? PI_DEFAULT_THINKING_LEVEL;
 }
 
 export function thinkingLevelLabel(level: string, defaultLevel: string, currentLevel: string): string {

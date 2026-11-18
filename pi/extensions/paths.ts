@@ -3,7 +3,7 @@ import { activePathRuleStore } from "./lib/path-permissions.ts";
 import { addPathRuleInteractively, managePathRules } from "./lib/path-rule-commands.ts";
 import { parsePathsArgument, pathsCompletions } from "./lib/paths-command.ts";
 
-export default function (pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI): void {
   pi.registerCommand("paths", {
     description:
       "Review path rules with `grants`, or add one with `allow <glob>` / `deny <glob>`; prefix `execution`, `plan` or `explore` for another mode's rules",

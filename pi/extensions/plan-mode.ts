@@ -12,7 +12,7 @@ import { Type } from "typebox";
 import { MODE_IDENTITIES } from "./lib/agent-mode.ts";
 import { isInPlansDirectory, newPlanPath, plansDirectory } from "./lib/plan-file.ts";
 import { activateMissingPlanTools, PLAN_PATH, SUBMIT_PLAN } from "./lib/plan-tools.ts";
-import { PlanApproval, preferredThinkingLevel, SUBMISSION_OPTIONS, SubmissionAction, submissionAction, thinkingLevelLabel } from "./lib/plan-mode-policy.ts";
+import { parseThinkingLevel, PlanApproval, preferredThinkingLevel, SUBMISSION_OPTIONS, SubmissionAction, submissionAction, thinkingLevelLabel } from "./lib/plan-mode-policy.ts";
 import { commitPlanFileForUser } from "./lib/plan-commit.ts";
 import { registerPlanSubmission } from "./lib/plan-submission.ts";
 import type { PlanSubmissionOutcome, PlanSubmissionParams, PlanSubmissionResult } from "./lib/plan-submission.ts";
@@ -21,10 +21,11 @@ import { registerRestrictedMode } from "./lib/restricted-mode.ts";
 import { selectWithDefault } from "./lib/select-with-default.ts";
 import { PLAN_HANDOFF_ENTRY_TYPE } from "./lib/plan-handoff.ts";
 import { latestCustomData } from "./lib/session-entries.ts";
+import { modelLabel } from "./lib/default-model.ts";
 
 const FRESH_HANDOFF_ARGUMENT = "fresh-handoff";
 
-export default function (pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI): void {
   let pendingFreshHandoff: PlanHandoff | undefined;
   const plan = registerRestrictedMode(pi, {
     identity: MODE_IDENTITIES.planning,
@@ -85,7 +86,7 @@ export default function (pi: ExtensionAPI) {
     },
 
     renderResult(result, _renderOptions, theme) {
-      const details = result.details as { path: string | null } | undefined;
+      const { details } = result;
       if (!details?.path) {
         return new Text(theme.fg("error", "✗ only available in plan mode"), 0, 0);
       }
@@ -116,7 +117,7 @@ export default function (pi: ExtensionAPI) {
       }),
     }),
 
-    async execute(_toolCallId, params, signal, _onUpdate, context) {
+    async execute(_toolCallId, params, signal, _onUpdate, context): Promise<PlanSubmissionResult> {
       return await submitPlan(params, signal, context, PlanApproval.Pending);
     },
 
@@ -125,9 +126,7 @@ export default function (pi: ExtensionAPI) {
     },
 
     renderResult(result, renderOptions, theme) {
-      const details = result.details as
-        | { path: string | null; outcome: string }
-        | undefined;
+      const { details } = result;
       if (renderOptions.isPartial) {
         return new Text(
           theme.fg("muted", "Waiting for your decision..."),
@@ -237,10 +236,10 @@ export default function (pi: ExtensionAPI) {
     }
 
     const currentModelLabel = context.model
-      ? `${context.model.provider}/${context.model.id}`
+      ? modelLabel(context.model)
       : undefined;
     const modelOptions = models.map((model) => {
-      const label = `${model.provider}/${model.id}`;
+      const label = modelLabel(model);
       return label === currentModelLabel ? `${label} (current)` : label;
     });
     // The list can exceed the screen, so use the scrolling selector and open it
@@ -263,7 +262,7 @@ export default function (pi: ExtensionAPI) {
     const currentLevel = pi.getThinkingLevel();
     const defaultLevel = clampThinkingLevel(
       selectedModel,
-      preferredThinkingLevel(`${selectedModel.provider}/${selectedModel.id}`, pi.getSettings()) as ModelThinkingLevel,
+      preferredThinkingLevel(modelLabel(selectedModel), pi.getSettings()),
     );
     const supportedLevels = getSupportedThinkingLevels(selectedModel);
     if (supportedLevels.length <= 1) {
@@ -305,7 +304,7 @@ export default function (pi: ExtensionAPI) {
       content: [
         {
           type: "text",
-          text: `Plan at ${planPath} approved. A fresh session with ${selectedModel.provider}/${selectedModel.id} takes over; this conversation ends here.`,
+          text: `Plan at ${planPath} approved. A fresh session with ${modelLabel(selectedModel)} takes over; this conversation ends here.`,
         },
       ],
       details: { path: planPath, outcome: "handed-off" },
@@ -378,9 +377,8 @@ export default function (pi: ExtensionAPI) {
       );
       return;
     }
-    const supportedLevels: string[] = getSupportedThinkingLevels(model);
-    if (supportedLevels.includes(handoff.thinkingLevel)) {
-      pi.setThinkingLevel(handoff.thinkingLevel as ModelThinkingLevel);
+    if (getSupportedThinkingLevels(model).includes(handoff.thinkingLevel)) {
+      pi.setThinkingLevel(handoff.thinkingLevel);
     }
     // session_start is emitted while the host is still rebinding the new session,
     // so the kickoff turn is deferred to the next tick instead of starting inside
@@ -402,7 +400,7 @@ interface PlanHandoff {
   planPath: string;
   provider: string;
   modelId: string;
-  thinkingLevel: string;
+  thinkingLevel: ModelThinkingLevel;
 }
 
 // A fresh implementation session is seeded with this entry before session_start fires,
@@ -412,18 +410,14 @@ function latestPlanHandoff(
 ): PlanHandoff | undefined {
   const { planPath, provider, modelId, thinkingLevel } =
     latestCustomData(sessionManager, PLAN_HANDOFF_ENTRY_TYPE) ?? {};
-  if (
-    typeof planPath !== "string" ||
-    typeof provider !== "string" ||
-    typeof modelId !== "string" ||
-    typeof thinkingLevel !== "string"
-  ) {
+  const level = typeof thinkingLevel === "string" ? parseThinkingLevel(thinkingLevel) : undefined;
+  if (typeof planPath !== "string" || typeof provider !== "string" || typeof modelId !== "string" || level === undefined) {
     return undefined;
   }
-  return { planPath, provider, modelId, thinkingLevel };
+  return { planPath, provider, modelId, thinkingLevel: level };
 }
 
-const OUTCOME_LABELS: Record<string, string | undefined> = {
+const OUTCOME_LABELS: Partial<Record<PlanSubmissionOutcome, string>> = {
   "handed-off": "handed off",
 };
 
