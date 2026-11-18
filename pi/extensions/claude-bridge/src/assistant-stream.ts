@@ -69,10 +69,9 @@ function isPartialToolCall(block: TurnBlock): block is StreamingToolCall {
 // completion/teardown closures in index.ts can finalize the stream of the query
 // they were created for — under reentrancy the live currentQueryContext() is the subagent's.
 export function ensureTurnStarted(queryContext: QueryContext = currentQueryContext()): void {
-	if (!queryContext.turnStarted && queryContext.currentPiStream && queryContext.turnOutput) {
-		queryContext.currentPiStream.push({ type: "start", partial: queryContext.output });
-		queryContext.turnStarted = true;
-	}
+	if (queryContext.turnStarted || !queryContext.currentPiStream || !queryContext.turnOutput) return;
+	queryContext.currentPiStream.push({ type: "start", partial: queryContext.output });
+	queryContext.turnStarted = true;
 }
 
 export function finalizeCurrentStream(stopReason?: string, queryContext: QueryContext = currentQueryContext(), anchor?: ClaudeTranscriptAnchor): void {

@@ -381,10 +381,9 @@ function releaseProviderTokens(event: string): void {
 		debug(`${event}: clearing ACTIVE_STREAM_SIMPLE_KEY`);
 		g[ACTIVE_STREAM_SIMPLE_KEY] = undefined;
 	}
-	if (g[PRIMARY_INSTANCE_KEY] === streamClaudeAgentSdk) {
-		debug(`${event}: clearing PRIMARY_INSTANCE_KEY`);
-		g[PRIMARY_INSTANCE_KEY] = undefined;
-	}
+	if (g[PRIMARY_INSTANCE_KEY] !== streamClaudeAgentSdk) return;
+	debug(`${event}: clearing PRIMARY_INSTANCE_KEY`);
+	g[PRIMARY_INSTANCE_KEY] = undefined;
 }
 
 // Native (pi >=0.81) provider registration. Run at extension load, on every
@@ -508,14 +507,13 @@ export function onPiHistoryReplaced(event: string): void {
 		// integrity fault an unhandled one reports.
 		reportToolResultMismatch(queryContext, event, activeSession?.cwd ?? process.cwd(), { expectedInterruption: restarts });
 	}
-	if (activeSession) {
-		debug(`${event}: marking needsRebuild on session ${activeSession.sessionId.slice(0, 8)}`);
-		// A restart kills the child, which goes on flushing its jsonl: rebuilding
-		// in place would race that writer, so the replacement takes a new session
-		// id and leaves the old transcript alone. A compaction that kills nothing
-		// has no writer to race and rebuilds in place.
-		markSessionForRebuild(`pi replaced the history (${event})`, { forceRotate: restarts });
-	}
+	if (!activeSession) return;
+	debug(`${event}: marking needsRebuild on session ${activeSession.sessionId.slice(0, 8)}`);
+	// A restart kills the child, which goes on flushing its jsonl: rebuilding
+	// in place would race that writer, so the replacement takes a new session
+	// id and leaves the old transcript alone. A compaction that kills nothing
+	// has no writer to race and rebuilds in place.
+	markSessionForRebuild(`pi replaced the history (${event})`, { forceRotate: restarts });
 }
 
 /** After /tree navigation, replace the record with the Claude transcript
@@ -1370,31 +1368,29 @@ function streamClaudeAgentSdkInLane(model: Model<Api>, context: TranscriptContex
 			// a fresh outermost query over Pi's new context, and its events belong to
 			// the callback that observed the replacement, not to this one.
 			const restart = abortContext.restartRequest;
-			if (restart) {
-				abortContext.restartRequest = undefined;
-				reentryStream = restart.stream;
-				if (wasAborted || options?.signal?.aborted || restart.options?.signal?.aborted) {
-					// The request died between the restart and this teardown: rebuilding
-					// the session and spawning a child the fresh-query path kills on the
-					// same signal buys nothing. Terminate the callback's stream instead.
-					debug("provider: abort before the history restart — terminating the stream without restarting");
-					// A fresh output for THIS message: the restart branch returned before
-					// resetTurnState, so turnOutput is still the message pi already holds
-					// for the pre-compaction turn. Stamping "aborted" onto it would
-					// rewrite a delivered turn whose tools really ran.
-					abortContext.resetTurnState(restart.model);
-					const output = abortContext.output;
-					output.stopReason = "aborted";
-					output.errorMessage = "Operation aborted";
-					reentryStream.push({ type: "error", reason: "aborted", error: output });
-					reentryStream.end();
-					return;
-				}
-				debug(`provider: restarting query on replaced history, ${restart.context.messages.length} pi message(s)`);
-				for await (const event of streamClaudeAgentSdk(restart.model, restartContext(restart), restart.options)) reentryStream.push(event);
+			if (!restart) return;
+			abortContext.restartRequest = undefined;
+			reentryStream = restart.stream;
+			if (wasAborted || options?.signal?.aborted || restart.options?.signal?.aborted) {
+				// The request died between the restart and this teardown: rebuilding
+				// the session and spawning a child the fresh-query path kills on the
+				// same signal buys nothing. Terminate the callback's stream instead.
+				debug("provider: abort before the history restart — terminating the stream without restarting");
+				// A fresh output for THIS message: the restart branch returned before
+				// resetTurnState, so turnOutput is still the message pi already holds
+				// for the pre-compaction turn. Stamping "aborted" onto it would
+				// rewrite a delivered turn whose tools really ran.
+				abortContext.resetTurnState(restart.model);
+				const output = abortContext.output;
+				output.stopReason = "aborted";
+				output.errorMessage = "Operation aborted";
+				reentryStream.push({ type: "error", reason: "aborted", error: output });
 				reentryStream.end();
 				return;
 			}
+			debug(`provider: restarting query on replaced history, ${restart.context.messages.length} pi message(s)`);
+			for await (const event of streamClaudeAgentSdk(restart.model, restartContext(restart), restart.options)) reentryStream.push(event);
+			reentryStream.end();
 		})
 		.catch((error: unknown) => {
 			debug("provider: re-entry pipeline failed:", error);

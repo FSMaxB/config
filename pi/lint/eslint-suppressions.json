@@ -94,9 +94,6 @@
     },
     "unicorn/no-null": {
       "count": 4
-    },
-    "unicorn/prefer-early-return": {
-      "count": 1
     }
   },
   "extensions/claude-bridge/src/auth-presence.ts": {
@@ -256,9 +253,6 @@
       "count": 6
     },
     "unicorn/no-null": {
-      "count": 3
-    },
-    "unicorn/prefer-early-return": {
       "count": 3
     }
   },
@@ -1303,9 +1297,6 @@
     },
     "unicorn/name-replacements": {
       "count": 20
-    },
-    "unicorn/prefer-early-return": {
-      "count": 4
     }
   },
   "extensions/subagent/mode-restrictions.ts": {

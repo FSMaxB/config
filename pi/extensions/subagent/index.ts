@@ -207,16 +207,15 @@ export default function (pi: ExtensionAPI): void {
         }
 
         const emitParallelUpdate = () => {
-          if (onUpdate) {
-            const running = allResults.filter((result) => isRunningResult(result)).length;
-            const done = allResults.filter((result) => !isRunningResult(result)).length;
-            onUpdate({
-              content: [
-                { type: "text", text: `Parallel: ${done}/${allResults.length} done, ${running} running...` },
-              ],
-              details: { mode: "parallel", results: [...allResults] },
-            });
-          }
+          if (!onUpdate) return;
+          const running = allResults.filter((result) => isRunningResult(result)).length;
+          const done = allResults.filter((result) => !isRunningResult(result)).length;
+          onUpdate({
+            content: [
+              { type: "text", text: `Parallel: ${done}/${allResults.length} done, ${running} running...` },
+            ],
+            details: { mode: "parallel", results: [...allResults] },
+          });
         };
 
         const results = await mapWithConcurrencyLimit(params.tasks, MAX_CONCURRENCY, async (taskItem, index) => {
@@ -230,10 +229,9 @@ export default function (pi: ExtensionAPI): void {
             taskItem.cwd,
             signal,
             (partial) => {
-              if (partial.details?.results[0]) {
-                allResults[index] = partial.details.results[0];
-                emitParallelUpdate();
-              }
+              if (!partial.details?.results[0]) return;
+              allResults[index] = partial.details.results[0];
+              emitParallelUpdate();
             },
             "parallel",
           );
@@ -610,30 +608,30 @@ async function runSingleAgent(
 
         trackPhase(event);
         const { message: rawMessage } = event;
-        if ((event.type === "message_end" || event.type === "tool_result_end") && typeof rawMessage === "object" && rawMessage !== null) {
-          // The child is pi in JSON mode, which writes its own Message objects.
-          const message = rawMessage as Message;
-          if (message.role === "toolResult" && completedToolCalls.has(message.toolCallId)) return;
-          const usage = finalizedMessageUsage(message, completedToolCalls);
-          if (message.role === "toolResult") completedToolCalls.add(message.toolCallId);
-          currentResult.messages.push(message);
-          if (usage) {
-            currentResult.nativeUsage = sumUsage([currentResult.nativeUsage, usage]);
-            currentResult.usage.input += usage.input || 0;
-            currentResult.usage.output += usage.output || 0;
-            currentResult.usage.cacheRead += usage.cacheRead || 0;
-            currentResult.usage.cacheWrite += usage.cacheWrite || 0;
-            currentResult.usage.cost += usage.cost?.total || 0;
-          }
-          if (message.role === "assistant") {
-            currentResult.usage.turns++;
-            currentResult.usage.contextTokens = message.usage?.totalTokens || 0;
-            if (!currentResult.model && message.model) currentResult.model = message.model;
-            if (message.stopReason) currentResult.stopReason = message.stopReason;
-            currentResult.errorMessage = message.errorMessage;
-          }
-          emitUpdate();
+        const endsMessage = event.type === "message_end" || event.type === "tool_result_end";
+        if (!endsMessage || typeof rawMessage !== "object" || rawMessage === null) return;
+        // The child is pi in JSON mode, which writes its own Message objects.
+        const message = rawMessage as Message;
+        if (message.role === "toolResult" && completedToolCalls.has(message.toolCallId)) return;
+        const usage = finalizedMessageUsage(message, completedToolCalls);
+        if (message.role === "toolResult") completedToolCalls.add(message.toolCallId);
+        currentResult.messages.push(message);
+        if (usage) {
+          currentResult.nativeUsage = sumUsage([currentResult.nativeUsage, usage]);
+          currentResult.usage.input += usage.input || 0;
+          currentResult.usage.output += usage.output || 0;
+          currentResult.usage.cacheRead += usage.cacheRead || 0;
+          currentResult.usage.cacheWrite += usage.cacheWrite || 0;
+          currentResult.usage.cost += usage.cost?.total || 0;
         }
+        if (message.role === "assistant") {
+          currentResult.usage.turns++;
+          currentResult.usage.contextTokens = message.usage?.totalTokens || 0;
+          if (!currentResult.model && message.model) currentResult.model = message.model;
+          if (message.stopReason) currentResult.stopReason = message.stopReason;
+          currentResult.errorMessage = message.errorMessage;
+        }
+        emitUpdate();
       };
 
       const trackPhase = (event: ChildEvent): void => {
@@ -686,14 +684,13 @@ async function runSingleAgent(
         resolve(1);
       });
 
-      if (signal) {
-        const killChild = () => {
-          wasAborted = true;
-          terminateChild();
-        };
-        if (signal.aborted) killChild();
-        else signal.addEventListener("abort", killChild, { once: true });
-      }
+      if (!signal) return;
+      const killChild = () => {
+        wasAborted = true;
+        terminateChild();
+      };
+      if (signal.aborted) killChild();
+      else signal.addEventListener("abort", killChild, { once: true });
     });
 
     currentResult.exitCode = exitCode;
