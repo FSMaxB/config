@@ -3,8 +3,8 @@ import test from "node:test";
 import { AgentMode } from "../../lib/agent-mode.ts";
 import { ALLOW_ONCE, ALLOW_SESSION } from "../../lib/permission-choices.ts";
 import { Duration } from "../../lib/permission-prompt.ts";
-import { activationOutcome, activationPrompt, ActivationScope, emptyProfileState, parseProfileState, profileSessionGrants, resolveActivationAnswer, serializeProfileState, settledResolution, type ActivationSituation } from "./profile-activation.ts";
-import { emptyActivationDecisions, emptyProfileDefinition, type Profile } from "./profiles.ts";
+import { activationOutcome, activationPrompt, emptyProfileState, parseProfileState, profileSessionGrants, resolveActivationAnswer, serializeProfileState, settledResolution, type ActivationSituation } from "./profile-activation.ts";
+import { NetworkAccess, emptyActivationDecisions, emptyProfileDefinition, type Profile } from "./profiles.ts";
 
 const profile: Profile = { name: "bazel", ...emptyProfileDefinition() };
 
@@ -49,7 +49,24 @@ test("an always denial refuses and an always allowance activates for the session
 
   // assert
   assert.deepEqual(denied, { kind: "refuse", reason: "The user always denies sandbox profile bazel. The user's reason: slow" });
-  assert.deepEqual(allowed, { kind: "activate", scope: ActivationScope.Session });
+  assert.deepEqual(allowed, { kind: "activate" });
+});
+
+test("a session allowance activates without a prompt, and a session denial still beats it", () => {
+  // arrange
+  const allowing = emptyProfileState();
+  allowing.allowed.add("bazel");
+  const denying = emptyProfileState();
+  denying.allowed.add("bazel");
+  denying.denied.set("bazel", undefined);
+
+  // act
+  const allowed = activationOutcome(profile, allowing, situation());
+  const denied = activationOutcome(profile, denying, situation());
+
+  // assert
+  assert.deepEqual(allowed, { kind: "activate" });
+  assert.equal(denied.kind, "refuse");
 });
 
 test("a session denial beats an always allowance", () => {
@@ -90,7 +107,7 @@ test("the preselected answer depends on the agent mode", () => {
   ]);
 });
 
-test("allow answers map to scope, session memory and persistence", () => {
+test("allow answers map to session memory and persistence", () => {
   // arrange
   const answer = (duration: Duration) => resolveActivationAnswer(profile, { decision: "allow", duration, scope: "bazel" });
 
@@ -100,9 +117,9 @@ test("allow answers map to scope, session memory and persistence", () => {
   const always = answer(Duration.Always);
 
   // assert
-  assert.deepEqual(once, { kind: "activate", scope: ActivationScope.Once, remember: undefined, persist: undefined });
-  assert.deepEqual(session, { kind: "activate", scope: ActivationScope.Session, remember: { decision: "allow" }, persist: undefined });
-  assert.deepEqual(always, { kind: "activate", scope: ActivationScope.Session, remember: { decision: "allow" }, persist: { decision: "allow" } });
+  assert.deepEqual(once, { kind: "activate", remember: undefined, persist: undefined });
+  assert.deepEqual(session, { kind: "activate", remember: { decision: "allow" }, persist: undefined });
+  assert.deepEqual(always, { kind: "activate", remember: { decision: "allow" }, persist: { decision: "allow" } });
 });
 
 test("deny answers map to a refusal, session memory and persistence", () => {
@@ -127,7 +144,7 @@ test("the prompt names the trigger and caps each list at five entries", () => {
   const big: Profile = {
     ...profile,
     filesystem: { read: ["/a", "/b", "/c", "/d", "/e", "/f", "/g"], write: ["/w"] },
-    network: { allowedDomains: ["x.example"], allowLocalBinding: true, allowUnixSockets: [] },
+    network: { access: NetworkAccess.Listed, allowedDomains: ["x.example"], allowLocalBinding: true, allowUnixSockets: [] },
     path: ["~/shims"],
   };
 
@@ -142,7 +159,22 @@ test("the prompt names the trigger and caps each list at five entries", () => {
   assert.match(text, /hosts: x\.example/);
   assert.match(text, /local binding: yes/);
   assert.match(text, /PATH: ~\/shims/);
-  assert.match(activationPrompt(profile, { kind: "tool" }), /Requested by the agent/);
+  assert.match(text, /Applies to this bash call only/);
+});
+
+test("the prompt names a request and the network access level", () => {
+  // arrange
+  const open: Profile = { ...profile, network: { ...profile.network, access: NetworkAccess.All } };
+
+  // act
+  const requested = activationPrompt(open, { kind: "request", command: "./build.sh" });
+  const quiet = activationPrompt(profile, { kind: "request", command: "./build.sh" });
+
+  // assert
+  assert.match(requested, /Requested by the agent for: \.\/build\.sh/);
+  assert.match(requested, /network: every host/);
+  assert.match(requested, /shared with bash calls running at the same time/);
+  assert.doesNotMatch(quiet, /shared with bash calls running at the same time/);
 });
 
 test("a long triggering command keeps its tail", () => {
@@ -157,33 +189,33 @@ test("a long triggering command keeps its tail", () => {
   assert.match(text, /--evil/);
 });
 
-test("state round-trips, ignores junk and never restores a pending once-activation", () => {
+test("state round-trips, ignores junk and reads the legacy active key as an approval", () => {
   // arrange
   const state = emptyProfileState();
-  state.active.add("a");
+  state.allowed.add("a");
   state.denied.set("b", "reason");
   state.denied.set("c", undefined);
-  state.pendingOnce.add("d");
 
   // act
   const restored = parseProfileState(serializeProfileState(state));
   const junk = parseProfileState({ active: ["x", 1], denied: { y: 5, z: "why" } });
+  const legacy = parseProfileState({ active: ["legacy"] });
   const nothing = parseProfileState("junk");
 
   // assert
-  assert.deepEqual([...restored.active], ["a"]);
+  assert.deepEqual([...restored.allowed], ["a"]);
   assert.deepEqual([...restored.denied], [["b", "reason"], ["c", undefined]]);
-  assert.equal(restored.pendingOnce.size, 0);
-  assert.deepEqual([...junk.active], ["x"]);
+  assert.deepEqual([...junk.allowed], ["x"]);
   assert.deepEqual([...junk.denied], [["y", undefined], ["z", "why"]]);
-  assert.deepEqual([...nothing.active], []);
+  assert.deepEqual([...legacy.allowed], ["legacy"]);
+  assert.deepEqual([...nothing.allowed], []);
 });
 
-test("session grants list active profiles before denied ones", () => {
+test("session grants list allowed profiles before denied ones", () => {
   // arrange
   const state = emptyProfileState();
-  state.active.add("b");
-  state.active.add("a");
+  state.allowed.add("b");
+  state.allowed.add("a");
   state.denied.set("c", undefined);
 
   // act
@@ -197,10 +229,10 @@ test("session grants list active profiles before denied ones", () => {
   ]);
 });
 
-test("a settled outcome resolves like an answer without persistence", () => {
+test("a settled outcome resolves like an answer without memory or persistence", () => {
   // arrange
   const refusal = { kind: "refuse", reason: "no" } as const;
-  const activation = { kind: "activate", scope: ActivationScope.Session } as const;
+  const activation = { kind: "activate" } as const;
 
   // act
   const refused = settledResolution(refusal);
@@ -208,5 +240,5 @@ test("a settled outcome resolves like an answer without persistence", () => {
 
   // assert
   assert.deepEqual(refused, { kind: "refuse", reason: "no", remember: undefined, persist: undefined });
-  assert.deepEqual(activated, { kind: "activate", scope: ActivationScope.Session, remember: { decision: "allow" }, persist: undefined });
+  assert.deepEqual(activated, { kind: "activate", remember: undefined, persist: undefined });
 });

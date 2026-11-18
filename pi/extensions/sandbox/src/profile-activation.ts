@@ -3,22 +3,18 @@ import { ALLOW_ONCE, ALLOW_SESSION } from "../../lib/permission-choices.ts";
 import { Duration, userReason, type PermissionAnswer } from "../../lib/permission-prompt.ts";
 import type { SessionGrant } from "../../lib/session-grants.ts";
 import type { TriggerMatch } from "./profile-triggers.ts";
-import type { ActivationDecisions, Profile } from "./profiles.ts";
+import { NetworkAccess, type ActivationDecisions, type Profile, type ProfileNetwork } from "./profiles.ts";
 
 export const PROFILE_ENTRY_TYPE = "sandbox-profiles";
 
-export const ActivationScope = { Once: "once", Session: "session" } as const;
-export type ActivationScope = (typeof ActivationScope)[keyof typeof ActivationScope];
-
 export interface ProfileSessionState {
-  active: Set<string>;
+  // Applied without asking whenever a bash call triggers or requests them.
+  allowed: Set<string>;
   // The value is the user's reason, repeated to the agent whenever the denial applies.
   denied: Map<string, string | undefined>;
-  // Profiles activated for the next bash call only. Never persisted.
-  pendingOnce: Set<string>;
 }
 
-export type ActivationOrigin = { kind: "trigger"; match: TriggerMatch; command: string } | { kind: "tool" };
+export type ActivationOrigin = { kind: "trigger"; match: TriggerMatch; command: string } | { kind: "request"; command: string };
 
 export interface ActivationSituation {
   agentMode: AgentMode;
@@ -27,7 +23,7 @@ export interface ActivationSituation {
 }
 
 export type ActivationOutcome =
-  | { kind: "activate"; scope: ActivationScope }
+  | { kind: "activate" }
   | { kind: "refuse"; reason: string }
   | { kind: "ask"; preselected: string };
 
@@ -35,35 +31,35 @@ export type ActivationOutcome =
 export type RecordedDecision = { decision: "allow" } | { decision: "deny"; note: string | undefined };
 
 export type ActivationResolution =
-  | { kind: "activate"; scope: ActivationScope; remember: RecordedDecision | undefined; persist: RecordedDecision | undefined }
+  | { kind: "activate"; remember: RecordedDecision | undefined; persist: RecordedDecision | undefined }
   | { kind: "refuse"; reason: string; remember: RecordedDecision | undefined; persist: RecordedDecision | undefined };
 
 export function emptyProfileState(): ProfileSessionState {
-  return { active: new Set(), denied: new Map(), pendingOnce: new Set() };
+  return { allowed: new Set(), denied: new Map() };
 }
 
 // Session decisions beat the stored ones, as for network grants.
 export function activationOutcome(profile: Profile, state: ProfileSessionState, { agentMode, hasUI, always }: ActivationSituation): ActivationOutcome {
   const { name } = profile;
   if (state.denied.has(name)) return { kind: "refuse", reason: `The user denied sandbox profile ${name} for this session.${userReason(state.denied.get(name))}` };
+  if (state.allowed.has(name)) return { kind: "activate" };
   if (always.denied.has(name)) return { kind: "refuse", reason: `The user always denies sandbox profile ${name}.${userReason(always.denied.get(name))}` };
-  if (always.allowed.has(name)) return { kind: "activate", scope: ActivationScope.Session };
+  if (always.allowed.has(name)) return { kind: "activate" };
   if (!hasUI) return { kind: "refuse", reason: `Activating sandbox profile ${name} needs the user's confirmation and there is no interactive UI to ask.` };
   return { kind: "ask", preselected: isRestricted(agentMode) ? ALLOW_ONCE : ALLOW_SESSION };
 }
 
-// An outcome that needs no prompt, in the shape an answered prompt resolves to. Activation from stored decisions lasts for the session.
+// An outcome that needs no prompt, in the shape an answered prompt resolves to. An activation comes from a decision that is
+// already stored, so remembering it again would only append a session entry on every call.
 export function settledResolution(outcome: Exclude<ActivationOutcome, { kind: "ask" }>): ActivationResolution {
   if (outcome.kind === "refuse") return { kind: "refuse", reason: outcome.reason, remember: undefined, persist: undefined };
-  return { kind: "activate", scope: outcome.scope, remember: { decision: "allow" }, persist: undefined };
+  return { kind: "activate", remember: undefined, persist: undefined };
 }
 
 export function resolveActivationAnswer(profile: Profile, answer: PermissionAnswer<string>): ActivationResolution {
   if (answer.decision === "allow") {
-    const scope = answer.duration === Duration.Once ? ActivationScope.Once : ActivationScope.Session;
     return {
       kind: "activate",
-      scope,
       remember: answer.duration === Duration.Once ? undefined : { decision: "allow" },
       persist: answer.duration === Duration.Always ? { decision: "allow" } : undefined,
     };
@@ -92,15 +88,17 @@ export function activationPrompt(profile: Profile, origin: ActivationOrigin): st
     ...listLine("hosts", network.allowedDomains),
     ...listLine("unix sockets", network.allowUnixSockets),
     ...(network.allowLocalBinding ? ["  local binding: yes"] : []),
+    ...networkAccessLine(network.access),
     ...listLine("PATH", path),
     "",
-    "  An active profile applies to every bash call.",
+    "  Applies to this bash call only. \"In session\" and \"always\" apply it without asking whenever a command triggers or requests it.",
+    ...(hasNetwork(network) ? ["  Its network access is shared with bash calls running at the same time."] : []),
   ];
   return lines.join("\n");
 }
 
 function originText(origin: ActivationOrigin): string {
-  if (origin.kind === "tool") return "Requested by the agent";
+  if (origin.kind === "request") return `Requested by the agent for: ${shortened(origin.command)}`;
   const trigger = origin.match.kind === "command" ? `\`${origin.match.command}\`` : `pattern ${origin.match.pattern}`;
   return `Triggered by ${trigger} in: ${shortened(origin.command)}`;
 }
@@ -118,22 +116,36 @@ function listLine(label: string, entries: readonly string[]): string[] {
   return [`  ${label}: ${rest > 0 ? `${shown}, … (+${rest} more)` : shown}`];
 }
 
-export function profileSessionGrants({ active, denied }: ProfileSessionState): SessionGrant[] {
+function networkAccessLine(access: NetworkAccess): string[] {
+  switch (access) {
+    case NetworkAccess.Listed: return [];
+    case NetworkAccess.Local: return ["  network: everything on this host (listen on any port, connect to localhost)"];
+    case NetworkAccess.All: return ["  network: every host"];
+  }
+}
+
+function hasNetwork({ access, allowedDomains, allowLocalBinding, allowUnixSockets }: ProfileNetwork): boolean {
+  return access !== NetworkAccess.Listed || allowLocalBinding || allowedDomains.length > 0 || allowUnixSockets.length > 0;
+}
+
+export function profileSessionGrants({ allowed, denied }: ProfileSessionState): SessionGrant[] {
   return [
-    ...[...active].sort().map((name) => ({ kind: "profile", decision: "allow", name }) as const),
+    ...[...allowed].sort().map((name) => ({ kind: "profile", decision: "allow", name }) as const),
     ...[...denied.keys()].sort().map((name) => ({ kind: "profile", decision: "deny", name }) as const),
   ];
 }
 
-export function serializeProfileState({ active, denied }: ProfileSessionState): { active: string[]; denied: Record<string, string | null> } {
-  return { active: [...active], denied: Object.fromEntries([...denied].map(([name, note]) => [name, note ?? null])) };
+export function serializeProfileState({ allowed, denied }: ProfileSessionState): { allowed: string[]; denied: Record<string, string | null> } {
+  return { allowed: [...allowed], denied: Object.fromEntries([...denied].map(([name, note]) => [name, note ?? null])) };
 }
 
 export function parseProfileState(value: unknown): ProfileSessionState {
   const state = emptyProfileState();
   if (typeof value !== "object" || value === null) return state;
-  const { active, denied } = value as { active?: unknown; denied?: unknown };
-  if (Array.isArray(active)) for (const name of active) if (typeof name === "string") state.active.add(name);
+  const { allowed, active, denied } = value as { allowed?: unknown; active?: unknown; denied?: unknown };
+  // Entries written before per-call profiles stored "active" (applied to every call); reading it as an approval is the narrower meaning.
+  const names = allowed ?? active;
+  if (Array.isArray(names)) for (const name of names) if (typeof name === "string") state.allowed.add(name);
   if (typeof denied === "object" && denied !== null && !Array.isArray(denied)) {
     for (const [name, note] of Object.entries(denied)) state.denied.set(name, typeof note === "string" ? note : undefined);
   }

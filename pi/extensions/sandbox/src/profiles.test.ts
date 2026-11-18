@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { exact, glob, tree } from "../../lib/path-permission-rules.ts";
-import { addAllowedDomain, addFilesystemEntry, emptyProfileDefinition, mergedProfileNetwork, parseActivationDecisions, parseProfileDefinition, parseProfiles, profileFingerprint, recordActivationDecision, selectorText, serializeActivationDecisions, type Profile } from "./profiles.ts";
+import { NetworkAccess, addAllowedDomain, addFilesystemEntry, emptyProfileDefinition, mergedProfileNetwork, parseActivationDecisions, parseProfileDefinition, parseProfiles, profileFingerprint, recordActivationDecision, selectorText, serializeActivationDecisions, type Profile } from "./profiles.ts";
 
 function profile(name: string, overrides: Partial<Profile> = {}): Profile {
   return { name, ...emptyProfileDefinition(), ...overrides };
@@ -42,6 +42,7 @@ test("invalid definitions throw with the profile name", () => {
     ["bazel", { path: ["bin"] }, /profiles\.bazel\.path\[0\]/],
     ["bazel", { triggers: { patterns: ["("] } }, /profiles\.bazel\.triggers\.patterns\[0\]/],
     ["bazel", { network: { allowLocalBinding: "yes" } }, /profiles\.bazel\.network\.allowLocalBinding must be a boolean/],
+    ["bazel", { network: { access: "some" } }, /profiles\.bazel\.network\.access must be one of "listed", "local", "all"/],
   ];
 
   for (const [name, value, message] of cases) {
@@ -112,14 +113,61 @@ test("the latest activation answer for a name wins", () => {
 
 test("merged network unions domains and sockets and ORs local binding", () => {
   // arrange
-  const first = profile("a", { network: { allowedDomains: ["x.example", "y.example"], allowLocalBinding: false, allowUnixSockets: ["/s1"] } });
-  const second = profile("b", { network: { allowedDomains: ["y.example"], allowLocalBinding: true, allowUnixSockets: ["/s2"] } });
+  const first = profile("a", { network: { access: NetworkAccess.Listed, allowedDomains: ["x.example", "y.example"], allowLocalBinding: false, allowUnixSockets: ["/s1"] } });
+  const second = profile("b", { network: { access: NetworkAccess.Listed, allowedDomains: ["y.example"], allowLocalBinding: true, allowUnixSockets: ["/s2"] } });
 
   // act
   const merged = mergedProfileNetwork([first, second]);
 
   // assert
   assert.deepEqual(merged, { allowedDomains: ["x.example", "y.example"], allowLocalBinding: true, allowUnixSockets: ["/s1", "/s2"] });
+});
+
+test("network access defaults to listed and accepts local and all", () => {
+  // arrange
+  const parse = (access: unknown) => parseProfileDefinition({ network: { access } }, "bazel").network.access;
+
+  // act
+  const defaulted = parseProfileDefinition({}, "bazel").network.access;
+  const levels = [parse("local"), parse("all")];
+
+  // assert
+  assert.equal(defaulted, NetworkAccess.Listed);
+  assert.deepEqual(levels, [NetworkAccess.Local, NetworkAccess.All]);
+});
+
+test("local access keeps the listed hosts, adds loopback and opens local binding", () => {
+  // arrange
+  const local = profile("a", { network: { access: NetworkAccess.Local, allowedDomains: ["bcr.example"], allowLocalBinding: false, allowUnixSockets: [] } });
+
+  // act
+  const merged = mergedProfileNetwork([local]);
+
+  // assert
+  assert.deepEqual(merged, { allowedDomains: ["bcr.example", "localhost", "*.localhost", "127.0.0.1", "[::1]"], allowLocalBinding: true, allowUnixSockets: [] });
+});
+
+test("all access additionally allows every host, and hosts stay de-duplicated across profiles", () => {
+  // arrange
+  const everything = profile("a", { network: { access: NetworkAccess.All, allowedDomains: ["bcr.example"], allowLocalBinding: false, allowUnixSockets: [] } });
+  const local = profile("b", { network: { access: NetworkAccess.Local, allowedDomains: [], allowLocalBinding: false, allowUnixSockets: [] } });
+
+  // act
+  const merged = mergedProfileNetwork([everything, local]);
+
+  // assert
+  assert.deepEqual(merged.allowedDomains, ["bcr.example", "localhost", "*.localhost", "127.0.0.1", "[::1]", "*"]);
+});
+
+test("listed access with no local binding adds nothing", () => {
+  // arrange
+  const quiet = profile("a");
+
+  // act
+  const merged = mergedProfileNetwork([quiet]);
+
+  // assert
+  assert.deepEqual(merged, { allowedDomains: [], allowLocalBinding: false, allowUnixSockets: [] });
 });
 
 test("selector text writes the home directory as a tilde", () => {

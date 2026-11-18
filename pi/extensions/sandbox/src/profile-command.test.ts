@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { emptyProfileState } from "./profile-activation.ts";
 import { parseProfileCommand, profileCompletions, profileListText } from "./profile-command.ts";
-import { emptyActivationDecisions, emptyProfileDefinition, type Profile } from "./profiles.ts";
+import { NetworkAccess, emptyActivationDecisions, emptyProfileDefinition, type Profile } from "./profiles.ts";
 
 test("every subcommand parses", () => {
   // arrange
-  const inputs = ["", "  ", "record bazel", "stop", "edit bazel", "on bazel", "off bazel", "forget bazel", "delete bazel"];
+  const inputs = ["", "  ", "record bazel", "stop", "edit bazel", "forget bazel", "delete bazel"];
 
   // act
   const commands = inputs.map(parseProfileCommand);
@@ -18,8 +18,6 @@ test("every subcommand parses", () => {
     { kind: "record", name: "bazel" },
     { kind: "stop" },
     { kind: "edit", name: "bazel" },
-    { kind: "on", name: "bazel" },
-    { kind: "off", name: "bazel" },
     { kind: "forget", name: "bazel" },
     { kind: "delete", name: "bazel" },
   ]);
@@ -27,7 +25,7 @@ test("every subcommand parses", () => {
 
 test("bad invocations give an error message", () => {
   // arrange
-  const inputs = ["frobnicate", "record", "edit a b", "stop now", "record Bad_Name"];
+  const inputs = ["frobnicate", "record", "edit a b", "stop now", "record Bad_Name", "on bazel"];
 
   // act
   const results = inputs.map(parseProfileCommand);
@@ -36,6 +34,7 @@ test("bad invocations give an error message", () => {
   assert.ok(results.every((result) => result.kind === "error"));
   assert.match((results[0] as { message: string }).message, /Unknown subcommand "frobnicate"/);
   assert.match((results[4] as { message: string }).message, /not a valid profile name/);
+  assert.match((results[5] as { message: string }).message, /Unknown subcommand "on"/);
 });
 
 test("completions offer subcommands first and profile names after one", () => {
@@ -57,20 +56,22 @@ test("the list shows stored and session decisions and the triggers", () => {
   // arrange
   const bazel: Profile = { name: "bazel", ...emptyProfileDefinition(), triggers: { commands: ["bazel"], patterns: ["build\\.sh"] } };
   const gradle: Profile = { name: "gradle", ...emptyProfileDefinition() };
+  const tomcat: Profile = { name: "tomcat", ...emptyProfileDefinition(), network: { ...emptyProfileDefinition().network, access: NetworkAccess.Local } };
   const always = emptyActivationDecisions();
   always.allowed.add("bazel");
   always.denied.set("gradle", "too slow");
   const state = emptyProfileState();
-  state.active.add("bazel");
+  state.allowed.add("bazel");
   state.denied.set("gradle", undefined);
 
   // act
-  const text = profileListText([bazel, gradle], state, always);
+  const text = profileListText([bazel, gradle, tomcat], state, always);
 
   // assert
   assert.equal(text, [
-    "bazel: always allowed; active this session; triggers: bazel, /build\\.sh/",
+    "bazel: always allowed; allowed this session; triggers: bazel, /build\\.sh/",
     "gradle: always denied (too slow); denied this session; triggers: none",
+    "tomcat: ask; no session decision; network: local; triggers: none",
   ].join("\n"));
   assert.match(profileListText([], state, always), /No sandbox profiles/);
 });
