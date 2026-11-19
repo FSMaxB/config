@@ -254,7 +254,8 @@ async function askSingle(
   // an option that is cut to one row in full in a pane below the list.
   const picked = await selectWithDefault(ui, prompt, displays, displays[0], "question");
   if (isCancelled(picked)) return { kind: "cancelled" };
-  if (picked === FREEFORM_SENTINEL) return askFreeform(ui, prompt);
+  if (picked === FREEFORM_SENTINEL)
+    return askFreeform(ui, `${prompt}\n\nOptions (for reference):\n${formatOptionList(options)}`);
 
   const index = displays.indexOf(picked);
   return index >= 0 && index < options.length
