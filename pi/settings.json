@@ -15,7 +15,7 @@
     "enabled": false
   },
   "images": {
-    "blockImages": true
+    "blockImages": false
   },
   "terminal": {
     "showTerminalProgress": true
