@@ -2,6 +2,7 @@ import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
+import { whileAttended } from "../lib/attended-prompts.ts";
 import { settledAvailableModels } from "../lib/available-models.ts";
 import { modelLabel } from "../lib/default-model.ts";
 import { errorMessage } from "../lib/errors.ts";
@@ -45,7 +46,7 @@ export default function footerPickersExtension(pi: ExtensionAPI): void {
     if (picker === "open") return "handled";
 
     picker = "open";
-    void serialize(() => actOn(target, context))
+    void serialize(() => whileAttended(pi.events, () => actOn(target, context)))
       .catch((error: unknown) => {
         context.ui.notify(`Footer click failed: ${errorMessage(error)}`, "error");
       })
