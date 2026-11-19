@@ -20,6 +20,7 @@ import { isOffByDefaultModel } from "../lib/model-defaults.ts";
 import { sessionIsEmpty } from "../lib/session-empty.ts";
 import { isAlwaysOn } from "./settings.ts";
 import { errorMessage } from "../lib/errors.ts";
+import { onFooterStatusClick } from "../lib/footer-status-click.ts";
 import { isRecord } from "../lib/untyped.ts";
 
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
@@ -48,13 +49,15 @@ export default function adhdModeExtension(pi: ExtensionAPI): void {
   let enabled = false;
 
   const updateStatus = (context: ExtensionContext): void => {
+    const { theme } = context.ui;
+    // A dim label instead of no status keeps the toggle clickable in the footer.
     if (!enabled) {
-      context.ui.setStatus(STATUS_KEY, undefined);
+      context.ui.setStatus(STATUS_KEY, theme.fg("dim", "○ ADHD off"));
       return;
     }
 
-    const dot = context.ui.theme.fg("success", "●");
-    const label = context.ui.theme.fg("accent", "ADHD ON");
+    const dot = theme.fg("success", "●");
+    const label = theme.fg("accent", "ADHD ON");
     context.ui.setStatus(STATUS_KEY, `${dot} ${label}`);
   };
 
@@ -99,6 +102,10 @@ export default function adhdModeExtension(pi: ExtensionAPI): void {
     syncContext(context);
     context.ui.notify(`ADHD mode ${enabled ? "enabled" : "disabled"}`, "info");
   };
+
+  onFooterStatusClick(pi.events, STATUS_KEY, async (context) => {
+    setEnabled(enabled ? "disabled" : "enabled", context);
+  });
 
   pi.registerFlag("adhd", {
     description: "Start with ADHD-friendly output enabled",

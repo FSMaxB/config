@@ -10,6 +10,7 @@ import { AgentMode, isRestricted, MODE_IDENTITIES, RESTRICTED_MODES, storeForMod
 import type { ModeIdentity, PathRuleStore, RestrictedMode } from "./agent-mode.ts";
 import { errorMessage } from "./errors.ts";
 import { FILE_TOOLS } from "./file-tools.ts";
+import { onFooterStatusClick } from "./footer-status-click.ts";
 import { readPersistedDecisions, writePersistedDecisions } from "./mode-decisions.ts";
 import { activeRestrictedMode, latestModeEntry } from "./mode-entry.ts";
 import type { ActiveRestrictedMode } from "./mode-entry.ts";
@@ -21,6 +22,9 @@ import {
   deniedReason,
   effectiveDenials,
   Interaction,
+  modeOptionLabel,
+  modeStatusLabel,
+  PICKER_MODES,
   startupMode,
   StateRecording,
   Timing,
@@ -46,6 +50,7 @@ import { permissionUI } from "./permission-ui.ts";
 import { plansDirectory } from "./plan-file.ts";
 import { PLAN_TOOLS } from "./plan-tools.ts";
 import { isSandboxActive, sandboxStatus } from "./sandbox-state.ts";
+import { selectWithDefault } from "./select-with-default.ts";
 import { serialize } from "./ui-queue.ts";
 import { announceSessionGrantsChanged, provideSessionGrants } from "./session-grants.ts";
 import type { SessionGrant } from "./session-grants.ts";
@@ -203,8 +208,18 @@ class Engine {
     context.ui.notify(transitionNotice(from, target, Timing.Immediate));
   }
 
+  async pickMode(context: ExtensionContext): Promise<void> {
+    const current = this.#pendingMode() ?? this.mode;
+    const options = PICKER_MODES.map((mode) => modeOptionLabel(mode, current));
+    const choice = await selectWithDefault(context.ui, "Agent mode", options, modeOptionLabel(current, current), "question");
+    if (choice === undefined) return;
+
+    this.#switchTo(PICKER_MODES[options.indexOf(choice)], context);
+  }
+
   #wire(): void {
     const pi = this.#pi;
+    onFooterStatusClick(pi.events, INDICATOR_KEY, (context) => this.pickMode(context));
 
     pi.on("tool_call", async (event, context) => {
       this.flushPendingToggle(context);
@@ -351,7 +366,12 @@ class Engine {
 
   #toggle(identity: ModeIdentity, context: ExtensionContext): void {
     const current = this.#pendingMode() ?? this.mode;
-    const target = current === identity.mode ? AgentMode.Execution : identity.mode;
+    this.#switchTo(current === identity.mode ? AgentMode.Execution : identity.mode, context);
+  }
+
+  #switchTo(target: AgentMode, context: ExtensionContext): void {
+    const current = this.#pendingMode() ?? this.mode;
+    if (target === current) return;
     if (this.#activity.kind === "running") {
       this.#activity = { kind: "running", pendingMode: target };
       this.#refreshIndicators(context);
@@ -370,10 +390,8 @@ class Engine {
     const { theme } = context.ui;
     const pendingMode = this.#pendingMode();
     const pending = pendingMode !== this.mode ? pendingMode : undefined;
-    const status = isRestricted(this.mode)
-      ? theme.fg("warning", `${MODE_IDENTITIES[this.mode].statusIcon} ${MODE_IDENTITIES[this.mode].command}`)
-      : undefined;
-    context.ui.setStatus(INDICATOR_KEY, status);
+    const label = modeStatusLabel(this.mode);
+    context.ui.setStatus(INDICATOR_KEY, theme.fg(isRestricted(this.mode) ? "warning" : "dim", label));
     context.ui.setWidget(INDICATOR_KEY, modeBanner(theme, this.mode, pending), { placement: "aboveEditor" });
   }
 

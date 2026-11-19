@@ -10,6 +10,7 @@ import type {
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { MODE_IDENTITIES } from "./lib/agent-mode.ts";
+import { settledAvailableModels } from "./lib/available-models.ts";
 import { isInPlansDirectory, newPlanPath, plansDirectory } from "./lib/plan-file.ts";
 import { activateMissingPlanTools, PLAN_PATH, SUBMIT_PLAN } from "./lib/plan-tools.ts";
 import { parseThinkingLevel, PlanApproval, preferredThinkingLevel, SUBMISSION_OPTIONS, SubmissionAction, submissionAction, thinkingLevelLabel } from "./lib/plan-mode-policy.ts";
@@ -424,16 +425,6 @@ interface PlanHandoff {
 const OUTCOME_LABELS: Partial<Record<string, string>> = {
   "handed-off": "handed off",
 };
-
-// getAvailable() is a snapshot that an in-flight availability pass has not
-// necessarily updated yet (extension providers registered on this session's
-// start land in a later async pass). Refreshing first is pi's documented way to
-// settle the snapshot before a synchronous read; a failed refresh just leaves
-// the snapshot as it was.
-async function settledAvailableModels(context: ExtensionContext): Promise<Model<Api>[]> {
-  await context.modelRegistry.refresh({ allowNetwork: false }).catch(() => undefined);
-  return context.modelRegistry.getAvailable();
-}
 
 async function submissionDecision(
   planPath: string,
