@@ -6,6 +6,8 @@ import {
   deniedReason,
   effectiveDenials,
   Interaction,
+  modeOptionLabel,
+  PICKER_MODES,
   startupMode,
   StateRecording,
   Timing,
@@ -178,6 +180,28 @@ test("transition notices say what changes and when", () => {
     "Explore mode will be disabled at the next tool call.",
     "Switching from explore mode to plan mode at the next tool call.",
   ]);
+});
+
+test("the mode picker lists execution first and marks the current mode", () => {
+  // arrange
+  const expected = ["execute", "📝 plan (current)", "🔍 explore"];
+
+  // act
+  const options = PICKER_MODES.map((mode) => modeOptionLabel(mode, AgentMode.Planning));
+
+  // assert
+  assert.deepEqual(options, expected);
+});
+
+test("the mode picker marks execution mode as current", () => {
+  // arrange
+  const expected = "execute (current)";
+
+  // act
+  const label = modeOptionLabel(AgentMode.Execution, AgentMode.Execution);
+
+  // assert
+  assert.equal(label, expected);
 });
 
 function stores({

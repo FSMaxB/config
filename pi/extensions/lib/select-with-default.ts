@@ -23,9 +23,9 @@ import type { TextMeasure } from "./select-details.ts";
 const measure: TextMeasure = { width: visibleWidth, wrap: wrapTextWithAnsi };
 
 // The dialog chrome around the list: borders, spacers, title, hints, scroll-info line and a margin.
-const DIALOG_CHROME_ROWS = 12;
+export const DIALOG_CHROME_ROWS = 12;
 // Keeps a usable window on tiny terminals.
-const MINIMUM_VISIBLE_ROWS = 3;
+export const MINIMUM_VISIBLE_ROWS = 3;
 
 // ui.select() always starts on the first option, so a dialog that wants to
 // recommend something else has to bring its own selector. SelectList windows

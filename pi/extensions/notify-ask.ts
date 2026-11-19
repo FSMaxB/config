@@ -1,8 +1,10 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { watchAttended } from "./lib/attended-prompts.ts";
 import { notifyUser } from "./lib/notify.ts";
 
 export default function (pi: ExtensionAPI): void {
   const PROMPT_GRACE_MS = 500;
+  const attended = watchAttended(pi.events);
   // pi nests prompts and reports only the outermost, so one pending timer covers every open prompt.
   let pendingPrompt: ReturnType<typeof setTimeout> | undefined;
 
@@ -12,7 +14,9 @@ export default function (pi: ExtensionAPI): void {
   // period skips prompts that close right away, such as the sidebar's ui.custom
   // call, which only exists to reach the TUI.
   pi.on("ui_prompt_start", async (event) => {
-    clearTimeout(pendingPrompt);
+    cancelPendingPrompt();
+    // The user opened this prompt themselves, e.g. a footer picker, so they are already looking at the terminal.
+    if (attended.isAttended()) return;
     pendingPrompt = setTimeout(() => {
       pendingPrompt = undefined;
       notifyUser(pi, "Waiting for your input", event.title);

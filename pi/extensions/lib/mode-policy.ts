@@ -1,4 +1,4 @@
-import { AgentMode, isRestricted, MODE_IDENTITIES } from "./agent-mode.ts";
+import { AgentMode, isRestricted, MODE_IDENTITIES, RESTRICTED_MODES } from "./agent-mode.ts";
 import type { RestrictedMode } from "./agent-mode.ts";
 import type { Denial } from "./mode-entry.ts";
 import { SUBMIT_PLAN } from "./plan-tools.ts";
@@ -9,6 +9,12 @@ import type { ToolPermission } from "./tool-permission-policy.ts";
 // tests; the engine itself only wires them to the session, the UI and the stores.
 
 export const StateRecording = { Keep: "keep", Record: "record" } as const;
+
+// Shown in the footer status line and the mode picker for execution mode.
+export const EXECUTION_STATUS_LABEL = "execute";
+
+// Picker order: execution first, then the restricted modes in their command order.
+export const PICKER_MODES: readonly AgentMode[] = [AgentMode.Execution, ...RESTRICTED_MODES];
 
 // requested holds the modes whose startup flag applies to this session; defaulted the modes the
 // settings start in. Flags override the recorded mode, while a default only fills a branch that
@@ -46,10 +52,21 @@ export function transitionNotice(from: AgentMode, to: AgentMode, timing: Timing)
   }
   if (toLabel) return `${toLabel} ${deferred ? "will be enabled at the next tool call" : "enabled"}.`;
   if (fromLabel) return `${fromLabel} ${deferred ? "will be disabled at the next tool call" : "disabled"}.`;
-  // Both sides are execution mode, which a toggle never produces.
+  // Both sides are execution mode; callers skip unchanged targets.
   return "Execution mode is unchanged.";
 }
 export type Timing = (typeof Timing)[keyof typeof Timing];
+
+export function modeOptionLabel(mode: AgentMode, current: AgentMode): string {
+  const label = modeStatusLabel(mode);
+  return mode === current ? `${label} (current)` : label;
+}
+
+// The footer status and the picker show a mode the same way.
+export function modeStatusLabel(mode: AgentMode): string {
+  if (!isRestricted(mode)) return EXECUTION_STATUS_LABEL;
+  return `${MODE_IDENTITIES[mode].statusIcon} ${MODE_IDENTITIES[mode].command}`;
+}
 
 export const Interaction = { Available: "available", Unavailable: "unavailable" } as const;
 
