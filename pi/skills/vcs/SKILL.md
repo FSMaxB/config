@@ -51,5 +51,6 @@ description: Use before reading VCS status or history, before making changes in 
   - jj: the target’s change ID.
   - git: the target’s commit hash.
 - Do not make fixups targeting multiple commits, split them into multiple instead.
+- If part of the fix is building a new independent change, commit it separately as regular non-fixup commit.
 
 The user handles all rebasing and history rewriting manually.
