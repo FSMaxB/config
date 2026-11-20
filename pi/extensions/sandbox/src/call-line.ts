@@ -45,7 +45,7 @@ export class PrefixedCallText extends Text {
     this.#call = text;
   }
 
-  override render(width: number): string[] {
+  override render(width: number): readonly string[] {
     super.setText(this.#prefix() + this.#call);
     return super.render(width);
   }
