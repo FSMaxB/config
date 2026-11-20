@@ -10,6 +10,7 @@ description: Use whenever you write, edit or propose code or architecture in any
 - Follow the "functional core, imperative shell" pattern when adequate
 - Only add comments if they add context that is not part of the code itself. Explicitly do not duplicate what code is doing in the comments, only explain rationale and/or high level architecture.
 - Write comments about the code as it is. Do not describe the change ("now uses", "previously", "fixed", "new") and do not mention the task, plan or review that led to it.
+- Doc comments contain information that is useful to the caller, for implementation details, comment on the relevant code directly.
 - Do not use `err`, `ctx`, `recv` or similar abbreviations. Use full words like `error`, `context` or `receive`.
 - Prefer explicit types (e.g. enum) instead of boolean when used as function arguments (a boolean return value is fine when it is only used in a condition).
 - Use early returns or equivalent where possible to prevent nesting the happy path.
