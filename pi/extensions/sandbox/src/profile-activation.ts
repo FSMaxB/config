@@ -76,9 +76,11 @@ export function activationPrompt(profile: Profile, origin: ActivationOrigin): st
     `  ${originText(origin)}`,
     ...listLine("read", filesystem.read),
     ...listLine("write", filesystem.write),
+    ...listLine("read secrets", filesystem.secretRead),
     ...listLine("hosts", network.allowedDomains),
     ...listLine("unix sockets", network.allowUnixSockets),
     ...(network.allowLocalBinding ? ["  local binding: yes"] : []),
+    ...(network.enableWeakerNetworkIsolation ? ["  trustd (Go TLS verification, weaker network isolation): yes"] : []),
     ...networkAccessLine(network.access),
     ...listLine("PATH", path),
     "",
@@ -115,8 +117,8 @@ function networkAccessLine(access: NetworkAccess): string[] {
   }
 }
 
-function hasNetwork({ access, allowedDomains, allowLocalBinding, allowUnixSockets }: ProfileNetwork): boolean {
-  return access !== NetworkAccess.Listed || allowLocalBinding || allowedDomains.length > 0 || allowUnixSockets.length > 0;
+function hasNetwork({ access, allowedDomains, allowLocalBinding, allowUnixSockets, enableWeakerNetworkIsolation }: ProfileNetwork): boolean {
+  return access !== NetworkAccess.Listed || allowLocalBinding || enableWeakerNetworkIsolation || allowedDomains.length > 0 || allowUnixSockets.length > 0;
 }
 
 export function profileSessionGrants({ allowed, denied }: ProfileSessionState): SessionGrant[] {

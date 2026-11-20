@@ -18,16 +18,31 @@ export function filesystemConfig(policy: EffectivePolicy, options: PolicyOptions
     .filter((selector) => platform === "darwin" || selector.kind !== "glob")
     .filter(keepsSecretsDenied);
   return {
-    denyRead: unique([...userRoots(platform), homeDirectory, ...secrets, ...extraDenyRead, ...policy.read.deny.map(selectorPath)]),
+    denyRead: unique([...userRoots(platform), homeDirectory, ...secretReadDenies(secrets, options.secretRead, platform), ...extraDenyRead, ...policy.read.deny.map(selectorPath)]),
     allowRead: unique([
       ...policy.read.allow.filter(keepsSecretsDenied).map(selectorPath),
       ...toolchainRead.filter((path) => keepsSecretsDenied(exact(path))),
+      ...options.secretRead.map(selectorPath),
       sandboxRuntimeDirectory(),
       ...(platform === "darwin" ? [mktempShimDirectory()] : []),
     ]),
     allowWrite: unique(writeAllow.map(selectorPath)),
     denyWrite: unique([...secrets, ...vcsDeny(writeAllow, options.vcs), ...[...policy.write.deny, ...policy.write.protected].map((selector) => writeDenyPath(selector, platform))]),
   };
+}
+
+// A secret lifted as a whole leaves the read denies (the write denies keep it). On darwin, one lifted only in part
+// is denied as the glob <secret>/**/*: srt re-emits a literal deny after every broader literal allow, such as a grant
+// of the home directory, where it would beat the lifted path, but carves the allows out of a re-emitted glob deny.
+// The glob leaves the secret's own directory listable; <secret>/** would not, but srt turns it back into a literal.
+// Linux keeps the literal deny, because a glob read deny there is unverified and dropping it would expose the secret.
+function secretReadDenies(secrets: readonly string[], secretRead: readonly PathSelector[], platform: Platform): string[] {
+  const roots = secretRead.map(selectorRoot);
+  return secrets.flatMap((secret) => {
+    if (roots.some((root) => contains(root, secret))) return [];
+    if (platform === "darwin" && roots.some((root) => contains(secret, root))) return [`${secret}/**/*`];
+    return [secret];
+  });
 }
 
 // On darwin the repository allow becomes "everything but .git and .jj" plus the paths git and jj write. A
@@ -67,7 +82,7 @@ export function secretPaths(homeDirectory: string): string[] {
 // deny only beneath a literal allow, Linux expands the glob and binds every match back in. Literal allows
 // strictly above a secret are safe on both, because the deeper deny is applied after them.
 function mayExposeSecret(selector: PathSelector, secret: string): boolean {
-  const root = selector.kind === "glob" ? selector.base : selector.path;
+  const root = selectorRoot(selector);
   if (contains(secret, root)) return true;
   if (selector.kind !== "glob" || !contains(root, secret)) return false;
   return globMayReach(selector.pattern.split("/"), relative(root, secret).split(sep));
@@ -119,8 +134,14 @@ export interface PolicyOptions {
   extraDenyRead: string[];
   // Without it the repository stays a plain subtree allow.
   vcs: VcsWriteRules | undefined;
+  // Read allows that skip the secret filter; only an active profile's filesystem.secretRead provides them.
+  secretRead: readonly PathSelector[];
 }
 
 function selectorPath(selector: PathSelector): string {
   return selector.kind === "glob" ? `${selector.base}/${selector.pattern}` : selector.path;
+}
+
+function selectorRoot(selector: PathSelector): string {
+  return selector.kind === "glob" ? selector.base : selector.path;
 }

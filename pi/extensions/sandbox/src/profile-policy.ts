@@ -1,5 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { tree } from "../../lib/path-permission-rules.ts";
+import type { PathSelector } from "../../lib/path-permission-rules.ts";
 import { normalizePathSelector } from "../../lib/path-permissions.ts";
 import type { OnceGrant } from "../../lib/path-permissions.ts";
 import { resolveThroughSymlinks } from "../../lib/repo.ts";
@@ -22,4 +23,10 @@ export async function profileGrants(profiles: readonly Profile[], inputs: Profil
   await mkdir(inputs.stateDirectory, { recursive: true });
   grants.push({ mode: "write", selector: tree(await resolveThroughSymlinks(inputs.stateDirectory)) });
   return grants;
+}
+
+// Kept out of the once grants: filesystemConfig drops every grant that reaches a secret.
+export async function profileSecretReads(profiles: readonly Profile[], repositoryRoot: string): Promise<PathSelector[]> {
+  const entries = profiles.flatMap(({ filesystem }) => filesystem.secretRead);
+  return await Promise.all(entries.map((entry) => normalizePathSelector(entry, repositoryRoot)));
 }

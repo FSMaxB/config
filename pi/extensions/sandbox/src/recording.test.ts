@@ -144,7 +144,7 @@ test("the draft text round-trips through the parser", () => {
   ]);
   assert.match(text, /# Recording for profile "bazel": 2 commands, 3 accesses/);
   assert.match(text, /# {3}!bazel test …/);
-  assert.match(text, /# secret, can never be granted: read ~\/\.netrc/);
+  assert.match(text, /# secret, only filesystem\.secretRead in the profile file can grant it \(reads only\): read ~\/\.netrc/);
 });
 
 test("bad lines are reported with their number and good lines survive", () => {

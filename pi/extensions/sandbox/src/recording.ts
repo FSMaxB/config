@@ -77,7 +77,7 @@ export function draftText(draft: Draft, summary: { profile: string; commands: re
     "# Delete lines you don't want. Saving an empty text discards the recording.",
   ];
   const entries = draft.entries.map(({ mode, directory }) => `${mode} ${selectorText(tree(directory), homeDirectory)}`);
-  const secrets = draft.secrets.map(({ mode, path }) => `# secret, can never be granted: ${mode} ${tilde(path, homeDirectory)}`);
+  const secrets = draft.secrets.map(({ mode, path }) => `# secret, only filesystem.secretRead in the profile file can grant it (reads only): ${mode} ${tilde(path, homeDirectory)}`);
   const protectedLines = draft.protected.flatMap(({ mode, path }) => [
     "# protected, uncomment the next line only if you mean it:",
     `# ${mode} ${tilde(path, homeDirectory)}`,

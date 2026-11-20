@@ -10,6 +10,7 @@ import { Type } from "typebox";
 import type { TSchema } from "typebox";
 import { currentAgentMode, currentPolicy, grantPathAccess } from "../../lib/path-permissions.ts";
 import type { OnceGrant } from "../../lib/path-permissions.ts";
+import type { PathSelector } from "../../lib/path-permission-rules.ts";
 import { profileDestinations } from "../../lib/permission-choices.ts";
 import { ALL_DURATIONS, askPermission, Duration } from "../../lib/permission-prompt.ts";
 import type { PermissionAnswer } from "../../lib/permission-prompt.ts";
@@ -36,11 +37,11 @@ import type { ProfileCommand } from "./profile-command.ts";
 import { profileEnvironment, withoutRepositoryWrites, stateDirectoryIn } from "./profile-grants.ts";
 import type { ProfileInputs } from "./profile-grants.ts";
 import { loadProfiles, updateProfile } from "./profile-files.ts";
-import { profileGrants } from "./profile-policy.ts";
+import { profileGrants, profileSecretReads } from "./profile-policy.ts";
 import { matchTrigger } from "./profile-triggers.ts";
 import { filesystemConfig, secretPaths } from "./policy.ts";
 import type { PolicyOptions } from "./policy.ts";
-import { addAllowedDomain, addFilesystemEntry, emptyProfileDefinition, forgetActivationDecision, mergedProfileNetwork, parseProfileDefinition, recordActivationDecision, selectorText } from "./profiles.ts";
+import { addAllowedDomain, addFilesystemEntry, emptyProfileDefinition, forgetActivationDecision, mergedProfileNetwork, needsWeakerNetworkIsolation, parseProfileDefinition, recordActivationDecision, selectorText } from "./profiles.ts";
 import type { NetworkAllowances, Profile } from "./profiles.ts";
 import { createRecorder } from "./recorder.ts";
 import { exportSessionScratch, withSessionScratch } from "./scratch.ts";
@@ -202,7 +203,8 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
   // startup ~40 ms although only a bash command needs it.
   let sandboxManager: SandboxManagerType | undefined;
   let grants: NetworkGrants = emptyGrants();
-  let profileNetwork: NetworkAllowances = NO_PROFILE_NETWORK;
+  // The profiles of every bash call running right now; srt's network settings are global, so they are merged.
+  let runningProfileDefinitions: readonly Profile[] = [];
   // Deliberately not persisted in the session: a resumed session asks again before bypassing the sandbox.
   let bypassDecision: SessionDecision | undefined;
   let warnedAboutConfigIds = false;
@@ -227,7 +229,7 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
     async traceFilesystem(profiles) {
       const inputs = await profileInputs();
       const profileOnceGrants = withoutRepositoryWrites(await profileGrants(profiles, inputs), inputs.repositoryRoot, inputs.agentMode);
-      return filesystemConfig(await currentPolicy(profileOnceGrants), policyOptions(undefined));
+      return filesystemConfig(await currentPolicy(profileOnceGrants), policyOptions(undefined, await profileSecretReads(profiles, inputs.repositoryRoot)));
     },
     baselinePolicy: () => currentPolicy(),
     toolchainRead: () => settings?.toolchainRead ?? [],
@@ -303,7 +305,7 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
     violationCollector().track(commandId, profiles.length === 0 ? [] : profiledCommandIds);
     if (profiles.length > 0) rememberProfiledCommand(commandId);
     const vcs = await vcsRules();
-    const filesystem = filesystemConfig(await currentPolicy([...profileOnceGrants, ...onceGrants]), policyOptions(vcs));
+    const filesystem = filesystemConfig(await currentPolicy([...profileOnceGrants, ...onceGrants]), policyOptions(vcs, await profileSecretReads(profiles, inputs.repositoryRoot)));
     warnAboutMissingConfigIds(vcs, filesystem.denyWrite);
     const environment = profiles.length === 0 ? options.env : profileEnvironment(options.env ?? process.env, profiles, inputs);
     try {
@@ -359,8 +361,8 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
     if (choice.kind === "missing") activeContext?.ui.notify(`${OLD_BASH_WARNING} Checked: ${choice.checked.join(", ")}.`, "warning");
     await manager().initialize(
       {
-        network: networkConfig(settings, grants, subagent ? "subagent" : "main", profileNetwork),
-        filesystem: filesystemConfig(await currentPolicy(), policyOptions(await vcsRules())),
+        network: networkConfig(settings, grants, subagent ? "subagent" : "main", runningProfileNetwork()),
+        filesystem: filesystemConfig(await currentPolicy(), policyOptions(await vcsRules(), [])),
         credentials: { envVars: credentialEnvironmentVariables() },
         allowPty: false,
       },
@@ -371,9 +373,9 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
   }
 
   // Without vcs the repository stays a plain subtree allow, which the recorder wants: it traces without the generated VCS globs.
-  function policyOptions(vcs: VcsWriteRules | undefined): PolicyOptions {
+  function policyOptions(vcs: VcsWriteRules | undefined, secretRead: readonly PathSelector[]): PolicyOptions {
     if (!settings) throw new Error("Sandbox settings are not loaded.");
-    return { platform: platform, homeDirectory: homedir(), toolchainRead: settings.toolchainRead, extraDenyRead: settings.extraDenyRead, vcs };
+    return { platform: platform, homeDirectory: homedir(), toolchainRead: settings.toolchainRead, extraDenyRead: settings.extraDenyRead, vcs, secretRead };
   }
 
   // Scanned per command: git and jj create and remove entries inside their directories all the time.
@@ -404,15 +406,23 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
     if (!sandboxManager || !settings) return;
     const config = sandboxManager.getConfig();
     if (!config) return;
-    sandboxManager.updateConfig({ ...config, network: { ...config.network, ...networkConfig(settings, grants, subagent ? "subagent" : "main", profileNetwork) } });
+    sandboxManager.updateConfig({
+      ...config,
+      network: { ...config.network, ...networkConfig(settings, grants, subagent ? "subagent" : "main", runningProfileNetwork()) },
+      enableWeakerNetworkIsolation: needsWeakerNetworkIsolation(runningProfileDefinitions),
+    });
   }
 
-  // srt reads local binding and sockets from its global config, so the profile network settings of every
-  // profiled bash call running right now are merged into it.
+  // srt reads local binding, sockets and trustd access from its global config, so the profile network settings of
+  // every profiled bash call running right now are merged into it.
   async function refreshNetwork(): Promise<void> {
     const names = new Set([...runningProfiles.values()].flat());
-    profileNetwork = names.size === 0 ? NO_PROFILE_NETWORK : mergedProfileNetwork((await loadProfiles(PROFILES_DIRECTORY)).filter(({ name }) => names.has(name)));
+    runningProfileDefinitions = names.size === 0 ? [] : (await loadProfiles(PROFILES_DIRECTORY)).filter(({ name }) => names.has(name));
     applyNetwork();
+  }
+
+  function runningProfileNetwork(): NetworkAllowances {
+    return runningProfileDefinitions.length === 0 ? NO_PROFILE_NETWORK : mergedProfileNetwork(runningProfileDefinitions);
   }
 
   // The success-path report is best effort on Linux, where events arrive over the monitor socket, so

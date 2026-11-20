@@ -12,8 +12,8 @@ export const PROFILE_NAME_RULE = "use lowercase letters, digits and dashes, star
 export function emptyProfileDefinition(): ProfileDefinition {
   return {
     triggers: { commands: [], patterns: [] },
-    filesystem: { read: [], write: [] },
-    network: { access: NetworkAccess.Listed, allowedDomains: [], allowLocalBinding: false, allowUnixSockets: [] },
+    filesystem: { read: [], write: [], secretRead: [] },
+    network: { access: NetworkAccess.Listed, allowedDomains: [], allowLocalBinding: false, allowUnixSockets: [], enableWeakerNetworkIsolation: false },
     path: [],
   };
 }
@@ -32,12 +32,14 @@ export function parseProfileDefinition(value: unknown): ProfileDefinition {
     filesystem: {
       read: pathArray(filesystem.read, "filesystem.read"),
       write: pathArray(filesystem.write, "filesystem.write"),
+      secretRead: pathArray(filesystem.secretRead, "filesystem.secretRead"),
     },
     network: {
       access: networkAccess(network.access, "network.access"),
       allowedDomains: stringArray(network.allowedDomains, "network.allowedDomains"),
       allowLocalBinding: booleanValue(network.allowLocalBinding, "network.allowLocalBinding"),
       allowUnixSockets: pathArray(network.allowUnixSockets, "network.allowUnixSockets"),
+      enableWeakerNetworkIsolation: booleanValue(network.enableWeakerNetworkIsolation, "network.enableWeakerNetworkIsolation"),
     },
     path: pathArray(root.path, "path"),
   };
@@ -116,6 +118,11 @@ export function mergedProfileNetwork(profiles: readonly Profile[]): NetworkAllow
   };
 }
 
+// srt keeps this outside its network config and applies it to every command, so it is merged like the network settings.
+export function needsWeakerNetworkIsolation(profiles: readonly Profile[]): boolean {
+  return profiles.some(({ network }) => network.enableWeakerNetworkIsolation);
+}
+
 export interface Profile extends ProfileDefinition {
   name: string;
 }
@@ -149,9 +156,17 @@ export function addAllowedDomain(definition: ProfileDefinition, domain: string):
 
 export interface ProfileDefinition {
   triggers: ProfileTriggers;
-  filesystem: { read: string[]; write: string[] };
+  filesystem: ProfileFilesystem;
   network: ProfileNetwork;
   path: string[];
+}
+
+export interface ProfileFilesystem {
+  read: string[];
+  write: string[];
+  // Paths on the sandbox secret list, readable while the profile applies. No prompt can grant these, and there is no
+  // write counterpart: srt applies write denies after every allow.
+  secretRead: string[];
 }
 
 export interface ProfileTriggers {
@@ -161,6 +176,9 @@ export interface ProfileTriggers {
 
 export interface ProfileNetwork extends NetworkAllowances {
   access: NetworkAccess;
+  // macOS only: allows com.apple.trustd.agent, which Go programs need to verify TLS certificates. srt warns that
+  // the service is a possible exfiltration channel.
+  enableWeakerNetworkIsolation: boolean;
 }
 
 // What srt's network config takes from profiles.

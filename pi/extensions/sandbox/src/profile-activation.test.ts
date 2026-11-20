@@ -145,8 +145,8 @@ test("the prompt names the trigger and caps each list at five entries", () => {
   // arrange
   const big: Profile = {
     ...profile,
-    filesystem: { read: ["/a", "/b", "/c", "/d", "/e", "/f", "/g"], write: ["/w"] },
-    network: { access: NetworkAccess.Listed, allowedDomains: ["x.example"], allowLocalBinding: true, allowUnixSockets: [] },
+    filesystem: { read: ["/a", "/b", "/c", "/d", "/e", "/f", "/g"], write: ["/w"], secretRead: ["~/.config/gh"] },
+    network: { access: NetworkAccess.Listed, allowedDomains: ["x.example"], allowLocalBinding: true, allowUnixSockets: [], enableWeakerNetworkIsolation: true },
     path: ["~/shims"],
   };
 
@@ -159,7 +159,9 @@ test("the prompt names the trigger and caps each list at five entries", () => {
   assert.match(text, /read: \/a, \/b, \/c, \/d, \/e, … \(\+2 more\)/);
   assert.match(text, /write: \/w/);
   assert.match(text, /hosts: x\.example/);
+  assert.match(text, /read secrets: ~\/\.config\/gh/);
   assert.match(text, /local binding: yes/);
+  assert.match(text, /trustd \(Go TLS verification, weaker network isolation\): yes/);
   assert.match(text, /PATH: ~\/shims/);
   assert.match(text, /Applies to this bash call only/);
 });

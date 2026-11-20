@@ -85,6 +85,39 @@ test("grants at or under a secret are dropped from the sandbox allows", () => {
   assert.ok(!config.allowWrite.includes(`${HOME}/.ssh`));
 });
 
+test("a secret read of a whole secret lifts its read deny but keeps its write deny", () => {
+  // arrange
+  const secret = `${HOME}/.config/gh`;
+  const effective = policy({ read: { allow: [tree(secret)] } });
+
+  // act
+  const config = filesystemConfig(effective, options({ secretRead: [exact(secret)] }));
+
+  // assert
+  assert.deepEqual(config.allowRead?.filter((path) => path.startsWith(secret)), [secret]);
+  assert.ok(!config.denyRead.includes(secret));
+  assert.ok(config.denyWrite.includes(secret));
+});
+
+test("a secret read inside a secret turns its read deny into a glob on macOS only", () => {
+  // arrange
+  const secret = `${HOME}/Library/Keychains`;
+  const liftedPath = `${secret}/login.keychain-db`;
+  const lifted = exact(liftedPath);
+  const glob = `${secret}/**/*`;
+
+  // act
+  const darwin = filesystemConfig(policy(), options({ secretRead: [lifted] }));
+  const linux = filesystemConfig(policy(), options({ platform: "linux", secretRead: [lifted] }));
+
+  // assert
+  assert.ok(darwin.denyRead.includes(glob));
+  assert.ok(!darwin.denyRead.includes(secret));
+  assert.ok(darwin.allowRead?.includes(liftedPath));
+  assert.ok(linux.denyRead.includes(secret));
+  assert.ok(!linux.denyRead.includes(glob));
+});
+
 test("glob grants that can reach a secret are dropped", () => {
   // arrange
   const patterns = ["*", ".*", ".s*/*", "*/id_rsa", ".config/*", "**/*.txt"];
@@ -274,7 +307,7 @@ test("the jj lock files of plan mode add no VCS denies", () => {
 });
 
 function options(overrides: Partial<PolicyOptions> = {}): PolicyOptions {
-  return { platform: "darwin", homeDirectory: HOME, toolchainRead: [`${HOME}/.cargo`], extraDenyRead: [], vcs: undefined, ...overrides };
+  return { platform: "darwin", homeDirectory: HOME, toolchainRead: [`${HOME}/.cargo`], extraDenyRead: [], vcs: undefined, secretRead: [], ...overrides };
 }
 
 function policy(overrides: { read?: Partial<EffectivePolicy["read"]>; write?: Partial<EffectivePolicy["write"]> } = {}): EffectivePolicy {

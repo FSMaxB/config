@@ -264,7 +264,7 @@ async function runInRepository(command: string): Promise<{ exitCode: number | nu
     read: { allow: [tree(workDirectory)], deny: [], protected: [] },
     write: { allow: [tree(repository)], deny: [], protected: [] },
   };
-  const filesystem = filesystemConfig(policy, { platform: testPlatform(), homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [], vcs });
+  const filesystem = filesystemConfig(policy, { platform: testPlatform(), homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [], vcs, secretRead: [] });
   return await runSandboxed(command, filesystem, repository);
 }
 
@@ -290,7 +290,7 @@ function policyFilesystem(extraReadAllow: PathSelector[] = [], protectedWrite: P
     read: { allow: [tree(workDirectory), ...extraReadAllow], deny: [], protected: [] },
     write: { allow: [tree(workDirectory)], deny: [], protected: protectedWrite },
   };
-  return filesystemConfig(policy, { platform: testPlatform(), homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [], vcs: undefined });
+  return filesystemConfig(policy, { platform: testPlatform(), homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [], vcs: undefined, secretRead: [] });
 }
 
 function testPlatform(): Platform {

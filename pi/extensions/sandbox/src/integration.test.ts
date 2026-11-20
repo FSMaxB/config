@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
@@ -39,6 +39,7 @@ before(async () => {
   await mkdir(join(root, "vcs-home", ".config"), { recursive: true });
   await mkdir(join(fakeHome, ".ssh"), { recursive: true });
   await writeFile(join(fakeHome, ".ssh", "config"), "Host secret\n");
+  await writeFile(join(fakeHome, ".ssh", "known_hosts"), "known host\n");
   await writeFile(join(fakeHome, ".netrc"), "machine secret\n");
   await writeFile(join(fakeHome, "notes.txt"), "visible notes\n");
   await SandboxManager.initialize(
@@ -160,6 +161,39 @@ test("a grant of the secret directory itself does not expose it", { skip: !enabl
   // assert
   assert.notEqual(exitCode, 0, output);
   assert.doesNotMatch(output, /Host secret/);
+});
+
+// The home grant matters: srt re-emits a literal deny after a broader literal allow.
+test("a profile's secret read exposes only that secret, and only for reads", { skip: !enabled }, async () => {
+  // arrange
+  const filesystem = policyFilesystem([tree(fakeHome)], [], [exact(join(fakeHome, ".ssh"))]);
+
+  // act
+  const sshConfig = await runSandboxed(`cat '${join(fakeHome, ".ssh", "config")}'`, filesystem);
+  const netrc = await runSandboxed(`cat '${join(fakeHome, ".netrc")}'`, filesystem);
+  const write = await runSandboxed(`echo planted >> '${join(fakeHome, ".ssh", "config")}'`, filesystem);
+
+  // assert
+  assert.equal(sshConfig.exitCode, 0, sshConfig.output);
+  assert.match(sshConfig.output, /Host secret/);
+  assert.notEqual(netrc.exitCode, 0, netrc.output);
+  assert.doesNotMatch(netrc.output, /machine secret/);
+  assert.doesNotMatch(await readFile(join(fakeHome, ".ssh", "config"), "utf8"), /planted/, write.output);
+});
+
+test("a secret read of a path inside a secret leaves the rest of the secret denied on macOS", { skip: !enabled || process.platform !== "darwin" }, async () => {
+  // arrange
+  const filesystem = policyFilesystem([tree(fakeHome)], [], [exact(join(fakeHome, ".ssh", "known_hosts"))]);
+
+  // act
+  const knownHosts = await runSandboxed(`cat '${join(fakeHome, ".ssh", "known_hosts")}'`, filesystem);
+  const sshConfig = await runSandboxed(`cat '${join(fakeHome, ".ssh", "config")}'`, filesystem);
+
+  // assert
+  assert.equal(knownHosts.exitCode, 0, knownHosts.output);
+  assert.match(knownHosts.output, /known host/);
+  assert.notEqual(sshConfig.exitCode, 0, sshConfig.output);
+  assert.doesNotMatch(sshConfig.output, /Host secret/);
 });
 
 test("a glob grant above a secret does not expose it", { skip: !enabled }, async () => {
@@ -473,7 +507,7 @@ async function runInRepository(repository: string, command: string): ReturnType<
     read: { allow: [tree(workDirectory)], deny: [], protected: [] },
     write: { allow: [tree(repository)], deny: [], protected: [] },
   };
-  const filesystem = filesystemConfig(policy, { platform: testPlatform(), homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [], vcs });
+  const filesystem = filesystemConfig(policy, { platform: testPlatform(), homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [], vcs, secretRead: [] });
   return await runSandboxed(command, filesystem, repository);
 }
 
@@ -507,12 +541,12 @@ async function runSandboxed(command: string, filesystem = policyFilesystem(), cw
   }
 }
 
-function policyFilesystem(extraReadAllow: PathSelector[] = [], extraWriteAllow: PathSelector[] = []): ReturnType<typeof filesystemConfig> {
+function policyFilesystem(extraReadAllow: PathSelector[] = [], extraWriteAllow: PathSelector[] = [], secretRead: PathSelector[] = []): ReturnType<typeof filesystemConfig> {
   const policy = {
     read: { allow: [tree(workDirectory), ...extraReadAllow], deny: [], protected: [] },
     write: { allow: [tree(workDirectory), ...extraWriteAllow], deny: [], protected: [] },
   };
-  return filesystemConfig(policy, { platform: testPlatform(), homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [], vcs: undefined });
+  return filesystemConfig(policy, { platform: testPlatform(), homeDirectory: fakeHome, toolchainRead: [], extraDenyRead: [], vcs: undefined, secretRead });
 }
 
 // Long enough for initialize() and reset() on a slow CI runner, short enough to keep the suite fast.

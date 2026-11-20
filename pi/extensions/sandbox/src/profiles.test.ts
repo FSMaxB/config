@@ -19,6 +19,7 @@ test("invalid definitions throw with the field path", () => {
   // arrange
   const cases: [unknown, RegExp][] = [
     [{ filesystem: { read: ["/ok", "/ok", "relative"] } }, /^filesystem\.read\[2\] must start with \/ or ~\//],
+    [{ filesystem: { secretRead: ["~/.ssh", ".netrc"] } }, /^filesystem\.secretRead\[1\] must start with \/ or ~\//],
     [{ path: ["bin"] }, /^path\[0\]/],
     [{ triggers: { patterns: ["("] } }, /^triggers\.patterns\[0\]/],
     [{ network: { allowLocalBinding: "yes" } }, /^network\.allowLocalBinding must be a boolean/],
@@ -33,9 +34,9 @@ test("invalid definitions throw with the field path", () => {
 
 test("the fingerprint ignores triggers and changes with the write paths", () => {
   // arrange
-  const base = profile("bazel", { filesystem: { read: [], write: ["/a"] } });
-  const retriggered = profile("bazel", { filesystem: { read: [], write: ["/a"] }, triggers: { commands: ["bazel"], patterns: [] } });
-  const rewritten = profile("bazel", { filesystem: { read: [], write: ["/b"] } });
+  const base = profile("bazel", { filesystem: { read: [], write: ["/a"], secretRead: [] } });
+  const retriggered = profile("bazel", { filesystem: { read: [], write: ["/a"], secretRead: [] }, triggers: { commands: ["bazel"], patterns: [] } });
+  const rewritten = profile("bazel", { filesystem: { read: [], write: ["/b"], secretRead: [] } });
 
   // act
   const fingerprints = [base, retriggered, rewritten].map((entry) => profileFingerprint([entry]));
@@ -93,8 +94,8 @@ test("the latest activation answer for a name wins", () => {
 
 test("merged network unions domains and sockets and ORs local binding", () => {
   // arrange
-  const first = profile("a", { network: { access: NetworkAccess.Listed, allowedDomains: ["x.example", "y.example"], allowLocalBinding: false, allowUnixSockets: ["/s1"] } });
-  const second = profile("b", { network: { access: NetworkAccess.Listed, allowedDomains: ["y.example"], allowLocalBinding: true, allowUnixSockets: ["/s2"] } });
+  const first = profile("a", { network: { access: NetworkAccess.Listed, allowedDomains: ["x.example", "y.example"], allowLocalBinding: false, allowUnixSockets: ["/s1"], enableWeakerNetworkIsolation: false } });
+  const second = profile("b", { network: { access: NetworkAccess.Listed, allowedDomains: ["y.example"], allowLocalBinding: true, allowUnixSockets: ["/s2"], enableWeakerNetworkIsolation: false } });
 
   // act
   const merged = mergedProfileNetwork([first, second]);
@@ -118,7 +119,7 @@ test("network access defaults to listed and accepts local and all", () => {
 
 test("local access keeps the listed hosts, adds loopback and opens local binding", () => {
   // arrange
-  const local = profile("a", { network: { access: NetworkAccess.Local, allowedDomains: ["bcr.example"], allowLocalBinding: false, allowUnixSockets: [] } });
+  const local = profile("a", { network: { access: NetworkAccess.Local, allowedDomains: ["bcr.example"], allowLocalBinding: false, allowUnixSockets: [], enableWeakerNetworkIsolation: false } });
 
   // act
   const merged = mergedProfileNetwork([local]);
@@ -129,8 +130,8 @@ test("local access keeps the listed hosts, adds loopback and opens local binding
 
 test("all access additionally allows every host, and hosts stay de-duplicated across profiles", () => {
   // arrange
-  const everything = profile("a", { network: { access: NetworkAccess.All, allowedDomains: ["bcr.example"], allowLocalBinding: false, allowUnixSockets: [] } });
-  const local = profile("b", { network: { access: NetworkAccess.Local, allowedDomains: [], allowLocalBinding: false, allowUnixSockets: [] } });
+  const everything = profile("a", { network: { access: NetworkAccess.All, allowedDomains: ["bcr.example"], allowLocalBinding: false, allowUnixSockets: [], enableWeakerNetworkIsolation: false } });
+  const local = profile("b", { network: { access: NetworkAccess.Local, allowedDomains: [], allowLocalBinding: false, allowUnixSockets: [], enableWeakerNetworkIsolation: false } });
 
   // act
   const merged = mergedProfileNetwork([everything, local]);

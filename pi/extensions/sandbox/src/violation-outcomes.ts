@@ -45,7 +45,7 @@ function reportFooter(step: NextStep, exit: CommandExit): string[] {
 export type CommandExit = (typeof CommandExit)[keyof typeof CommandExit];
 
 function outcomeLine(outcome: ViolationOutcome, step: NextStep, agentMode: AgentMode): string {
-  if (outcome.kind === "secret") return `${outcome.path} is on the sandbox secret list and cannot be granted.`;
+  if (outcome.kind === "secret") return `${outcome.path} is on the sandbox secret list; no prompt can grant it, only a sandbox profile's filesystem.secretRead (reads only).`;
   const { mode, path } = outcome;
   const notice = readOnlyRepositoryNotice(mode, agentMode);
   switch (outcome.kind) {
