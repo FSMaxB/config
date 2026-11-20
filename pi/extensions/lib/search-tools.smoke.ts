@@ -242,6 +242,29 @@ try {
 
   {
     // arrange
+    const root = createPathPatternFixture();
+    const findInRoot = (parameters: FindParameters, signal?: AbortSignal): Promise<AgentToolResult<unknown>> =>
+      searchFind(parameters, root, signal);
+    const expectedTopLevel = ["src/top.ts"];
+    const expectedAnyDepth = ["pkg/src/deep.ts", "src/top.ts"];
+    const expectedNoMatch = "No files found matching pattern";
+    try {
+      // act
+      const topLevel = flattenFind((await run(findInRoot, { pattern: "src/*.ts" })).text);
+      const anyDepth = flattenFind((await run(findInRoot, { pattern: "**/src/*.ts" })).text).sort();
+      const throughParent = await run(findInRoot, { pattern: "pkg/src/*.ts", path: "pkg" });
+
+      // assert
+      assert.deepEqual(topLevel, expectedTopLevel);
+      assert.deepEqual(anyDepth, expectedAnyDepth);
+      assert.equal(throughParent.text, expectedNoMatch);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  {
+    // arrange
     const { text: normalText } = await run(grep, { pattern: "transactor" });
 
     // act
@@ -435,6 +458,16 @@ function createFixture(): string {
   writeFileSync(path.join(directory, "ignored.txt"), "transactor hidden\n");
   // rg and fd only honor .gitignore inside a git repo, and this exercises fd's git-boundary branch.
   mkdirSync(path.join(directory, ".git"));
+  return directory;
+}
+
+// The brackets and the star in the directory name are glob syntax that find has to escape.
+function createPathPatternFixture(): string {
+  const directory = mkdtempSync(path.join(tmpdir(), "search-tools-[glob]*-"));
+  mkdirSync(path.join(directory, "src"));
+  writeFileSync(path.join(directory, "src", "top.ts"), "export const top = 1;\n");
+  mkdirSync(path.join(directory, "pkg", "src"), { recursive: true });
+  writeFileSync(path.join(directory, "pkg", "src", "deep.ts"), "export const deep = 1;\n");
   return directory;
 }
 

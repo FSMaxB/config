@@ -308,20 +308,12 @@ export async function searchFind(parameters: FindParameters, cwd: string, signal
   // One result past the limit proves that the limit cut results off.
   if (!countOnly) fdArguments.push("--max-results", String(effectiveLimit + 1));
 
-  // fd --glob matches against the basename unless --full-path is set; in --full-path
-  // mode it matches against the absolute candidate path, so a path-containing
-  // pattern like 'src/**/*.spec.ts' needs a leading '**/' to match anything.
-  let effectivePattern = requestedPattern;
-  if (requestedPattern.includes("/")) {
-    fdArguments.push("--full-path");
-    if (
-      !requestedPattern.startsWith("/") &&
-      !requestedPattern.startsWith("**/") &&
-      requestedPattern !== "**"
-    ) {
-      effectivePattern = `**/${requestedPattern}`;
-    }
-  }
+  // fd --glob matches the basename unless --full-path is set. With it, fd matches the path as it
+  // lists it, which begins with searchPath exactly as passed, so prefixing searchPath roots a path
+  // pattern at the search directory, like grep's glob.
+  const isPathPattern = requestedPattern.includes("/");
+  if (isPathPattern) fdArguments.push("--full-path");
+  const effectivePattern = isPathPattern ? rootedAt(searchPath, requestedPattern) : requestedPattern;
   fdArguments.push("--", effectivePattern, searchPath);
 
   const results: string[] = [];
@@ -352,6 +344,19 @@ export async function searchFind(parameters: FindParameters, cwd: string, signal
     : [];
   return searchResult(groupByDirectory(relativized), notices);
 }
+
+function rootedAt(searchPath: string, pattern: string): string {
+  if (pattern.startsWith("/")) return pattern;
+  // path.resolve keeps a trailing separator only on the filesystem root.
+  const root = searchPath.endsWith("/") ? searchPath.slice(0, -1) : searchPath;
+  return `${escapeGlob(root)}/${pattern}`;
+}
+
+// fd's globs treat these characters as syntax; a backslash makes them literal.
+function escapeGlob(text: string): string {
+  return text.replace(/[\\*?[\]{}]/g, "\\$&");
+}
+
 export type FindParameters = Static<typeof findParameters>;
 
 function throwOnRipgrepFailure(run: RunOutcome): void {

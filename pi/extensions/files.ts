@@ -188,7 +188,10 @@ function findDefinition(cwd: string): ToolDefinition<typeof findParameters, Sear
   return {
     ...createFindToolDefinition(cwd),
     description:
-      "Search for files by glob pattern. Results are grouped by directory relative to the search " +
+      "Search for files by glob pattern. " +
+      "Path patterns are relative to the search directory: 'src/*.ts' finds src/a.ts but not pkg/src/a.ts; " +
+      "use '**/src/*.ts' to match at any depth. Patterns without '/' match file names at any depth. " +
+      "Results are grouped by directory relative to the search " +
       "directory: an unindented 'dir/' line ('./' for the top level), then indented basenames. " +
       `Respects .gitignore. Output is truncated to ${FIND_DEFAULT_LIMIT} results or 50KB (whichever is hit first). ` +
       "Pass type ('file', 'directory' or 'symlink') to restrict what kind of entries are returned (like find -type). " +
