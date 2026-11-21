@@ -149,7 +149,9 @@ fi
 
 hash vim 2>/dev/null && vim +PlugInstall +qall
 hash vim 2>/dev/null && vim +GitGutterEnable +qall
-hash nvim 2>/dev/null && nvim --headless "+Lazy! sync" +qa
+# `restore` installs the commits pinned in nvim/lazy-lock.json without rewriting it, so the
+# clone stays clean and `git pull` keeps working on machines that only consume this repo.
+hash nvim 2>/dev/null && nvim --headless "+Lazy! restore" +qa
 
 echo "Enable the shell config by sourcing it from your shell rc:"
 echo "  bash: add 'source ~/.shellrc-common' to ~/.bashrc"

@@ -10,7 +10,7 @@ The reverse also holds: `~/.claude/CLAUDE.md` is `INSTALL-AGENTS.md`, and `~/.pi
 
 ## install.sh
 
-Symlinks configs into `$HOME`, sets global git config, and syncs vim (vim-plug) and nvim (lazy.nvim) plugins. The repo must live at `~/config`. Do NOT run it — it is only run manually.
+Symlinks configs into `$HOME`, sets global git config, installs vim plugins (vim-plug) and restores nvim plugins (lazy.nvim) at the commits pinned in `nvim/lazy-lock.json`. The repo must live at `~/config`. Do NOT run it — it is only run manually.
 
 ## Binaries
 
