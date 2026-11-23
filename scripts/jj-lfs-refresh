@@ -36,7 +36,10 @@ report_failure() {
 }
 
 snapshot() {
-    output=$(jj util snapshot 2>&1)
+    # A full scan instead of the fsmonitor: on macOS, watchman can report
+    # files that git lfs pull wrote seconds earlier only to a later query, and
+    # that query's snapshot then puts them into whatever commit @ is by then.
+    output=$(jj util snapshot --config fsmonitor.backend=none 2>&1)
     printf '%s\n' "$output" >&2
     case $output in
         *"$REFUSED_SNAPSHOT_WARNING"*) return 1 ;;
