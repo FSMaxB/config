@@ -24,7 +24,34 @@
   ```
 
 - Declare a list of literals once and derive the union from it: `(typeof THINKING_LEVELS)[number]`.
-- Use `interface` for object shapes and `type` for everything else (unions, tuples, function types, mapped types).
+- Use `interface` for object shapes without behaviour and `type` for everything else (unions, tuples, function types, mapped types).
+- Write a Faux-O type as a `class` with `readonly` fields whose methods return new instances, not as an `interface` plus functions, a closure factory or an object of functions.
+
+  ```ts
+  // Bad
+  export interface PathRules {
+    readonly allowed: readonly string[];
+  }
+
+  export function allowPath(rules: PathRules, glob: string): PathRules {
+    return { allowed: [...rules.allowed, glob] };
+  }
+
+  // Good
+  export class PathRules {
+    readonly allowed: readonly string[];
+
+    constructor(allowed: readonly string[]) {
+      this.allowed = allowed;
+    }
+
+    allow(glob: string): PathRules {
+      return new PathRules([...this.allowed, glob]);
+    }
+  }
+  ```
+
+- A union cannot carry methods: keep a function over a union as a free function instead of wrapping the union in a class.
 - Model variants as a discriminated union with a `kind` field instead of one object with optional fields.
 
   ```ts

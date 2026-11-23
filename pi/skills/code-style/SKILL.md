@@ -8,6 +8,7 @@ description: Use whenever you write, edit or propose code or architecture in any
 - Step-down rule: when adding a function or type, place it below its callers or users. Before finishing any edit that adds a helper, verify the helper appears after every site that calls it. If it doesn't, move it. Do not apply it to imports or module definitions.
 - Do not add separating comments like `// ------------`; split the code into functions or modules instead.
 - Follow the "functional core, imperative shell" pattern when adequate
+- In the functional core, prefer Faux-O (Gary Bernhardt, "Boundaries") over free functions: when a function's main input is a type defined in this codebase, make it a method on that type. Keep the type immutable: a method that changes something returns a new value instead of mutating the receiver. A function whose main input is a primitive or a type from another package stays a free function; do not group such functions in a static-only class or a namespace object.
 - Only add comments if they add context that is not part of the code itself. Explicitly do not duplicate what code is doing in the comments, only explain rationale and/or high level architecture.
 - Write comments about the code as it is. Do not describe the change ("now uses", "previously", "fixed", "new") and do not mention the task, plan or review that led to it.
 - Doc comments contain information that is useful to the caller, for implementation details, comment on the relevant code directly.
