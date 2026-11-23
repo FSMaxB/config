@@ -20,7 +20,7 @@ JQ_BASE_URL="https://github.com/jqlang/jq/releases/download/jq-${JQ_VERSION}"
 TUICR_VERSION="0.29.0"
 TUICR_BASE_URL="https://github.com/agavra/tuicr/releases/download/v${TUICR_VERSION}"
 
-CRIT_VERSION="0.23.2"
+CRIT_VERSION="0.24.0"
 CRIT_BASE_URL="https://github.com/tomasz-tomczyk/crit/releases/download/v${CRIT_VERSION}"
 
 FZF_VERSION="0.75.0"
