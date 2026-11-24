@@ -28,6 +28,7 @@ import type { BypassAuthorization, SessionDecision } from "./bypass.ts";
 import { callPrefix, PrefixedCallText, withSandboxProfiles } from "./call-line.ts";
 import type { CallMode, SandboxedBashDetails } from "./call-line.ts";
 import { credentialEnvironmentVariables } from "./credentials.ts";
+import { withJjShim } from "./jj-shim.ts";
 import { NETWORK_ENTRY_TYPE, NO_PROFILE_NETWORK, destinationKey, emptyGrants, networkConfig, networkDenialNote, parseGrants, recordGrant, recordOnceGrant, releaseOnceGrants, rememberedDecision, networkSessionGrants, serializeGrants } from "./network-grants.ts";
 import type { NetworkDecision, NetworkGrants, OnceNetworkGrants } from "./network-grants.ts";
 import { activationOutcome, activationPrompt, emptyProfileState, parseProfileState, PROFILE_ENTRY_TYPE, profileSessionGrants, resolveActivationAnswer, serializeProfileState, settledResolution } from "./profile-activation.ts";
@@ -307,7 +308,8 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
     const vcs = await vcsRules();
     const filesystem = filesystemConfig(await currentPolicy([...profileOnceGrants, ...onceGrants]), policyOptions(vcs, await profileSecretReads(profiles, inputs.repositoryRoot)));
     warnAboutMissingConfigIds(vcs, filesystem.denyWrite);
-    const environment = profiles.length === 0 ? options.env : profileEnvironment(options.env ?? process.env, profiles, inputs);
+    const base = options.env ?? process.env;
+    const environment = withJjShim(profiles.length === 0 ? base : profileEnvironment(base, profiles, inputs));
     try {
       const wrapped = await manager().wrapWithSandbox(exportSessionScratch(command, environment), shell, { filesystem }, options.signal, { commandId, commandText: command });
       const result = await stock.exec(wrapped, cwd, { ...options, env: environment });

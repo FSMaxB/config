@@ -5,6 +5,7 @@ import type { EffectivePolicy } from "../../lib/path-permissions.ts";
 import { exact } from "../../lib/path-permission-rules.ts";
 import type { PathSelector } from "../../lib/path-permission-rules.ts";
 import { contains } from "../../lib/repo.ts";
+import { jjShimDirectory } from "./jj-shim.ts";
 import { mktempShimDirectory } from "./scratch.ts";
 import type { VcsWriteRules } from "./vcs-policy.ts";
 import type { Platform } from "./platform.ts";
@@ -25,6 +26,7 @@ export function filesystemConfig(policy: EffectivePolicy, options: PolicyOptions
       ...options.secretRead.map(selectorPath),
       sandboxRuntimeDirectory(),
       ...(platform === "darwin" ? [mktempShimDirectory()] : []),
+      jjShimDirectory(),
     ]),
     allowWrite: unique(writeAllow.map(selectorPath)),
     denyWrite: unique([...secrets, ...vcsDeny(writeAllow, options.vcs), ...[...policy.write.deny, ...policy.write.protected].map((selector) => writeDenyPath(selector, platform))]),
