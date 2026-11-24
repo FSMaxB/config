@@ -5,7 +5,7 @@ description: Use in plan mode or whenever the user explicitly asks for a plan. N
 
 # Planning
 
-- When in doubt (either during exploration or planning), prefer to ask the user clarifying questions instead of extensive exploration. Ask about intent, preferences and priorities; explore when the answer is in the code.
+- When in doubt (either during exploration or planning), prefer to ask the user clarifying questions instead of extensive exploration. Before asking, read the `grilling` skill and follow it.
 - When asking the user questions, use the agent harness's question tool rather than plain text. If the harness has no question tool, ask in plain text.
 - Explicitly include verification steps in the plan you write
 - Before putting any code, pseudo-code, type, signature or architecture decision into the plan, read the `code-style` skill plus matching repository skills such as `android-kotlin-code-style`. The plan's code and architecture must already follow them, because the implementer copies them as written.
