@@ -4,5 +4,6 @@ This directory is a fork of the `grilling` skill from [`mattpocock/skills`](http
 
 Differences from upstream:
 
+- The plain-text format for a round of questions (the `❓`/`➡️` template and "word each question so 'yes' accepts your recommended answer") is removed.
 - Only `SKILL.md` is kept. `agents/openai.yaml` (Codex display metadata) is not copied.
 - `install.sh` links the skill into `~/.claude/skills/` as well, because the `planning` skill refers to it.
