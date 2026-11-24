@@ -5,5 +5,6 @@ This directory is a fork of the `grilling` skill from [`mattpocock/skills`](http
 Differences from upstream:
 
 - The plain-text format for a round of questions (the `❓`/`➡️` template and "word each question so 'yes' accepts your recommended answer") is removed.
+- A round is asked through the harness's question tool, with the recommended answer as the first option; numbered plain-text questions are the fallback without one. In Pi, a round is one `question` call per question, all in the same response.
 - Only `SKILL.md` is kept. `agents/openai.yaml` (Codex display metadata) is not copied.
 - `install.sh` links the skill into `~/.claude/skills/` as well, because the `planning` skill refers to it.
