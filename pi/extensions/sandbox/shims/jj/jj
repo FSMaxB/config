@@ -1,0 +1,18 @@
+#!/bin/sh
+# Put first on PATH for every sandboxed command by the pi sandbox (pi/extensions/sandbox). The sandbox denies
+# watchman's unix socket, so a repository with fsmonitor.backend = "watchman" would make every snapshot report a
+# violation, warn and fall back to a full scan. Repository config outranks user config and JJ_CONFIG, so only
+# --config can turn it off; a --config the caller passes comes later and still wins. Allowing the socket is no
+# option: a watchman trigger runs commands outside the sandbox.
+shim_directory=$(cd "$(dirname "$0")" && pwd -P)
+set -f
+IFS=:
+for entry in $PATH; do
+  if [ -z "$entry" ] || [ ! -x "$entry/jj" ] || [ -d "$entry/jj" ]; then continue; fi
+  [ "$(cd "$entry" 2>/dev/null && pwd -P)" = "$shim_directory" ] && continue
+  # A failed exec (not executable after all) continues with the next candidate, then reports the missing jj.
+  # shellcheck disable=SC2093
+  exec "$entry/jj" --config fsmonitor.backend=none "$@"
+done
+echo "pi sandbox: no jj on PATH besides the shim in $shim_directory" >&2
+exit 127

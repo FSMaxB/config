@@ -12,6 +12,7 @@ import { exact, glob, tree } from "../../lib/path-permission-rules.ts";
 import type { PathSelector } from "../../lib/path-permission-rules.ts";
 import { INITIAL_LOG_STREAM_STATE, parseLogStreamChunk } from "./log-stream.ts";
 import type { LogStreamFormat } from "./log-stream.ts";
+import { jjShimDirectory } from "./jj-shim.ts";
 import { filesystemConfig } from "./policy.ts";
 import { mktempShimDirectory } from "./scratch.ts";
 import { resolveSandboxShell } from "./shell.ts";
@@ -413,6 +414,28 @@ test("a jj session works inside the sandbox without violations", { skip: !enable
   // assert
   assert.equal(exitCode, 0, output);
   assert.deepEqual(pathViolations((await collectViolations(commandId)).map(({ line }) => line)), []);
+});
+
+// The shim's --config outranks every config file; JJ_CONFIG stands in for a repository config that picks watchman.
+test("jj through the shim runs with watchman turned off and reports no violations", { skip: !enabled || !jjAvailable }, async () => {
+  // arrange
+  const repository = join(workDirectory, "jj-watchman-repo");
+  await mkdir(repository);
+  execFileSync("jj", ["git", "init", "--colocate", repository], { env: { ...process.env, ...vcsEnvironmentVariables() }, stdio: "pipe" });
+  const watchmanConfig = join(workDirectory, "jj-watchman.toml");
+  await writeFile(watchmanConfig, 'fsmonitor.backend = "watchman"\n');
+  const script = `set -e\nexport JJ_CONFIG='${watchmanConfig}' PATH='${jjShimDirectory()}':"$PATH"\necho f > f.txt && jj status > /dev/null\njj config get fsmonitor.backend`;
+  const expectedBackend = "none";
+
+  // act
+  const { exitCode, output, commandId } = await runInRepository(repository, `${vcsEnvironment()}\n${script}`);
+
+  // assert
+  assert.equal(exitCode, 0, output);
+  assert.equal(output.trim().split("\n").at(-1), expectedBackend, output);
+  const lines = (await collectViolations(commandId)).map(({ line }) => line);
+  assert.deepEqual(lines.filter((line) => line.includes("watchman")), [], output);
+  assert.deepEqual(pathViolations(lines), []);
 });
 
 // On Linux the repository root stays writable and the rmdir just fails with ENOTEMPTY, so only macOS reports it. jj tries
