@@ -6,7 +6,7 @@ import type { Platform } from "./platform.ts";
 import { errorCode } from "../../lib/errors.ts";
 import { hasGlobCharacters } from "./glob-characters.ts";
 
-const EMPTY_SPEC: DirectorySpec = { trees: [], lockedFiles: [], files: [], temporaryPrefixes: [], children: {}, gitDirectories: [], absent: [] };
+const EMPTY_SPEC: DirectorySpec = { linux: "walk", trees: [], lockedFiles: [], files: [], temporaryPrefixes: [], children: {}, gitDirectories: [], absent: [] };
 
 // srt covers the first absent component of a denied path with an empty read-only directory when the path goes on
 // beneath it, and with a /dev/null file when it does not. Denying this entry gets the directory.
@@ -29,10 +29,13 @@ const GIT_DIRECTORY: DirectorySpec = {
   children: {
     info: {
       ...EMPTY_SPEC,
+      // Absent files git reads here would need placeholders, which it cannot read and warns about on most commands.
+      // The cost is that git gc and git repack cannot refresh info/refs, which only dumb-HTTP serving reads.
+      linux: "read-only",
       lockedFiles: ["refs"],
       // update-server-info writes info/refs_XXXXXX and renames it onto info/refs.
       temporaryPrefixes: ["refs_"],
-      // Empty placeholders mean "no rules", which is what an absent file means too.
+      // Only darwin walks this spec; Linux keeps the whole directory read-only.
       absent: ["exclude", "attributes", "sparse-checkout", "grafts"].map((name) => ({ name, linux: "file" as const })),
     },
   },
@@ -43,6 +46,7 @@ const GIT_DIRECTORY: DirectorySpec = {
     { name: "hooks", linux: "directory" },
     // git dies on a commondir it cannot read ("failed to read"), also for the user's own git.
     { name: "commondir", linux: "skip" },
+    { name: "info", linux: "directory" },
     { name: "config.worktree", linux: "file" },
     { name: "modules", linux: "directory" },
     // jj's ref export opens worktrees as a directory and fails on anything else.
@@ -141,6 +145,7 @@ function ignoreMissing(error: unknown): undefined {
 function walkDirectory(path: string, spec: DirectorySpec, listings: ReadonlyMap<string, DirectoryListing>, platform: Platform): Walk {
   const listing = listings.get(path);
   if (!listing) return { allow: [], deny: [], missingConfigIds: [] };
+  if (platform === "linux" && spec.linux === "read-only") return { allow: [], deny: [path], missingConfigIds: [] };
   const names = new Set(listing.entries.map((entry) => entry.name));
   const nested = [...Object.entries(spec.children), ...spec.gitDirectories.map((name) => [name, GIT_DIRECTORY] as const)];
   const nestedWalks = nested.map(([name, child]) => walkDirectory(join(path, name), child, listings, platform));
@@ -206,6 +211,9 @@ function missingIdFiles(path: string, spec: DirectorySpec, names: ReadonlySet<st
 
 // What git and jj write during normal operation, relative to the directory each spec describes.
 interface DirectorySpec {
+  // How Linux protects the directory while it exists: "walk" applies this spec to its entries, "read-only" denies the
+  // directory as a whole and leaves the spec to darwin.
+  linux: "walk" | "read-only";
   // Writable together with everything beneath them.
   trees: readonly string[];
   // Writable as exact paths; each also gets `<name>.lock`, git's lock file for it.

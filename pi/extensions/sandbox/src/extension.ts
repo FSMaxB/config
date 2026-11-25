@@ -51,7 +51,7 @@ import type { Settings } from "./settings.ts";
 import { resolveSandboxShell } from "./shell.ts";
 import { scanVcsLayout, vcsWriteRules } from "./vcs-policy.ts";
 import type { VcsWriteRules } from "./vcs-policy.ts";
-import { isHereDocumentTemporaryFile, isRepositoryRootRemoval, isSecretPath, pathViolations } from "./violations.ts";
+import { isHereDocumentTemporaryFile, isRepositoryRootRemoval, isSecretPath, isServerInfoRefresh, pathViolations } from "./violations.ts";
 import type { PathViolation } from "./violations.ts";
 import { startViolationCollector } from "./violation-collector.ts";
 import type { CollectedViolation, ViolationCollector } from "./violation-collector.ts";
@@ -724,7 +724,7 @@ interface ProfilesForCall {
 type SandboxManagerType = (typeof SandboxRuntime)["SandboxManager"];
 
 function reportable<Violation extends { line: string }>(violations: readonly Violation[], repositoryRoot: string): Violation[] {
-  return violations.filter(({ line }) => !isRepositoryRootRemoval(line, repositoryRoot));
+  return violations.filter(({ line }) => !isRepositoryRootRemoval(line, repositoryRoot) && !isServerInfoRefresh(line, repositoryRoot));
 }
 
 function requestedProfiles(requested: readonly string[], profiles: readonly Profile[]): Profile[] {

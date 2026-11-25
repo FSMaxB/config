@@ -48,7 +48,7 @@ test("what git and jj write during normal operation is not denied", () => {
 
   // assert
   for (const path of [
-    ".git/objects", ".git/refs", ".git/HEAD", ".git/index", ".git/index.lock", ".git/packed-refs", ".git/info/refs", ".git/lfs", ".jj/repo/op_store",
+    ".git/objects", ".git/refs", ".git/HEAD", ".git/index", ".git/index.lock", ".git/packed-refs", ".git/lfs", ".jj/repo/op_store",
     ".jj/repo/op_heads", ".jj/repo/index", ".jj/repo/store/extra", ".jj/working_copy/checkout", ".jj/working_copy/tree_state",
     ".jj/working_copy/.tmpAbc123", ".jj/working_copy/working_copy.lock", ".jj/repo",
   ]) {
@@ -84,18 +84,43 @@ test("linux covers absent git directories with an empty directory and skips comm
   assert.ok(deny.includes(join(REPO, ".git/hooks")), "an existing hooks directory is denied as a whole");
 });
 
-test("files in .git/info that git reads stay denied while absent", () => {
+test("darwin denies the absent files in .git/info that git reads and keeps info/refs writable", () => {
   // arrange
   const layout = layoutOf({ ".git": { info: { refs: "file" } } });
 
   // act
-  const { deny } = vcsWriteRules(layout, "linux");
+  const { deny } = vcsWriteRules(layout, "darwin");
 
   // assert
   for (const name of ["exclude", "attributes", "sparse-checkout", "grafts"]) {
     assert.ok(deny.includes(join(REPO, ".git/info", name)), `.git/info/${name} must be denied while absent`);
   }
   assert.ok(!deny.includes(join(REPO, ".git/info/refs")));
+});
+
+test("linux keeps an existing .git/info read-only as a whole", () => {
+  // arrange
+  const layout = layoutOf({ ".git": { info: { refs: "file", exclude: "file" } } });
+  const info = join(REPO, ".git/info");
+
+  // act
+  const { deny } = vcsWriteRules(layout, "linux");
+
+  // assert
+  assert.ok(deny.includes(info));
+  assert.deepEqual(deny.filter((path) => path.startsWith(`${info}/`)), []);
+});
+
+test("linux covers an absent .git/info with an empty directory", () => {
+  // arrange
+  const layout = layoutOf({ ".git": { objects: {} } });
+  const placeholder = join(REPO, ".git/info/.sandbox-placeholder");
+
+  // act
+  const { deny } = vcsWriteRules(layout, "linux");
+
+  // assert
+  assert.ok(deny.includes(placeholder));
 });
 
 test("linux denies an absent config.toml only when its config-id exists", () => {

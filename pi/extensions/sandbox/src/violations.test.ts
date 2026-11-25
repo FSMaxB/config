@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { discardedWrites, isHereDocumentTemporaryFile, isRepositoryRootRemoval, isSecretPath, isSecretPathThroughSymlinks, pathViolations } from "./violations.ts";
+import { discardedWrites, isHereDocumentTemporaryFile, isRepositoryRootRemoval, isSecretPath, isSecretPathThroughSymlinks, isServerInfoRefresh, pathViolations } from "./violations.ts";
 
 test("macOS read and write violations parse", () => {
   // arrange
@@ -116,6 +116,25 @@ test("only an unlink of the repository root itself is a repository root removal"
   assert.equal(entryUnlink, false);
   assert.equal(rootCreate, false);
   assert.equal(linuxLine, false);
+});
+
+test("only writes of info/refs in the repository's git directories are server-info refreshes", () => {
+  // arrange
+  const root = "/repo";
+
+  // act
+  const temporaryReferences = isServerInfoRefresh(`deny openat ${root}/.git/info/refs_Ab12Cd`, root);
+  const nestedReferences = isServerInfoRefresh(`deny rename ${root}/.jj/repo/store/git/info/refs`, root);
+  const attributes = isServerInfoRefresh(`deny openat ${root}/.git/info/attributes`, root);
+  const otherRepository = isServerInfoRefresh("deny openat /elsewhere/.git/info/refs", root);
+  const read = isServerInfoRefresh(`Sandbox: git(1) deny(1) file-read-data ${root}/.git/info/refs`, root);
+
+  // assert
+  assert.equal(temporaryReferences, true);
+  assert.equal(nestedReferences, true);
+  assert.equal(attributes, false);
+  assert.equal(otherRepository, false);
+  assert.equal(read, false);
 });
 
 test("only write violations of sh-thd temp files are here-document temp files", () => {

@@ -1,4 +1,4 @@
-import { basename } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { FilesystemConfig } from "@anthropic-ai/sandbox-runtime";
 import type { AccessMode } from "../../lib/path-permission-rules.ts";
 import { contains, resolveThroughSymlinks } from "../../lib/repo.ts";
@@ -8,6 +8,9 @@ import { hasGlobCharacters } from "./glob-characters.ts";
 // macOS: `Sandbox: bash(1234) deny(1) file-write-create /Users/max/x`
 // Linux: `deny openat /home/max/x`
 const VIOLATION = /deny(?:\(\d+\))?\s+(\S+)\s+(\/.+?)\s*$/;
+
+// A colocated repository keeps its git directory at .git, a non-colocated jj repository at .jj/repo/store/git.
+const GIT_INFO_DIRECTORIES = [".git/info", ".jj/repo/store/git/info"];
 
 export function pathViolations(lines: readonly string[]): PathViolation[] {
   const violations = new Map<string, PathViolation>();
@@ -41,6 +44,16 @@ export function discardedWrites(
 export function isRepositoryRootRemoval(line: string, repositoryRoot: string): boolean {
   const match = VIOLATION.exec(line);
   return match?.[1] === "file-write-unlink" && match[2] === repositoryRoot;
+}
+
+// Linux keeps .git/info read-only as a whole (see vcs-policy.ts), so git gc and git repack cannot refresh info/refs,
+// which only dumb-HTTP serving reads. git reports the failure itself and carries on, and no grant can lift the deny.
+export function isServerInfoRefresh(line: string, repositoryRoot: string): boolean {
+  const violation = parseViolation(line);
+  if (violation?.mode !== "write") return false;
+  const name = basename(violation.path);
+  if (name !== "refs" && !name.startsWith("refs_")) return false;
+  return GIT_INFO_DIRECTORIES.some((directory) => dirname(violation.path) === join(repositoryRoot, directory));
 }
 
 // Bash before 5.1 creates here-document temp files named sh-thd-<number> outside $TMPDIR, in the current

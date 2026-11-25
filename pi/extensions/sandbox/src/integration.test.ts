@@ -20,7 +20,7 @@ import { traceProfile } from "./trace-profile.ts";
 import { scanVcsLayout, vcsWriteRules } from "./vcs-policy.ts";
 import { startViolationCollector } from "./violation-collector.ts";
 import type { CollectedViolation, ViolationCollector } from "./violation-collector.ts";
-import { discardedWrites, isHereDocumentTemporaryFile, isRepositoryRootRemoval, pathViolations } from "./violations.ts";
+import { discardedWrites, isHereDocumentTemporaryFile, isRepositoryRootRemoval, isServerInfoRefresh, pathViolations } from "./violations.ts";
 import { supportedPlatform } from "./platform.ts";
 import type { Platform } from "./platform.ts";
 
@@ -352,7 +352,26 @@ test("a git session works inside the sandbox without violations", { skip: !enabl
 
   // assert
   assert.equal(exitCode, 0, output);
-  assert.deepEqual(pathViolations((await collectViolations(commandId)).map(({ line }) => line)), []);
+  const lines = (await collectViolations(commandId)).map(({ line }) => line);
+  assert.deepEqual(pathViolations(lines.filter((line) => !isServerInfoRefresh(line, repository))), []);
+});
+
+// git reads info/attributes and info/grafts on most commands; a fresh clone has neither.
+test("git prints no warnings in a repository whose .git/info lacks attributes and grafts", { skip: !enabled }, async () => {
+  // arrange
+  const repository = join(workDirectory, "info-repo");
+  execFileSync("git", ["init", "--quiet", "--template=", "-b", "main", repository]);
+  await mkdir(join(repository, ".git", "info"));
+  await writeFile(join(repository, ".git", "info", "exclude"), "");
+  const script = ["set -e", "echo a > a.txt && git add a.txt && git commit -q -m one", "git log --oneline > /dev/null", "git check-attr -a a.txt > /dev/null", "git status --short > /dev/null"].join("\n");
+  const expectedOutput = "";
+
+  // act
+  const { exitCode, output } = await runInRepository(repository, `${vcsEnvironment()}\n${script}`);
+
+  // assert
+  assert.equal(exitCode, 0, output);
+  assert.equal(output, expectedOutput);
 });
 
 test("mktemp creates its files in TMPDIR through the shim", { skip: !enabled || process.platform !== "darwin" }, async () => {
