@@ -36,6 +36,11 @@ if [[ ! -e ~/.config/ghostty/config ]]; then
   mkdir -p ~/.config/ghostty
   ln -s ~/config/ghostty-config ~/.config/ghostty/config
 fi
+# Hosts without ghostty (ssh targets, containers) lack its terminfo entry, and ncurses programs
+# then refuse to start with TERM=xterm-ghostty.
+if hash tic infocmp 2>/dev/null && ! infocmp xterm-ghostty >/dev/null 2>&1; then
+  tic -x -o ~/.terminfo ~/config/terminfo/ghostty.terminfo || echo "tic failed for terminfo/ghostty.terminfo"
+fi
 if [[ ! -e ~/.config/helix/config.toml ]]; then
   mkdir -p ~/.config/helix
   ln -s ~/config/helix-config.toml ~/.config/helix/config.toml
