@@ -8,6 +8,10 @@ import { hasGlobCharacters } from "./glob-characters.ts";
 
 const EMPTY_SPEC: DirectorySpec = { trees: [], lockedFiles: [], files: [], temporaryPrefixes: [], children: {}, gitDirectories: [], absent: [] };
 
+// srt covers the first absent component of a denied path with an empty read-only directory when the path goes on
+// beneath it, and with a /dev/null file when it does not. Denying this entry gets the directory.
+const DIRECTORY_PLACEHOLDER_ENTRY = ".sandbox-placeholder";
+
 // The lists below come from running the git and jj command batteries of the sandbox integration tests
 // in a scratch repository and recording every path inside the VCS directories that they wrote. A missing
 // entry shows up as a <sandbox_violations> report, not as silent breakage.
@@ -29,21 +33,22 @@ const GIT_DIRECTORY: DirectorySpec = {
       // update-server-info writes info/refs_XXXXXX and renames it onto info/refs.
       temporaryPrefixes: ["refs_"],
       // Empty placeholders mean "no rules", which is what an absent file means too.
-      absent: ["exclude", "attributes", "sparse-checkout", "grafts"].map((name) => ({ name, linux: "deny" as const })),
+      absent: ["exclude", "attributes", "sparse-checkout", "grafts"].map((name) => ({ name, linux: "file" as const })),
     },
   },
   absent: [
     // srt only protects .git/config beneath its working directory; .jj/repo/store/git/config needs this.
-    { name: "config", linux: "deny" },
-    // A placeholder file named hooks just means "no hooks".
-    { name: "hooks", linux: "deny" },
-    // git dies on an empty commondir ("failed to read"), also for the user's own git.
+    { name: "config", linux: "file" },
+    // An empty hooks directory means "no hooks".
+    { name: "hooks", linux: "directory" },
+    // git dies on a commondir it cannot read ("failed to read"), also for the user's own git.
     { name: "commondir", linux: "skip" },
-    { name: "config.worktree", linux: "deny" },
-    { name: "modules", linux: "deny" },
-    { name: "worktrees", linux: "deny" },
-    { name: "remotes", linux: "deny" },
-    { name: "branches", linux: "deny" },
+    { name: "config.worktree", linux: "file" },
+    { name: "modules", linux: "directory" },
+    // jj's ref export opens worktrees as a directory and fails on anything else.
+    { name: "worktrees", linux: "directory" },
+    { name: "remotes", linux: "directory" },
+    { name: "branches", linux: "directory" },
   ],
 };
 
@@ -146,13 +151,22 @@ function walkDirectory(path: string, spec: DirectorySpec, listings: ReadonlyMap<
     })
     .map((entry) => join(path, entry.name));
   const deniedAbsent = spec.absent
-    .filter(({ name, linux }) => !names.has(name) && deniesAbsentName(linux, platform, names))
-    .map(({ name }) => join(path, name));
+    .filter(({ name }) => !names.has(name))
+    .flatMap((absent) => absentDenyPaths(path, absent, platform, names));
   return {
     allow: [...allowlist(path, spec), ...nestedWalks.flatMap((walk) => walk.allow)],
     deny: [...deniedEntries, ...deniedAbsent, ...nestedWalks.flatMap((walk) => walk.deny)],
     missingConfigIds: [...missingIdFiles(path, spec, names, platform), ...nestedWalks.flatMap((walk) => walk.missingConfigIds)],
   };
+}
+
+function absentDenyPaths(directory: string, { name, linux }: AbsentName, platform: Platform, names: ReadonlySet<string>): string[] {
+  const path = join(directory, name);
+  if (platform === "darwin") return [path];
+  if (linux === "skip") return [];
+  if (linux === "file") return [path];
+  if (linux === "directory") return [join(path, DIRECTORY_PLACEHOLDER_ENTRY)];
+  return names.has(linux.denyWhenPresent) ? [path] : [];
 }
 
 export interface DirectoryListing {
@@ -179,12 +193,6 @@ function allowlist(path: string, spec: DirectorySpec): PathSelector[] {
     ...spec.lockedFiles.flatMap((name) => [exact(join(path, name)), exact(join(path, `${name}.lock`))]),
     ...spec.temporaryPrefixes.map((prefix) => glob(path, `${prefix}*`)),
   ];
-}
-
-function deniesAbsentName(linux: AbsentName["linux"], platform: Platform, names: ReadonlySet<string>): boolean {
-  if (platform === "darwin" || linux === "deny") return true;
-  if (linux === "skip") return false;
-  return names.has(linux.denyWhenPresent);
 }
 
 function missingIdFiles(path: string, spec: DirectorySpec, names: ReadonlySet<string>, platform: Platform): string[] {
@@ -216,10 +224,12 @@ interface DirectorySpec {
 
 interface AbsentName {
   name: string;
-  // On Linux, srt mounts an empty placeholder file over a denied absent path while a command runs.
-  // Some names break git or jj when they exist but are empty, so Linux skips them, or denies them
-  // only while the named sibling exists.
-  linux: "deny" | "skip" | { denyWhenPresent: string };
+  // On Linux, srt mounts a placeholder over a denied absent path while a command runs: /dev/null, which bubblewrap
+  // mounts nodev so that reading it fails with EACCES, or an empty read-only directory when the denied path goes on
+  // beneath the name. "file" denies the name itself, "directory" an entry beneath it, "skip" leaves the name alone,
+  // and denyWhenPresent denies the name only while the named sibling exists. Some names break git or jj as an
+  // unreadable file, so they are skipped or denied only conditionally.
+  linux: "file" | "directory" | "skip" | { denyWhenPresent: string };
 }
 
 // srt turns every glob into a regular expression and has no negated character classes, so "everything but

@@ -289,7 +289,7 @@ test("on linux the repository stays writable and every VCS deny applies", () => 
   // assert
   assert.deepEqual(config.allowWrite, [`${HOME}/repo`]);
   assert.ok(config.denyWrite.includes(`${HOME}/repo/.git/config`));
-  assert.ok(config.denyWrite.includes(`${HOME}/repo/.git/modules`));
+  assert.ok(config.denyWrite.includes(`${HOME}/repo/.git/modules/.sandbox-placeholder`));
   assert.ok(!config.denyWrite.includes(`${HOME}/repo/.git/commondir`));
 });
 

@@ -69,17 +69,19 @@ test("absent names that must stay absent are denied on darwin", () => {
   }
 });
 
-test("linux skips the absent names whose placeholder file would break git", () => {
+test("linux covers absent git directories with an empty directory and skips commondir", () => {
   // arrange
   const layout = layoutOf(COLOCATED);
+  const worktreesPlaceholder = join(REPO, ".git/worktrees/.sandbox-placeholder");
 
   // act
   const { deny } = vcsWriteRules(layout, "linux");
 
   // assert
+  assert.ok(deny.includes(worktreesPlaceholder));
+  assert.ok(!deny.includes(join(REPO, ".git/worktrees")));
   assert.ok(!deny.includes(join(REPO, ".git/commondir")));
-  assert.ok(deny.includes(join(REPO, ".git/modules")));
-  assert.ok(deny.includes(join(REPO, ".git/hooks")));
+  assert.ok(deny.includes(join(REPO, ".git/hooks")), "an existing hooks directory is denied as a whole");
 });
 
 test("files in .git/info that git reads stay denied while absent", () => {
