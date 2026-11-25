@@ -2,7 +2,7 @@ import type { PayloadFingerprint } from "./fingerprint.ts";
 import { MILLISECONDS_PER_MINUTE, MILLISECONDS_PER_SECOND } from "../lib/units.ts";
 import { SectionKind } from "./fingerprint.ts";
 import { MarkerEvent, RequestPurpose } from "./records.ts";
-import type { LogRecord, RequestRecord, Usage } from "./records.ts";
+import type { FailedAttempt, LogRecord, RequestRecord, Usage } from "./records.ts";
 
 export const Verdict = {
   First: "first", // nothing to compare with: first request, or after session start/compaction
@@ -142,7 +142,7 @@ export function parseReportArguments(words: readonly string[]): { verbosity: Rep
 
 export function renderReport(findings: readonly Finding[], verbosity: ReportVerbosity): string {
   if (findings.length === 0) return "No requests logged.";
-  const shown = verbosity === ReportVerbosity.All ? findings : findings.filter(isProblem);
+  const shown = verbosity === ReportVerbosity.All ? findings : findings.filter(needsAttention);
   return [renderHeader(findings), ...shown.map(renderFinding)].join("\n");
 }
 export type ReportVerbosity = (typeof ReportVerbosity)[keyof typeof ReportVerbosity];
@@ -156,8 +156,23 @@ function renderHeader(findings: readonly Finding[]): string {
     .map(({ verdict, count }) => `${count} ${verdict}`);
   const noUsage = findings.filter(({ verdict }) => verdict === Verdict.NoUsage).length;
   const warms = findings.filter(({ verdict }) => verdict === Verdict.CacheWarm).length;
+  const failed = findings.filter(hasFailedAttempts).length;
   const summary = `${findings.length} requests · ${misses.length} misses (${formatNumber(missedTokens)} tokens)`;
-  return [counts.length > 0 ? `${summary}: ${counts.join(", ")}` : summary, ...(noUsage > 0 ? [`${noUsage} no-usage`] : []), ...(warms > 0 ? [`${warms} cache-warm`] : [])].join(" · ");
+  return [
+    counts.length > 0 ? `${summary}: ${counts.join(", ")}` : summary,
+    ...(noUsage > 0 ? [`${noUsage} no-usage`] : []),
+    ...(warms > 0 ? [`${warms} cache-warm`] : []),
+    ...(failed > 0 ? [`${failed} with failed attempts`] : []),
+  ].join(" · ");
+}
+
+// The default report lists cache problems and requests that needed retries.
+function needsAttention(finding: Finding): boolean {
+  return isProblem(finding) || hasFailedAttempts(finding);
+}
+
+function hasFailedAttempts({ record }: Finding): boolean {
+  return (record.failedAttempts?.length ?? 0) > 0;
 }
 
 function isProblem({ verdict }: Finding): boolean {
@@ -177,8 +192,14 @@ function renderFinding({ record, verdict, promptTokens, missedTokens, idleMs, fi
     ...(firstChange ? [`at ${renderChange(firstChange)} ≈${formatNumber(estimatedChangeTokens ?? 0)} tokens`] : []),
     ...(verdict === Verdict.ProviderMiss && idleMs !== undefined ? [renderIdle(idleMs)] : []),
     ...(changedParameters.length > 0 ? [`params: ${changedParameters.join(", ")}`] : []),
+    ...(record.failedAttempts?.length ? [renderFailedAttempts(record.failedAttempts)] : []),
   ];
   return [...columns, ...details].join("  ");
+}
+
+function renderFailedAttempts(attempts: readonly FailedAttempt[]): string {
+  const rendered = attempts.map(({ status, retryAfter }) => (retryAfter === undefined ? String(status) : `${status} (retry-after ${retryAfter})`));
+  return `failed: ${rendered.join(", ")}`;
 }
 
 export interface Finding {

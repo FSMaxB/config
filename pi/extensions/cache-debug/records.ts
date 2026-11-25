@@ -23,6 +23,9 @@ export const MarkerEvent = {
 // pi sends the refresh within milliseconds of deciding on it; a later request is a real turn.
 const CACHE_WARM_WINDOW_MILLISECONDS = 5_000;
 
+// Status codes from here on are the error responses pi reports through after_provider_response.
+const FIRST_ERROR_STATUS = 400;
+
 // Requests within one pi process are sequential, so one pending record is enough.
 export class RequestTracker {
   #pending: RequestRecord | undefined;
@@ -47,9 +50,15 @@ export class RequestTracker {
     this.#pending = { version: RECORD_VERSION, kind: "request", ...identity, purpose, startedAt: at.toISOString(), outcome: Outcome.Superseded };
   }
 
+  // pi reports every HTTP response of a request, including error responses and the attempts a
+  // provider retries without a new before_provider_request. The last response stays the record's
+  // status; every error response is also kept as a failed attempt.
   response(status: number, headers: Record<string, string>): void {
     if (!this.#pending) return;
-    this.#pending = { ...this.#pending, status, responseHeaders: filterHeaders(headers) };
+    const responseHeaders = filterHeaders(headers);
+    const failedAttempts =
+      status < FIRST_ERROR_STATUS ? this.#pending.failedAttempts : [...(this.#pending.failedAttempts ?? []), failedAttempt(status, responseHeaders)];
+    this.#pending = { ...this.#pending, status, responseHeaders, ...(failedAttempts ? { failedAttempts } : {}) };
   }
 
   // The message names the physical model; context.model at request time may be a virtual model.
@@ -95,6 +104,7 @@ export interface RequestRecord {
   payload?: PayloadFingerprint; // absent when the provider never exposes its payload (pi-claude)
   status?: number;
   responseHeaders?: Record<string, string>;
+  failedAttempts?: FailedAttempt[]; // in order; absent when every response succeeded
   usage?: Usage;
   stopReason?: string;
   responseId?: string; // provider's id for this response, for support tickets
@@ -138,6 +148,16 @@ const SECRET_HEADER = /cookie|authorization|api-key|secret/i;
 
 export function filterHeaders(headers: Record<string, string>): Record<string, string> {
   return Object.fromEntries(Object.entries(headers).filter(([name]) => !SECRET_HEADER.test(name)));
+}
+
+function failedAttempt(status: number, headers: Record<string, string>): FailedAttempt {
+  const retryAfter = new Map(Object.entries(headers)).get("retry-after");
+  return retryAfter === undefined ? { status } : { status, retryAfter };
+}
+
+export interface FailedAttempt {
+  status: number;
+  retryAfter?: string; // the raw retry-after header: seconds or an HTTP date
 }
 
 function pickUsage({ input, output, cacheRead, cacheWrite }: Usage): Usage {

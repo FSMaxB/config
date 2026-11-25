@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { analyze, parseReportArguments, renderReport, ReportVerbosity, Verdict } from "./analysis.ts";
 import { fingerprintPayload } from "./fingerprint.ts";
 import { MarkerEvent, Outcome, RECORD_VERSION, RequestPurpose } from "./records.ts";
-import type { LogRecord, Usage } from "./records.ts";
+import type { FailedAttempt, LogRecord, Usage } from "./records.ts";
 
 const turn = "x".repeat(1000);
 
@@ -206,7 +206,23 @@ test("the report lists problems only and arguments parse", () => {
   assert.equal(renderReport([], ReportVerbosity.All), "No requests logged.");
 });
 
-function request({ messages, at, usage, model = "large", maxTokens = 4096, withPayload = true, purpose }: RequestOptions): LogRecord {
+test("the report lists and counts requests with failed attempts", () => {
+  // arrange
+  const records = [
+    request({ messages: [turn], at: 0, usage: usageOf(0, 20_000) }),
+    request({ messages: [turn, turn], at: 10_000, usage: usageOf(19_000, 2_000), failedAttempts: [{ status: 429, retryAfter: "12" }] }),
+  ];
+  const expectedDetail = "failed: 429 (retry-after 12)";
+
+  // act
+  const report = renderReport(analyze(records), ReportVerbosity.Problems);
+
+  // assert
+  assert.ok(report.includes("1 with failed attempts"), report);
+  assert.ok(report.includes(expectedDetail), report);
+});
+
+function request({ messages, at, usage, model = "large", maxTokens = 4096, withPayload = true, purpose, failedAttempts }: RequestOptions): LogRecord {
   const payload = withPayload ? fingerprintPayload({ model, messages: messages.map((content) => ({ role: "user", content })), maxTokens }) : undefined;
   return {
     version: RECORD_VERSION,
@@ -220,6 +236,7 @@ function request({ messages, at, usage, model = "large", maxTokens = 4096, withP
     completedAt: new Date(at + 1000).toISOString(),
     ...(payload ? { payload } : {}),
     ...(usage ? { usage } : {}),
+    ...(failedAttempts ? { failedAttempts } : {}),
     outcome: usage ? Outcome.Completed : Outcome.Superseded,
   };
 }
@@ -232,6 +249,7 @@ interface RequestOptions {
   maxTokens?: number;
   withPayload?: boolean;
   purpose?: RequestPurpose;
+  failedAttempts?: FailedAttempt[];
 }
 
 function usageOf(cacheRead: number, input: number): Usage {

@@ -148,6 +148,26 @@ test("a warm decision labels only the first request after it", () => {
   assert.equal(records[1]?.kind === "request" ? records[1].purpose : undefined, "turn");
 });
 
+test("error responses are kept as failed attempts and the last response stays the status", () => {
+  // arrange
+  const { records, tracker } = arrange();
+  const expectedAttempts = [{ status: 429, retryAfter: "12" }, { status: 529 }];
+
+  // act
+  tracker.request({ ...identity, at: new Date(1000) });
+  tracker.response(429, { "retry-after": "12" });
+  tracker.response(529, {});
+  tracker.response(200, { "x-request-id": "r1" });
+  tracker.assistantMessage({ ...identity, usage, stopReason: "stop", at: new Date(2000) });
+
+  // assert
+  const record = records.at(0);
+  assert.ok(record?.kind === "request");
+  assert.deepEqual(record.failedAttempts, expectedAttempts);
+  assert.equal(record.status, 200);
+  assert.deepEqual(record.responseHeaders, { "x-request-id": "r1" });
+});
+
 function arrange(): { records: LogRecord[]; tracker: RequestTracker } {
   const records: LogRecord[] = [];
   return { records, tracker: new RequestTracker((record) => records.push(record)) };
