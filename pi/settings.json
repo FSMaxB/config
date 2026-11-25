@@ -1,6 +1,6 @@
 {
   "$schema": "https://pi.dev/schemas/settings.schema.json",
-  "lastChangelogVersion": "1.6.0",
+  "lastChangelogVersion": "1.6.1",
   "theme": "gruvbox-dark",
   "defaultProvider": "pi-claude",
   "defaultModel": "claude-sonnet-5-5",
@@ -41,7 +41,6 @@
       }
     ]
   },
-  "showCacheMissNotices": true,
   "showHardwareCursor": false,
   "modelThinkingLevels": {
     "openai-codex/gpt-6-astra": "medium",
@@ -60,5 +59,11 @@
   },
   "extensionChangelogVersions": {
     "{\"source\":\"npm:pi-web-access\",\"scope\":\"user\"}": "0.48.0"
+  },
+  "notices": {
+    "cacheMisses": true,
+    "cacheWarming": true,
+    "compactionCosts": true,
+    "reasoningDrops": true
   }
 }
