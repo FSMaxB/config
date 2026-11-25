@@ -51,6 +51,8 @@ test("the home directory and the user roots are unreadable by default", () => {
   assert.ok(linux.denyRead.includes("/home/max"));
   assert.ok(linux.denyRead.includes("/home"));
   assert.ok(linux.denyRead.includes("/root"));
+  assert.ok(linux.denyRead.includes("/var/home"));
+  assert.ok(linux.denyRead.includes("/run/host"));
 });
 
 test("secrets stay denied even when a grant allows the whole home directory", () => {

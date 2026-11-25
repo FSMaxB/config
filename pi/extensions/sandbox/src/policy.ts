@@ -119,8 +119,11 @@ function sandboxRuntimeDirectory(): string {
   return fileURLToPath(new URL("../node_modules/@anthropic-ai/sandbox-runtime", import.meta.url));
 }
 
+// Fedora Atomic keeps the homes in /var/home (/home links to it), and a distrobox or toolbox container on such a host
+// sees the host's homes there while its own /home differs. Those containers also mount the host's root filesystem,
+// every home directory included, at /run/host.
 function userRoots(platform: PolicyOptions["platform"]): string[] {
-  return platform === "darwin" ? ["/Users", "/Volumes"] : ["/home", "/root", "/mnt", "/media"];
+  return platform === "darwin" ? ["/Users", "/Volumes"] : ["/home", "/root", "/mnt", "/media", "/var/home", "/run/host"];
 }
 
 // srt drops write globs on Linux; a dropped deny would widen access, so deny the glob's base tree instead.
