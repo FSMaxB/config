@@ -36,7 +36,15 @@ test("a pattern matches over the command text", () => {
 
 test("arguments and similar names do not match", () => {
   // arrange
-  const commands = ["echo bazel", "grep bazel BUILD", "bazelrc-lint", "cat bazel.log"];
+  const commands = [
+    "echo bazel",
+    "grep bazel BUILD",
+    "bazelrc-lint",
+    "cat bazel.log",
+    "echo 'a; bazel build'",
+    "cat <<EOF\nbazel build\nEOF",
+    "true # bazel build",
+  ];
 
   // act
   const matches = commands.map((command) => matchTrigger(command, triggers));
