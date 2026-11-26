@@ -53,20 +53,23 @@ export default function (pi: ExtensionAPI): void {
     description:
       "Open tuicr, the terminal code review TUI, in a new pane of the surrounding multiplexer " +
       "(tmux or zellij) so the user can review a diff and leave inline comments. " +
-      "Give range for a commit range or revset (git: main..HEAD; jj: main..@), workingTree for " +
+      "Give range for a commit range or revset (git: main..HEAD; jj: zsuskuln..kxqpzmro), workingTree for " +
       "uncommitted changes, both to combine them, or neither to let the user pick commits. " +
-      "Returns as soon as the review session is running; it does not wait for comments.",
+      "Returns as soon as the review session is running; it does not wait for comments. " +
+      "In jj, name every revision by its change ID (from jj log), never @, @- or bookmarks such as main: " +
+      "they move when you run jj new, jj commit, create fixup commits or fetch, so the review would show different changes.",
     promptSnippet: "Open tuicr in a new pane for the user to review",
     promptGuidelines: [
       "After tuicr_open, call tuicr_wait to receive the user's comments; do not poll tuicr yourself through bash.",
       "Do not add your own review findings to a session the user is reviewing unless they ask. Replying to the user's comments with tuicr_comment is expected.",
+      "In a jj repository, pass tuicr_open change IDs for both ends of the range (e.g. zsuskuln..kxqpzmro), never @, revsets relative to it or bookmarks.",
     ],
     executionMode: "sequential",
     parameters: Type.Object({
       range: Type.Optional(
         Type.String({
           description:
-            "Commit range or revset passed to tuicr -r, e.g. main..HEAD or, for jj, main..@",
+            "Commit range or revset passed to tuicr -r, e.g. main..HEAD or, for jj, zsuskuln..kxqpzmro (change IDs only, no @ or bookmarks)",
         }),
       ),
       workingTree: Type.Optional(
