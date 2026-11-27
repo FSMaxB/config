@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { createBashToolDefinition, createLocalBashOperations, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { AgentToolResult, BashOperations, BashSpawnContext, BashToolDetails, ExtensionAPI, ExtensionCommandContext, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
@@ -45,7 +45,7 @@ import type { PolicyOptions } from "./policy.ts";
 import { addAllowedDomain, addFilesystemEntry, emptyProfileDefinition, forgetActivationDecision, mergedProfileNetwork, needsWeakerNetworkIsolation, parseProfileDefinition, recordActivationDecision, selectorText } from "./profiles.ts";
 import type { NetworkAllowances, Profile } from "./profiles.ts";
 import { createRecorder } from "./recorder.ts";
-import { exportSessionScratch, withSessionScratch } from "./scratch.ts";
+import { exportSessionScratch, sessionScratchDirectory, withSessionScratch } from "./scratch.ts";
 import { loadActivationDecisions, loadSettings, updateActivationDecisions, updateDomainLists } from "./settings.ts";
 import type { Settings } from "./settings.ts";
 import { resolveSandboxShell } from "./shell.ts";
@@ -55,14 +55,14 @@ import { isHereDocumentTemporaryFile, isRepositoryRootRemoval, isServerInfoRefre
 import type { PathViolation } from "./violations.ts";
 import { startViolationCollector } from "./violation-collector.ts";
 import type { CollectedViolation, ViolationCollector } from "./violation-collector.ts";
-import { CommandExit, discardedWriteReport, HERE_DOCUMENT_REPORT, networkDenialReport, nextStep, promptDurations, rawViolationBlock, violationReport } from "./violation-outcomes.ts";
+import { CommandExit, discardedWriteReport, HERE_DOCUMENT_REPORT, networkDenialReport, nextStep, promptDurations, violationBlock, violationReport } from "./violation-outcomes.ts";
 import type { NextStep, ViolationOutcome } from "./violation-outcomes.ts";
 import { supportedPlatform } from "./platform.ts";
 import { SETTLE_POLL_MILLISECONDS, waitUntilCountSettles } from "./settle.ts";
 import type { Platform } from "./platform.ts";
 
 const SANDBOX_NOTE =
-  "Commands run inside an OS sandbox that enforces the same read/write path rules as the file tools, with no network except allowed hosts. Denied paths are reported in a <sandbox_violations> block and the user is asked to grant them; after a grant the command has to be rerun, unless the user allowed it once: then the sandbox reruns it itself and the rerun's output follows the report. Never try to work around a denial. Sandbox profiles (extra permissions the user approved for tools such as bazel) apply to a single bash call: one whose command matches a profile's triggers, or one that names the profile in profiles (for commands the triggers miss, such as wrapper scripts). The user confirms a profile unless they already allowed it, and a refused requested profile fails the call; do not retry it with that profile. " +
+  "Commands run inside an OS sandbox that enforces the same read/write path rules as the file tools, with no network except allowed hosts. Denied paths are reported in a <sandbox_violations> block and the user is asked to grant them; other denials (mach-lookup, sysctl, direct network sockets) never prompt and are collapsed into one summary line that names a file with the full list; after a grant the command has to be rerun, unless the user allowed it once: then the sandbox reruns it itself and the rerun's output follows the report. Never try to work around a denial. Sandbox profiles (extra permissions the user approved for tools such as bazel) apply to a single bash call: one whose command matches a profile's triggers, or one that names the profile in profiles (for commands the triggers miss, such as wrapper scripts). The user confirms a profile unless they already allowed it, and a refused requested profile fails the call; do not retry it with that profile. " +
   "Set unsandboxed to true only for a command the sandbox itself breaks (ssh git remotes, programs that ignore proxy variables, listening sockets); the user confirms every unsandboxed command first, and subagents cannot use it.";
 
 const SCRATCH_GUIDELINE =
@@ -324,7 +324,9 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
       if (violations.length < relevant.length) options.onData(Buffer.from(HERE_DOCUMENT_REPORT));
       if (violations.length === 0) return { result, step: { kind: "return" }, promptsUsed: 0 };
       const lines = violations.map(({ line }) => line);
-      options.onData(Buffer.from(rawViolationBlock(lines)));
+      const block = violationBlock(lines);
+      const fullListPath = block.collapsed.length === 0 ? undefined : await saveViolationList(lines, commandId, environment);
+      options.onData(Buffer.from(block.render(fullListPath)));
       const discarded = discardedWriteReport(pathViolations(lines), filesystem, platform);
       if (discarded) options.onData(Buffer.from(discarded));
       const { outcomes, promptsUsed } = await resolveViolations(violations, promptsLeft, profileNames, promptDurations(exit));
@@ -723,6 +725,21 @@ type SandboxManagerType = (typeof SandboxRuntime)["SandboxManager"];
 
 function reportable<Violation extends { line: string }>(violations: readonly Violation[], repositoryRoot: string): Violation[] {
   return violations.filter(({ line }) => !isRepositoryRootRemoval(line, repositoryRoot) && !isServerInfoRefresh(line, repositoryRoot));
+}
+
+// The summary line names this file, so the model can still read every collapsed denial when a command fails for an
+// unclear reason. A missing scratch directory or a failed write only drops the file name from the summary.
+async function saveViolationList(lines: readonly string[], commandId: string, environment: NodeJS.ProcessEnv): Promise<string | undefined> {
+  const scratch = sessionScratchDirectory(environment);
+  if (scratch === undefined) return undefined;
+  const path = join(scratch, "sandbox-violations", `${commandId}.log`);
+  try {
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, `${lines.join("\n")}\n`);
+    return path;
+  } catch {
+    return undefined;
+  }
 }
 
 function requestedProfiles(requested: readonly string[], profiles: readonly Profile[]): Profile[] {

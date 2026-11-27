@@ -3,7 +3,7 @@ import test from "node:test";
 import { AgentMode } from "../../lib/agent-mode.ts";
 import { tree } from "../../lib/path-permission-rules.ts";
 import { ALL_DURATIONS, LASTING_DURATIONS } from "../../lib/permission-prompt.ts";
-import { CommandExit, discardedWriteReport, networkDenialReport, nextStep, promptDurations, violationReport } from "./violation-outcomes.ts";
+import { CommandExit, discardedWriteReport, networkDenialReport, nextStep, promptDurations, violationBlock, violationReport } from "./violation-outcomes.ts";
 import type { ViolationOutcome } from "./violation-outcomes.ts";
 
 const grant = { mode: "read" as const, selector: tree("/outside") };
@@ -218,4 +218,57 @@ test("macOS and commands without discarded writes get no discarded-write report"
   // assert
   assert.equal(macOS, undefined);
   assert.equal(empty, undefined);
+});
+
+test("a violation block keeps file and proxy denials and collapses the rest into one summary line", () => {
+  // arrange
+  const lines = [
+    "grep(83330) deny(1) file-read-data /Volumes/External/test.log",
+    "grep(83331) deny(1) file-read-data /Volumes/External/test.log",
+    "deny network-outbound example.com:443 (not allowed)",
+    "bazel(1975) deny(1) mach-lookup com.apple.DiskArbitration.diskarbitrationd",
+    "bazel(1976) deny(1) mach-lookup com.apple.DiskArbitration.diskarbitrationd",
+    "bazel(1975) deny(1) mach-lookup com.apple.CoreServices.coreservicesd",
+    "java(7027) deny(1) network-outbound",
+  ];
+  const expected = [
+    "",
+    "<sandbox_violations>",
+    "grep(83330) deny(1) file-read-data /Volumes/External/test.log",
+    "deny network-outbound example.com:443 (not allowed)",
+    "Also denied, never prompted: bazel mach-lookup ×3 (com.apple.DiskArbitration.diskarbitrationd ×2, com.apple.CoreServices.coreservicesd ×1), java network-outbound ×1. Full list: /scratch/list.log",
+    "</sandbox_violations>",
+  ].join("\n");
+
+  // act
+  const rendered = violationBlock(lines).render("/scratch/list.log");
+
+  // assert
+  assert.equal(rendered, expected);
+});
+
+test("a violation block without collapsed denials has no summary line", () => {
+  // arrange
+  const lines = ["cat(1) deny(1) file-read-data /Users/max/secret.txt"];
+  const expected = "\n<sandbox_violations>\ncat(1) deny(1) file-read-data /Users/max/secret.txt\n</sandbox_violations>";
+
+  // act
+  const block = violationBlock(lines);
+
+  // assert
+  assert.equal(block.collapsed.length, 0);
+  assert.equal(block.render(undefined), expected);
+});
+
+test("the summary line names only the largest groups and the two most frequent targets", () => {
+  // arrange
+  const lines = Array.from({ length: 10 }, (_, index) => `tool${String(index)}(1) deny(1) mach-lookup a`)
+    .concat(["big(1) deny(1) sysctl-read x", "big(1) deny(1) sysctl-read x", "big(1) deny(1) sysctl-read y", "big(1) deny(1) sysctl-read z"]);
+
+  // act
+  const rendered = violationBlock(lines).render(undefined);
+
+  // assert
+  assert.match(rendered, /^Also denied, never prompted: big sysctl-read ×4 \(x ×2, y ×1, 1 more\), tool0 mach-lookup ×1 \(a ×1\)/m);
+  assert.match(rendered, / and 3 more\.$/m);
 });

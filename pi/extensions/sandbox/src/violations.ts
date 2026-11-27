@@ -76,7 +76,7 @@ export function isSecretPath(path: string, secrets: readonly string[]): boolean 
   return secrets.some((secret) => contains(secret, path));
 }
 
-function parseViolation(line: string): PathViolation | undefined {
+export function parseViolation(line: string): PathViolation | undefined {
   const match = VIOLATION.exec(line);
   if (!match) return undefined;
   const [, operation, path] = match;

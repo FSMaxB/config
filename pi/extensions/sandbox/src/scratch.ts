@@ -28,7 +28,7 @@ export function mktempShimDirectory(): string {
 
 // pi exposes the session id as PI_SESSION_ID to every bash call; subagent children carry the parent's
 // directory in PI_SESSION_TEMP_DIR, which sessionTemporaryDirectory prefers.
-function sessionScratchDirectory(environment: NodeJS.ProcessEnv): string | undefined {
+export function sessionScratchDirectory(environment: NodeJS.ProcessEnv): string | undefined {
   const sessionId = environment.PI_SESSION_ID;
   return sessionId ? sessionTemporaryDirectory(sessionId, environment) : undefined;
 }

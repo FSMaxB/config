@@ -5,7 +5,7 @@ import type { AccessMode } from "../../lib/path-permission-rules.ts";
 import type { OnceGrant } from "../../lib/path-permissions.ts";
 import { ALL_DURATIONS, LASTING_DURATIONS, userReason } from "../../lib/permission-prompt.ts";
 import type { Duration } from "../../lib/permission-prompt.ts";
-import { discardedWrites } from "./violations.ts";
+import { discardedWrites, parseViolation } from "./violations.ts";
 import type { PathViolation } from "./violations.ts";
 import type { Platform } from "./platform.ts";
 
@@ -27,9 +27,108 @@ export function nextStep(outcomes: readonly ViolationOutcome[], exit: CommandExi
   return !rerunnable || blocked ? { kind: "return" } : { kind: "rerun", grants };
 }
 
-// The raw lines, for the model to see what else the command ran into besides the path denials below them.
-export function rawViolationBlock(lines: readonly string[]): string {
-  return `\n<sandbox_violations>\n${lines.join("\n")}\n</sandbox_violations>`;
+// Seatbelt: `bazel(1975) deny(1) mach-lookup com.apple.DiskArbitration.diskarbitrationd`; the target is optional
+// (`java(7027) deny(1) network-outbound`), and process names can contain spaces (`LM Studio(8890)`).
+const SEATBELT_DENIAL = /^(?<processName>.+?)\(\d+\)\s+deny(?:\(\d+\))?\s+(?<operation>\S+)(?:\s+(?<target>.+))?$/;
+// Process ids are the only difference between most repeated lines.
+const PROCESS_ID = /\(\d+\)/g;
+// Enough to name the dominant causes in one line; the full list file has the rest.
+const MAX_SUMMARY_GROUPS = 8;
+const MAX_TARGETS_PER_GROUP = 2;
+
+// File denials and srt's proxy denials stay one line each, since only they lead to prompts or name a blocked host.
+// Every other denial (mach-lookup, sysctl-read, system-info, direct network-outbound) is grouped by process and
+// operation into one summary line.
+export function violationBlock(lines: readonly string[]): ViolationBlock {
+  const shown = new Map<string, string>();
+  const collapsed: CollapsedDenial[] = [];
+  for (const line of lines) {
+    const denial = classifyDenial(line);
+    if (denial.kind === "collapsed") collapsed.push(denial);
+    else if (!shown.has(denial.key)) shown.set(denial.key, denial.line);
+  }
+  return new ViolationBlock([...shown.values()], groupDenials(collapsed));
+}
+
+export class ViolationBlock {
+  readonly shown: readonly string[];
+  readonly collapsed: readonly DenialGroup[];
+
+  constructor(shown: readonly string[], collapsed: readonly DenialGroup[]) {
+    this.shown = shown;
+    this.collapsed = collapsed;
+  }
+
+  // fullListPath names the file with every raw line; undefined when it could not be written.
+  render(fullListPath: string | undefined): string {
+    const summary = this.collapsed.length === 0 ? [] : [summaryLine(this.collapsed, fullListPath)];
+    return `\n<sandbox_violations>\n${[...this.shown, ...summary].join("\n")}\n</sandbox_violations>`;
+  }
+}
+
+function classifyDenial(line: string): ClassifiedDenial {
+  const shown: ClassifiedDenial = { kind: "shown", key: line.replace(PROCESS_ID, ""), line };
+  if (parseViolation(line) !== undefined || NETWORK_DENIAL.test(line)) return shown;
+  const groups = SEATBELT_DENIAL.exec(line)?.groups;
+  const processName = groups?.processName;
+  const operation = groups?.operation;
+  if (processName === undefined || operation === undefined) return shown;
+  return { kind: "collapsed", processName, operation, target: groups?.target };
+}
+
+function groupDenials(denials: readonly CollapsedDenial[]): DenialGroup[] {
+  const byKey = new Map<string, CollapsedDenial[]>();
+  for (const denial of denials) {
+    const key = `${denial.processName}\u0000${denial.operation}`;
+    const group = byKey.get(key);
+    if (group) group.push(denial);
+    else byKey.set(key, [denial]);
+  }
+  // Array.prototype.sort is stable, so equal counts keep their first-seen order.
+  return [...byKey.values()].map(denialGroup).sort((left, right) => right.count - left.count);
+}
+
+function denialGroup(denials: readonly CollapsedDenial[]): DenialGroup {
+  const first = denials.at(0);
+  if (first === undefined) throw new Error("A denial group cannot be empty.");
+  const targets = new Map<string, number>();
+  for (const { target } of denials) if (target !== undefined) targets.set(target, (targets.get(target) ?? 0) + 1);
+  const sortedTargets = new Map([...targets].sort(([, left], [, right]) => right - left));
+  return { processName: first.processName, operation: first.operation, count: denials.length, targets: sortedTargets };
+}
+
+function summaryLine(groups: readonly DenialGroup[], fullListPath: string | undefined): string {
+  const listed = groups.slice(0, MAX_SUMMARY_GROUPS).map(groupText);
+  const remaining = groups.length - listed.length;
+  const more = remaining > 0 ? ` and ${String(remaining)} more` : "";
+  const file = fullListPath === undefined ? "" : ` Full list: ${fullListPath}`;
+  return `Also denied, never prompted: ${listed.join(", ")}${more}.${file}`;
+}
+
+function groupText({ processName, operation, count, targets }: DenialGroup): string {
+  const top = [...targets].slice(0, MAX_TARGETS_PER_GROUP).map(([target, targetCount]) => `${target} ×${String(targetCount)}`);
+  const remaining = targets.size - top.length;
+  const details = [...top, ...(remaining > 0 ? [`${String(remaining)} more`] : [])];
+  return `${processName} ${operation} ×${String(count)}${details.length === 0 ? "" : ` (${details.join(", ")})`}`;
+}
+
+export interface DenialGroup {
+  readonly processName: string;
+  readonly operation: string;
+  readonly count: number;
+  // Target → count, most frequent first.
+  readonly targets: ReadonlyMap<string, number>;
+}
+
+type ClassifiedDenial =
+  | { kind: "shown"; key: string; line: string }
+  | CollapsedDenial;
+
+interface CollapsedDenial {
+  kind: "collapsed";
+  processName: string;
+  operation: string;
+  target: string | undefined;
 }
 
 export function violationReport(outcomes: readonly ViolationOutcome[], step: NextStep, agentMode: AgentMode, exit: CommandExit): string {
@@ -76,7 +175,7 @@ export type NextStep = { kind: "rerun"; grants: OnceGrant[] } | { kind: "return"
 // srt records each refused connection as `deny network-outbound <host>:<port> (<reason>)`.
 const NETWORK_DENIAL = /^deny network-outbound (.+):(\d+) \(/;
 
-// Only denials with a user reason get a line; the raw block already lists the others.
+// Only denials with a user reason get a line; the violation block already lists the others.
 export function networkDenialReport(lines: readonly string[], noteFor: (host: string, port: number) => string | undefined): string | undefined {
   const reported = new Map<string, string>();
   for (const line of lines) {
