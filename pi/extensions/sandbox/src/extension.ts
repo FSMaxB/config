@@ -8,7 +8,7 @@ import { Text } from "@earendil-works/pi-tui";
 import type * as SandboxRuntime from "@anthropic-ai/sandbox-runtime";
 import { Type } from "typebox";
 import type { TSchema } from "typebox";
-import { currentAgentMode, currentPolicy, grantPathAccess } from "../../lib/path-permissions.ts";
+import { currentAgentMode, currentPolicy, grantPathAccess, PathResolution } from "../../lib/path-permissions.ts";
 import type { OnceGrant } from "../../lib/path-permissions.ts";
 import type { PathSelector } from "../../lib/path-permission-rules.ts";
 import { profileDestinations } from "../../lib/permission-choices.ts";
@@ -51,7 +51,7 @@ import type { Settings } from "./settings.ts";
 import { resolveSandboxShell } from "./shell.ts";
 import { scanVcsLayout, vcsWriteRules } from "./vcs-policy.ts";
 import type { VcsWriteRules } from "./vcs-policy.ts";
-import { isHereDocumentTemporaryFile, isRepositoryRootRemoval, isSecretPath, isServerInfoRefresh, pathViolations } from "./violations.ts";
+import { isHereDocumentTemporaryFile, isRepositoryRootRemoval, isServerInfoRefresh, pathViolations, secretViolationPath } from "./violations.ts";
 import type { PathViolation } from "./violations.ts";
 import { startViolationCollector } from "./violation-collector.ts";
 import type { CollectedViolation, ViolationCollector } from "./violation-collector.ts";
@@ -536,13 +536,11 @@ function createRuntime(pi: ExtensionAPI, platform: Platform): Runtime {
   }
 
   async function resolveViolation({ mode, path }: PathViolation, secrets: readonly string[], prompting: "ask" | "skip", profileNames: readonly string[], durations: readonly Duration[]): Promise<ViolationOutcome> {
-    // Resolve before the secret check so a symlink into a secret tree short-circuits and the
-    // report names the real secret path. grantPathAccess already resolves internally.
-    const resolved = await resolveThroughSymlinks(path);
-    if (isSecretPath(resolved, secrets)) return { kind: "secret", path: resolved };
+    const secret = await secretViolationPath(path, secrets);
+    if (secret !== undefined) return { kind: "secret", path: secret };
     if (!activeContext?.hasUI) return { kind: "no-ui", mode, path };
     if (prompting === "skip") return { kind: "not-asked", mode, path };
-    const outcome = await grantPathAccess(path, mode, activeContext, profileNames, durations);
+    const outcome = await grantPathAccess(path, mode, PathResolution.PreserveFinalSymlink, activeContext, profileNames, durations);
     if (outcome.kind === "add-to-profile") {
       const entry = selectorText(outcome.grant.selector, homedir());
       await updateProfile(PROFILES_DIRECTORY, outcome.profile, (current) => current && addFilesystemEntry(current, mode, entry));

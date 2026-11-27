@@ -63,11 +63,13 @@ export function isHereDocumentTemporaryFile(line: string): boolean {
   return violation?.mode === "write" && /^sh-thd[-.][A-Za-z0-9]+$/.test(basename(violation.path));
 }
 
-// A violation path may travel through a symlink into a secret tree; resolve first so the report
-// names the real secret path. The existing parent is resolved for missing paths, so write-create
-// violations are covered too.
-export async function isSecretPathThroughSymlinks(path: string, secrets: readonly string[]): Promise<boolean> {
-  return isSecretPath(await resolveThroughSymlinks(path), secrets);
+// The secret a violation path names, if any. Seatbelt logs an operation on a symlink itself under the link's path, so
+// a secret-listed link counts as logged; a path that travels through a symlink into a secret tree counts resolved,
+// and the report names the real secret path.
+export async function secretViolationPath(path: string, secrets: readonly string[]): Promise<string | undefined> {
+  if (isSecretPath(path, secrets)) return path;
+  const resolved = await resolveThroughSymlinks(path);
+  return isSecretPath(resolved, secrets) ? resolved : undefined;
 }
 
 export function isSecretPath(path: string, secrets: readonly string[]): boolean {

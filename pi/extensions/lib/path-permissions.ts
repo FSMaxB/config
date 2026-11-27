@@ -1,6 +1,6 @@
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
@@ -8,7 +8,8 @@ import { covers, coveredProtectedSelectors, defaultAllowed, denyNote, emptyRules
 import type { AccessMode, PathSelector, PathRule, RuleSets, RuleTier, SerializedStoredRules, StoredRules } from "./path-permission-rules.ts";
 import { AgentMode, storeForMode } from "./agent-mode.ts";
 import type { PathRuleStore } from "./agent-mode.ts";
-import { expandHome } from "./path-resolution.ts";
+import { expandHome, PathResolution, resolveOperationPath } from "./path-resolution.ts";
+export { PathResolution } from "./path-resolution.ts";
 import { readStoredRules, transaction } from "./path-rule-store.ts";
 import { contains, findRepositoryRoot, isVcsInternal, memoryDirectory, resolveThroughSymlinks } from "./repo.ts";
 import { latestCustomData } from "./session-entries.ts";
@@ -38,8 +39,6 @@ export function restoreSessionPathRules(sessionManager: { getEntries(): readonly
 // Only the active mode's rules apply. A subagent's inherited rules are left out: subagents have no UI to show them.
 export function activeSessionPathGrants(): SessionGrant[] { return sessionGrantsFromRules(state.sessions[activePathRuleStore()]); }
 
-export const PathResolution = { Follow: "follow", PreserveFinalSymlink: "preserve-final-symlink" } as const;
-
 // Every gated tool takes the path it works on in a `path` parameter.
 export function gatedTool<TParameters extends TSchema, TDetails>(definition: ToolDefinition<TParameters, TDetails>, mode: AccessMode, resolution: PathResolution = PathResolution.Follow, scope: GatedScope = "root"): ToolDefinition<TParameters, TDetails> {
   return { ...definition, async execute(toolCallId, parameters, signal, onUpdate, context) {
@@ -57,7 +56,7 @@ export async function authorizeRoot(target: string, mode: AccessMode, context: E
   if (state.inherited.kind === "invalid") throw new Error("The inherited child path policy is invalid; path tools are disabled.");
   const anchored = anchorTarget(target, context.cwd);
   const resolved = await resolveThroughSymlinks(anchored);
-  const operationPath = resolution === PathResolution.PreserveFinalSymlink ? join(await resolveThroughSymlinks(dirname(anchored)), basename(anchored)) : resolved;
+  const operationPath = await resolveOperationPath(anchored, resolution);
   const checkedPaths = [...new Set([resolved, operationPath])];
   for (const path of checkedPaths) assertWritablePath(path, mode);
   const layers = await effectiveLayers(mode);
@@ -66,7 +65,6 @@ export async function authorizeRoot(target: string, mode: AccessMode, context: E
   const { defaults, session, always, protected: protectedSelectors } = layers;
   return { operationPath, checkedPaths, mode, context, defaults, session, always, protected: protectedSelectors };
 }
-export type PathResolution = (typeof PathResolution)[keyof typeof PathResolution];
 
 export interface PathAuthorization { operationPath: string; checkedPaths: string[]; mode: AccessMode; context: ExtensionContext; defaults: ReturnType<typeof defaultAllowed>; session: RuleSets; always: RuleSets; protected: PathSelector[]; }
 
@@ -77,16 +75,18 @@ export async function currentPolicy(onceGrants: readonly OnceGrant[] = []): Prom
 }
 export interface EffectivePolicy { read: ModePolicy; write: ModePolicy }
 
-// Used by the sandbox after a command was denied. "Allow once" records nothing: the sandbox reruns the command with the returned grant.
+// Used by the sandbox after a command was denied, with PreserveFinalSymlink: Seatbelt logs an operation on a symlink
+// itself under the link's path and a read through a link under the target's path, so the logged path is the one to
+// grant. "Allow once" records nothing: the sandbox reruns the command with the returned grant.
 // Only the sandbox passes profiles, which adds an "Add to profile" choice; the file tools keep the plain prompt.
 // The sandbox passes LASTING_DURATIONS for a command that exited 0, which it never reruns.
-export async function grantPathAccess(path: string, mode: AccessMode, context: ExtensionContext, profiles: readonly string[] = [], durations: readonly Duration[] = ALL_DURATIONS): Promise<PathAccessOutcome> {
-  const resolved = await resolveThroughSymlinks(path);
+export async function grantPathAccess(path: string, mode: AccessMode, resolution: PathResolution, context: ExtensionContext, profiles: readonly string[] = [], durations: readonly Duration[] = ALL_DURATIONS): Promise<PathAccessOutcome> {
+  const operationPath = await resolveOperationPath(path, resolution);
   const settled = async (): Promise<PathAccessOutcome | undefined> => {
     const layers = await effectiveLayers(mode);
-    const verdict = evaluate(resolved, mode, layers);
+    const verdict = evaluate(operationPath, mode, layers);
     if (verdict === "prompt") return undefined;
-    return verdict === "allow" ? { kind: "allowed" } : { kind: "denied", note: denyNote(resolved, mode, layers) };
+    return verdict === "allow" ? { kind: "allowed" } : { kind: "denied", note: denyNote(operationPath, mode, layers) };
   };
   const immediate = await settled();
   if (immediate) return immediate;
@@ -95,7 +95,7 @@ export async function grantPathAccess(path: string, mode: AccessMode, context: E
     if (latest) return latest;
     const { protected: protectedSelectors } = await effectiveLayers(mode);
     try {
-      const answer = await requestAccess(resolved, mode, context, protectedSelectors, profiles, durations);
+      const answer = await requestAccess(operationPath, mode, context, protectedSelectors, profiles, durations);
       if (answer.kind === "once") return { kind: "allowed-once", grant: { mode, selector: answer.selector } };
       if (answer.kind === "profile") return { kind: "add-to-profile", profile: answer.profile, grant: { mode, selector: answer.selector } };
       return answer.kind === "rule" ? { kind: "allowed" } : { kind: "denied", note: answer.note };
