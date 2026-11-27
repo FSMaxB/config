@@ -10,8 +10,8 @@ import { fileURLToPath } from "node:url";
 import type { AgentToolResult, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Message, Model, ModelThinkingLevel, Usage } from "@earendil-works/pi-ai";
 import { clampThinkingLevel, getSupportedThinkingLevels, StringEnum } from "@earendil-works/pi-ai";
-import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
-import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { formatDuration, shortenPath } from "../lib/format.ts";
@@ -26,16 +26,24 @@ import { captureChildPathPolicy } from "../lib/path-permissions.ts";
 import { serializeChildPathPolicy, CHILD_POLICY_ENV } from "../lib/path-permission-snapshot.ts";
 import type { ChildPathPolicy } from "../lib/path-permission-snapshot.ts";
 import { registerToolWithGuidelines } from "../lib/register-tool.ts";
+import { ALL_DURATIONS, askPermission } from "../lib/permission-prompt.ts";
+import { permissionUI } from "../lib/permission-ui.ts";
 import { sandboxStatus } from "../lib/sandbox-state.ts";
+import { announceSessionGrantsChanged, provideSessionGrants } from "../lib/session-grants.ts";
 import { sessionTemporaryDirectory, TEMPORARY_DIRECTORY_ENV } from "../lib/session-temporary-directory.ts";
+import { serialize } from "../lib/ui-queue.ts";
 import { discoverAgents, THINKING_LEVELS } from "./agents.ts";
 import type { AgentConfig } from "./agents.ts";
 import { EXIT_GRACE_MILLISECONDS, phaseAfterEvent } from "./exit-watchdog.ts";
 import type { ChildPhase } from "./exit-watchdog.ts";
-import { guidanceTable, loadPolicyConfig, resolveSubagentModel } from "./model-policy.ts";
-import type { SubagentModelConfig } from "./model-policy.ts";
+import { crossProviderPrompt, emptyProviderDecisions, providerList, resolveProviderAnswer, settleProvider } from "./cross-provider.ts";
+import type { ProviderDecisions, ProviderOutcome } from "./cross-provider.ts";
+import { CROSS_PROVIDER_RULE, crossProviderTargets, guidanceTable, loadPolicyConfig, resolveSubagentModel } from "./model-policy.ts";
+import type { ProviderVerdict, SubagentModelConfig } from "./model-policy.ts";
 import { ChildToolVerdict, childToolVerdict, effectiveChildTools, restrictedModeAllowedTools } from "./mode-restrictions.ts";
 import type { PersistedModeDecisions } from "./mode-restrictions.ts";
+import { parseProviderCommand, providerCompletions } from "./provider-command.ts";
+import { loadProviderDecisions, updateProviderDecisions } from "./provider-decisions-file.ts";
 import {
   emptyUsage,
   failureEvidence,
@@ -49,6 +57,8 @@ import {
 } from "./results.ts";
 
 const EXTENSION_DIRECTORY = dirname(fileURLToPath(import.meta.url));
+// Lives next to the other agent state files, which the path engine protects from the file tools.
+const PROVIDER_DECISIONS_FILE_NAME = "subagent-providers.json";
 
 // More parallel tasks rarely pay off: each child is a full pi process with its own context.
 const MAX_PARALLEL_TASKS = 8;
@@ -86,6 +96,12 @@ export default function (pi: ExtensionAPI): void {
     return;
   }
 
+  const providerDecisionsFile = join(getAgentDir(), PROVIDER_DECISIONS_FILE_NAME);
+  // Deliberately not persisted in the session: a resumed session asks again before using another provider.
+  let sessionProviders: ProviderDecisions = emptyProviderDecisions();
+
+  provideSessionGrants(pi.events, () => sessionProviders.sessionGrants());
+
   pi.on("before_agent_start", (event, context) => {
     if (!event.systemPromptOptions.selectedTools.includes("subagent")) return;
 
@@ -102,6 +118,8 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("session_start", (_event, context) => {
+    sessionProviders = emptyProviderDecisions();
+    announceSessionGrantsChanged(pi.events);
     const { skipped } = discoverAgents();
     if (context.hasUI && skipped.length > 0) context.ui.notify(skipped.join("\n"), "warning");
   });
@@ -120,8 +138,9 @@ export default function (pi: ExtensionAPI): void {
         ...(agentListing ? [`Available agents: ${agentListing}.`] : []),
         "Modes: single (agent + task) or parallel (tasks array).",
         'Model policy: omitting "model" inherits the session model and is always valid.',
-        "A different cloud model must belong to the session model's provider family; local models are always allowed.",
-        "When the session itself runs on a local model, only local models are valid and switching is discouraged — prefer lowering thinkingLevel on the inherited model instead.",
+        "A different cloud model must belong to the session model's provider family, and a session on a local model may only use local models; local models are always allowed.",
+        CROSS_PROVIDER_RULE,
+        "On a local session, switching models is discouraged — prefer lowering thinkingLevel on the inherited model instead.",
         "Lowering thinkingLevel is generally the cheapest lever for easy tasks.",
       ].join(" "),
     promptSnippet: "Delegate exploration and other self-contained tasks to isolated subagents",
@@ -129,6 +148,7 @@ export default function (pi: ExtensionAPI): void {
       "Prefer dispatching the explore subagent for multi-file codebase exploration instead of reading many files into the main context; it returns a compressed report.",
       "Dispatch independent explorations in parallel, and trust the returned report instead of re-reading the same files yourself.",
       "Pick a cheaper model or a lower thinkingLevel for subagent tasks that don't need the session model's full capability.",
+      "Never set crossProvider on your own initiative: only when the user explicitly asks for a subagent on a model from another provider.",
     ],
     parameters: SubagentParameters,
 
@@ -148,15 +168,6 @@ export default function (pi: ExtensionAPI): void {
             ),
           }
         : undefined;
-      const dispatch: DispatchContext = {
-        mainModel: context.model,
-        thinkingLevel: context.thinkingLevel,
-        availableModels: context.modelRegistry.getAvailable(),
-        policyConfig: loadPolicyConfig(EXTENSION_DIRECTORY),
-        restriction,
-        pathPolicy: await captureChildPathPolicy(),
-        temporaryDirectory: sessionTemporaryDirectory(context.sessionManager.getSessionId()),
-      };
       const agents = discoverAgents().agents;
 
       const hasTasks = (parameters.tasks?.length ?? 0) > 0;
@@ -178,20 +189,44 @@ export default function (pi: ExtensionAPI): void {
         };
       }
 
-      if (parameters.tasks && parameters.tasks.length > 0) {
-        if (parameters.tasks.length > MAX_PARALLEL_TASKS)
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Too many parallel tasks (${parameters.tasks.length}). Max is ${MAX_PARALLEL_TASKS}.`,
-              },
-            ],
-            details: { mode: "parallel", results: [] },
-            isError: true,
-            usage: emptyUsage(),
-          };
+      if (parameters.tasks && parameters.tasks.length > MAX_PARALLEL_TASKS) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Too many parallel tasks (${parameters.tasks.length}). Max is ${MAX_PARALLEL_TASKS}.`,
+            },
+          ],
+          details: { mode: "parallel", results: [] },
+          isError: true,
+          usage: emptyUsage(),
+        };
+      }
 
+      const mainModel = context.model;
+      const availableModels = context.modelRegistry.getAvailable();
+      const policyConfig = loadPolicyConfig(EXTENSION_DIRECTORY);
+      const taskRequests = hasTasks ? (parameters.tasks ?? []) : [{ agent: parameters.agent, model: parameters.model }];
+      const targets = parameters.crossProvider === true
+        ? crossProviderTargets({
+            requested: taskRequests.map(({ agent: name, model }) => model ?? agents.find((agent) => agent.name === name)?.model),
+            mainModel,
+            availableModels,
+            config: policyConfig,
+          })
+        : [];
+      const dispatch: DispatchContext = {
+        mainModel,
+        thinkingLevel: context.thinkingLevel,
+        availableModels,
+        policyConfig,
+        providerVerdicts: await authorizeProviders(targets, mainModel, context),
+        restriction,
+        pathPolicy: await captureChildPathPolicy(),
+        temporaryDirectory: sessionTemporaryDirectory(context.sessionManager.getSessionId()),
+      };
+
+      if (parameters.tasks && parameters.tasks.length > 0) {
         const allResults = new Array<SingleResult>(parameters.tasks.length);
         for (let index = 0; index < parameters.tasks.length; index++) {
           const taskItem = parameters.tasks[index];
@@ -436,6 +471,100 @@ export default function (pi: ExtensionAPI): void {
       return new Text(text, 0, 0);
     },
   });
+
+  pi.registerCommand("subagent-providers", {
+    description: "List or forget the remembered decisions for cross-provider subagents",
+    getArgumentCompletions: async (prefix) => {
+      const always = await loadProviderDecisions(providerDecisionsFile).catch(() => emptyProviderDecisions());
+      return providerCompletions(prefix, [...new Set([...sessionProviders.providers(), ...always.providers()])].sort());
+    },
+    handler: async (commandArguments, context) => {
+      const command = parseProviderCommand(commandArguments);
+      if (command.kind === "error") {
+        context.ui.notify(command.message, "error");
+        return;
+      }
+      let always: ProviderDecisions;
+      try {
+        always = await loadProviderDecisions(providerDecisionsFile);
+      } catch (error) {
+        context.ui.notify(error instanceof Error ? error.message : String(error), "error");
+        return;
+      }
+      if (command.kind === "list") {
+        if (sessionProviders.providers().length === 0 && always.providers().length === 0) {
+          context.ui.notify("No remembered decisions for cross-provider subagents.", "info");
+          return;
+        }
+        const sessionRows = sessionProviders.rows().map((row) => `  ${row}`);
+        const alwaysRows = always.rows().map((row) => `  ${row}`);
+        const lines = [
+          "Session:",
+          ...(sessionRows.length > 0 ? sessionRows : ["  none"]),
+          `Always (${providerDecisionsFile}):`,
+          ...(alwaysRows.length > 0 ? alwaysRows : ["  none"]),
+        ];
+        context.ui.notify(lines.join("\n"), "info");
+        return;
+      }
+      const { provider } = command;
+      if (!sessionProviders.has(provider) && !always.has(provider)) {
+        context.ui.notify(`No remembered decision for provider ${provider}.`, "warning");
+        return;
+      }
+      sessionProviders = sessionProviders.forget(provider);
+      if (always.has(provider)) await updateProviderDecisions(providerDecisionsFile, (decisions) => decisions.forget(provider));
+      announceSessionGrantsChanged(pi.events);
+      context.ui.notify(`Forgot provider ${provider}; the next cross-provider call asks again.`, "info");
+    },
+  });
+
+  // One prompt for every provider of the call still undecided; queued calls re-settle first, so the first answer covers them.
+  async function authorizeProviders(
+    targets: readonly Model<Api>[],
+    mainModel: Model<Api> | undefined,
+    context: ExtensionContext,
+  ): Promise<ReadonlyMap<string, ProviderVerdict>> {
+    const providers = [...new Set(targets.map((model) => model.provider))].sort();
+    if (providers.length === 0) return new Map();
+    const settle = async (): Promise<Map<string, ProviderOutcome>> => {
+      const situation = { session: sessionProviders, always: await loadProviderDecisions(providerDecisionsFile), hasUI: context.hasUI };
+      return new Map(providers.map((provider) => [provider, settleProvider(provider, situation)]));
+    };
+    const first = await settle();
+    if (![...first.values()].some((outcome) => outcome.kind === "ask")) return settledVerdicts(first);
+    return await serialize(async () => {
+      const latest = await settle();
+      const asked = providers.filter((provider) => latest.get(provider)?.kind === "ask");
+      if (asked.length === 0) return settledVerdicts(latest);
+      const answer = await askPermission(permissionUI(context.ui), {
+        title: crossProviderPrompt(
+          mainModel ? `${mainModel.provider}/${mainModel.id}` : undefined,
+          targets.filter((model) => asked.includes(model.provider)).map((model) => `${model.provider}/${model.id}`),
+          asked,
+        ),
+        subject: `subagents on ${providerList(asked)}`,
+        scope: asked,
+        narrower: [],
+        durations: ALL_DURATIONS,
+      });
+      const verdicts = settledVerdicts(latest);
+      for (const provider of asked) {
+        const { verdict, remember, persist } = resolveProviderAnswer(provider, answer);
+        verdicts.set(provider, verdict);
+        if (remember) sessionProviders = sessionProviders.record(provider, remember);
+        if (persist) await updateProviderDecisions(providerDecisionsFile, (decisions) => decisions.record(provider, persist));
+      }
+      announceSessionGrantsChanged(pi.events);
+      return verdicts;
+    });
+  }
+}
+
+function settledVerdicts(outcomes: ReadonlyMap<string, ProviderOutcome>): Map<string, ProviderVerdict> {
+  const verdicts = new Map<string, ProviderVerdict>();
+  for (const [provider, outcome] of outcomes) if (outcome.kind !== "ask") verdicts.set(provider, outcome);
+  return verdicts;
 }
 
 const ModelParameter = Type.Optional(
@@ -467,6 +596,12 @@ const SubagentParameters = Type.Object({
   thinkingLevel: ThinkingLevelParameter,
   tasks: Type.Optional(Type.Array(TaskItem, { description: "Array of {agent, task} for parallel execution" })),
   cwd: Type.Optional(Type.String({ description: "Working directory for the agent process (single mode)" })),
+  crossProvider: Type.Optional(
+    Type.Boolean({
+      description:
+        "Allow models from a provider outside the session model's family (on a local session: any cloud model) for every task of this call. The user approves each such provider. Only set it when the user explicitly asked for it.",
+    }),
+  ),
 });
 
 async function runSingleAgent(
@@ -686,6 +821,7 @@ function resolveTaskConfig(
     mainModel: dispatch.mainModel,
     availableModels: dispatch.availableModels,
     config: dispatch.policyConfig,
+    providerVerdicts: dispatch.providerVerdicts,
   });
   if (!resolution.ok) {
     return {
@@ -772,6 +908,7 @@ interface DispatchContext {
   thinkingLevel?: ThinkingLevel;
   availableModels: Model<Api>[];
   policyConfig: SubagentModelConfig;
+  providerVerdicts: ReadonlyMap<string, ProviderVerdict>;
   restriction: { mode: RestrictedMode; allowedTools: Set<string> } | undefined;
   pathPolicy: ChildPathPolicy;
   temporaryDirectory: string;

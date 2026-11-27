@@ -16,8 +16,9 @@ The default is to inherit; deviate deliberately and for a reason you can name.
    concrete model from the session's provider using [Model tiers](#model-tiers).
    Omit `model` when the row says "inherit".
 3. Pick `thinkingLevel` from the same row. Omit it to inherit the session's level.
-4. Check [Harness rules](#harness-rules): same provider family as the session,
-   local-only when the session is local, levels the model lacks get clamped.
+4. Check [Harness rules](#harness-rules): same provider family as the session
+   unless the user asked for another provider (`crossProvider`), local-only
+   when the session is local, levels the model lacks get clamped.
 5. Write the brief so the cheaper model can succeed: state everything already
    known, name the files to start from, and say what the report must contain.
    A weaker model with a precise brief beats a stronger model with a vague one.
@@ -101,10 +102,13 @@ only sensible "cheap" option, and the session model is the ceiling.
 ## Harness rules
 
 - Omitting `model` inherits the session model and is always valid.
-- A cloud subagent must belong to the session model's provider family;
-  the tool rejects cross-provider picks and lists the valid ones.
-- A session on a local model may only dispatch local subagents. Prefer
-  omitting `model` and lowering `thinkingLevel` instead of switching.
+- A cloud subagent must belong to the session model's provider family, and
+  a local session may only dispatch local subagents, unless the call sets
+  `crossProvider: true`, which asks the user to approve each other provider.
+  Set it only when the user explicitly asks for a model from another
+  provider. Without it the tool rejects the pick and lists the valid ones.
+- On a local session, prefer omitting `model` and lowering `thinkingLevel`
+  instead of switching.
 - `thinkingLevel` is inherited when omitted. Lowering it on the inherited
   model is the cheapest way to scale effort down.
 - Independent subagent tasks go in one parallel call; dependent ones run

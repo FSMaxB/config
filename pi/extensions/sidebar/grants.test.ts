@@ -11,13 +11,21 @@ test("rows are grouped by kind in a fixed order", () => {
     { kind: "profile", decision: "allow", name: "bazel" },
     { kind: "tool", decision: "deny", name: "fetch_content" },
     { kind: "path", decision: "allow", access: "read", target: "/home/u/x/**" },
+    { kind: "subagent-provider", decision: "allow", provider: "openai" },
   ];
 
   // act
   const rows = grantRows(grants, "/home/u");
 
   // assert
-  assert.deepEqual(rows, ["✓ read ~/x/**", "✗ tool fetch_content", "✓ net example.com", "✓ profile bazel", "✓ unsandboxed bash"]);
+  assert.deepEqual(rows, [
+    "✓ read ~/x/**",
+    "✗ tool fetch_content",
+    "✓ net example.com",
+    "✓ profile bazel",
+    "✓ unsandboxed bash",
+    "✓ subagent openai",
+  ]);
 });
 
 test("grants of the same kind keep their input order", () => {

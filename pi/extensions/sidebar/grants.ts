@@ -1,7 +1,7 @@
 import { shortenPath } from "../lib/format.ts";
 import type { SessionGrant } from "../lib/session-grants.ts";
 
-const KIND_ORDER: readonly SessionGrant["kind"][] = ["path", "tool", "network", "profile", "unsandboxed"];
+const KIND_ORDER: readonly SessionGrant["kind"][] = ["path", "tool", "network", "profile", "unsandboxed", "subagent-provider"];
 
 /** One row per grant, grouped by kind in a fixed order; providers already sort within a kind. */
 export function grantRows(grants: readonly SessionGrant[], homeDirectory: string): string[] {
@@ -22,5 +22,7 @@ function subject(grant: SessionGrant, homeDirectory: string): string {
       return `profile ${grant.name}`;
     case "unsandboxed":
       return "unsandboxed bash";
+    case "subagent-provider":
+      return `subagent ${grant.provider}`;
   }
 }

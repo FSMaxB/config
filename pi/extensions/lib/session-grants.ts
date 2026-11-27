@@ -27,10 +27,11 @@ export type SessionGrant =
   | { kind: "tool"; decision: GrantDecision; name: string }
   | { kind: "network"; decision: GrantDecision; host: string }
   | { kind: "profile"; decision: GrantDecision; name: string }
-  | { kind: "unsandboxed"; decision: GrantDecision };
+  | { kind: "unsandboxed"; decision: GrantDecision }
+  | { kind: "subagent-provider"; decision: GrantDecision; provider: string };
 
 // Session-tier grants and denials live in several extensions (path rules, plan/explore tool decisions,
-// sandbox network hosts, sandbox profiles, unsandboxed bash). They meet on the runtime's event bus because the extensions
+// sandbox network hosts, sandbox profiles, unsandboxed bash, cross-provider subagent decisions). They meet on the runtime's event bus because the extensions
 // load in any order and cannot reach each other's closures; a new runtime has a new bus.
 
 export type GrantDecision = "allow" | "deny";
