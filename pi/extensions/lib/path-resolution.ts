@@ -3,6 +3,14 @@ import { homedir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { errorCode } from "./errors.ts";
 
+// The path an operation on `target` touches. PreserveFinalSymlink resolves only the parent directory, for operations
+// on a symlink itself such as lstat, unlink or creating the link.
+export async function resolveOperationPath(target: string, resolution: PathResolution): Promise<string> {
+  if (resolution === PathResolution.Follow) return await resolveThroughSymlinks(target);
+  const absolute = resolve(expandHome(target));
+  return join(await resolveThroughSymlinks(dirname(absolute)), basename(absolute));
+}
+
 export async function resolveThroughSymlinks(target: string): Promise<string> {
   return await resolvePath(resolve(expandHome(target)), new Set());
 }
@@ -12,6 +20,9 @@ export function expandHome(path: string, home: string = homedir()): string {
     ? join(home, path.slice(1))
     : path;
 }
+
+export const PathResolution = { Follow: "follow", PreserveFinalSymlink: "preserve-final-symlink" } as const;
+export type PathResolution = (typeof PathResolution)[keyof typeof PathResolution];
 
 async function resolvePath(
   absolute: string,

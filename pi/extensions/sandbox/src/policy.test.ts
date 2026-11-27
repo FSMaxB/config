@@ -70,6 +70,32 @@ test("secrets stay denied even when a grant allows the whole home directory", ()
   }
 });
 
+test("a read grant above the home directory replaces the home and user-root denies it covers", () => {
+  // arrange
+  const effective = policy({ read: { allow: [tree(`${HOME}/repo`), tree("/Users")] } });
+
+  // act
+  const config = filesystemConfig(effective, options());
+
+  // assert
+  assert.ok(!config.denyRead.includes("/Users"));
+  assert.ok(!config.denyRead.includes(HOME));
+  assert.ok(config.denyRead.includes("/Volumes"));
+  for (const secret of secretPaths(HOME)) assert.ok(config.denyRead.includes(secret), `${secret} must stay denied for reads`);
+});
+
+test("a glob read grant above the home directory keeps the home deny", () => {
+  // arrange
+  const effective = policy({ read: { allow: [tree(`${HOME}/repo`), glob("/Users", "**")] } });
+
+  // act
+  const config = filesystemConfig(effective, options());
+
+  // assert
+  assert.ok(config.denyRead.includes(HOME));
+  assert.ok(config.denyRead.includes("/Users"));
+});
+
 test("grants at or under a secret are dropped from the sandbox allows", () => {
   // arrange
   const effective = policy({

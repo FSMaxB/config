@@ -224,6 +224,21 @@ test("a glob grant that cannot reach a secret still works", { skip: !enabled }, 
   assert.match(output, /visible notes/);
 });
 
+test("a read grant above the home directory keeps the home readable and the secrets denied", { skip: !enabled }, async () => {
+  // arrange
+  const filesystem = policyFilesystem([tree(root)]);
+
+  // act
+  const notes = await runSandboxed(`cat '${join(fakeHome, "notes.txt")}'`, filesystem);
+  const secret = await runSandboxed(`cat '${join(fakeHome, ".ssh", "config")}'`, filesystem);
+
+  // assert
+  assert.equal(notes.exitCode, 0, notes.output);
+  assert.match(notes.output, /visible notes/);
+  assert.notEqual(secret.exitCode, 0, secret.output);
+  assert.doesNotMatch(secret.output, /Host secret/);
+});
+
 // Linux masks the read-denied home directory with a writable tmpfs, so the write exits 0 and vanishes; the
 // violation monitor still records it, which is what the discarded-writes report in extension.ts reads.
 test("Linux reports a write that the read-deny tmpfs discarded", { skip: !enabled || process.platform !== "linux" }, async () => {

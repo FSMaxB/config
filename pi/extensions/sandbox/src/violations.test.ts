@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, realpath, rm, symlink } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { discardedWrites, isHereDocumentTemporaryFile, isRepositoryRootRemoval, isSecretPath, isSecretPathThroughSymlinks, isServerInfoRefresh, pathViolations } from "./violations.ts";
+import { discardedWrites, isHereDocumentTemporaryFile, isRepositoryRootRemoval, isSecretPath, isServerInfoRefresh, pathViolations, secretViolationPath } from "./violations.ts";
 
 test("macOS read and write violations parse", () => {
   // arrange
@@ -167,29 +167,34 @@ test("a secret path matches itself and nested paths only", () => {
   assert.equal(sibling, false);
 });
 
-test("a secret path is detected through a symlink", async () => {
+test("a violation path names a secret as logged or through a symlink", async () => {
   // arrange
   // realpath first: tmpdir itself can be a symlink and the resolver canonicalizes both sides.
   const root = await realpath(await mkdtemp(join(tmpdir(), "sandbox-secrets-")));
   try {
     const secretDirectory = join(root, "home", ".ssh");
     const elsewhere = join(root, "elsewhere");
+    const secretLink = join(root, "home", "bridge.json");
     await mkdir(secretDirectory, { recursive: true });
     await mkdir(elsewhere);
+    await writeFile(join(elsewhere, "bridge.json"), "{}\n");
     await symlink(secretDirectory, join(root, "link-to-secret"));
     await symlink(elsewhere, join(root, "link-elsewhere"));
-    const secrets = [secretDirectory];
+    await symlink(join(elsewhere, "bridge.json"), secretLink);
+    const secrets = [secretDirectory, secretLink];
+    const plainNested = join(secretDirectory, "id_ed25519");
 
     // act
-    const throughSecretLink = await isSecretPathThroughSymlinks(join(root, "link-to-secret", "config"), secrets);
-    const throughOtherLink = await isSecretPathThroughSymlinks(join(root, "link-elsewhere", "file"), secrets);
-    const plainNested = join(secretDirectory, "id_ed25519");
-    const throughPlain = await isSecretPathThroughSymlinks(plainNested, secrets);
+    const throughSecretLink = await secretViolationPath(join(root, "link-to-secret", "config"), secrets);
+    const throughOtherLink = await secretViolationPath(join(root, "link-elsewhere", "file"), secrets);
+    const plain = await secretViolationPath(plainNested, secrets);
+    const listedLink = await secretViolationPath(secretLink, secrets);
 
     // assert
-    assert.equal(throughSecretLink, true);
-    assert.equal(throughOtherLink, false);
-    assert.equal(throughPlain, isSecretPath(plainNested, secrets));
+    assert.equal(throughSecretLink, join(secretDirectory, "config"));
+    assert.equal(throughOtherLink, undefined);
+    assert.equal(plain, plainNested);
+    assert.equal(listedLink, secretLink);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

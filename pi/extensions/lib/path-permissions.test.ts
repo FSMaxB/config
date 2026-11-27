@@ -1,11 +1,11 @@
-import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { AgentMode } from "./agent-mode.ts";
 import { inheritedRules, parseChildPathPolicy, serializeChildPathPolicy } from "./path-permission-snapshot.ts";
-import { resolveThroughSymlinks } from "./path-resolution.ts";
+import { PathResolution, resolveOperationPath, resolveThroughSymlinks } from "./path-resolution.ts";
 import {
   covers,
   defaultAllowed,
@@ -100,6 +100,31 @@ test("path resolution follows a dangling final symlink", async () => {
 
     // assert
     assert.equal(resolved, canonicalTarget);
+  } finally {
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
+
+test("an operation path keeps a final symlink and resolves only its parent", async () => {
+  // arrange
+  const fixture = await realpath(await mkdtemp(join(tmpdir(), "pi-path-permissions-")));
+  const directory = join(fixture, "directory");
+  const linkedDirectory = join(fixture, "linked-directory");
+  const target = join(fixture, "target.txt");
+  await mkdir(directory);
+  await writeFile(target, "target\n");
+  await symlink(directory, linkedDirectory);
+  await symlink(target, join(directory, "link"));
+  const expectedLinkPath = join(directory, "link");
+
+  try {
+    // act
+    const preserved = await resolveOperationPath(join(linkedDirectory, "link"), PathResolution.PreserveFinalSymlink);
+    const followed = await resolveOperationPath(join(linkedDirectory, "link"), PathResolution.Follow);
+
+    // assert
+    assert.equal(preserved, expectedLinkPath);
+    assert.equal(followed, target);
   } finally {
     await rm(fixture, { recursive: true, force: true });
   }

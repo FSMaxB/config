@@ -5,6 +5,7 @@ import type { EffectivePolicy } from "../../lib/path-permissions.ts";
 import { exact } from "../../lib/path-permission-rules.ts";
 import type { PathSelector } from "../../lib/path-permission-rules.ts";
 import { contains } from "../../lib/repo.ts";
+import { hasGlobCharacters } from "./glob-characters.ts";
 import { jjShimDirectory } from "./jj-shim.ts";
 import { mktempShimDirectory } from "./scratch.ts";
 import type { VcsWriteRules } from "./vcs-policy.ts";
@@ -18,19 +19,29 @@ export function filesystemConfig(policy: EffectivePolicy, options: PolicyOptions
   const writeAllow = replaceRepositoryAllow(policy.write.allow, options.vcs)
     .filter((selector) => platform === "darwin" || selector.kind !== "glob")
     .filter(keepsSecretsDenied);
+  const allowRead = unique([
+    ...policy.read.allow.filter(keepsSecretsDenied).map(selectorPath),
+    ...toolchainRead.filter((path) => keepsSecretsDenied(exact(path))),
+    ...options.secretRead.map(selectorPath),
+    sandboxRuntimeDirectory(),
+    ...(platform === "darwin" ? [mktempShimDirectory()] : []),
+    jjShimDirectory(),
+  ]);
   return {
-    denyRead: unique([...userRoots(platform), homeDirectory, ...secretReadDenies(secrets, options.secretRead, platform), ...extraDenyRead, ...policy.read.deny.map(selectorPath)]),
-    allowRead: unique([
-      ...policy.read.allow.filter(keepsSecretsDenied).map(selectorPath),
-      ...toolchainRead.filter((path) => keepsSecretsDenied(exact(path))),
-      ...options.secretRead.map(selectorPath),
-      sandboxRuntimeDirectory(),
-      ...(platform === "darwin" ? [mktempShimDirectory()] : []),
-      jjShimDirectory(),
-    ]),
+    denyRead: unique([...builtInReadDenies(platform, homeDirectory, allowRead), ...secretReadDenies(secrets, options.secretRead, platform), ...extraDenyRead, ...policy.read.deny.map(selectorPath)]),
+    allowRead,
     allowWrite: unique(writeAllow.map(selectorPath)),
     denyWrite: unique([...secrets, ...vcsDeny(writeAllow, options.vcs), ...[...policy.write.deny, ...policy.write.protected].map((selector) => writeDenyPath(selector, platform))]),
   };
+}
+
+// srt re-applies every literal read deny that lies strictly under a literal read allow after all allows, so a grant
+// above the home directory, such as /Users, would deny the whole home again, the repository included. The built-in
+// denies only cover what no grant reaches; secrets, extraDenyRead and the user's own denies stay. A glob allow cannot
+// be compared with a path reliably, so only literal allows replace a built-in deny.
+function builtInReadDenies(platform: Platform, homeDirectory: string, allowRead: readonly string[]): string[] {
+  const literalAllows = allowRead.filter((entry) => !hasGlobCharacters(entry));
+  return [...userRoots(platform), homeDirectory].filter((deny) => !literalAllows.some((allow) => contains(allow, deny)));
 }
 
 // A secret lifted as a whole leaves the read denies (the write denies keep it). On darwin, one lifted only in part
